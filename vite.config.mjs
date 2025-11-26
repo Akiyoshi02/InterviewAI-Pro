@@ -5,6 +5,8 @@ import tagger from "@dhiwise/component-tagger";
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  // Use a relative base so assets load correctly on GitHub Pages subpaths
+  base: "./",
   // This changes the out put dir from dist to build
   // comment this out if that isn't relevant for your project
   build: {
