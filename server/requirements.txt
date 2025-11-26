@@ -1,0 +1,15 @@
+# Local Whisper Server Dependencies
+
+# Core dependencies
+faster-whisper>=0.10.0
+flask>=3.0.0
+flask-cors>=4.0.0
+python-multipart>=0.0.6
+
+# For GPU acceleration (CUDA)
+# Note: This will auto-install based on your system
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Optional: For audio format conversion
+# ffmpeg-python>=0.2.0

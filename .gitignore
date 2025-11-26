@@ -1,0 +1,27 @@
+.DS_Store
+node_modules
+.idea
+package-lock.json
+/build
+.vscode/
+.idea/
+vite.config.*s.*
+.cursorignore
+
+# Environment variables - NEVER commit these!
+.env
+.env.local
+.env.*.local
+server/.env
+server/.env.local
+
+# Firebase service account keys - NEVER commit these!
+firebase-service-account.json
+*-firebase-key.json
+*.firebase.json
+
+# Logs
+logs/
+*.log
+server/logs/
+server/*.log
