@@ -15,9 +15,11 @@ import CompanyFields from './components/CompanyFields';
 import TermsAndPrivacy from './components/TermsAndPrivacy';
 import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const Register = () => {
   const navigate = useNavigate();
+  const { setAuthenticatedUser } = useAuth();
   const [formData, setFormData] = useState({
     // Common fields
     accountType: 'candidate',
@@ -54,6 +56,14 @@ const Register = () => {
   const [message, setMessage] = useState(''); // For showing success/info messages
 
   const viewportConfig = { once: true, amount: 0.2 };
+  const friendlyRateLimitMessage = (text) => {
+    if (!text) return '';
+    const normalized = text.toLowerCase();
+    if (normalized.includes('too many authentication attempts')) {
+      return 'You’ve tried a few times. Please wait 15 minutes before trying again.';
+    }
+    return text;
+  };
 
   const sectionReveal = {
     hidden: { opacity: 0, y: 48 },
@@ -347,6 +357,7 @@ const Register = () => {
         localStorage.removeItem('pendingRegistration');
         localStorage.removeItem('pendingAccountType');
         localStorage.removeItem('socialAuthIntent');
+        setAuthenticatedUser(registerData.user);
 
         const redirectPath = formData.accountType === 'candidate'
           ? '/candidate-dashboard'
@@ -360,7 +371,7 @@ const Register = () => {
     } catch (error) {
       console.error('Google registration error:', error);
       setErrors({
-        submit: error.message || 'Google registration failed. Please try again.',
+        submit: friendlyRateLimitMessage(error.message) || 'Google registration failed. Please try again.',
       });
 
       if (signedInWithGoogle) {
@@ -451,6 +462,7 @@ const Register = () => {
             localStorage.removeItem('pendingRegistration');
             localStorage.removeItem('pendingAccountType');
             localStorage.removeItem('socialAuthIntent');
+            setAuthenticatedUser(registerData.user);
             
             // Redirect based on account type
             const redirectPath = formData.accountType === 'candidate' 
@@ -477,7 +489,7 @@ const Register = () => {
     } catch (error) {
       console.error('Registration error:', error);
       setErrors({ 
-        submit: error.message || 'Registration failed. Please try again.' 
+        submit: friendlyRateLimitMessage(error.message) || 'Registration failed. Please try again.' 
       });
       // Clean up on error
       localStorage.removeItem('socialAuthIntent');

@@ -11,6 +11,7 @@ import RealTimeFeedbackPanel from './components/RealTimeFeedbackPanel';
 import QuestionProgressIndicator from './components/QuestionProgressIndicator';
 import ScreenSharingPanel from './components/ScreenSharingPanel';
 import PoseAnalysisPanel from '../../components/ui/PoseAnalysisPanel';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 import { 
   savePoseSnapshot, 
   finalizePoseAnalytics,
@@ -20,6 +21,7 @@ import { useAIInterviewer } from '../../hooks/useAIInterviewer';
 
 const LiveInterviewSession = () => {
   const navigate = useNavigate();
+  const { user, logout, status } = useAuth();
   const viewportConfig = { once: true, amount: 0.2 };
   const sectionReveal = {
     hidden: { opacity: 0, y: 48 },
@@ -334,13 +336,27 @@ const LiveInterviewSession = () => {
     };
   }, [sessionState?.isActive, sessionState?.isPaused, poseMetrics]);
 
+  if (status === 'loading' || !user) {
+    return (
+      <div className="min-h-screen bg-background flex items-center justify-center">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-3" />
+          <p className="text-sm text-muted-foreground">Loading your session...</p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative min-h-screen bg-gradient-to-br from-slate-50 via-white to-blue-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 overflow-hidden transition-colors duration-300">
       <div className="pointer-events-none absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_5%_5%,rgba(59,130,246,0.1),transparent_45%),radial-gradient(circle_at_95%_0%,rgba(147,51,234,0.12),transparent_40%),radial-gradient(circle_at_50%_90%,rgba(56,189,248,0.12),transparent_45%)]" />
       <Header 
         userType="candidate" 
-        isAuthenticated={true}
-        onLogout={() => navigate('/login')}
+        isAuthenticated
+        onLogout={async () => {
+          await logout();
+          navigate('/login');
+        }}
       />
       
       {/* Responsive Interview Layout */}

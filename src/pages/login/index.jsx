@@ -10,14 +10,24 @@ import LoginFooter from './components/LoginFooter';
 import { authHelpers } from '../../config/firebase.js';
 import { auth } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const Login = () => {
   const navigate = useNavigate();
+  const { setAuthenticatedUser } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [statusType, setStatusType] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+  const friendlyRateLimitMessage = (message) => {
+    if (!message) return '';
+    const normalized = message.toLowerCase();
+    if (normalized.includes('too many authentication attempts')) {
+      return 'You’ve tried a few times. Please wait 15 minutes before trying again.';
+    }
+    return message;
+  };
 
   const viewportConfig = { once: true, amount: 0.3 };
 
@@ -142,6 +152,7 @@ const Login = () => {
             ? '/candidate-dashboard' 
             : '/company-dashboard';
           
+          setAuthenticatedUser(userData.user);
           navigate(dashboardRoute);
         } else {
           throw new Error('Failed to retrieve user information');
@@ -155,15 +166,26 @@ const Login = () => {
       }
     } catch (err) {
       console.error('Login error:', err);
-      setError(err.message || 'Login failed. Please try again.');
+      const friendlyMessage = friendlyRateLimitMessage(err.message);
+      setError(friendlyMessage || 'Login failed. Please try again.');
       setStatusMessage('');
     } finally {
       setIsLoading(false);
     }
   };
 
+  const cleanupUnregisteredAuthUser = async (userId) => {
+    if (!userId) return;
+    try {
+      await apiClient.auth.deleteUnregisteredAuthUser(userId);
+    } catch (cleanupError) {
+      console.error('Failed to delete unregistered auth user:', cleanupError);
+    }
+  };
+
   const handleSocialLogin = async () => {
     let signedInWithGoogle = false;
+    let firebaseUid = null;
     setIsLoading(true);
     setError('');
     setStatusMessage('');
@@ -180,6 +202,7 @@ const Login = () => {
       }
 
       signedInWithGoogle = true;
+      firebaseUid = data?.user?.id || null;
 
       const userData = await apiClient.auth.getMe();
 
@@ -191,6 +214,7 @@ const Login = () => {
           ? '/candidate-dashboard'
           : '/company-dashboard';
 
+        setAuthenticatedUser(userData.user);
         navigate(dashboardRoute);
         return;
       }
@@ -207,15 +231,17 @@ const Login = () => {
       }
       const message = err?.message || 'Google sign-in failed. Please try again.';
       const normalized = message.toLowerCase();
-      if (
+      const isAccountMissing =
         normalized.includes('no interviewai account') ||
         normalized.includes('user not found') ||
-        normalized.includes('404')
-      ) {
+        normalized.includes('404');
+
+      if (isAccountMissing) {
+        await cleanupUnregisteredAuthUser(firebaseUid);
         setError('No InterviewAI account is linked to this Google email yet. Redirecting you to Create Account...');
         setTimeout(() => navigate('/register'), 1800);
       } else {
-        setError(message);
+        setError(friendlyRateLimitMessage(message));
       }
       setStatusMessage('');
     } finally {

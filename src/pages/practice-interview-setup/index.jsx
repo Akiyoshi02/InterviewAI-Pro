@@ -6,6 +6,7 @@ import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import apiClient from '../../services/apiClient.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 // Import all components
 import JobRoleSelector from './components/JobRoleSelector';
@@ -19,6 +20,7 @@ import PreparationChecklist from './components/PreparationChecklist';
 
 const PracticeInterviewSetup = () => {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
   const [currentStep, setCurrentStep] = useState(1);
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isChecklistComplete, setIsChecklistComplete] = useState(false);
@@ -113,10 +115,15 @@ const PracticeInterviewSetup = () => {
     setError(null);
 
     try {
-      // Check authentication
-      const storedUser = localStorage.getItem('user');
-      if (!storedUser) {
+      if (!user) {
+        setError('Your session has expired. Please sign in again.');
+        await logout();
         navigate('/login');
+        return;
+      }
+
+      if (user.accountType?.toUpperCase() !== 'CANDIDATE') {
+        setError('Practice interviews are only available for candidate accounts.');
         return;
       }
 
@@ -247,12 +254,12 @@ const PracticeInterviewSetup = () => {
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-blue-50/30 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
       <Header 
         userType="candidate" 
-        isAuthenticated={true}
-        onLogout={() => {
-          // Handle logout logic
+        isAuthenticated
+        onLogout={async () => {
           localStorage.removeItem('interviewSetupDraft');
           localStorage.removeItem('interviewConfig');
-          window.location.href = '/login';
+          await logout();
+          navigate('/login');
         }}
       />
       <div className="flex">
