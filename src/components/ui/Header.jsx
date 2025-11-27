@@ -19,6 +19,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
 
   const candidateNavItems = [
     { label: 'Dashboard', path: '/candidate-dashboard', icon: 'LayoutDashboard' },
+    { label: 'Jobs', path: '/jobs', icon: 'Briefcase' },
     { label: 'Practice Interview', path: '/practice-interview-setup', icon: 'Play' },
     { label: 'Live Session', path: '/live-interview-session', icon: 'Video' },
   ];
@@ -27,6 +28,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
     { label: 'Dashboard', path: '/company-dashboard', icon: 'LayoutDashboard' },
     { label: 'Interview Setup', path: '/practice-interview-setup', icon: 'Settings' },
     { label: 'Live Session', path: '/live-interview-session', icon: 'Video' },
+    { label: 'Invitations', path: '/company-dashboard#invitations', icon: 'Send' },
   ];
 
   const getNavigationItems = () => {

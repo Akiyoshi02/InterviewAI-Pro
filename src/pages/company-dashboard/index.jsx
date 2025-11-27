@@ -9,6 +9,9 @@ import CandidatePipeline from './components/CandidatePipeline';
 import CandidateTable from './components/CandidateTable';
 import HiringMetrics from './components/HiringMetrics';
 import QuickActions from './components/QuickActions';
+import OrganizationAdminPanel from './components/OrganizationAdminPanel';
+import InvitationManager from './components/InvitationManager';
+import ReviewerPanel from './components/ReviewerPanel';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
@@ -197,16 +200,6 @@ const CompanyDashboard = () => {
     // Open status update modal
   };
 
-  const handleCandidateMove = (candidateId, newStage) => {
-    console.log('Moving candidate:', candidateId, 'to stage:', newStage);
-    // Update candidate pipeline stage
-  };
-
-  const handleBulkAction = (action, candidateIds) => {
-    console.log('Bulk action:', action, 'for candidates:', candidateIds);
-    // Perform bulk action
-  };
-
   const handleScheduleInterview = () => {
     window.location.href = '/practice-interview-setup';
   };
@@ -307,7 +300,10 @@ const CompanyDashboard = () => {
                   <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-5 shadow-xl shadow-blue-500/40 w-full sm:w-auto">
                     <p className="text-xs uppercase tracking-[0.25em] text-white/70">Next live event</p>
                     <div className="mt-2 text-3xl font-semibold">
-                      {safeInterviews?.find((i) => i?.company) ?.company || currentUser?.companyName || 'Live session'}
+                      {safeInterviews?.find((i) => i?.company)?.company ||
+                        user?.companyName ||
+                        user?.organizationContext?.organization?.displayName ||
+                        'Live session'}
                     </div>
                     <p className="text-sm text-white/80">
                       {interviewsToday > 0 ? `${interviewsToday} interviews today` : 'Pipeline ready'}
@@ -370,9 +366,15 @@ const CompanyDashboard = () => {
 
               <motion.div variants={fadeUpChild}>
                 <CandidatePipeline
-                  onCandidateMove={handleCandidateMove}
-                  onBulkAction={handleBulkAction}
                 />
+              </motion.div>
+
+              <motion.div variants={fadeUpChild}>
+                <InvitationManager />
+              </motion.div>
+
+              <motion.div variants={fadeUpChild}>
+                <ReviewerPanel interviews={safeInterviews} />
               </motion.div>
 
               <motion.div variants={fadeUpChild} data-section="candidates">
@@ -404,6 +406,12 @@ const CompanyDashboard = () => {
                   />
                 </motion.div>
               </motion.div>
+
+              {user?.organizationContext?.membership?.role === 'ADMIN' && (
+                <motion.div variants={fadeUpChild}>
+                  <OrganizationAdminPanel />
+                </motion.div>
+              )}
             </motion.section>
           </main>
         </div>

@@ -1,20 +1,13 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
+import { getPasswordChecks, PASSWORD_REQUIREMENTS } from '../../../utils/passwordValidation';
 
 const PasswordStrengthIndicator = ({ password, className = '' }) => {
   const getPasswordStrength = (pwd) => {
-    if (!pwd) return { score: 0, label: '', color: '' };
-    
-    let score = 0;
-    const checks = {
-      length: pwd?.length >= 8,
-      lowercase: /[a-z]/?.test(pwd),
-      uppercase: /[A-Z]/?.test(pwd),
-      number: /\d/?.test(pwd),
-      special: /[!@#$%^&*(),.?":{}|<>]/?.test(pwd)
-    };
-    
-    score = Object.values(checks)?.filter(Boolean)?.length;
+    if (!pwd) return { score: 0, label: '', color: '', checks: {} };
+
+    const checks = getPasswordChecks(pwd);
+    const score = Object.values(checks).filter(Boolean)?.length;
     
     const strengthLevels = {
       0: { label: '', color: '', bgColor: '' },
@@ -58,24 +51,18 @@ const PasswordStrengthIndicator = ({ password, className = '' }) => {
       <div className="space-y-2">
         <span className="text-sm font-medium text-foreground">Requirements:</span>
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[
-            { key: 'length', label: 'At least 8 characters' },
-            { key: 'lowercase', label: 'Lowercase letter' },
-            { key: 'uppercase', label: 'Uppercase letter' },
-            { key: 'number', label: 'Number' },
-            { key: 'special', label: 'Special character' }
-          ]?.map((requirement) => (
+          {PASSWORD_REQUIREMENTS?.map((requirement) => (
             <div
               key={requirement?.key}
               className="flex items-center space-x-2"
             >
               <Icon
-                name={strength?.checks?.[requirement?.key] ? "CheckCircle" : "Circle"}
+                name={strength?.checks?.[requirement?.key] ? "CheckCircle" : "XCircle"}
                 size={16}
-                className={strength?.checks?.[requirement?.key] ? 'text-success' : 'text-muted-foreground'}
+                className={strength?.checks?.[requirement?.key] ? 'text-success' : 'text-error'}
               />
               <span className={`text-xs ${
-                strength?.checks?.[requirement?.key] ? 'text-success' : 'text-muted-foreground'
+                strength?.checks?.[requirement?.key] ? 'text-success' : 'text-error'
               }`}>
                 {requirement?.label}
               </span>

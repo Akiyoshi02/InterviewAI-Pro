@@ -19,6 +19,8 @@ import Privacy from './pages/privacy';
 import Terms from './pages/terms';
 import Support from './pages/support';
 import Onboarding from './pages/onboarding';
+import JobsPage from './pages/jobs';
+import InvitePage from './pages/invite';
 
 const Routes = () => {
   return (
@@ -77,6 +79,8 @@ const Routes = () => {
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/support" element={<Support />} />
+        <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/invite" element={<InvitePage />} />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

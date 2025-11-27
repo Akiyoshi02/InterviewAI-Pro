@@ -7,6 +7,8 @@ import { Server } from 'socket.io';
 import cors from 'cors';
 import helmet from 'helmet';
 import cookieParser from 'cookie-parser';
+import fs from 'fs';
+import path from 'path';
 import { setupRoutes } from './routes/index.js';
 import { setupSocketIO } from './socket/interview.socket.js';
 import { setupSecurity } from './middleware/security.middleware.js';
@@ -31,6 +33,12 @@ setupSecurity(app);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
+
+const uploadsPath = path.resolve(process.cwd(), 'uploads');
+if (!fs.existsSync(uploadsPath)) {
+  fs.mkdirSync(uploadsPath, { recursive: true });
+}
+app.use('/uploads', express.static(uploadsPath));
 
 // Routes
 setupRoutes(app);

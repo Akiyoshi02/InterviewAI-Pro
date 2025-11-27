@@ -1,48 +1,18 @@
-import React, { useState } from 'react';
+import React from 'react';
 import Icon from '../../../components/AppIcon';
 import Select from '../../../components/ui/Select';
-import Input from '../../../components/ui/Input';
 
 const JobRoleSelector = ({ selectedRole, onRoleChange, className = '' }) => {
-  const [showCustomInput, setShowCustomInput] = useState(false);
-  const [customRole, setCustomRole] = useState('');
-
-  const popularRoles = [
-    { value: 'biotechnology', label: 'Biotechnology' },
+  const softwareRoles = [
     { value: 'software-engineer', label: 'Software Engineer' },
-    { value: 'frontend-developer', label: 'Frontend Developer' },
-    { value: 'backend-developer', label: 'Backend Developer' },
-    { value: 'fullstack-developer', label: 'Full Stack Developer' },
-    { value: 'data-scientist', label: 'Data Scientist' },
-    { value: 'product-manager', label: 'Product Manager' },
-    { value: 'ui-ux-designer', label: 'UI/UX Designer' },
+    { value: 'frontend-developer', label: 'Frontend Engineer' },
+    { value: 'backend-developer', label: 'Backend Engineer' },
+    { value: 'fullstack-developer', label: 'Full Stack Engineer' },
     { value: 'devops-engineer', label: 'DevOps Engineer' },
-    { value: 'qa-engineer', label: 'QA Engineer' },
-    { value: 'business-analyst', label: 'Business Analyst' },
-    { value: 'project-manager', label: 'Project Manager' },
-    { value: 'marketing-manager', label: 'Marketing Manager' },
-    { value: 'sales-representative', label: 'Sales Representative' },
-    { value: 'hr-specialist', label: 'HR Specialist' },
-    { value: 'financial-analyst', label: 'Financial Analyst' },
-    { value: 'custom', label: 'Other (Specify)' }
+    { value: 'qa-engineer', label: 'QA Engineer' }
   ];
 
-  const handleRoleSelect = (value) => {
-    if (value === 'custom') {
-      setShowCustomInput(true);
-      onRoleChange('');
-    } else {
-      setShowCustomInput(false);
-      setCustomRole('');
-      onRoleChange(value);
-    }
-  };
-
-  const handleCustomRoleChange = (e) => {
-    const value = e?.target?.value;
-    setCustomRole(value);
-    onRoleChange(value);
-  };
+  const selectedRoleLabel = softwareRoles.find((role) => role.value === selectedRole)?.label;
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -54,26 +24,15 @@ const JobRoleSelector = ({ selectedRole, onRoleChange, className = '' }) => {
       </div>
       <Select
         label="Select your target job role"
-        description="Choose the position you're preparing for"
-        options={popularRoles}
-        value={showCustomInput ? 'custom' : selectedRole}
-        onChange={handleRoleSelect}
-        placeholder="Search for a job role..."
+        description="Choose the software engineering position you're preparing for"
+        options={softwareRoles}
+        value={selectedRole}
+        onChange={onRoleChange}
+        placeholder="Search for a software engineering role..."
         searchable
         required
       />
-      {showCustomInput && (
-        <Input
-          label="Custom Job Role"
-          type="text"
-          placeholder="Enter your specific job role"
-          value={customRole}
-          onChange={handleCustomRoleChange}
-          description="Be specific about the role you're targeting"
-          required
-        />
-      )}
-      {selectedRole && selectedRole !== 'custom' && (
+      {selectedRole && (
         <div className="rounded-2xl border border-blue-200 dark:border-blue-500/60 bg-blue-50/50 dark:bg-blue-500/10 p-4 backdrop-blur">
           <div className="flex items-start space-x-3">
             <div className="w-6 h-6 rounded-lg bg-blue-600 flex items-center justify-center flex-shrink-0 mt-0.5">
@@ -81,7 +40,7 @@ const JobRoleSelector = ({ selectedRole, onRoleChange, className = '' }) => {
             </div>
             <div>
               <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-1">
-                Interview Focus for {popularRoles?.find(r => r?.value === selectedRole)?.label}
+                Interview Focus for {selectedRoleLabel || 'Software Engineering Role'}
               </p>
               <p className="text-xs text-gray-600 dark:text-slate-400">
                 Questions will be tailored to assess technical skills, problem-solving abilities, and role-specific competencies relevant to this position.

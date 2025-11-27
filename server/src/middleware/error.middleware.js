@@ -1,4 +1,7 @@
+import multer from 'multer';
 import logger from '../utils/logger.js';
+
+const { MulterError } = multer;
 
 export function setupErrorHandling(app) {
   // 404 handler
@@ -38,6 +41,21 @@ export function setupErrorHandling(app) {
       return res.status(400).json({
         error: 'Validation Error',
         message: err.message,
+      });
+    }
+
+    if (err instanceof MulterError) {
+      let message = 'File upload failed.';
+      if (err.code === 'LIMIT_FILE_SIZE') {
+        message = 'Uploaded file exceeds the 10 MB size limit.';
+      } else if (err.code === 'LIMIT_UNEXPECTED_FILE' && err.message) {
+        message = err.message;
+      } else if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+        message = 'Unexpected upload field detected.';
+      }
+
+      return res.status(400).json({
+        error: message,
       });
     }
 

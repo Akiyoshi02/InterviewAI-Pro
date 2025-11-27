@@ -32,18 +32,27 @@ const attachSingleInterviewParticipants = async (interview) => {
 export class InterviewController {
   static async createInterview(req, res, next) {
     try {
-      const { mode, jobRole, experienceLevel, industry, interviewTypes, skillFocus, duration } = req.body;
+      const { mode, jobRole, experienceLevel, industry, interviewTypes, skillFocus, duration, jobId, jobStage, invitationId } = req.body;
       const userId = req.user.id;
       const accountType = req.user.accountType;
+      const organizationId = req.user.organizationContext?.organization?.id || null;
 
       if (mode === 'HIRING' && accountType !== 'COMPANY') {
         return res.status(403).json({ error: 'Only companies can create hiring interviews' });
+      }
+
+      if (mode === 'HIRING' && !organizationId) {
+        return res.status(400).json({ error: 'Organization context required for hiring interviews' });
       }
 
       const interview = await interviewStore.create({
         mode,
         candidateId: mode === 'PRACTICE' ? userId : null,
         companyId: mode === 'HIRING' ? userId : null,
+        organizationId: mode === 'HIRING' ? organizationId : null,
+        jobId: jobId || null,
+        jobStage: jobStage || null,
+        invitationId: invitationId || null,
         jobRole,
         experienceLevel,
         industry,
