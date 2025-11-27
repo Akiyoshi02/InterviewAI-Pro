@@ -1,0 +1,45 @@
+import express from 'express';
+import { body } from 'express-validator';
+import { InvitationController } from '../controllers/invitation.controller.js';
+import {
+  authenticate,
+  requireCandidate,
+  requireOrganizationContext,
+  requireOrgRole,
+} from '../middleware/auth.middleware.js';
+import { validateRequest } from '../middleware/validation.middleware.js';
+
+const router = express.Router();
+
+router.post(
+  '/',
+  authenticate,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    body('jobId').isString().withMessage('Job ID is required'),
+    body('email').isEmail().withMessage('Valid candidate email required'),
+    body('stage').optional().isString(),
+    body('expiresAt').optional().isISO8601(),
+  ],
+  validateRequest,
+  InvitationController.createInvitation,
+);
+
+router.get(
+  '/',
+  authenticate,
+  requireOrganizationContext,
+  InvitationController.listInvitations,
+);
+
+router.post(
+  '/accept',
+  authenticate,
+  requireCandidate,
+  [body('token').isString().withMessage('Invitation token is required')],
+  validateRequest,
+  InvitationController.acceptInvitation,
+);
+
+export default router;
+

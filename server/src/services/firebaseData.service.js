@@ -5,9 +5,20 @@ import logger from '../utils/logger.js';
 const usersCollection = firestore.collection('users');
 const interviewsCollection = firestore.collection('interviews');
 const webrtcCollection = firestore.collection('webrtcSessions');
+const organizationsCollection = firestore.collection('organizations');
+const organizationMembersCollection = firestore.collection('organizationMembers');
+const jobsCollection = firestore.collection('jobs');
+const invitationsCollection = firestore.collection('invitations');
+const interviewReviewsCollection = firestore.collection('interviewReviews');
+const activityLogsCollection = firestore.collection('activityLogs');
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
+const ORG_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+const JOB_STATUSES = new Set(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
+const INVITATION_STATUSES = new Set(['PENDING', 'ACCEPTED', 'EXPIRED', 'REVOKED']);
+const PIPELINE_STATUSES = new Set(['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED']);
+const ACTIVITY_ACTIONS = new Set(['JOB_CREATED', 'JOB_UPDATED', 'INVITATION_SENT', 'PIPELINE_MOVED', 'REVIEW_SUBMITTED', 'MEMBER_UPDATED']);
 
 const now = () => new Date().toISOString();
 
@@ -56,6 +67,18 @@ const ensureArray = (value) => {
   return [value];
 };
 
+const sanitizeOrgRole = (role) => {
+  if (!role) return null;
+  const normalized = role.toString().toUpperCase();
+  if (ORG_ROLES.has(normalized)) return normalized;
+  return 'RECRUITER';
+};
+
+const organizationDocToData = (doc) => {
+  if (!doc || !doc.exists) return null;
+  return { id: doc.id, ...doc.data() };
+};
+
 export const userStore = {
   async getByUid(uid) {
     const doc = await usersCollection.doc(uid).get();
@@ -80,6 +103,14 @@ export const userStore = {
       companyName: data.companyName || null,
       companySize: data.companySize || null,
       industry: data.industry || null,
+      profilePhotoUrl: data.profilePhotoUrl || null,
+      resumeUrl: data.resumeUrl || null,
+      resumeOriginalName: data.resumeOriginalName || null,
+      companyLogoUrl: data.companyLogoUrl || null,
+      companyVerificationUrl: data.companyVerificationUrl || null,
+      companyVerificationOriginalName: data.companyVerificationOriginalName || null,
+      primaryOrganizationId: data.primaryOrganizationId || null,
+      organizationRoles: ensureArray(data.organizationRoles),
       authProvider: 'firebase',
       createdAt: now(),
       updatedAt: now(),
@@ -130,6 +161,14 @@ export const interviewStore = {
       mode: data.mode,
       candidateId: data.candidateId || null,
       companyId: data.companyId || null,
+      organizationId: data.organizationId || null,
+      jobId: data.jobId || null,
+      jobStage: data.jobStage || null,
+      invitationId: data.invitationId || null,
+      pipelineStatus: PIPELINE_STATUSES.has((data.pipelineStatus || '').toUpperCase())
+        ? data.pipelineStatus.toUpperCase()
+        : null,
+      reviewerAssignments: ensureArray(data.reviewerAssignments),
       status: data.status || 'SCHEDULED',
       jobRole: data.jobRole || null,
       experienceLevel: data.experienceLevel || null,
@@ -231,6 +270,18 @@ export const interviewStore = {
   async listByCompany(companyId) {
     if (!companyId) return [];
     const snapshot = await interviewsCollection.where('companyId', '==', companyId).get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
+  async listByOrganization(organizationId) {
+    if (!organizationId) return [];
+    const snapshot = await interviewsCollection.where('organizationId', '==', organizationId).get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
+  async listByJob(jobId) {
+    if (!jobId) return [];
+    const snapshot = await interviewsCollection.where('jobId', '==', jobId).get();
     return snapshot.docs.map((doc) => docToData(doc));
   },
 
@@ -374,6 +425,312 @@ export const analyticsStore = {
       averageScore: Math.round(averageScore * 100) / 100,
       inProgressInterviews: interviews.filter((i) => i.status === 'IN_PROGRESS').length,
     };
+  },
+};
+
+export const organizationStore = {
+  async create(data = {}) {
+    const docRef = organizationsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      name: data.name || data.displayName || 'New Organization',
+      displayName: data.displayName || data.name || 'New Organization',
+      ownerId: data.ownerId || null,
+      industry: data.industry || null,
+      companySize: data.companySize || null,
+      branding: data.branding || { theme: 'default' },
+      settings: data.settings || {
+        retentionPolicyDays: 365,
+        defaultRole: 'RECRUITER',
+      },
+      createdAt: now(),
+      updatedAt: now(),
+    };
+
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async getById(id) {
+    if (!id) return null;
+    const doc = await organizationsCollection.doc(id).get();
+    return organizationDocToData(doc);
+  },
+
+  async update(id, data = {}) {
+    if (!id) throw new Error('Organization ID is required');
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        ...data,
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+};
+
+export const organizationMemberStore = {
+  async addMember({ organizationId, userId, role = 'RECRUITER', status = 'ACTIVE', permissions = [] }) {
+    if (!organizationId || !userId) {
+      throw new Error('organizationId and userId are required');
+    }
+
+    const normalizedRole = sanitizeOrgRole(role) || 'RECRUITER';
+    const membershipId = `${organizationId}_${userId}`;
+    const docRef = organizationMembersCollection.doc(membershipId);
+    const payload = {
+      id: membershipId,
+      organizationId,
+      userId,
+      role: normalizedRole,
+      status,
+      permissions: ensureArray(permissions),
+      createdAt: now(),
+      updatedAt: now(),
+    };
+
+    await docRef.set(payload, { merge: true });
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async getMember(organizationId, userId) {
+    if (!organizationId || !userId) return null;
+    const membershipId = `${organizationId}_${userId}`;
+    const doc = await organizationMembersCollection.doc(membershipId).get();
+    return organizationDocToData(doc);
+  },
+
+  async listByUser(userId) {
+    if (!userId) return [];
+    const snapshot = await organizationMembersCollection.where('userId', '==', userId).get();
+    return snapshot.docs.map((doc) => organizationDocToData(doc));
+  },
+
+  async listByOrganization(organizationId) {
+    if (!organizationId) return [];
+    const snapshot = await organizationMembersCollection.where('organizationId', '==', organizationId).get();
+    return snapshot.docs.map((doc) => organizationDocToData(doc));
+  },
+};
+
+const sanitizeJobStatus = (status) => {
+  if (!status) return 'DRAFT';
+  const normalized = status.toString().toUpperCase();
+  if (JOB_STATUSES.has(normalized)) return normalized;
+  return 'DRAFT';
+};
+
+export const jobStore = {
+  async create(data = {}) {
+    const docRef = jobsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      organizationId: data.organizationId,
+      createdBy: data.createdBy || null,
+      title: data.title,
+      department: data.department || null,
+      location: data.location || 'Remote',
+      employmentType: data.employmentType || 'FULL_TIME',
+      experienceLevel: data.experienceLevel || 'MID',
+      compensationRange: data.compensationRange || null,
+      description: data.description || '',
+      requirements: ensureArray(data.requirements),
+      responsibilities: ensureArray(data.responsibilities),
+      skills: ensureArray(data.skills),
+      status: sanitizeJobStatus(data.status),
+      stages: ensureArray(data.stages),
+      templateConfig: data.templateConfig || {
+        interviewTypes: ['BEHAVIORAL'],
+        duration: 30,
+        scoringRubric: [],
+      },
+      reviewerIds: ensureArray(data.reviewerIds),
+      hiringManagerId: data.hiringManagerId || null,
+      publishedAt: data.status === 'PUBLISHED' ? data.publishedAt || now() : null,
+      createdAt: now(),
+      updatedAt: now(),
+    };
+
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async update(id, data = {}) {
+    const docRef = jobsCollection.doc(id);
+    const payload = {
+      ...data,
+      ...(data.status ? { status: sanitizeJobStatus(data.status) } : {}),
+      ...(data.status === 'PUBLISHED' ? { publishedAt: data.publishedAt || now() } : {}),
+      updatedAt: now(),
+    };
+    await docRef.set(payload, { merge: true });
+    const updated = await docRef.get();
+    return docToData(updated);
+  },
+
+  async getById(id) {
+    if (!id) return null;
+    const doc = await jobsCollection.doc(id).get();
+    return docToData(doc);
+  },
+
+  async listByOrganization(organizationId) {
+    if (!organizationId) return [];
+    const snapshot = await jobsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
+  async listPublished(limit = 20) {
+    const snapshot = await jobsCollection.where('status', '==', 'PUBLISHED').orderBy('publishedAt', 'desc').limit(limit).get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+};
+
+const buildInvitationPayload = (data = {}) => {
+  const token = data.token || randomUUID();
+  return {
+    id: data.id || token,
+    token,
+    organizationId: data.organizationId,
+    jobId: data.jobId,
+    stage: data.stage || 'SCREENING',
+    email: (data.email || '').toLowerCase(),
+    invitedBy: data.invitedBy || null,
+    candidateUserId: data.candidateUserId || null,
+    status: INVITATION_STATUSES.has((data.status || '').toUpperCase()) ? data.status.toUpperCase() : 'PENDING',
+    expiresAt: data.expiresAt || null,
+    metadata: data.metadata || {},
+    acceptedAt: data.acceptedAt || null,
+    createdAt: now(),
+    updatedAt: now(),
+  };
+};
+
+export const invitationStore = {
+  async create(data = {}) {
+    const payload = buildInvitationPayload(data);
+    await invitationsCollection.doc(payload.id).set(payload);
+    return payload;
+  },
+
+  async getById(id) {
+    if (!id) return null;
+    const doc = await invitationsCollection.doc(id).get();
+    return docToData(doc);
+  },
+
+  async getByToken(token) {
+    if (!token) return null;
+    const snapshot = await invitationsCollection.where('token', '==', token).limit(1).get();
+    if (snapshot.empty) return null;
+    return docToData(snapshot.docs[0]);
+  },
+
+  async listByOrganization(organizationId) {
+    if (!organizationId) return [];
+    const snapshot = await invitationsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
+  async markAccepted(token, userId) {
+    const invitation = await this.getByToken(token);
+    if (!invitation) return null;
+    await invitationsCollection.doc(invitation.id).set(
+      {
+        status: 'ACCEPTED',
+        candidateUserId: userId,
+        acceptedAt: now(),
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await invitationsCollection.doc(invitation.id).get();
+    return docToData(updated);
+  },
+};
+
+export const reviewStore = {
+  async submit(interviewId, data = {}) {
+    if (!interviewId) {
+      throw new Error('interviewId is required');
+    }
+    const docRef = interviewReviewsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      interviewId,
+      reviewerId: data.reviewerId,
+      reviewerRole: data.reviewerRole || null,
+      score: data.score || null,
+      decision: data.decision || null,
+      strengths: ensureArray(data.strengths),
+      weaknesses: ensureArray(data.weaknesses),
+      notes: data.notes || '',
+      createdAt: now(),
+      updatedAt: now(),
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async listByInterview(interviewId) {
+    if (!interviewId) return [];
+    const snapshot = await interviewReviewsCollection
+      .where('interviewId', '==', interviewId)
+      .orderBy('createdAt', 'desc')
+      .get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+};
+
+const sanitizeActivityAction = (action) => {
+  if (!action) return 'UNKNOWN';
+  const normalized = action.toString().toUpperCase();
+  if (ACTIVITY_ACTIONS.has(normalized)) return normalized;
+  return normalized || 'UNKNOWN';
+};
+
+export const activityLogStore = {
+  async record({
+    organizationId,
+    actorId,
+    actorRole,
+    action,
+    targetType,
+    targetId,
+    metadata = {},
+  }) {
+    if (!organizationId) {
+      throw new Error('organizationId is required for activity logs');
+    }
+
+    const docRef = activityLogsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      organizationId,
+      actorId: actorId || null,
+      actorRole: actorRole || null,
+      action: sanitizeActivityAction(action),
+      targetType: targetType || null,
+      targetId: targetId || null,
+      metadata,
+      createdAt: now(),
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async listByOrganization(organizationId, limit = 50) {
+    if (!organizationId) return [];
+    const snapshot = await activityLogsCollection
+      .where('organizationId', '==', organizationId)
+      .orderBy('createdAt', 'desc')
+      .limit(limit)
+      .get();
+    return snapshot.docs.map((doc) => docToData(doc));
   },
 };
 

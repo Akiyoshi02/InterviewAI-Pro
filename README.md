@@ -93,7 +93,7 @@ VITE_OLLAMA_MODEL=llama3.1:8b
 VITE_LOCAL_WHISPER_URL=http://localhost:5000
 ```
 
-Copy `server/.env.example` to `server/.env` and populate the values (Supabase/Firebase keys, OpenAI fallback, DB url, etc.).
+Copy `server/.env.example` to `server/.env` and populate the values (Firebase Admin, Sightengine keys, Ollama, Whisper, etc.).
 
 ### 3. Run Locally
 

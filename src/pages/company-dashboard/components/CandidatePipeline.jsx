@@ -1,151 +1,160 @@
-import React, { useState } from 'react';
-import Icon from '../../../components/AppIcon';
+﻿import React, { useEffect, useMemo, useState } from 'react';
 import Button from '../../../components/ui/Button';
+import Select from '../../../components/ui/Select';
+import apiClient from '../../../services/apiClient.js';
 
-const CandidatePipeline = ({ onCandidateMove, onBulkAction }) => {
-  const [selectedCandidates, setSelectedCandidates] = useState([]);
+const PIPELINE_COLUMNS = [
+  { id: 'SCREENING', title: 'AI Screening', color: 'bg-blue-400' },
+  { id: 'INTERVIEW', title: 'Live Interview', color: 'bg-purple-400' },
+  { id: 'FINAL', title: 'Final Review', color: 'bg-amber-400' },
+  { id: 'HIRED', title: 'Hired', color: 'bg-emerald-400' },
+  { id: 'REJECTED', title: 'Archived', color: 'bg-rose-400' },
+];
 
-  const pipelineStages = [
-  {
-    id: 'applied',
-    title: 'Applied',
-    count: 24,
-    color: 'bg-slate-300',
-    candidates: [
-    { id: 1, name: 'Sarah Johnson', position: 'Frontend Developer', avatar: "https://images.unsplash.com/photo-1706565029071-f8f70ce91e71", avatarAlt: 'Professional headshot of woman with brown hair in white blazer' },
-    { id: 2, name: 'Michael Chen', position: 'Backend Developer', avatar: "https://images.unsplash.com/photo-1629272039203-7d76fdaf1324", avatarAlt: 'Professional headshot of Asian man with black hair in navy suit' },
-    { id: 3, name: 'Emily Rodriguez', position: 'UX Designer', avatar: "https://images.unsplash.com/photo-1510975866110-51c411b08b0b", avatarAlt: 'Professional headshot of Hispanic woman with long dark hair in blue shirt' }]
+const CandidatePipeline = () => {
+  const [pipeline, setPipeline] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [moving, setMoving] = useState({});
 
-  },
-  {
-    id: 'screening',
-    title: 'AI Screening',
-    count: 12,
-    color: 'bg-blue-400',
-    candidates: [
-    { id: 4, name: 'David Wilson', position: 'Full Stack Developer', avatar: "https://images.unsplash.com/photo-1585066047759-3438c34cf676", avatarAlt: 'Professional headshot of man with beard in gray suit' },
-    { id: 5, name: 'Lisa Thompson', position: 'Product Manager', avatar: "https://images.unsplash.com/photo-1553984658-2b507d7bb3d9", avatarAlt: 'Professional headshot of blonde woman in black blazer' }]
-
-  },
-  {
-    id: 'interview',
-    title: 'Interview',
-    count: 8,
-    color: 'bg-purple-400',
-    candidates: [
-    { id: 6, name: 'James Anderson', position: 'DevOps Engineer', avatar: "https://images.unsplash.com/photo-1723607528434-21cde67167c4", avatarAlt: 'Professional headshot of man with short brown hair in white shirt' },
-    { id: 7, name: 'Maria Garcia', position: 'Data Scientist', avatar: "https://images.unsplash.com/photo-1734456611474-13245d164868", avatarAlt: 'Professional headshot of woman with dark hair in professional attire' }]
-
-  },
-  {
-    id: 'final',
-    title: 'Final Review',
-    count: 3,
-    color: 'bg-emerald-400',
-    candidates: [
-    { id: 8, name: 'Robert Kim', position: 'Senior Developer', avatar: "https://images.unsplash.com/photo-1687256457585-3608dfa736c5", avatarAlt: 'Professional headshot of Asian man with glasses in dark suit' }]
-
-  }];
-
-
-  const handleCandidateSelect = (candidateId) => {
-    setSelectedCandidates((prev) =>
-    prev?.includes(candidateId) ?
-    prev?.filter((id) => id !== candidateId) :
-    [...prev, candidateId]
-    );
+  const loadPipeline = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await apiClient.pipeline.list();
+      if (result.success) {
+        setPipeline(result.pipeline || []);
+      } else {
+        setPipeline([]);
+        setError(result.error || 'Failed to load pipeline.');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load pipeline.');
+      setPipeline([]);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleBulkAction = (action) => {
-    if (selectedCandidates?.length > 0) {
-      onBulkAction?.(action, selectedCandidates);
-      setSelectedCandidates([]);
+  useEffect(() => {
+    loadPipeline();
+  }, []);
+
+  const groupedPipeline = useMemo(() => {
+    const groups = PIPELINE_COLUMNS.reduce((acc, column) => {
+      acc[column.id] = [];
+      return acc;
+    }, {});
+
+    pipeline.forEach((item) => {
+      const status = item.pipelineStatus || 'SCREENING';
+      if (!groups[status]) {
+        groups[status] = [];
+      }
+      groups[status].push(item);
+    });
+
+    return groups;
+  }, [pipeline]);
+
+  const handleMoveCandidate = async (interviewId, nextStatus) => {
+    if (!nextStatus) return;
+
+    setMoving((prev) => ({ ...prev, [interviewId]: true }));
+    try {
+      const result = await apiClient.pipeline.move(interviewId, { pipelineStatus: nextStatus });
+      if (result.success) {
+        setPipeline((prev) =>
+          prev.map((entry) =>
+            entry.interviewId === interviewId
+              ? { ...entry, pipelineStatus: nextStatus }
+              : entry,
+          ),
+        );
+      }
+    } catch (err) {
+      console.error('Failed to move candidate', err);
+    } finally {
+      setMoving((prev) => ({ ...prev, [interviewId]: false }));
     }
   };
 
   return (
     <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur">
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Candidate Pipeline</h2>
-        
-        {selectedCandidates?.length > 0 &&
-        <div className="flex items-center space-x-2">
-            <span className="text-sm text-gray-500 dark:text-slate-400">
-              {selectedCandidates?.length} selected
-            </span>
-            <Button
-            variant="outline"
-            size="sm"
-            iconName="Mail"
-            iconPosition="left"
-            onClick={() => handleBulkAction('email')}
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-              Email
-            </Button>
-            <Button
-            variant="outline"
-            size="sm"
-            iconName="ArrowRight"
-            iconPosition="left"
-            onClick={() => handleBulkAction('move')}
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-              Move Stage
-            </Button>
-          </div>
-        }
+        <div>
+          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Recruiter Pipeline</h2>
+          <p className="text-sm text-gray-500 dark:text-slate-400">
+            Real-time status of every candidate interview synced from the AI assistant.
+          </p>
+        </div>
+        <Button variant="outline" size="sm" onClick={loadPipeline} disabled={loading}>
+          Refresh
+        </Button>
       </div>
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {pipelineStages?.map((stage) =>
-        <div key={stage?.id} className="space-y-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <div className={`w-3 h-3 ${stage?.color} rounded-full`}></div>
-                <h3 className="font-medium text-gray-900 dark:text-slate-100">{stage?.title}</h3>
+
+      {error && (
+        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
+          {error}
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        {PIPELINE_COLUMNS.map((column) => {
+          const candidates = groupedPipeline[column.id] || [];
+          return (
+            <div key={column.id} className="space-y-4">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <div className={`w-3 h-3 ${column.color} rounded-full`} />
+                  <h3 className="font-medium text-gray-900 dark:text-slate-100">{column.title}</h3>
+                </div>
+                <span className="text-sm font-medium text-gray-600 dark:text-slate-400 bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 px-2 py-1 rounded-full">
+                  {candidates.length}
+                </span>
               </div>
-              <span className="text-sm font-medium text-gray-600 dark:text-slate-400 bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 px-2 py-1 rounded-full">
-                {stage?.count}
-              </span>
-            </div>
 
-            <div className="space-y-3 min-h-[200px] rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 p-3">
-              {stage?.candidates?.map((candidate) =>
-            <div
-              key={candidate?.id}
-              className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 cursor-pointer transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_15px_50px_rgba(15,23,42,0.15)] dark:hover:shadow-[0_15px_50px_rgba(0,0,0,0.3)] ${
-              selectedCandidates?.includes(candidate?.id) ? 'ring-2 ring-blue-500/70' : ''}`
-              }
-              onClick={() => handleCandidateSelect(candidate?.id)}>
-
-                  <div className="flex items-center space-x-3">
-                    <img
-                  src={candidate?.avatar}
-                  alt={candidate?.avatarAlt}
-                  className="w-8 h-8 rounded-full object-cover" />
-
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
-                        {candidate?.name}
+              <div className="space-y-3 min-h-[220px] rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 p-3">
+                {candidates.map((candidate) => (
+                  <div
+                    key={candidate.interviewId}
+                    className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 space-y-2 shadow-sm"
+                  >
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                        {candidate.candidate?.fullName || 'Candidate'}
                       </p>
-                      <p className="text-xs text-gray-500 dark:text-slate-400 truncate">
-                        {candidate?.position}
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        {candidate.job?.title || candidate.jobStage || 'Role TBD'}
                       </p>
                     </div>
-                    <Icon
-                  name="MoreVertical"
-                  size={16}
-                  className="text-gray-400 dark:text-slate-500 hover:text-gray-700 dark:hover:text-slate-300" />
-
+                    <div className="text-xs text-gray-500 dark:text-slate-400">
+                      Updated {candidate.updatedAt ? new Date(candidate.updatedAt).toLocaleString() : 'recently'}
+                    </div>
+                    <Select
+                      options={PIPELINE_COLUMNS.map((stage) => ({ value: stage.id, label: stage.title }))}
+                      value={candidate.pipelineStatus || 'SCREENING'}
+                      onChange={(value) => handleMoveCandidate(candidate.interviewId, value)}
+                      loading={moving[candidate.interviewId]}
+                    />
+                    <div className="flex items-center justify-between text-xs text-gray-400">
+                      <span>Status: {candidate.status}</span>
+                      {candidate.overallScore && <span>AI score: {candidate.overallScore}</span>}
+                    </div>
                   </div>
-                </div>
-            )}
+                ))}
+                {!candidates.length && (
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    {loading ? 'Syncing...' : 'No candidates in this stage.'}
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })}
       </div>
-    </div>);
-
+    </div>
+  );
 };
 
 export default CandidatePipeline;

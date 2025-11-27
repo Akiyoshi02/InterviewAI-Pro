@@ -1,5 +1,5 @@
 import { verifyFirebaseToken } from '../config/firebase.js';
-import { userStore } from '../services/firebaseData.service.js';
+import { organizationMemberStore, organizationStore, userStore } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -67,6 +67,41 @@ export async function loadUser(req, res, next) {
 }
 
 /**
+ * Middleware to attach organization context when available
+ */
+export async function loadOrganizationContext(req, res, next) {
+  try {
+    if (!req.user || !req.user.profile) {
+      return res.status(401).json({ error: 'User not authenticated' });
+    }
+
+    const primaryOrganizationId = req.user.profile.primaryOrganizationId;
+    if (!primaryOrganizationId) {
+      req.user.organizationContext = null;
+      return next();
+    }
+
+    const [organization, membership] = await Promise.all([
+      organizationStore.getById(primaryOrganizationId),
+      organizationMemberStore.getMember(primaryOrganizationId, req.user.id),
+    ]);
+
+    req.user.organizationContext =
+      organization && membership
+        ? {
+            organization,
+            membership,
+          }
+        : null;
+
+    next();
+  } catch (error) {
+    logger.error('Load organization context error:', error);
+    return res.status(500).json({ error: 'Failed to load organization context' });
+  }
+}
+
+/**
  * Middleware to check if user is a candidate
  */
 export function requireCandidate(req, res, next) {
@@ -87,6 +122,39 @@ export function requireCompany(req, res, next) {
 }
 
 /**
+ * Middleware to ensure organization context is present
+ */
+export function requireOrganizationContext(req, res, next) {
+  if (!req.user.organizationContext || !req.user.organizationContext.organization) {
+    return res.status(403).json({ error: 'Organization access required' });
+  }
+  next();
+}
+
+/**
+ * Middleware factory to check organization role
+ */
+export function requireOrgRole(roles = []) {
+  const roleList = Array.isArray(roles) ? roles : [roles];
+  const normalizedRoles = roleList
+    .filter(Boolean)
+    .map((role) => role.toString().toUpperCase());
+
+  return (req, res, next) => {
+    const membershipRole = req.user.organizationContext?.membership?.role;
+    if (!membershipRole) {
+      return res.status(403).json({ error: 'Organization membership required' });
+    }
+
+    if (normalizedRoles.length > 0 && !normalizedRoles.includes(membershipRole.toUpperCase())) {
+      return res.status(403).json({ error: 'Insufficient organization permissions' });
+    }
+
+    next();
+  };
+}
+
+/**
  * Combined auth middleware
  */
-export const authenticate = [verifyFirebaseAuth, loadUser];
+export const authenticate = [verifyFirebaseAuth, loadUser, loadOrganizationContext];

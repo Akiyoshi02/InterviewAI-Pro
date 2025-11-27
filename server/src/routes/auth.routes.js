@@ -3,6 +3,14 @@ import { body } from 'express-validator';
 import { authenticate, verifyFirebaseAuth } from '../middleware/auth.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 import { AuthController } from '../controllers/auth.controller.js';
+import { registrationUpload } from '../middleware/upload.middleware.js';
+
+const registrationUploadHandler = registrationUpload.fields([
+  { name: 'profilePhoto', maxCount: 1 },
+  { name: 'resumeFile', maxCount: 1 },
+  { name: 'companyLogo', maxCount: 1 },
+  { name: 'companyProof', maxCount: 1 },
+]);
 
 const router = express.Router();
 
@@ -12,8 +20,12 @@ const router = express.Router();
 router.post(
   '/register',
   verifyFirebaseAuth, // Only verify token - user doesn't exist in DB yet, so don't use loadUser
+  registrationUploadHandler,
   [
-    body('accountType').isIn(['CANDIDATE', 'COMPANY']).withMessage('Invalid account type'),
+    body('accountType')
+      .customSanitizer((value) => value?.toString()?.toUpperCase?.() || value)
+      .isIn(['CANDIDATE', 'COMPANY'])
+      .withMessage('Invalid account type'),
     body('fullName').optional().isString(),
     body('experienceLevel').optional().isString(),
     body('companyName').optional().isString(),
@@ -21,6 +33,16 @@ router.post(
   ],
   validateRequest,
   AuthController.register
+);
+
+// Check email availability before registration
+router.post(
+  '/check-email',
+  [
+    body('email').trim().isEmail().withMessage('Valid email is required'),
+  ],
+  validateRequest,
+  AuthController.checkEmailAvailability
 );
 
 // Get current user

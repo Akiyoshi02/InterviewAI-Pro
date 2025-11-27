@@ -16,6 +16,10 @@ import TermsAndPrivacy from './components/TermsAndPrivacy';
 import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import {
+  passwordMeetsAllRequirements,
+  PASSWORD_REQUIREMENT_MESSAGE,
+} from '../../utils/passwordValidation';
 
 const Register = () => {
   const navigate = useNavigate();
@@ -37,6 +41,9 @@ const Register = () => {
     careerGoals: '',
     location: '',
     preferredLanguage: 'english',
+    profilePhoto: null,
+    resumeFile: null,
+    gender: '',
     
     // Company specific fields
     companyName: '',
@@ -46,7 +53,9 @@ const Register = () => {
     hiringVolume: '',
     companyWebsite: '',
     companyLocation: '',
-    phoneNumber: ''
+    phoneNumber: '',
+    companyLogo: null,
+    companyProof: null,
   });
 
   const [errors, setErrors] = useState({});
@@ -54,6 +63,17 @@ const Register = () => {
   const [currentStep, setCurrentStep] = useState(1);
   const [status, setStatus] = useState(''); // For showing success messages
   const [message, setMessage] = useState(''); // For showing success/info messages
+  const [isCheckingEmail, setIsCheckingEmail] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationHelper, setLocationHelper] = useState({
+    targetField: null,
+    status: 'idle',
+    message: '',
+  });
+  const [uploadModeration, setUploadModeration] = useState({
+    profilePhoto: { status: 'idle', error: '' },
+    companyLogo: { status: 'idle', error: '' },
+  });
 
   const viewportConfig = { once: true, amount: 0.2 };
   const friendlyRateLimitMessage = (text) => {
@@ -65,6 +85,36 @@ const Register = () => {
     return text;
   };
 
+  const formatDetectedLocation = (data, coords) => {
+    if (!data && !coords) {
+      return '';
+    }
+
+    const administrative = data?.localityInfo?.administrative || [];
+    const locality = data?.city
+      || data?.locality
+      || data?.principalSubdivision
+      || administrative.find((item) => (item.order ?? 0) >= 4)?.name;
+
+    const region = data?.principalSubdivision
+      || administrative.find((item) => (item.order ?? 0) <= 3)?.name;
+
+    const country = data?.countryName || data?.countryCode;
+
+    const parts = [locality, region, country].filter(Boolean);
+
+    if (parts.length > 0) {
+      return parts.join(', ');
+    }
+
+    if (coords) {
+      const { latitude, longitude } = coords;
+      return `Lat ${latitude.toFixed(3)}, Long ${longitude.toFixed(3)}`;
+    }
+
+    return '';
+  };
+
   const sectionReveal = {
     hidden: { opacity: 0, y: 48 },
     visible: {
@@ -74,6 +124,57 @@ const Register = () => {
     }
   };
 
+  const moderateImageUpload = async (type, file) => {
+    if (!file) return;
+    const key = type === 'companyLogo' ? 'companyLogo' : 'profilePhoto';
+    setUploadModeration((prev) => ({
+      ...prev,
+      [key]: { status: 'checking', error: '' },
+    }));
+
+    try {
+      if (key === 'profilePhoto') {
+        await apiClient.uploads.moderateProfilePhoto(file);
+      } else {
+        await apiClient.uploads.moderateCompanyLogo(file);
+      }
+
+      setUploadModeration((prev) => ({
+        ...prev,
+        [key]: { status: 'approved', error: '' },
+      }));
+      return true;
+    } catch (error) {
+      const message = friendlyRateLimitMessage(error.message) || 'Image failed moderation. Please upload a different file.';
+      setUploadModeration((prev) => ({
+        ...prev,
+        [key]: { status: 'error', error: message },
+      }));
+      throw new Error(message);
+    }
+  };
+
+  const resetImageModeration = (type) => {
+    setUploadModeration((prev) => ({
+      ...prev,
+      [type]: { status: 'idle', error: '' },
+    }));
+  };
+
+  useEffect(() => {
+    if (formData.accountType === 'candidate') {
+      setUploadModeration((prev) => ({
+        ...prev,
+        companyLogo: { status: 'idle', error: '' },
+      }));
+    } else {
+      setUploadModeration((prev) => ({
+        ...prev,
+        profilePhoto: { status: 'idle', error: '' },
+      }));
+    }
+  }, [formData.accountType]);
+
   const fadeUpChild = {
     hidden: { opacity: 0, y: 24 },
     visible: {
@@ -81,6 +182,44 @@ const Register = () => {
       y: 0,
       transition: { duration: 0.45, ease: 'easeOut' }
     }
+  };
+
+  const prepareRegistrationRequestBody = (payload) => {
+    if (!payload) return payload;
+    const derivedAccountType = (payload?.accountType || formData?.accountType || '')
+      .toString()
+      .toUpperCase();
+
+    if (!['CANDIDATE', 'COMPANY'].includes(derivedAccountType)) {
+      return payload;
+    }
+
+    const multipartPayload = new FormData();
+    Object.entries(payload).forEach(([key, value]) => {
+      if (value !== undefined && value !== null && value !== '') {
+        multipartPayload.append(key, value);
+      }
+    });
+
+    if (derivedAccountType === 'CANDIDATE') {
+      if (formData?.profilePhoto) {
+        multipartPayload.append('profilePhoto', formData.profilePhoto);
+      }
+      if (formData?.resumeFile) {
+        multipartPayload.append('resumeFile', formData.resumeFile);
+      }
+    }
+
+    if (derivedAccountType === 'COMPANY') {
+      if (formData?.companyLogo) {
+        multipartPayload.append('companyLogo', formData.companyLogo);
+      }
+      if (formData?.companyProof) {
+        multipartPayload.append('companyProof', formData.companyProof);
+      }
+    }
+
+    return multipartPayload;
   };
 
   // Clear any stale authentication data when component mounts
@@ -150,8 +289,8 @@ const Register = () => {
 
       if (!formData?.password) {
         newErrors.password = 'Password is required';
-      } else if (formData?.password?.length < 8) {
-        newErrors.password = 'Password must be at least 8 characters';
+      } else if (!passwordMeetsAllRequirements(formData?.password)) {
+        newErrors.password = PASSWORD_REQUIREMENT_MESSAGE;
       }
 
       if (!formData?.confirmPassword) {
@@ -173,6 +312,18 @@ const Register = () => {
         if (!formData?.targetRole) {
           newErrors.targetRole = 'Target role is required';
         }
+        if (!formData?.gender) {
+          newErrors.gender = 'Please select your gender';
+        }
+        if (!formData?.profilePhoto) {
+          newErrors.profilePhoto = 'Please upload a profile picture';
+        }
+        if (uploadModeration?.profilePhoto?.status !== 'approved') {
+          newErrors.profilePhoto = uploadModeration?.profilePhoto?.error || 'Profile picture must pass moderation before continuing.';
+        }
+        if (!formData?.resumeFile) {
+          newErrors.resumeFile = 'Please upload your CV or résumé';
+        }
       } else if (formData?.accountType === 'company') {
         if (!formData?.companyName?.trim()) {
           newErrors.companyName = 'Company name is required';
@@ -192,6 +343,15 @@ const Register = () => {
         if (!formData?.hiringVolume) {
           newErrors.hiringVolume = 'Hiring volume is required';
         }
+        if (!formData?.companyLogo) {
+          newErrors.companyLogo = 'Please upload your company logo';
+        }
+        if (uploadModeration?.companyLogo?.status !== 'approved') {
+          newErrors.companyLogo = uploadModeration?.companyLogo?.error || 'Company logo must pass moderation before continuing.';
+        }
+        if (!formData?.companyProof) {
+          newErrors.companyProof = 'Please provide a verification document';
+        }
       }
     }
 
@@ -206,9 +366,130 @@ const Register = () => {
     return Object.keys(newErrors)?.length === 0;
   };
 
-  const handleNextStep = () => {
-    if (validateStep(currentStep)) {
-      setCurrentStep(prev => Math.min(prev + 1, 3));
+  const handleNextStep = async () => {
+    if (!validateStep(currentStep)) {
+      return;
+    }
+
+    if (currentStep === 1) {
+      const emailToCheck = formData?.email?.trim().toLowerCase();
+
+      if (!emailToCheck) {
+        return;
+      }
+
+      setStatus('');
+      setMessage('');
+
+      try {
+        setIsCheckingEmail(true);
+        const result = await apiClient.auth.checkEmailAvailability(emailToCheck);
+
+        if (result?.exists) {
+          const existingType = (result.accountType || '').toLowerCase() === 'company'
+            ? 'company'
+            : 'job seeker';
+          const duplicateMessage = `A ${existingType} account already exists for this email. Please sign in or use a different email address.`;
+
+          setErrors((prev) => ({ ...prev, email: duplicateMessage }));
+          return;
+        }
+      } catch (error) {
+        console.error('Email availability check failed:', error);
+        setErrors((prev) => ({
+          ...prev,
+          email: friendlyRateLimitMessage(error.message) || 'Unable to validate email right now. Please try again.',
+        }));
+        return;
+      } finally {
+        setIsCheckingEmail(false);
+      }
+    }
+
+    setCurrentStep(prev => Math.min(prev + 1, 3));
+  };
+
+  const handleDetectLocation = async (fieldKey) => {
+    if (isDetectingLocation || !fieldKey) {
+      return;
+    }
+
+    if (typeof window === 'undefined' || !navigator?.geolocation) {
+      setLocationHelper({
+        targetField: fieldKey,
+        status: 'error',
+        message: 'Your browser does not support location detection. Please enter it manually.',
+      });
+      return;
+    }
+
+    setIsDetectingLocation(true);
+    setLocationHelper({
+      targetField: fieldKey,
+      status: 'info',
+      message: 'Requesting location permission…',
+    });
+
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+
+      setLocationHelper({
+        targetField: fieldKey,
+        status: 'info',
+        message: 'Detecting your city…',
+      });
+
+      const { latitude, longitude } = position.coords || {};
+
+      if (latitude == null || longitude == null) {
+        throw new Error('We could not read your coordinates. Please enter your location manually.');
+      }
+
+      const response = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to determine your location automatically.');
+      }
+
+      const data = await response.json();
+      const formattedLocation = formatDetectedLocation(data, { latitude, longitude });
+
+      if (!formattedLocation) {
+        throw new Error('We couldn’t convert your coordinates into a city. Please enter it manually.');
+      }
+
+      handleFieldChange(fieldKey, formattedLocation);
+
+      // Clear location helper on success - location is visible in the input field
+      setLocationHelper({ targetField: null, status: 'idle', message: '' });
+    } catch (error) {
+      console.error('Location detection error:', error);
+
+      let friendlyMessage = error?.message || 'Unable to detect your location. Please enter it manually.';
+
+      if (error?.code === 1 || error?.message?.toLowerCase().includes('permission')) {
+        friendlyMessage = 'Location permission was denied. You can enable it in your browser or enter the location manually.';
+      } else if (error?.code === 2) {
+        friendlyMessage = 'We could not determine your position. Please try again or enter it manually.';
+      } else if (error?.code === 3) {
+        friendlyMessage = 'Location request timed out. Please try again or enter it manually.';
+      }
+
+      setLocationHelper({
+        targetField: fieldKey,
+        status: 'error',
+        message: friendlyMessage,
+      });
+    } finally {
+      setIsDetectingLocation(false);
     }
   };
 
@@ -231,6 +512,22 @@ const Register = () => {
       }
       if (!formData?.targetRole) {
         missingFields.targetRole = 'Target role is required before using Google sign-up.';
+        missingSections.add('professional details');
+      }
+      if (!formData?.gender) {
+        missingFields.gender = 'Gender selection is required before using Google sign-up.';
+        missingSections.add('professional details');
+      }
+      if (!formData?.profilePhoto) {
+        missingFields.profilePhoto = 'Profile picture is required before using Google sign-up.';
+        missingSections.add('professional details');
+      }
+      if (uploadModeration?.profilePhoto?.status !== 'approved') {
+        missingFields.profilePhoto = uploadModeration?.profilePhoto?.error || 'Profile picture must pass moderation before using Google sign-up.';
+        missingSections.add('professional details');
+      }
+      if (!formData?.resumeFile) {
+        missingFields.resumeFile = 'CV or résumé is required before using Google sign-up.';
         missingSections.add('professional details');
       }
     } else if (formData?.accountType === 'company') {
@@ -257,6 +554,18 @@ const Register = () => {
       if (!formData?.hiringVolume) {
         missingFields.hiringVolume = 'Hiring volume is required before using Google sign-up.';
         missingSections.add('company information');
+      }
+      if (!formData?.companyLogo) {
+        missingFields.companyLogo = 'Company logo is required before using Google sign-up.';
+        missingSections.add('company verification');
+      }
+      if (uploadModeration?.companyLogo?.status !== 'approved') {
+        missingFields.companyLogo = uploadModeration?.companyLogo?.error || 'Company logo must pass moderation before using Google sign-up.';
+        missingSections.add('company verification');
+      }
+      if (!formData?.companyProof) {
+        missingFields.companyProof = 'Verification document is required before using Google sign-up.';
+        missingSections.add('company verification');
       }
     }
 
@@ -349,7 +658,7 @@ const Register = () => {
         industry: formData.industry || undefined,
       };
 
-      const registerData = await apiClient.auth.register(registrationPayload);
+      const registerData = await apiClient.auth.register(prepareRegistrationRequestBody(registrationPayload));
 
       if (registerData.success && registerData.user) {
         localStorage.setItem('user', JSON.stringify(registerData.user));
@@ -447,13 +756,15 @@ const Register = () => {
         const accountTypeUpper = formData.accountType.toUpperCase();
         
         try {
-          const registerData = await apiClient.auth.register({
+          const registerData = await apiClient.auth.register(
+            prepareRegistrationRequestBody({
             accountType: accountTypeUpper,
             fullName: formData.fullName,
             experienceLevel: formData.experienceLevel || undefined,
             companyName: formData.companyName || undefined,
             industry: formData.industry || undefined,
-          });
+            })
+          );
 
           if (registerData.success && registerData.user) {
             // Store session and cleanup
@@ -569,6 +880,12 @@ const Register = () => {
     }
   };
 
+  const isStep2ModerationBlocking = currentStep === 2 && (
+    formData?.accountType === 'candidate'
+      ? uploadModeration?.profilePhoto?.status !== 'approved'
+      : uploadModeration?.companyLogo?.status !== 'approved'
+  );
+
   return (
     <>
       <Helmet>
@@ -612,7 +929,7 @@ const Register = () => {
             </div>
           </header>
 
-          <main className="flex-1 min-h-0 w-full px-3 sm:px-4 lg:px-6 pb-4 lg:pb-5">
+          <main className="flex-1 min-h-0 w-full px-3 sm:px-4 lg:px-6 pb-2 lg:pb-3">
             <motion.div
               variants={sectionReveal}
               initial="hidden"
@@ -690,10 +1007,10 @@ const Register = () => {
                       {getStepDescription()}
                     </p>
                   </div>
-                  <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0 overflow-y-auto pr-2">
-                    <div className="flex-1 space-y-4 px-1">
+                  <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 flex flex-col min-h-0 space-y-4">
                       {currentStep === 1 && (
-                        <div className="space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
                           <AccountTypeSelector
                             selectedType={formData?.accountType}
                             onTypeChange={(type) => handleFieldChange('accountType', type)}
@@ -755,25 +1072,37 @@ const Register = () => {
                       )}
 
                       {currentStep === 2 && (
-                        <div className="space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
                           {formData?.accountType === 'candidate' ? (
                             <CandidateFields
                               formData={formData}
                               onFieldChange={handleFieldChange}
                               errors={errors}
+                              onDetectLocation={handleDetectLocation}
+                              isDetectingLocation={isDetectingLocation}
+                              locationHelper={locationHelper}
+                              uploadModeration={uploadModeration}
+                              onModerateUpload={moderateImageUpload}
+                              onResetModeration={resetImageModeration}
                             />
                           ) : (
                             <CompanyFields
                               formData={formData}
                               onFieldChange={handleFieldChange}
                               errors={errors}
+                              onDetectLocation={handleDetectLocation}
+                              isDetectingLocation={isDetectingLocation}
+                              locationHelper={locationHelper}
+                              uploadModeration={uploadModeration}
+                              onModerateUpload={moderateImageUpload}
+                              onResetModeration={resetImageModeration}
                             />
                           )}
                         </div>
                       )}
 
                       {currentStep === 3 && (
-                        <div className="space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
                           <TermsAndPrivacy
                             agreeToTerms={formData?.agreeToTerms}
                             agreeToMarketing={formData?.agreeToMarketing}
@@ -838,6 +1167,8 @@ const Register = () => {
                             iconName="ChevronRight"
                             iconPosition="right"
                             className="h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6"
+                            loading={currentStep === 1 && isCheckingEmail}
+                            disabled={(currentStep === 1 && isCheckingEmail) || (currentStep === 2 && isStep2ModerationBlocking)}
                           >
                             Next
                           </Button>
@@ -876,7 +1207,7 @@ const Register = () => {
           </main>
 
           <footer className="flex-shrink-0">
-            <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-4">
+            <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
               <div className="text-center text-xs md:text-sm text-gray-500 dark:text-slate-400">
                 <p>
                 © {new Date()?.getFullYear()} InterviewAI Pro ·

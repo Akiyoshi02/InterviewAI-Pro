@@ -143,18 +143,42 @@ export const apiClient = {
    */
   auth: {
     async register(userData) {
-      const headers = await getHeaders();
+      const isFormDataPayload = typeof FormData !== 'undefined' && userData instanceof FormData;
+      let headers;
+      let body;
+
+      if (isFormDataPayload) {
+        const token = await getAuthToken();
+        headers = {};
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+        body = userData;
+      } else {
+        headers = await getHeaders();
+        body = JSON.stringify(userData);
+      }
+
       console.log('Register API call:', {
         url: `${API_URL}/api/auth/register`,
-        hasAuth: !!headers['Authorization'],
-        data: userData,
+        hasAuth: !!headers?.Authorization,
+        isMultipart: isFormDataPayload,
       });
       const response = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers,
-        body: JSON.stringify(userData),
+        body,
       });
       console.log('Register API response status:', response.status, response.statusText);
+      return handleResponse(response);
+    },
+
+    async checkEmailAvailability(email) {
+      const response = await fetch(`${API_URL}/api/auth/check-email`, {
+        method: 'POST',
+        headers: await getHeaders(false),
+        body: JSON.stringify({ email }),
+      });
       return handleResponse(response);
     },
 
@@ -213,6 +237,32 @@ export const apiClient = {
         console.error('deleteUnregisteredAuthUser API error:', error);
         throw error;
       }
+    },
+  },
+
+  uploads: {
+    async moderateProfilePhoto(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/api/uploads/moderate/profile-photo`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      return handleResponse(response);
+    },
+
+    async moderateCompanyLogo(file) {
+      const formData = new FormData();
+      formData.append('file', file);
+
+      const response = await fetch(`${API_URL}/api/uploads/moderate/company-logo`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      return handleResponse(response);
     },
   },
 
@@ -339,6 +389,196 @@ export const apiClient = {
 
     async getSession(interviewId) {
       const response = await fetch(`${API_URL}/api/video/session/${interviewId}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Organization APIs
+   */
+  organizations: {
+    async getMyOrganization() {
+      const response = await fetch(`${API_URL}/api/organizations/me`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateMyOrganization(payload) {
+      const response = await fetch(`${API_URL}/api/organizations/me`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async listMembers() {
+      const response = await fetch(`${API_URL}/api/organizations/me/members`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async addMember(payload) {
+      const response = await fetch(`${API_URL}/api/organizations/me/members`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Job APIs
+   */
+  jobs: {
+    async create(payload) {
+      const response = await fetch(`${API_URL}/api/jobs`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async list() {
+      const response = await fetch(`${API_URL}/api/jobs`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async get(jobId) {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async update(jobId, payload) {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async listPublic(limit = 20) {
+      const response = await fetch(`${API_URL}/api/public/jobs?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+
+    async getPublic(jobId) {
+      const response = await fetch(`${API_URL}/api/public/jobs/${jobId}`, {
+        method: 'GET',
+        headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Invitation APIs
+   */
+  invitations: {
+    async create(payload) {
+      const response = await fetch(`${API_URL}/api/invitations`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async list() {
+      const response = await fetch(`${API_URL}/api/invitations`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async preview(token) {
+      const response = await fetch(`${API_URL}/api/public/invitations/${token}`, {
+        method: 'GET',
+        headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+
+    async accept(token) {
+      const response = await fetch(`${API_URL}/api/invitations/accept`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ token }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Pipeline APIs
+   */
+  pipeline: {
+    async list() {
+      const response = await fetch(`${API_URL}/api/pipeline`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async move(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/pipeline/${interviewId}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Review APIs
+   */
+  reviews: {
+    async list(interviewId) {
+      const response = await fetch(`${API_URL}/api/reviews/${interviewId}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async submit(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/reviews/${interviewId}`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Activity APIs
+   */
+  activity: {
+    async list(limit = 50) {
+      const response = await fetch(`${API_URL}/api/activity?limit=${limit}`, {
         method: 'GET',
         headers: await getHeaders(),
       });

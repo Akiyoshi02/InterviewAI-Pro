@@ -9,13 +9,11 @@ const QuickStartPanel = ({ onStartPractice }) => {
 
   const jobRoles = [
     { value: 'software-engineer', label: 'Software Engineer' },
-    { value: 'data-scientist', label: 'Data Scientist' },
-    { value: 'product-manager', label: 'Product Manager' },
-    { value: 'marketing-manager', label: 'Marketing Manager' },
-    { value: 'sales-representative', label: 'Sales Representative' },
-    { value: 'business-analyst', label: 'Business Analyst' },
-    { value: 'ui-ux-designer', label: 'UI/UX Designer' },
-    { value: 'project-manager', label: 'Project Manager' }
+    { value: 'frontend-developer', label: 'Frontend Engineer' },
+    { value: 'backend-developer', label: 'Backend Engineer' },
+    { value: 'fullstack-developer', label: 'Full Stack Engineer' },
+    { value: 'devops-engineer', label: 'DevOps Engineer' },
+    { value: 'qa-engineer', label: 'QA Engineer' }
   ];
 
   const difficultyLevels = [

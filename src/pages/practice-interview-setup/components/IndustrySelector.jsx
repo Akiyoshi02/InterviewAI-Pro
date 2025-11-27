@@ -4,45 +4,10 @@ import Select from '../../../components/ui/Select';
 
 const IndustrySelector = ({ selectedIndustry, onIndustryChange, className = '' }) => {
   const industries = [
-    { value: 'technology', label: 'Technology & Software' },
-    { value: 'finance', label: 'Finance & Banking' },
-    { value: 'healthcare', label: 'Healthcare & Medical' },
-    { value: 'ecommerce', label: 'E-commerce & Retail' },
-    { value: 'consulting', label: 'Consulting Services' },
-    { value: 'education', label: 'Education & Training' },
-    { value: 'manufacturing', label: 'Manufacturing & Industrial' },
-    { value: 'media', label: 'Media & Entertainment' },
-    { value: 'automotive', label: 'Automotive & Transportation' },
-    { value: 'energy', label: 'Energy & Utilities' },
-    { value: 'real-estate', label: 'Real Estate & Construction' },
-    { value: 'telecommunications', label: 'Telecommunications' },
-    { value: 'government', label: 'Government & Public Sector' },
-    { value: 'nonprofit', label: 'Non-profit & NGO' },
-    { value: 'startup', label: 'Startup & Entrepreneurship' },
-    { value: 'other', label: 'Other Industry' }
+    { value: 'technology', label: 'Technology & Software' }
   ];
 
-  const getIndustryDescription = (industry) => {
-    const descriptions = {
-      'technology': 'Questions focus on innovation, scalability, and technical problem-solving',
-      'finance': 'Emphasis on analytical thinking, risk management, and regulatory compliance',
-      'healthcare': 'Patient-centered approach, ethical considerations, and safety protocols',
-      'ecommerce': 'Customer experience, market dynamics, and digital transformation',
-      'consulting': 'Client relationship management, strategic thinking, and communication skills',
-      'education': 'Learning methodologies, student engagement, and educational technology',
-      'manufacturing': 'Process optimization, quality control, and operational efficiency',
-      'media': 'Creative thinking, audience engagement, and content strategy',
-      'automotive': 'Innovation in mobility, sustainability, and manufacturing excellence',
-      'energy': 'Sustainability, regulatory compliance, and technological advancement',
-      'real-estate': 'Market analysis, client relations, and project management',
-      'telecommunications': 'Network infrastructure, customer service, and technology adoption',
-      'government': 'Public service, policy implementation, and stakeholder management',
-      'nonprofit': 'Mission-driven work, community impact, and resource management',
-      'startup': 'Agility, innovation, and rapid growth strategies',
-      'other': 'General business principles and transferable skills'
-    };
-    return descriptions?.[industry] || '';
-  };
+  const technologyDescription = 'Questions stay focused on building scalable systems, software craftsmanship, and collaborative engineering practices.';
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -75,7 +40,7 @@ const IndustrySelector = ({ selectedIndustry, onIndustryChange, className = '' }
                 Industry Focus
               </p>
               <p className="text-xs text-gray-600 dark:text-slate-400">
-                {getIndustryDescription(selectedIndustry)}
+                {technologyDescription}
               </p>
             </div>
           </div>
