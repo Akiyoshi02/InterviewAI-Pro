@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -12,16 +12,15 @@ import QuickActions from './components/QuickActions';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
-import { authHelpers } from '../../config/firebase.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const CompanyDashboard = () => {
   const navigate = useNavigate();
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const { user, logout, status } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
-  const [currentUser, setCurrentUser] = useState(null);
   const [interviews, setInterviews] = useState([]);
   const [metrics, setMetrics] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
 
   const viewportConfig = { once: true, amount: 0.2 };
@@ -55,47 +54,8 @@ const CompanyDashboard = () => {
   };
 
   const handleLogout = async () => {
-    try {
-      await authHelpers.signOut();
-      
-      // Clear all auth-related localStorage
-      localStorage.removeItem('user');
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('socialAuthVerified');
-      localStorage.removeItem('socialAuthData');
-      localStorage.removeItem('socialAuthIntent');
-      localStorage.removeItem('socialAuthProvider');
-      localStorage.removeItem('pendingRegistration');
-      localStorage.removeItem('pendingAccountType');
-      
-      // Clear any legacy auth storage keys
-      const authKeys = Object.keys(localStorage).filter(k => 
-        /firebase|legacyAuth/i.test(k)
-      );
-      authKeys.forEach(key => localStorage.removeItem(key));
-      
-      setIsAuthenticated(false);
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-      
-      // Still clear everything on error
-      localStorage.removeItem('user');
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('socialAuthVerified');
-      localStorage.removeItem('socialAuthData');
-      localStorage.removeItem('socialAuthIntent');
-      localStorage.removeItem('socialAuthProvider');
-      localStorage.removeItem('pendingRegistration');
-      localStorage.removeItem('pendingAccountType');
-      
-      const legacyAuthKeys = Object.keys(localStorage).filter(k => 
-        /firebase|legacyAuth/i.test(k)
-      );
-      legacyAuthKeys.forEach(key => localStorage.removeItem(key));
-      
-      navigate('/login');
-    }
+    await logout();
+    navigate('/login');
   };
 
   // Set document title - must be before conditional returns (Rules of Hooks)
@@ -104,92 +64,44 @@ const CompanyDashboard = () => {
   }, []);
 
 
-  // 1. Instantly show dashboard if cached user exists
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        if (userData && typeof userData === 'object') {
-          setCurrentUser(userData);
-          setIsAuthenticated(true);
-          setLoading(false); // Show dashboard instantly
-        }
-      } catch (e) {
-        setCurrentUser(null);
-        setIsAuthenticated(false);
-        setLoading(false);
-      }
-    } else {
-      setLoading(false);
+  const fetchCompanyData = useCallback(async () => {
+    if (!user) return;
+    if (user.accountType?.toUpperCase() !== 'COMPANY') {
+      navigate('/candidate-dashboard', { replace: true });
+      return;
     }
-  }, []);
 
-  // 2. In background, verify session and update user data
-  useEffect(() => {
-    let isMounted = true;
-    const verifySessionAndLoadData = async () => {
-      try {
-        // Check Firebase session
-        const { data } = await authHelpers.getSession();
-        const session = data?.session;
-        if (!session) {
-          throw new Error('Session expired. Please log in again.');
-        }
-        // Check backend user
-        const userData = await apiClient.auth.getMe();
-        if (!userData.success || !userData.user) {
-          throw new Error('User not found. Please log in again.');
-        }
-        // Must be company account
-        if (userData.user.accountType?.toUpperCase() !== 'COMPANY') {
-          window.location.href = '/candidate-dashboard';
-          return;
-        }
-        // Update localStorage and state
-        localStorage.setItem('user', JSON.stringify(userData.user));
-        if (isMounted) {
-          setCurrentUser(userData.user);
-          setIsAuthenticated(true);
-        }
-        // Fetch company interviews
-        try {
-          const interviewsData = await apiClient.interviews.getCompanyInterviews();
-          if (interviewsData.success && Array.isArray(interviewsData.interviews)) {
-            if (isMounted) setInterviews(interviewsData.interviews);
-          } else {
-            if (isMounted) setInterviews([]);
-          }
-        } catch {
-          if (isMounted) setInterviews([]);
-        }
-        // Fetch company metrics
-        try {
-          const metricsData = await apiClient.analytics.getCompanyMetrics();
-          if (metricsData.success && metricsData) {
-            if (isMounted) setMetrics(metricsData);
-          } else {
-            if (isMounted) setMetrics(null);
-          }
-        } catch {
-          if (isMounted) setMetrics(null);
-        }
-        if (isMounted) setError(null);
-      } catch (err) {
-        // If session or backend check fails, log out and redirect
-        setCurrentUser(null);
-        setIsAuthenticated(false);
-        setError(err.message || 'Session expired. Please log in again.');
-        localStorage.removeItem('user');
-        localStorage.removeItem('isAuthenticated');
-        setTimeout(() => navigate('/login'), 1500);
+    setDataLoading(true);
+    setError(null);
+    try {
+      const [interviewsResult, metricsResult] = await Promise.allSettled([
+        apiClient.interviews.getCompanyInterviews(),
+        apiClient.analytics.getCompanyMetrics(),
+      ]);
+
+      if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
+        setInterviews(interviewsResult.value.interviews || []);
+      } else {
+        setInterviews([]);
       }
-    };
-    verifySessionAndLoadData();
-    return () => { isMounted = false; };
-  }, [navigate]);
 
-  if (loading) {
+      if (metricsResult.status === 'fulfilled' && metricsResult.value.success) {
+        setMetrics(metricsResult.value.metrics || null);
+      } else {
+        setMetrics(null);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load dashboard data. Please try again.');
+    } finally {
+      setDataLoading(false);
+    }
+  }, [navigate, user]);
+
+  useEffect(() => {
+    fetchCompanyData();
+  }, [fetchCompanyData]);
+
+  if (status === 'loading' || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">
@@ -244,21 +156,31 @@ const CompanyDashboard = () => {
     }
   ];
 
-  if (error && !currentUser) {
+  if (error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
           <p className="text-sm sm:text-base text-error mb-3 sm:mb-4">{error}</p>
-          <button
-            onClick={() => navigate('/login')}
-            className="text-sm sm:text-base text-primary hover:underline"
-          >
-            Go to Login
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={fetchCompanyData}
+              className="text-sm sm:text-base text-primary hover:underline"
+            >
+              Retry
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm sm:text-base text-muted-foreground hover:text-primary"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );
   }
+
+  const showInitialLoader = dataLoading && !safeInterviews.length && !metrics;
 
   const handleViewRecording = (candidateId) => {
     console.log('Viewing recording for candidate:', candidateId);
@@ -334,7 +256,7 @@ const CompanyDashboard = () => {
       <div className="relative z-10">
         <Header 
           userType="company"
-          isAuthenticated={isAuthenticated}
+          isAuthenticated
           onLogout={handleLogout}
         />
         <div className="flex flex-col lg:flex-row">
@@ -354,6 +276,15 @@ const CompanyDashboard = () => {
               viewport={viewportConfig}
               className="px-3 sm:px-4 md:px-6 lg:px-8 py-6 sm:py-8 md:py-10 space-y-6 sm:space-y-8 lg:space-y-10"
             >
+              {showInitialLoader && (
+                <motion.div
+                  variants={fadeUpChild}
+                  className="rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-8 text-center"
+                >
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-4" />
+                  <p className="text-sm text-muted-foreground">Loading company analytics...</p>
+                </motion.div>
+              )}
               <motion.div
                 variants={fadeUpChild}
                 className="relative overflow-hidden rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 sm:p-8 shadow-[0_30px_80px_rgba(15,23,42,0.15)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur"
@@ -366,10 +297,10 @@ const CompanyDashboard = () => {
                       <span>AI-powered hiring control center</span>
                     </div>
                     <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100">
-                      Welcome back, {currentUser?.fullName || currentUser?.email?.split('@')[0] || 'Team Lead'} 👋
+                      Welcome back, {user?.fullName || user?.email?.split('@')[0] || 'Team Lead'} 👋
                     </h1>
                     <p className="text-sm sm:text-base text-gray-600 dark:text-slate-300 max-w-2xl">
-                      {currentUser?.companyName || 'Your organization'} is synced. Continue orchestrating interviews,
+                      {user?.companyName || 'Your organization'} is synced. Continue orchestrating interviews,
                       review AI insights, and fast-forward decisions.
                     </p>
                   </div>

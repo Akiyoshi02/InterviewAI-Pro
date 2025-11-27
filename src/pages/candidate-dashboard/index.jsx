@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -12,65 +12,25 @@ import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
 import AIChatAssistant from './components/AIChatAssistant';
 import apiClient from '../../services/apiClient.js';
-import { authHelpers } from '../../config/firebase.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
+  const { user, logout, status } = useAuth();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
-  const [user, setUser] = useState(null);
   const [interviews, setInterviews] = useState([]);
   const [analytics, setAnalytics] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [verifying, setVerifying] = useState(false);
 
   const handleToggleAIChat = () => {
     setIsAIChatOpen(!isAIChatOpen);
   };
 
   const handleLogout = async () => {
-    try {
-      await authHelpers.signOut();
-      
-      // Clear all auth-related localStorage
-      localStorage.removeItem('user');
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('socialAuthVerified');
-      localStorage.removeItem('socialAuthData');
-      localStorage.removeItem('socialAuthIntent');
-      localStorage.removeItem('socialAuthProvider');
-      localStorage.removeItem('pendingRegistration');
-      localStorage.removeItem('pendingAccountType');
-      
-      // Clear any legacy auth storage keys to avoid stale sessions
-      const legacyAuthKeys = Object.keys(localStorage).filter(k => 
-        /firebase|legacyAuth/i.test(k)
-      );
-      legacyAuthKeys.forEach(key => localStorage.removeItem(key));
-      
-      navigate('/login');
-    } catch (error) {
-      console.error('Logout error:', error);
-      
-      // Still clear everything and redirect on error
-      localStorage.removeItem('user');
-      localStorage.removeItem('isAuthenticated');
-      localStorage.removeItem('socialAuthVerified');
-      localStorage.removeItem('socialAuthData');
-      localStorage.removeItem('socialAuthIntent');
-      localStorage.removeItem('socialAuthProvider');
-      localStorage.removeItem('pendingRegistration');
-      localStorage.removeItem('pendingAccountType');
-      
-      // Clear any legacy auth-related localStorage keys
-      const authKeys = Object.keys(localStorage).filter(k => 
-        /firebase|legacyAuth/i.test(k)
-      );
-      authKeys.forEach(key => localStorage.removeItem(key));
-      
-      navigate('/login');
-    }
+    await logout();
+    navigate('/login');
   };
 
   const viewportConfig = { once: true, amount: 0.15 };
@@ -104,85 +64,39 @@ const CandidateDashboard = () => {
   };
 
 
-  // 1. Instantly show dashboard if cached user exists
-  useEffect(() => {
-    const storedUser = localStorage.getItem('user');
-    if (storedUser) {
-      try {
-        const userData = JSON.parse(storedUser);
-        if (userData && typeof userData === 'object') {
-          setUser(userData);
-          setLoading(false); // Show dashboard instantly
-        }
-      } catch (e) {
-        // If parsing fails, treat as not authenticated
-        setUser(null);
-        setLoading(false);
+  const fetchDashboardData = useCallback(async () => {
+    if (!user) return;
+    setDataLoading(true);
+    setError(null);
+    try {
+      const [interviewsResult, analyticsResult] = await Promise.allSettled([
+        apiClient.interviews.getMyInterviews(),
+        apiClient.analytics.getDashboard(),
+      ]);
+
+      if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
+        setInterviews(interviewsResult.value.interviews || []);
+      } else {
+        setInterviews([]);
       }
-    } else {
-      setLoading(false);
+
+      if (analyticsResult.status === 'fulfilled' && analyticsResult.value.success) {
+        setAnalytics(analyticsResult.value.stats || null);
+      } else {
+        setAnalytics(null);
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to load dashboard data. Please try again.');
+    } finally {
+      setDataLoading(false);
     }
-  }, []);
+  }, [user]);
 
-  // 2. In background, verify session and update user data
   useEffect(() => {
-    let isMounted = true;
-    setVerifying(true);
-    const verifySessionAndLoadData = async () => {
-      try {
-        // Check Firebase session
-        const { data } = await authHelpers.getSession();
-        const session = data?.session;
-        if (!session) {
-          throw new Error('Session expired. Please log in again.');
-        }
-        // Check backend user
-        const userData = await apiClient.auth.getMe();
-        if (!userData.success || !userData.user) {
-          throw new Error('User not found. Please log in again.');
-        }
-        // Update localStorage and state
-        localStorage.setItem('user', JSON.stringify(userData.user));
-        if (isMounted) setUser(userData.user);
-        // Fetch interviews
-        try {
-          const interviewsData = await apiClient.interviews.getMyInterviews();
-          if (interviewsData.success && Array.isArray(interviewsData.interviews)) {
-            if (isMounted) setInterviews(interviewsData.interviews);
-          } else {
-            if (isMounted) setInterviews([]);
-          }
-        } catch {
-          if (isMounted) setInterviews([]);
-        }
-        // Fetch analytics
-        try {
-          const analyticsData = await apiClient.analytics.getDashboard();
-          if (analyticsData.success && analyticsData) {
-            if (isMounted) setAnalytics(analyticsData);
-          } else {
-            if (isMounted) setAnalytics(null);
-          }
-        } catch {
-          if (isMounted) setAnalytics(null);
-        }
-        if (isMounted) setError(null);
-      } catch (err) {
-        // If session or backend check fails, log out and redirect
-        setUser(null);
-        setError(err.message || 'Session expired. Please log in again.');
-        localStorage.removeItem('user');
-        localStorage.removeItem('isAuthenticated');
-        setTimeout(() => navigate('/login'), 1500);
-      } finally {
-        if (isMounted) setVerifying(false);
-      }
-    };
-    verifySessionAndLoadData();
-    return () => { isMounted = false; };
-  }, [navigate]);
+    fetchDashboardData();
+  }, [fetchDashboardData]);
 
-  if (loading) {
+  if (status === 'loading' || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
@@ -193,17 +107,25 @@ const CandidateDashboard = () => {
     );
   }
 
-  if (error && !user) {
+  if (error) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
           <p className="text-sm sm:text-base text-error mb-3 sm:mb-4">{error}</p>
-          <button
-            onClick={() => navigate('/login')}
-            className="text-sm sm:text-base text-primary hover:underline"
-          >
-            Go to Login
-          </button>
+          <div className="flex items-center justify-center gap-3">
+            <button
+              onClick={fetchDashboardData}
+              className="text-sm sm:text-base text-primary hover:underline"
+            >
+              Retry
+            </button>
+            <button
+              onClick={handleLogout}
+              className="text-sm sm:text-base text-muted-foreground hover:text-primary"
+            >
+              Sign Out
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -211,11 +133,13 @@ const CandidateDashboard = () => {
 
   // Ensure interviews is always an array
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const readinessScore = analytics?.averageScore ?? 82;
+  const insightsCount = analytics?.insightsCount ?? 6;
 
   const heroHighlights = [
     {
       label: 'Readiness score',
-      value: `${Math.round(analytics?.averageScore ?? 82)}%`,
+      value: `${Math.round(readinessScore)}%`,
       detail: 'Last 30 day average'
     },
     {
@@ -225,10 +149,12 @@ const CandidateDashboard = () => {
     },
     {
       label: 'AI insights',
-      value: analytics?.insightsCount || 6,
+      value: insightsCount,
       detail: 'Generated this week'
     }
   ];
+
+  const showInitialLoader = dataLoading && !safeInterviews.length && !analytics;
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
@@ -244,7 +170,7 @@ const CandidateDashboard = () => {
       <div className="relative z-10">
         <Header 
           userType="candidate" 
-          isAuthenticated={!!user}
+          isAuthenticated
           onLogout={handleLogout}
         />
         <div className="flex flex-col lg:flex-row">
@@ -265,6 +191,15 @@ const CandidateDashboard = () => {
               viewport={viewportConfig}
               className="px-3 sm:px-4 md:px-6 lg:px-8 py-6 sm:py-8 md:py-10 space-y-6 sm:space-y-8 lg:space-y-10"
             >
+              {showInitialLoader && (
+                <motion.div
+                  variants={fadeUpChild}
+                  className="rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-8 text-center"
+                >
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-4" />
+                  <p className="text-sm text-muted-foreground">Syncing your interview data...</p>
+                </motion.div>
+              )}
               <motion.div
                 variants={fadeUpChild}
                 className="relative overflow-hidden rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 sm:p-8 shadow-[0_30px_80px_rgba(15,23,42,0.15)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur"

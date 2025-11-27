@@ -17,8 +17,8 @@ const apiLimiter = rateLimit({
 
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5, // Limit auth endpoints to 5 requests per windowMs
-  message: 'Too many authentication attempts, please try again later.',
+  max: 10, // Allow a few more retries before blocking
+  message: 'Too many authentication attempts. Please wait 15 minutes and try again.',
   skipSuccessfulRequests: true,
   skip: (req) => {
     // Skip rate limiting for delete-unregistered-auth-user endpoint

@@ -8,12 +8,12 @@ import Button from '../../components/ui/Button';
 import CandidateFields from '../register/components/CandidateFields';
 import CompanyFields from '../register/components/CompanyFields';
 import TermsAndPrivacy from '../register/components/TermsAndPrivacy';
-import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
+import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const Onboarding = () => {
   const navigate = useNavigate();
-  const [user, setUser] = useState(null);
+  const { user, status, refresh } = useAuth();
   const [accountType, setAccountType] = useState('candidate');
   const [currentStep, setCurrentStep] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
@@ -62,56 +62,21 @@ const Onboarding = () => {
     }
   };
 
-  // Load user data and check if onboarding is needed
+  // Align account type with authenticated user & redirect if already onboarded
   useEffect(() => {
-    const checkOnboardingStatus = async () => {
-      try {
-        const { data } = await authHelpers.getSession();
-        const session = data?.session;
-        if (!session) {
-          navigate('/login');
-          return;
-        }
+    if (!user) return;
+    const normalizedAccountType = user.accountType?.toLowerCase() || 'candidate';
+    setAccountType(normalizedAccountType);
 
-        // Get user data from backend
-        try {
-          const userData = await apiClient.auth.getMe();
-          if (userData.success && userData.user) {
-            setUser(userData.user);
-            setAccountType(userData.user.accountType?.toLowerCase() || 'candidate');
-            
-            // Check if user has already completed onboarding
-            const isCandidate = userData.user.accountType?.toUpperCase() === 'CANDIDATE';
-            const isCompany = userData.user.accountType?.toUpperCase() === 'COMPANY';
-            
-            const candidateComplete = isCandidate && userData.user.experienceLevel && userData.user.industry;
-            const companyComplete = isCompany && userData.user.companyName;
-            
-            if (candidateComplete || companyComplete) {
-              // Already completed onboarding, redirect to dashboard
-              const dashboardRoute = isCandidate ? '/candidate-dashboard' : '/company-dashboard';
-              navigate(dashboardRoute);
-            }
-          } else {
-            // User doesn't exist in backend
-            throw new Error('User not found');
-          }
-        } catch (apiError) {
-          console.error('Failed to get user from backend:', apiError);
-          // Clear session and redirect to register
-          await authHelpers.signOut();
-          localStorage.clear();
-          navigate('/register');
-        }
-      } catch (error) {
-        console.error('Failed to check onboarding status:', error);
-        localStorage.clear();
-        navigate('/register');
-      }
-    };
+    const isCandidate = normalizedAccountType === 'candidate';
+    const candidateComplete = isCandidate && user.experienceLevel && user.industry;
+    const companyComplete = !isCandidate && user.companyName;
 
-    checkOnboardingStatus();
-  }, [navigate]);
+    if (candidateComplete || companyComplete) {
+      const dashboardRoute = isCandidate ? '/candidate-dashboard' : '/company-dashboard';
+      navigate(dashboardRoute, { replace: true });
+    }
+  }, [user, navigate]);
 
   const handleFieldChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -199,24 +164,21 @@ const Onboarding = () => {
 
       const response = await apiClient.auth.updateProfile(updateData);
 
-      if (response.success && response.user) {
-        // Update localStorage with complete user data
-        localStorage.setItem('user', JSON.stringify(response.user));
-        localStorage.setItem('isAuthenticated', 'true');
-        
-        // Clear onboarding flags
-        localStorage.removeItem('needsOnboarding');
-        localStorage.removeItem('pendingRegistration');
-        localStorage.removeItem('socialAuthIntent');
-        
-        // Redirect to dashboard
-        const dashboardRoute = accountType === 'candidate' 
-          ? '/candidate-dashboard' 
-          : '/company-dashboard';
-        navigate(dashboardRoute);
-      } else {
+      if (!response.success || !response.user) {
         throw new Error('Failed to update profile');
       }
+
+      await refresh();
+
+      // Clear onboarding flags
+      localStorage.removeItem('needsOnboarding');
+      localStorage.removeItem('pendingRegistration');
+      localStorage.removeItem('socialAuthIntent');
+
+      const dashboardRoute = accountType === 'candidate' 
+        ? '/candidate-dashboard' 
+        : '/company-dashboard';
+      navigate(dashboardRoute);
     } catch (error) {
       console.error('Onboarding error:', error);
       setErrors({ 
@@ -243,7 +205,7 @@ const Onboarding = () => {
     return 'Review and accept our terms';
   };
 
-  if (!user) {
+  if (status === 'loading' || !user) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="text-center">

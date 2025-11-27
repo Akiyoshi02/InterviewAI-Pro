@@ -4,6 +4,7 @@ import ScrollToTop from "components/ScrollToTop";
 import ErrorBoundary from "components/ErrorBoundary";
 import OAuthRedirectHandler from "components/OAuthRedirectHandler";
 import ThemeToggleButton from "components/ThemeToggleButton";
+import ProtectedRoute from "components/ProtectedRoute";
 import NotFound from "pages/NotFound";
 import HomePage from './pages/home';
 import LiveInterviewSession from './pages/live-interview-session';
@@ -29,15 +30,50 @@ const Routes = () => {
       <RouterRoutes>
         {/* Define your route here */}
         <Route path="/" element={<HomePage />} />
-        <Route path="/live-interview-session" element={<LiveInterviewSession />} />
-        <Route path="/company-dashboard" element={<CompanyDashboard />} />
+        <Route
+          path="/live-interview-session"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <LiveInterviewSession />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-dashboard"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyDashboard />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/login" element={<Login />} />
-        <Route path="/practice-interview-setup" element={<PracticeInterviewSetup />} />
+        <Route
+          path="/practice-interview-setup"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <PracticeInterviewSetup />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/register" element={<Register />} />
         <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/candidate-dashboard" element={<CandidateDashboard />} />
+        <Route
+          path="/candidate-dashboard"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CandidateDashboard />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/verify-email" element={<VerifyEmail />} />
-        <Route path="/onboarding" element={<Onboarding />} />
+        <Route
+          path="/onboarding"
+          element={(
+            <ProtectedRoute>
+              <Onboarding />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/support" element={<Support />} />
