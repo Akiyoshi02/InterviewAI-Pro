@@ -160,7 +160,7 @@ const Select = React.forwardRef(({
                     id={selectId}
                     type="button"
                     className={cn(
-                        "flex h-10 w-full items-center justify-between rounded-md border border-input bg-white dark:bg-slate-900 text-black dark:text-slate-100 px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+                        "flex h-11 sm:h-12 min-h-[44px] w-full items-center justify-between rounded-xl border border-input bg-white dark:bg-slate-900 text-black dark:text-slate-100 px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation transition-colors",
                         error && "border-destructive focus:ring-destructive",
                         !hasValue && "text-muted-foreground dark:text-slate-400"
                     )}
@@ -172,7 +172,7 @@ const Select = React.forwardRef(({
                 >
                     <span className="truncate">{getSelectedDisplay()}</span>
 
-                    <div className="flex items-center gap-1">
+                    <div className="flex items-center gap-1.5">
                         {loading && (
                             <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
                                 <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
@@ -184,14 +184,14 @@ const Select = React.forwardRef(({
                             <Button
                                 variant="ghost"
                                 size="icon"
-                                className="h-4 w-4"
+                                className="h-5 w-5 sm:h-4 sm:w-4"
                                 onClick={handleClear}
                             >
-                                <X className="h-3 w-3" />
+                                <X className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
                             </Button>
                         )}
 
-                        <ChevronDown className={cn("h-4 w-4 transition-transform", isOpen && "rotate-180")} />
+                        <ChevronDown className={cn("h-5 w-5 sm:h-4 sm:w-4 transition-transform", isOpen && "rotate-180")} />
                     </div>
                 </button>
 
@@ -215,24 +215,24 @@ const Select = React.forwardRef(({
 
                 {/* Dropdown */}
                 {isOpen && (
-                    <div className="absolute z-50 w-full mt-1 bg-white dark:bg-slate-900 text-black dark:text-slate-100 border border-border dark:border-slate-700 rounded-md shadow-md">
+                    <div className="absolute z-[9999] w-full mt-1 bg-white dark:bg-slate-900 text-black dark:text-slate-100 border border-border dark:border-slate-700 rounded-xl shadow-lg ring-1 ring-black ring-opacity-5 overflow-hidden">
                         {searchable && (
-                            <div className="p-2 border-b">
+                            <div className="p-2.5 sm:p-2 border-b border-gray-200 dark:border-slate-700">
                                 <div className="relative">
-                                    <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
+                                    <Search className="absolute left-2.5 sm:left-2 top-3 sm:top-2.5 h-4 w-4 text-muted-foreground" />
                                     <Input
                                         placeholder="Search options..."
                                         value={searchTerm}
                                         onChange={handleSearchChange}
-                                        className="pl-8"
+                                        className="pl-9 sm:pl-8"
                                     />
                                 </div>
                             </div>
                         )}
 
-                        <div className="py-1 max-h-60 overflow-auto">
+                        <div className="py-1 max-h-60 overflow-auto overscroll-contain">
                             {filteredOptions?.length === 0 ? (
-                                <div className="px-3 py-2 text-sm text-muted-foreground">
+                                <div className="px-4 sm:px-3 py-3 sm:py-2 text-sm text-muted-foreground dark:text-slate-400">
                                     {searchTerm ? 'No options found' : 'No options available'}
                                 </div>
                             ) : (
@@ -240,18 +240,25 @@ const Select = React.forwardRef(({
                                     <div
                                         key={option?.value}
                                         className={cn(
-                                            "relative flex cursor-pointer select-none items-center rounded-sm px-3 py-2 text-sm outline-none hover:bg-accent hover:text-accent-foreground",
-                                            isSelected(option?.value) && "bg-primary text-primary-foreground",
+                                            "relative flex cursor-pointer select-none items-center rounded-lg mx-1 px-3 sm:px-3 py-3 sm:py-2 text-base sm:text-sm outline-none transition-colors min-h-[44px] sm:min-h-0 touch-manipulation",
+                                            isSelected(option?.value) 
+                                                ? "bg-blue-600 dark:bg-blue-700 text-white" 
+                                                : "hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700 text-gray-900 dark:text-slate-100",
                                             option?.disabled && "pointer-events-none opacity-50"
                                         )}
                                         onClick={() => !option?.disabled && handleOptionSelect(option)}
                                     >
                                         <span className="flex-1">{option?.label}</span>
                                         {multiple && isSelected(option?.value) && (
-                                            <Check className="h-4 w-4" />
+                                            <Check className="h-5 w-5 sm:h-4 sm:w-4" />
                                         )}
                                         {option?.description && (
-                                            <span className="text-xs text-muted-foreground ml-2">
+                                            <span className={cn(
+                                                "text-xs ml-2",
+                                                isSelected(option?.value) 
+                                                    ? "text-white/80" 
+                                                    : "text-muted-foreground dark:text-slate-400"
+                                            )}>
                                                 {option?.description}
                                             </span>
                                         )}
@@ -263,12 +270,12 @@ const Select = React.forwardRef(({
                 )}
             </div>
             {description && !error && (
-                <p className="text-sm text-muted-foreground mt-1">
+                <p className="text-xs sm:text-sm text-muted-foreground mt-1.5 sm:mt-1">
                     {description}
                 </p>
             )}
             {error && (
-                <p className="text-sm text-destructive mt-1">
+                <p className="text-xs sm:text-sm text-destructive mt-1.5 sm:mt-1">
                     {error}
                 </p>
             )}

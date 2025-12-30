@@ -20,26 +20,6 @@ const AdvancedSettings = ({ settings, onSettingsChange, className = '' }) => {
     { value: 'customer-focus', label: 'Customer Focus' }
   ];
 
-  const interviewStyles = [
-    { value: 'formal', label: 'Formal & Professional' },
-    { value: 'conversational', label: 'Conversational & Relaxed' },
-    { value: 'challenging', label: 'Challenging & Rigorous' },
-    { value: 'supportive', label: 'Supportive & Encouraging' }
-  ];
-
-  const languages = [
-    { value: 'en', label: 'English' },
-    { value: 'es', label: 'Spanish' },
-    { value: 'fr', label: 'French' },
-    { value: 'de', label: 'German' },
-    { value: 'it', label: 'Italian' },
-    { value: 'pt', label: 'Portuguese' },
-    { value: 'zh', label: 'Chinese (Mandarin)' },
-    { value: 'ja', label: 'Japanese' },
-    { value: 'ko', label: 'Korean' },
-    { value: 'hi', label: 'Hindi' }
-  ];
-
   const handleSettingChange = (key, value) => {
     onSettingsChange({
       ...settings,
@@ -84,31 +64,6 @@ const AdvancedSettings = ({ settings, onSettingsChange, className = '' }) => {
             />
           </div>
 
-          {/* Interview Style */}
-          <div className="space-y-3">
-            <Select
-              label="Interview Style"
-              description="Choose the tone and approach for your AI interviewer"
-              options={interviewStyles}
-              value={settings?.interviewStyle || 'conversational'}
-              onChange={(value) => handleSettingChange('interviewStyle', value)}
-              placeholder="Select interview style..."
-            />
-          </div>
-
-          {/* Language Selection */}
-          <div className="space-y-3">
-            <Select
-              label="Interview Language"
-              description="Select the language for questions and feedback"
-              options={languages}
-              value={settings?.language || 'en'}
-              onChange={(value) => handleSettingChange('language', value)}
-              placeholder="Choose language..."
-              searchable
-            />
-          </div>
-
           {/* Additional Options */}
           <div className="space-y-4">
             <h4 className="font-semibold text-gray-900 dark:text-slate-100">Additional Options</h4>
@@ -124,14 +79,14 @@ const AdvancedSettings = ({ settings, onSettingsChange, className = '' }) => {
               <Checkbox
                 label="Include follow-up questions"
                 description="AI will ask clarifying questions based on your responses"
-                checked={settings?.followUpQuestions || true}
+                checked={settings?.followUpQuestions ?? true}
                 onChange={(e) => handleSettingChange('followUpQuestions', e?.target?.checked)}
               />
               
               <Checkbox
                 label="Record session for review"
                 description="Save audio/video for later analysis and improvement"
-                checked={settings?.recordSession || true}
+                checked={settings?.recordSession ?? true}
                 onChange={(e) => handleSettingChange('recordSession', e?.target?.checked)}
               />
               

@@ -1,7 +1,96 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
 import Button from './Button';
+import ProfileSettingsModal from './ProfileSettingsModal';
+import { useAuth } from '../../contexts/AuthContext.jsx';
+import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
+
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
+
+const normalizeUploadsPath = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+
+  const lower = trimmed.toLowerCase();
+  if (lower.startsWith('uploads/')) {
+    return `/${trimmed}`;
+  }
+
+  const uploadDirs = [
+    'profile-photos/',
+    'company-logos/',
+    'company-verifications/',
+    'resumes/',
+  ];
+
+  const matched = uploadDirs.find((dir) => lower.startsWith(dir));
+  if (matched) {
+    return `/uploads/${trimmed}`;
+  }
+
+  return '';
+};
+
+const buildAssetSources = (value) => {
+  if (!value || typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (
+    trimmed.startsWith('http://') ||
+    trimmed.startsWith('https://') ||
+    trimmed.startsWith('data:') ||
+    trimmed.startsWith('blob:')
+  ) {
+    return [trimmed];
+  }
+
+  const uploadsPath = normalizeUploadsPath(trimmed);
+  if (uploadsPath) {
+    const base = API_BASE_URL.replace(/\/$/, '');
+    const sources = [];
+    if (base) sources.push(`${base}${uploadsPath}`);
+    if (typeof window !== 'undefined') {
+      const origin = window.location.origin;
+      if (origin && origin !== base) {
+        sources.push(`${origin}${uploadsPath}`);
+      }
+    }
+    return sources;
+  }
+
+  if (trimmed.startsWith('gs://')) {
+    const match = trimmed.match(/^gs:\/\/([^/]+)\/(.+)$/);
+    if (match) {
+      const [, bucket, objectPath] = match;
+      return [
+        `https://firebasestorage.googleapis.com/v0/b/${bucket}/o/${encodeURIComponent(objectPath)}?alt=media`,
+      ];
+    }
+  }
+
+  if (FIREBASE_STORAGE_BUCKET && !trimmed.startsWith('/')) {
+    return [
+      `https://firebasestorage.googleapis.com/v0/b/${FIREBASE_STORAGE_BUCKET}/o/${encodeURIComponent(trimmed)}?alt=media`,
+    ];
+  }
+
+  const normalized = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const base = API_BASE_URL.replace(/\/$/, '');
+  const sources = [];
+  if (base) sources.push(`${base}${normalized}`);
+  if (typeof window !== 'undefined') {
+    const origin = window.location.origin;
+    if (origin && origin !== base) {
+      sources.push(`${origin}${normalized}`);
+    }
+  }
+  return sources;
+};
 
 const UserContextNavigation = ({ 
   userType = 'candidate', 
@@ -9,7 +98,11 @@ const UserContextNavigation = ({
   onToggleCollapse,
   className = '' 
 }) => {
+  const { user } = useAuth();
   const [activeItem, setActiveItem] = useState('/candidate-dashboard');
+  const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [profileImageIndex, setProfileImageIndex] = useState(0);
+  const [profileImageFailed, setProfileImageFailed] = useState(false);
 
   useEffect(() => {
     const currentPath = window.location?.pathname;
@@ -22,6 +115,12 @@ const UserContextNavigation = ({
       path: '/candidate-dashboard', 
       icon: 'LayoutDashboard',
       description: 'Overview and progress tracking'
+    },
+    { 
+      label: 'Jobs', 
+      path: '/jobs', 
+      icon: 'Briefcase',
+      description: 'Browse available positions'
     },
     { 
       label: 'Practice Interview', 
@@ -65,110 +164,252 @@ const UserContextNavigation = ({
     window.location.href = path;
   };
 
-  return (
-    <aside
-      className={`hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 transition-all duration-300 ${
-        isCollapsed ? 'lg:w-20' : 'lg:w-72'
-      } ${className}`}
-    >
-      <div className="relative w-full h-full">
-        <div className="absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-        <div className="relative z-10 flex flex-col h-full border-r border-white/20 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl">
-        {/* Header */}
-        <div className="flex items-center justify-between p-4 border-b border-white/20 dark:border-slate-800">
-          {!isCollapsed && (
-            <BrandMark
-              className="items-center"
-              iconWrapperClassName="w-9 h-9"
-              textClassName="text-lg"
-              showTagline={false}
-            />
-          )}
-          
-          {onToggleCollapse && (
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={onToggleCollapse}
-              className={`rounded-2xl border border-white/40 dark:border-slate-700/50 ${isCollapsed ? 'mx-auto' : ''}`}
-            >
-              <Icon name={isCollapsed ? "ChevronRight" : "ChevronLeft"} size={20} />
-            </Button>
-          )}
-        </div>
+  const handleProfileClick = () => {
+    setIsProfileOpen(true);
+  };
 
-        {/* Navigation Items */}
-        <nav className="flex-1 p-4 space-y-2">
-          {navigationItems?.map((item) => {
+  const storedUser = useMemo(() => {
+    if (typeof window === 'undefined') return null;
+    try {
+      return JSON.parse(window.localStorage.getItem('user') || 'null');
+    } catch {
+      return null;
+    }
+  }, [user]);
+
+  const profileImage = userType === 'company'
+    ? user?.companyLogoUrl
+      || user?.organizationContext?.organization?.branding?.logoUrl
+      || storedUser?.companyLogoUrl
+      || storedUser?.organizationContext?.organization?.branding?.logoUrl
+    : user?.profilePhotoUrl
+      || user?.photoURL
+      || user?.user_metadata?.photoURL
+      || storedUser?.profilePhotoUrl
+      || storedUser?.photoURL
+      || storedUser?.user_metadata?.photoURL;
+
+  const profileImageSources = useMemo(
+    () => buildAssetSources(profileImage),
+    [profileImage]
+  );
+
+  useEffect(() => {
+    setProfileImageIndex(0);
+    setProfileImageFailed(false);
+  }, [profileImageSources]);
+
+  const profileImageUrl = profileImageFailed
+    ? ''
+    : (profileImageSources[profileImageIndex] || '');
+
+  const handleProfileImageError = () => {
+    if (profileImageIndex < profileImageSources.length - 1) {
+      setProfileImageIndex((prev) => prev + 1);
+      return;
+    }
+    setProfileImageFailed(true);
+  };
+
+  const displayName = user?.fullName
+    || storedUser?.fullName
+    || user?.email?.split('@')?.[0]
+    || storedUser?.email?.split('@')?.[0]
+    || (userType === 'candidate' ? 'Candidate' : 'Team');
+
+  const candidateRoleRaw = user?.targetRole
+    || storedUser?.targetRole
+    || '';
+  const candidateRole = formatCandidateFieldValue('targetRole', candidateRoleRaw)
+    || 'Job Seeker';
+
+  const companyRole = user?.jobTitle
+    || storedUser?.jobTitle
+    || 'Hiring Manager';
+
+  return (
+    <>
+      {/* Desktop Sidebar */}
+      <aside
+        className={`hidden lg:flex lg:fixed lg:inset-y-0 lg:left-0 lg:z-40 lg:top-14 xs:lg:top-16 transition-all duration-300 ease-out ${
+          isCollapsed ? 'lg:w-20' : 'lg:w-72 xl:w-80'
+        } ${className}`}
+      >
+        <div className="relative w-full h-full">
+          <div className="absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
+          <div className="relative z-10 flex flex-col h-full border-r border-white/20 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl">
+            {/* Header */}
+            <div className="flex items-center justify-between p-3 xl:p-4 border-b border-white/20 dark:border-slate-800">
+              {!isCollapsed && (
+                <BrandMark
+                  className="items-center"
+                  iconWrapperClassName="w-8 h-8 xl:w-9 xl:h-9"
+                  textClassName="text-base xl:text-lg"
+                  showTagline={false}
+                />
+              )}
+              
+              {onToggleCollapse && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={onToggleCollapse}
+                  className={`rounded-xl border border-white/40 dark:border-slate-700/50 w-9 h-9 min-w-[36px] ${isCollapsed ? 'mx-auto' : ''}`}
+                  aria-label={isCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+                >
+                  <Icon name={isCollapsed ? "ChevronRight" : "ChevronLeft"} size={18} />
+                </Button>
+              )}
+            </div>
+
+            {/* Navigation Items */}
+            <nav className="flex-1 p-3 xl:p-4 space-y-1.5 overflow-y-auto scroll-container">
+              {navigationItems?.map((item) => {
+                const isActive = activeItem === item?.path;
+                
+                return (
+                  <button
+                    key={item?.path}
+                    onClick={() => handleNavigation(item?.path)}
+                    className={`w-full flex items-center gap-3 px-3 py-2.5 xl:py-3 rounded-xl xl:rounded-2xl transition-all duration-200 group min-h-touch ${
+                      isActive
+                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
+                        : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-white/70 dark:hover:bg-slate-800/70'
+                    }`}
+                    title={isCollapsed ? item?.label : ''}
+                    aria-current={isActive ? 'page' : undefined}
+                  >
+                    <Icon 
+                      name={item?.icon} 
+                      size={20} 
+                      className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400 dark:text-slate-500'}`}
+                    />
+                    {!isCollapsed && (
+                      <div className="flex-1 text-left min-w-0">
+                        <div className="font-semibold text-sm xl:text-base truncate">{item?.label}</div>
+                        <div className={`text-xs truncate ${
+                          isActive ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'
+                        }`}>
+                          {item?.description}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </nav>
+
+            {/* User Context Indicator */}
+            <div className="p-3 xl:p-4 border-t border-white/20 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={handleProfileClick}
+                className={`group w-full text-left flex items-center gap-3 px-3 py-2.5 rounded-xl xl:rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 shadow-inner transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_18px_40px_rgba(59,130,246,0.16)] focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 min-h-touch ${
+                  isCollapsed ? 'justify-center' : ''
+                }`}
+                aria-label="Open profile settings"
+              >
+                <div className={`rounded-full border border-white/70 dark:border-slate-700/60 bg-white/90 dark:bg-slate-900/90 flex items-center justify-center overflow-hidden shadow flex-shrink-0 ${
+                  isCollapsed ? 'w-10 h-10' : 'w-12 h-12 xl:w-14 xl:h-14'
+                }`}>
+                  {profileImageUrl ? (
+                    <img
+                      src={profileImageUrl}
+                      alt="Profile"
+                      className="h-full w-full object-cover"
+                      onError={handleProfileImageError}
+                    />
+                  ) : (
+                    <Icon
+                      name={userType === 'company' ? 'Building2' : 'UserRound'}
+                      size={isCollapsed ? 18 : 22}
+                      className="text-blue-600 dark:text-blue-400"
+                    />
+                  )}
+                </div>
+                
+                {!isCollapsed && (
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm xl:text-base text-gray-900 dark:text-slate-100 truncate">
+                      {userType === 'candidate' ? displayName : `${userType} Mode`}
+                    </div>
+                    <div className="text-xs text-gray-500 dark:text-slate-400 truncate">
+                      {userType === 'candidate' ? candidateRole : companyRole}
+                    </div>
+                  </div>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* Mobile Bottom Navigation */}
+      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding">
+        <div className="flex items-center justify-around h-16 xs:h-18 px-2">
+          {navigationItems?.slice(0, 4).map((item) => {
             const isActive = activeItem === item?.path;
             
             return (
               <button
                 key={item?.path}
                 onClick={() => handleNavigation(item?.path)}
-                className={`w-full flex items-center space-x-3 px-3 py-3 rounded-2xl transition-all duration-200 group ${
+                className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-w-[60px] ${
                   isActive
-                    ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
-                    : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-white/70 dark:hover:bg-slate-800/70'
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-gray-500 dark:text-slate-400'
                 }`}
-                title={isCollapsed ? item?.label : ''}
+                aria-current={isActive ? 'page' : undefined}
               >
-                <Icon 
-                  name={item?.icon} 
-                  size={20} 
-                  className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400 dark:text-slate-500'}`}
-                />
-                {!isCollapsed && (
-                  <div className="flex-1 text-left">
-                    <div className="font-semibold">{item?.label}</div>
-                    <div className={`text-xs ${
-                      isActive ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'
-                    }`}>
-                      {item?.description}
-                    </div>
-                  </div>
-                )}
+                <div className={`p-1.5 rounded-lg transition-colors ${
+                  isActive ? 'bg-blue-100 dark:bg-blue-900/50' : ''
+                }`}>
+                  <Icon 
+                    name={item?.icon} 
+                    size={20} 
+                    className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                  />
+                </div>
+                <span className="text-[10px] xs:text-xs font-medium truncate max-w-[60px]">
+                  {item?.label?.split(' ')[0]}
+                </span>
               </button>
             );
           })}
-        </nav>
-
-        {/* User Context Indicator */}
-        <div className="p-4 border-t border-white/20 dark:border-slate-800">
-          <div
-            className={`flex items-center space-x-3 px-4 py-3 rounded-2xl bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 shadow-inner ${
-              isCollapsed ? 'justify-center' : ''
-            }`}
+          
+          {/* Profile button on mobile */}
+          <button
+            onClick={handleProfileClick}
+            className="flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl text-gray-500 dark:text-slate-400 min-w-[60px]"
+            aria-label="Profile"
           >
-            <div
-              className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow ${
-                userType === 'candidate'
-                  ? 'bg-gradient-to-br from-emerald-500 to-teal-500 text-white'
-                  : 'bg-gradient-to-br from-purple-600 to-blue-600 text-white'
-              }`}
-            >
-              <Icon
-                name={userType === 'candidate' ? 'User' : 'Building'}
-                size={18}
-                color="currentColor"
-              />
+            <div className="w-7 h-7 rounded-full border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
+              {profileImageUrl ? (
+                <img
+                  src={profileImageUrl}
+                  alt="Profile"
+                  className="h-full w-full object-cover"
+                  onError={handleProfileImageError}
+                />
+              ) : (
+                <Icon
+                  name={userType === 'company' ? 'Building2' : 'UserRound'}
+                  size={14}
+                  className="text-gray-400 dark:text-slate-500"
+                />
+              )}
             </div>
-            
-            {!isCollapsed && (
-              <div className="flex-1">
-                <div className="font-semibold text-gray-900 dark:text-slate-100 capitalize">
-                  {userType} Mode
-                </div>
-                <div className="text-xs text-gray-500 dark:text-slate-400">
-                  {userType === 'candidate' ? 'Job Seeker' : 'Hiring Manager'}
-                </div>
-              </div>
-            )}
-          </div>
+            <span className="text-[10px] xs:text-xs font-medium">Profile</span>
+          </button>
         </div>
-      </div>
-      </div>
-    </aside>
+      </nav>
+
+      <ProfileSettingsModal
+        open={isProfileOpen}
+        onClose={() => setIsProfileOpen(false)}
+        userType={userType}
+      />
+    </>
   );
 };
 

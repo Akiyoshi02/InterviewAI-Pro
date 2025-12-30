@@ -3,6 +3,7 @@ import { organizationMemberStore, organizationStore, userStore } from '../servic
 import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { validateCandidateProfilePhoto, validateCompanyLogo } from '../services/imageModeration.service.js';
+import { validateBusinessVerificationDocument, validateResumeDocument } from '../services/documentModeration.service.js';
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -16,6 +17,17 @@ const sanitizeUser = (user) => {
     companyName: user.companyName || null,
     companySize: user.companySize || null,
     industry: user.industry || null,
+    gender: user.gender || null,
+    targetRole: user.targetRole || null,
+    careerGoals: user.careerGoals || null,
+    location: user.location || null,
+    preferredLanguage: user.preferredLanguage || null,
+    jobTitle: user.jobTitle || null,
+    department: user.department || null,
+    hiringVolume: user.hiringVolume || null,
+    companyWebsite: user.companyWebsite || null,
+    companyLocation: user.companyLocation || null,
+    phoneNumber: user.phoneNumber || null,
     profilePhotoUrl: user.profilePhotoUrl || null,
     resumeUrl: user.resumeUrl || null,
     resumeOriginalName: user.resumeOriginalName || null,
@@ -108,11 +120,33 @@ export class AuthController {
     if (companyLogo?.path) uploadedPaths.push(companyLogo.path);
     if (companyProof?.path) uploadedPaths.push(companyProof.path);
     let userCreated = false;
+    let businessVerificationResult = null;
+    let resumeValidationResult = null;
 
     try {
-      const { accountType, fullName, experienceLevel, companyName, industry, companySize, skills } = req.body;
+      const {
+        accountType,
+        fullName,
+        experienceLevel,
+        companyName,
+        industry,
+        companySize,
+        skills,
+        companyLocation,
+        gender,
+        targetRole,
+        careerGoals,
+        location,
+        preferredLanguage,
+        jobTitle,
+        department,
+        hiringVolume,
+        companyWebsite,
+        phoneNumber,
+      } = req.body;
       const firebaseUid = req.user.uid;
       const email = (req.user.email || '').toLowerCase();
+      const accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
 
       if (accountTypeEnum === 'CANDIDATE') {
         if (!profilePhoto) {
@@ -137,7 +171,24 @@ export class AuthController {
         }
 
         await validateCandidateProfilePhoto(profilePhoto.path);
-        await validateCompanyLogo(companyLogo.path);
+        resumeValidationResult = await validateResumeDocument(
+          resumeFile.path,
+          resumeFile,
+          {
+            expectedFullName: fullName,
+            expectedEmail: req.body?.email || email,
+          }
+        );
+
+        if (resumeValidationResult?.hash) {
+          const duplicateResumes = await userStore.findByResumeHash(resumeValidationResult.hash);
+          if (duplicateResumes.length) {
+            const existingCandidate = duplicateResumes[0]?.fullName || 'another candidate';
+            const error = new Error(`This résumé is already linked to ${existingCandidate}. Please upload a unique document.`);
+            error.status = 400;
+            throw error;
+          }
+        }
       }
 
       if (accountTypeEnum === 'COMPANY') {
@@ -162,6 +213,25 @@ export class AuthController {
           throw error;
         }
 
+        await validateCompanyLogo(companyLogo.path);
+        businessVerificationResult = await validateBusinessVerificationDocument(
+          companyProof.path,
+          companyProof,
+          {
+            expectedCompanyName: companyName,
+            expectedCountry: companyLocation,
+          }
+        );
+
+        if (businessVerificationResult?.hash) {
+          const duplicateDocs = await userStore.findByVerificationHash(businessVerificationResult.hash);
+          if (duplicateDocs.length) {
+            const existingCompany = duplicateDocs[0]?.companyName || 'another organization';
+            const error = new Error(`This verification document is already linked to ${existingCompany}. Please upload a unique certificate.`);
+            error.status = 400;
+            throw error;
+          }
+        }
       }
 
       // Prevent duplicate registrations by UID
@@ -181,8 +251,6 @@ export class AuthController {
           user: sanitizeUser(existingUserByEmail),
         });
       }
-
-      const accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
 
       let primaryOrganizationId = null;
       let organizationRoles = [];
@@ -216,7 +284,18 @@ export class AuthController {
         skills: accountTypeEnum === 'CANDIDATE' ? (skills || []) : [],
         companyName: accountTypeEnum === 'COMPANY' ? companyName || null : null,
         companySize: accountTypeEnum === 'COMPANY' ? companySize || null : null,
-        industry: accountTypeEnum === 'COMPANY' ? industry || null : null,
+        industry: industry || null,
+        gender: accountTypeEnum === 'CANDIDATE' ? gender || null : null,
+        targetRole: accountTypeEnum === 'CANDIDATE' ? targetRole || null : null,
+        careerGoals: accountTypeEnum === 'CANDIDATE' ? careerGoals || null : null,
+        location: accountTypeEnum === 'CANDIDATE' ? location || null : null,
+        preferredLanguage: accountTypeEnum === 'CANDIDATE' ? preferredLanguage || null : null,
+        jobTitle: accountTypeEnum === 'COMPANY' ? jobTitle || null : null,
+        department: accountTypeEnum === 'COMPANY' ? department || null : null,
+        hiringVolume: accountTypeEnum === 'COMPANY' ? hiringVolume || null : null,
+        companyWebsite: accountTypeEnum === 'COMPANY' ? companyWebsite || null : null,
+        companyLocation: accountTypeEnum === 'COMPANY' ? companyLocation || null : null,
+        phoneNumber: accountTypeEnum === 'COMPANY' ? phoneNumber || null : null,
         primaryOrganizationId,
         organizationRoles,
         profilePhotoUrl:
@@ -226,6 +305,14 @@ export class AuthController {
         resumeUrl:
           accountTypeEnum === 'CANDIDATE' ? buildUploadUrl(RESUME_BASE_PATH, resumeFile?.filename) : null,
         resumeOriginalName: accountTypeEnum === 'CANDIDATE' ? resumeFile?.originalname || null : null,
+        resumeHash:
+          accountTypeEnum === 'CANDIDATE'
+            ? resumeValidationResult?.hash || null
+            : null,
+        resumeInsights:
+          accountTypeEnum === 'CANDIDATE'
+            ? resumeValidationResult?.analysis || null
+            : null,
         companyLogoUrl:
           accountTypeEnum === 'COMPANY'
             ? buildUploadUrl(COMPANY_LOGO_BASE_PATH, companyLogo?.filename)
@@ -236,6 +323,14 @@ export class AuthController {
             : null,
         companyVerificationOriginalName:
           accountTypeEnum === 'COMPANY' ? companyProof?.originalname || null : null,
+        companyVerificationHash:
+          accountTypeEnum === 'COMPANY'
+            ? businessVerificationResult?.hash || null
+            : null,
+        companyVerificationInsights:
+          accountTypeEnum === 'COMPANY'
+            ? businessVerificationResult?.analysis || null
+            : null,
       });
       userCreated = true;
 
@@ -277,7 +372,25 @@ export class AuthController {
   static async updateMe(req, res, next) {
     try {
       const firebaseUid = req.user.uid;
-      const allowedFields = ['fullName', 'experienceLevel', 'skills', 'companyName', 'companySize', 'industry'];
+      const allowedFields = [
+        'fullName',
+        'experienceLevel',
+        'skills',
+        'companyName',
+        'companySize',
+        'industry',
+        'gender',
+        'targetRole',
+        'careerGoals',
+        'location',
+        'preferredLanguage',
+        'jobTitle',
+        'department',
+        'hiringVolume',
+        'companyWebsite',
+        'companyLocation',
+        'phoneNumber',
+      ];
 
       const data = {};
       allowedFields.forEach((field) => {
@@ -321,6 +434,74 @@ export class AuthController {
     }
   }
 
+  static async updateProfilePhoto(req, res, next) {
+    const profilePhoto = req.file;
+    const uploadedPaths = [];
+    if (profilePhoto?.path) uploadedPaths.push(profilePhoto.path);
+
+    try {
+      if (!profilePhoto) {
+        const error = new Error('Profile photo is required.');
+        error.status = 400;
+        throw error;
+      }
+      if (profilePhoto.size > PROFILE_PHOTO_MAX_BYTES) {
+        const error = new Error('Profile photo must be 5 MB or less.');
+        error.status = 400;
+        throw error;
+      }
+
+      await validateCandidateProfilePhoto(profilePhoto.path);
+
+      const updated = await userStore.update(req.user.uid, {
+        profilePhotoUrl: buildUploadUrl(PROFILE_PHOTO_BASE_PATH, profilePhoto.filename),
+      });
+
+      const organization = req.user.organizationContext?.organization || null;
+      const membership = req.user.organizationContext?.membership || null;
+
+      res.json({ success: true, user: buildUserResponse(updated, organization, membership) });
+    } catch (error) {
+      await cleanupUploadedFiles(uploadedPaths);
+      logger.error('Update profile photo error:', error);
+      next(error);
+    }
+  }
+
+  static async updateCompanyLogo(req, res, next) {
+    const companyLogo = req.file;
+    const uploadedPaths = [];
+    if (companyLogo?.path) uploadedPaths.push(companyLogo.path);
+
+    try {
+      if (!companyLogo) {
+        const error = new Error('Company logo is required.');
+        error.status = 400;
+        throw error;
+      }
+      if (companyLogo.size > COMPANY_LOGO_MAX_BYTES) {
+        const error = new Error('Company logo must be 5 MB or less.');
+        error.status = 400;
+        throw error;
+      }
+
+      await validateCompanyLogo(companyLogo.path);
+
+      const updated = await userStore.update(req.user.uid, {
+        companyLogoUrl: buildUploadUrl(COMPANY_LOGO_BASE_PATH, companyLogo.filename),
+      });
+
+      const organization = req.user.organizationContext?.organization || null;
+      const membership = req.user.organizationContext?.membership || null;
+
+      res.json({ success: true, user: buildUserResponse(updated, organization, membership) });
+    } catch (error) {
+      await cleanupUploadedFiles(uploadedPaths);
+      logger.error('Update company logo error:', error);
+      next(error);
+    }
+  }
+
   static async deleteUnregisteredAuthUser(req, res, next) {
     try {
       const { userId } = req.body;
@@ -328,6 +509,21 @@ export class AuthController {
       if (!userId) {
         logger.warn('deleteUnregisteredAuthUser: userId is missing in request');
         return res.status(400).json({ error: 'userId is required' });
+      }
+
+      if (!req.user?.uid) {
+        return res.status(401).json({ error: 'User not authenticated', success: false });
+      }
+
+      if (req.user.uid !== userId) {
+        logger.warn('deleteUnregisteredAuthUser: uid mismatch', {
+          requestedUserId: userId,
+          callerUid: req.user.uid,
+        });
+        return res.status(403).json({
+          error: 'Forbidden',
+          success: false,
+        });
       }
 
       logger.info(`Attempting to delete unregistered auth user: ${userId}`);

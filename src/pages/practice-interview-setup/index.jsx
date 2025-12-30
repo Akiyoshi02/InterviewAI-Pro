@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useToast } from '../../components/ui/Toast';
 
 // Import all components
 import JobRoleSelector from './components/JobRoleSelector';
@@ -21,6 +22,7 @@ import PreparationChecklist from './components/PreparationChecklist';
 const PracticeInterviewSetup = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+  const { success: showSuccessToast } = useToast();
   const [currentStep, setCurrentStep] = useState(1);
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isChecklistComplete, setIsChecklistComplete] = useState(false);
@@ -34,10 +36,11 @@ const PracticeInterviewSetup = () => {
     industry: '',
     interviewTypes: [],
     sessionDuration: 30,
-    interviewer: 'sarah',
+    personality: null, // AI interviewer personality traits
+    voice: null, // Voice/actor selection (separate from personality)
+    interviewerName: null, // Generated or custom interviewer name
     advancedSettings: {
       skillFocus: [],
-      interviewStyle: 'conversational',
       language: 'en',
       realTimeFeedback: false,
       followUpQuestions: true,
@@ -80,7 +83,7 @@ const PracticeInterviewSetup = () => {
       case 2:
         return formData?.interviewTypes?.length > 0 && formData?.sessionDuration;
       case 3:
-        return formData?.interviewer;
+        return formData?.personality && formData?.voice;
       case 4:
         return isChecklistComplete;
       default:
@@ -128,6 +131,7 @@ const PracticeInterviewSetup = () => {
       }
 
       // Prepare interview data for API
+      // Include all configuration data for backend storage and retrieval
       const interviewData = {
         mode: 'PRACTICE',
         jobRole: formData.jobRole,
@@ -136,6 +140,13 @@ const PracticeInterviewSetup = () => {
         interviewTypes: formData.interviewTypes || [],
         skillFocus: formData.advancedSettings?.skillFocus || [],
         duration: formData.sessionDuration || 30,
+        // Include additional configuration for backend storage
+        config: {
+          personality: formData.personality,
+          voice: formData.voice,
+          interviewerName: formData.interviewerName,
+          advancedSettings: formData.advancedSettings,
+        }
       };
 
       // Create interview via API
@@ -233,8 +244,12 @@ const PracticeInterviewSetup = () => {
       case 3:
         return (
           <AIInterviewerPreview
-            selectedInterviewer={formData?.interviewer}
-            onInterviewerChange={(interviewer) => updateFormData('interviewer', interviewer)}
+            selectedPersonality={formData?.personality}
+            onPersonalityChange={(personality) => updateFormData('personality', personality)}
+            selectedVoice={formData?.voice}
+            onVoiceChange={(voice) => updateFormData('voice', voice)}
+            interviewerName={formData?.interviewerName}
+            onInterviewerNameChange={(name) => updateFormData('interviewerName', name)}
           />
         );
       
@@ -262,6 +277,8 @@ const PracticeInterviewSetup = () => {
           navigate('/login');
         }}
       />
+      {/* Spacer for fixed header */}
+      <div className="h-14 xs:h-16" />
       <div className="flex">
         <UserContextNavigation
           userType="candidate"
@@ -269,44 +286,44 @@ const PracticeInterviewSetup = () => {
           onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
         />
         
-        <main className={`flex-1 transition-all duration-300 ${
-          isNavCollapsed ? 'lg:ml-16' : 'lg:ml-64'
+        <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${
+          isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'
         }`}>
           <motion.section
             variants={sectionReveal}
             initial="hidden"
             whileInView="visible"
             viewport={viewportConfig}
-            className="max-w-4xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6 md:py-8"
+            className="container-responsive py-4 xs:py-5 sm:py-6 md:py-8 max-w-4xl mx-auto"
           >
             {/* Header */}
             <motion.div 
               variants={fadeUpChild}
-              className="mb-6 sm:mb-7 md:mb-8"
+              className="mb-4 xs:mb-5 sm:mb-6 md:mb-8"
             >
-              <div className="relative overflow-hidden rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 sm:p-8 shadow-[0_30px_80px_rgba(15,23,42,0.15)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur">
+              <div className="card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark">
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-                <div className="relative z-10 flex items-center space-x-2 sm:space-x-3 mb-3 sm:mb-4">
-                  <div className="w-10 h-10 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-gradient-to-br from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20">
-                    <Icon name="Settings" size={20} className="sm:w-6 sm:h-6" color="white" />
+                <div className="relative z-10 flex items-center gap-2 xs:gap-3 mb-3 sm:mb-4">
+                  <div className="w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 flex-shrink-0">
+                    <Icon name="Settings" size={18} className="xs:w-5 xs:h-5 sm:w-6 sm:h-6" color="white" />
                   </div>
-                  <div>
-                    <h1 className="text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-slate-100">Practice Interview Setup</h1>
-                    <p className="text-xs sm:text-sm md:text-base text-gray-600 dark:text-slate-300">
+                  <div className="min-w-0">
+                    <h1 className="text-lg xs:text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-slate-100 truncate">Practice Interview Setup</h1>
+                    <p className="text-[11px] xs:text-xs sm:text-sm md:text-base text-gray-600 dark:text-slate-300 line-clamp-2">
                       Configure your AI-powered interview session for optimal practice
                     </p>
                   </div>
                 </div>
 
                 {/* Progress Steps */}
-                <div className="flex items-center justify-between mb-6 sm:mb-7 md:mb-8">
+                <div className="flex items-center justify-between mb-4 xs:mb-5 sm:mb-6 md:mb-8 gap-1">
                   {steps?.map((step, index) => (
                     <React.Fragment key={step?.id}>
-                      <div className="flex items-center space-x-2 sm:space-x-3">
+                      <div className="flex items-center gap-1 xs:gap-2 sm:gap-3">
                         <button
                           onClick={() => setCurrentStep(step?.id)}
                           disabled={step?.id > currentStep && !isStepComplete(step?.id - 1)}
-                          className={`w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 ${
+                          className={`w-9 h-9 xs:w-10 xs:h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
                             currentStep === step?.id
                               ? 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
                               : isStepComplete(step?.id)
@@ -314,16 +331,16 @@ const PracticeInterviewSetup = () => {
                               : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
                           } ${
                             step?.id <= currentStep || isStepComplete(step?.id - 1)
-                              ? 'cursor-pointer hover:scale-110' : 'cursor-not-allowed opacity-50'
+                              ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-not-allowed opacity-50'
                           }`}
                         >
                           {isStepComplete(step?.id) && currentStep !== step?.id ? (
-                            <Icon name="Check" size={16} className="sm:w-5 sm:h-5" />
+                            <Icon name="Check" size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
                           ) : (
-                            <Icon name={step?.icon} size={16} className="sm:w-5 sm:h-5" />
+                            <Icon name={step?.icon} size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
                           )}
                         </button>
-                        <div className="hidden md:block">
+                        <div className="hidden lg:block">
                           <p className={`text-xs sm:text-sm font-medium ${
                             currentStep === step?.id ? 'text-blue-600' : 
                             isStepComplete(step?.id) ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'
@@ -334,7 +351,7 @@ const PracticeInterviewSetup = () => {
                       </div>
                       
                       {index < steps?.length - 1 && (
-                        <div className={`flex-1 h-1 mx-2 sm:mx-3 md:mx-4 rounded-full ${
+                        <div className={`flex-1 h-1 mx-1 xs:mx-2 sm:mx-3 md:mx-4 rounded-full min-w-[16px] ${
                           isStepComplete(step?.id) ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : 'bg-gray-200 dark:bg-slate-700'
                         }`}></div>
                       )}
@@ -347,7 +364,7 @@ const PracticeInterviewSetup = () => {
             {/* Step Content */}
             <motion.div 
               variants={fadeUpChild}
-              className="relative overflow-hidden rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 sm:p-8 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur mb-6 sm:mb-7 md:mb-8"
+              className="card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark mb-4 xs:mb-5 sm:mb-6 md:mb-8"
             >
               <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.1),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.1),transparent_40%)]" />
               <div className="relative z-10">
@@ -358,7 +375,7 @@ const PracticeInterviewSetup = () => {
             {/* Navigation Controls */}
             <motion.div 
               variants={fadeUpChild}
-              className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 sm:gap-4"
+              className="flex flex-col xs:flex-row items-stretch xs:items-center justify-between gap-3 xs:gap-4"
             >
               <Button
                 variant="outline"
@@ -366,21 +383,21 @@ const PracticeInterviewSetup = () => {
                 iconPosition="left"
                 onClick={handlePrevious}
                 disabled={currentStep === 1}
-                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm md:text-base w-full sm:w-auto"
+                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm md:text-base w-full xs:w-auto"
               >
                 Previous
               </Button>
 
-              <div className="flex flex-col items-stretch sm:items-end space-y-2 sm:space-y-3">
+              <div className="flex flex-col items-stretch xs:items-end gap-2 xs:gap-3">
                 {error && (
-                  <div className="p-3 sm:p-4 bg-red-50 border border-red-200 rounded-2xl">
-                    <div className="flex items-center space-x-2">
-                      <Icon name="AlertCircle" size={16} className="text-red-600" />
-                      <p className="text-xs sm:text-sm text-red-600">{error}</p>
+                  <div className="p-3 sm:p-4 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-xl sm:rounded-2xl">
+                    <div className="flex items-center gap-2">
+                      <Icon name="AlertCircle" size={14} className="text-red-600 dark:text-red-400 flex-shrink-0" />
+                      <p className="text-xs sm:text-sm text-red-600 dark:text-red-400">{error}</p>
                     </div>
                   </div>
                 )}
-                <div className="flex items-center space-x-2 sm:space-x-3">
+                <div className="flex items-center gap-2 xs:gap-3 w-full xs:w-auto">
                   {currentStep < steps?.length ? (
                     <Button
                       variant="default"
@@ -388,7 +405,7 @@ const PracticeInterviewSetup = () => {
                       iconPosition="right"
                       onClick={handleNext}
                       disabled={!canProceedToNext()}
-                      className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm md:text-base w-full sm:w-auto"
+                      className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm md:text-base flex-1 xs:flex-none"
                     >
                       Next Step
                     </Button>
@@ -400,9 +417,9 @@ const PracticeInterviewSetup = () => {
                       onClick={handleStartInterview}
                       disabled={!canStartInterview() || isCreating}
                       loading={isCreating}
-                      className="rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 border-none text-white shadow-md shadow-emerald-500/30 hover:from-emerald-700 hover:to-teal-700 px-4 sm:px-6 md:px-8 text-xs sm:text-sm md:text-base w-full sm:w-auto"
+                      className="rounded-full bg-gradient-to-r from-emerald-600 to-teal-600 border-none text-white shadow-md shadow-emerald-500/30 hover:from-emerald-700 hover:to-teal-700 px-4 sm:px-6 md:px-8 text-xs sm:text-sm md:text-base flex-1 xs:flex-none"
                     >
-                      {isCreating ? 'Creating Interview...' : 'Start Interview'}
+                      {isCreating ? 'Creating...' : 'Start Interview'}
                     </Button>
                   )}
                 </div>
@@ -412,17 +429,17 @@ const PracticeInterviewSetup = () => {
             {/* Quick Actions */}
             <motion.div 
               variants={fadeUpChild}
-              className="mt-6 sm:mt-7 md:mt-8 relative overflow-hidden rounded-3xl border border-white/30 bg-white/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] backdrop-blur"
+              className="mt-4 xs:mt-5 sm:mt-6 md:mt-8 card-base p-4 xs:p-5 sm:p-6 shadow-glass dark:shadow-glass-dark"
             >
-              <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%)]" />
-              <div className="relative z-10 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 sm:gap-4">
-                <div className="flex items-center space-x-2">
-                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-md shadow-blue-500/20">
-                    <Icon name="Lightbulb" size={16} className="text-white" />
+              <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%)] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%)]" />
+              <div className="relative z-10 flex flex-col xs:flex-row items-start xs:items-center justify-between gap-3 xs:gap-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-md shadow-blue-500/20 flex-shrink-0">
+                    <Icon name="Lightbulb" size={14} className="text-white" />
                   </div>
-                  <span className="text-xs sm:text-sm font-semibold text-gray-900">Quick Actions</span>
+                  <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100">Quick Actions</span>
                 </div>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2 w-full xs:w-auto">
                   <Button
                     variant="outline"
                     size="sm"
@@ -435,10 +452,9 @@ const PracticeInterviewSetup = () => {
                         industry: '',
                         interviewTypes: [],
                         sessionDuration: 30,
-                        interviewer: 'sarah',
+                        personality: null,
                         advancedSettings: {
                           skillFocus: [],
-                          interviewStyle: 'conversational',
                           language: 'en',
                           realTimeFeedback: false,
                           followUpQuestions: true,
@@ -449,8 +465,9 @@ const PracticeInterviewSetup = () => {
                       });
                       setCurrentStep(1);
                       localStorage.removeItem('interviewSetupDraft');
+                      showSuccessToast('Form reset successfully!');
                     }}
-                    className="rounded-full border border-gray-200 text-gray-800 hover:bg-gray-50 text-xs sm:text-sm"
+                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                     Reset Form
                   </Button>
@@ -469,9 +486,9 @@ const PracticeInterviewSetup = () => {
                       };
                       savedConfigs?.push(newConfig);
                       localStorage.setItem('savedInterviewConfigs', JSON.stringify(savedConfigs));
-                      alert('Configuration saved successfully!');
+                      showSuccessToast('Configuration saved successfully!');
                     }}
-                    className="rounded-full border border-gray-200 text-gray-800 hover:bg-gray-50 text-xs sm:text-sm"
+                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                     Save Config
                   </Button>

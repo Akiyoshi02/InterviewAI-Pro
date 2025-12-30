@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../../components/AppIcon';
 import BrandMark from '../../components/BrandMark';
@@ -23,6 +23,7 @@ import {
 
 const Register = () => {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { setAuthenticatedUser } = useAuth();
   const [formData, setFormData] = useState({
     // Common fields
@@ -72,10 +73,24 @@ const Register = () => {
   });
   const [uploadModeration, setUploadModeration] = useState({
     profilePhoto: { status: 'idle', error: '' },
+    resumeFile: { status: 'idle', error: '' },
     companyLogo: { status: 'idle', error: '' },
+    companyProof: { status: 'idle', error: '' },
   });
 
+  const getSafeRedirectPath = (value) => {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null;
+    if (trimmed.startsWith('/login') || trimmed.startsWith('/register')) return null;
+    return trimmed;
+  };
+
+  const redirectAfterAuth = getSafeRedirectPath(searchParams.get('redirect'));
+  const loginHref = redirectAfterAuth ? `/login?redirect=${encodeURIComponent(redirectAfterAuth)}` : '/login';
+
   const viewportConfig = { once: true, amount: 0.2 };
+  const skipUploadModeration = import.meta.env.VITE_SKIP_UPLOAD_MODERATION === 'true';
   const friendlyRateLimitMessage = (text) => {
     if (!text) return '';
     const normalized = text.toLowerCase();
@@ -124,37 +139,56 @@ const Register = () => {
     }
   };
 
-  const moderateImageUpload = async (type, file) => {
-    if (!file) return;
-    const key = type === 'companyLogo' ? 'companyLogo' : 'profilePhoto';
+  const moderateUpload = async (type, file, options = {}) => {
+    if (!file || !type) return;
+    if (skipUploadModeration) {
+      setUploadModeration((prev) => ({
+        ...prev,
+        [type]: { status: 'approved', error: '' },
+      }));
+      return true;
+    }
+
+    const metadata = options.metadata || {};
     setUploadModeration((prev) => ({
       ...prev,
-      [key]: { status: 'checking', error: '' },
+      [type]: { status: 'checking', error: '' },
     }));
 
     try {
-      if (key === 'profilePhoto') {
+      if (type === 'profilePhoto') {
         await apiClient.uploads.moderateProfilePhoto(file);
-      } else {
+      } else if (type === 'companyLogo') {
         await apiClient.uploads.moderateCompanyLogo(file);
+      } else if (type === 'resumeFile') {
+        await apiClient.uploads.moderateResume(file, metadata);
+      } else if (type === 'companyProof') {
+        await apiClient.uploads.moderateCompanyProof(file, metadata);
+      } else {
+        throw new Error('Unsupported file type provided for moderation.');
       }
 
       setUploadModeration((prev) => ({
         ...prev,
-        [key]: { status: 'approved', error: '' },
+        [type]: { status: 'approved', error: '' },
       }));
       return true;
     } catch (error) {
-      const message = friendlyRateLimitMessage(error.message) || 'Image failed moderation. Please upload a different file.';
+      const isDocumentType = type === 'resumeFile' || type === 'companyProof';
+      const defaultMessage = isDocumentType
+        ? 'Document failed verification. Please upload an official PDF or Word document.'
+        : 'Image failed moderation. Please upload a different file.';
+      const message = friendlyRateLimitMessage(error.message) || defaultMessage;
       setUploadModeration((prev) => ({
         ...prev,
-        [key]: { status: 'error', error: message },
+        [type]: { status: 'error', error: message },
       }));
       throw new Error(message);
     }
   };
 
-  const resetImageModeration = (type) => {
+  const resetUploadModeration = (type) => {
+    if (!type) return;
     setUploadModeration((prev) => ({
       ...prev,
       [type]: { status: 'idle', error: '' },
@@ -166,11 +200,13 @@ const Register = () => {
       setUploadModeration((prev) => ({
         ...prev,
         companyLogo: { status: 'idle', error: '' },
+        companyProof: { status: 'idle', error: '' },
       }));
     } else {
       setUploadModeration((prev) => ({
         ...prev,
         profilePhoto: { status: 'idle', error: '' },
+        resumeFile: { status: 'idle', error: '' },
       }));
     }
   }, [formData.accountType]);
@@ -222,13 +258,75 @@ const Register = () => {
     return multipartPayload;
   };
 
+  useEffect(() => {
+    const pendingRegistration = localStorage.getItem('pendingRegistration');
+    const pendingAccountType = localStorage.getItem('pendingAccountType');
+
+    if (!pendingRegistration && !pendingAccountType) {
+      return;
+    }
+
+    setFormData((prev) => {
+      let pendingData = {};
+      if (pendingRegistration) {
+        try {
+          pendingData = JSON.parse(pendingRegistration) || {};
+        } catch (error) {
+          pendingData = {};
+        }
+      }
+
+      const rawAccountType = (pendingData.accountType || pendingAccountType || prev.accountType || '')
+        .toString()
+        .toLowerCase();
+      const nextAccountType = rawAccountType === 'company' ? 'company' : 'candidate';
+
+      return {
+        ...prev,
+        accountType: nextAccountType,
+        email: pendingData.email || prev.email,
+        fullName: pendingData.fullName || prev.fullName,
+        gender: pendingData.gender || prev.gender,
+        experienceLevel: pendingData.experienceLevel || prev.experienceLevel,
+        industry: pendingData.industry || prev.industry,
+        targetRole: pendingData.targetRole || prev.targetRole,
+        careerGoals: pendingData.careerGoals || prev.careerGoals,
+        location: pendingData.location || prev.location,
+        preferredLanguage: pendingData.preferredLanguage || prev.preferredLanguage,
+        companyName: pendingData.companyName || prev.companyName,
+        companySize: pendingData.companySize || prev.companySize,
+        jobTitle: pendingData.jobTitle || prev.jobTitle,
+        department: pendingData.department || prev.department,
+        hiringVolume: pendingData.hiringVolume || prev.hiringVolume,
+        companyWebsite: pendingData.companyWebsite || prev.companyWebsite,
+        companyLocation: pendingData.companyLocation || prev.companyLocation,
+        phoneNumber: pendingData.phoneNumber || prev.phoneNumber,
+      };
+    });
+  }, []);
+
   // Clear any stale authentication data when component mounts
   useEffect(() => {
+    let cancelled = false;
+
     const clearStaleAuth = async () => {
       // Check if there's a stale session (from failed login) but no backend user
       const { data } = await authHelpers.getSession();
       
       if (data?.session) {
+        const sessionEmail = data.session.user?.email;
+        const sessionFullName = data.session.user?.user_metadata?.fullName;
+
+        if (!cancelled) {
+          if (sessionEmail || sessionFullName) {
+            setFormData((prev) => ({
+              ...prev,
+              email: sessionEmail || prev.email,
+              fullName: prev.fullName?.trim() ? prev.fullName : sessionFullName || prev.fullName,
+            }));
+          }
+        }
+
         // Check if user exists in backend
         try {
           const userData = await apiClient.auth.getMe();
@@ -239,19 +337,35 @@ const Register = () => {
             const dashboardRoute = accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';
-            navigate(dashboardRoute);
+            navigate(redirectAfterAuth || dashboardRoute, { replace: true });
             return;
           }
         } catch (error) {
-          // User doesn't exist in backend but has Firebase session - clear it
-          console.log('Clearing stale Firebase session (no backend user found)');
-          await authHelpers.signOut();
-          
-          // Clear all auth-related localStorage
-          localStorage.removeItem('user');
-          localStorage.removeItem('isAuthenticated');
-          localStorage.removeItem('socialAuthVerified');
-          localStorage.removeItem('socialAuthData');
+          const errorMessage = (error?.message || '').toLowerCase();
+          const isMissingBackendUser =
+            errorMessage.includes('user not found') ||
+            errorMessage.includes('not found') ||
+            errorMessage.includes('404');
+
+          if (isMissingBackendUser) {
+            console.log('Firebase session found without backend user. Allowing registration to continue.');
+            localStorage.removeItem('user');
+            localStorage.removeItem('isAuthenticated');
+            localStorage.removeItem('socialAuthVerified');
+            localStorage.removeItem('socialAuthData');
+
+            if (!cancelled) {
+              setStatus('info');
+              setMessage('You are signed in, but your InterviewAI account setup is not complete yet. Finish the steps below to complete registration.');
+            }
+            return;
+          }
+
+          console.error('Failed to validate existing session:', error);
+          if (!cancelled) {
+            setStatus('info');
+            setMessage('We could not validate your existing session right now. You can still try completing registration.');
+          }
         }
       } else {
         // No session, make sure localStorage is also clean
@@ -263,7 +377,11 @@ const Register = () => {
     };
 
     clearStaleAuth();
-  }, [navigate]);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [navigate, redirectAfterAuth]);
 
   const handleFieldChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
@@ -283,7 +401,7 @@ const Register = () => {
 
       if (!formData?.email) {
         newErrors.email = 'Email is required';
-      } else if (!/\S+@\S+\.\S+/?.test(formData?.email)) {
+      } else if (!/\S+@\S+\.\S+/.test(formData?.email)) {
         newErrors.email = 'Please enter a valid email address';
       }
 
@@ -323,6 +441,8 @@ const Register = () => {
         }
         if (!formData?.resumeFile) {
           newErrors.resumeFile = 'Please upload your CV or résumé';
+        } else if (uploadModeration?.resumeFile?.status !== 'approved') {
+          newErrors.resumeFile = uploadModeration?.resumeFile?.error || 'CV or résumé must pass verification before continuing.';
         }
       } else if (formData?.accountType === 'company') {
         if (!formData?.companyName?.trim()) {
@@ -351,6 +471,8 @@ const Register = () => {
         }
         if (!formData?.companyProof) {
           newErrors.companyProof = 'Please provide a verification document';
+        } else if (uploadModeration?.companyProof?.status !== 'approved') {
+          newErrors.companyProof = uploadModeration?.companyProof?.error || 'Verification document must pass moderation before continuing.';
         }
       }
     }
@@ -530,6 +652,10 @@ const Register = () => {
         missingFields.resumeFile = 'CV or résumé is required before using Google sign-up.';
         missingSections.add('professional details');
       }
+      if (formData?.resumeFile && uploadModeration?.resumeFile?.status !== 'approved') {
+        missingFields.resumeFile = uploadModeration?.resumeFile?.error || 'CV or résumé must pass verification before using Google sign-up.';
+        missingSections.add('professional details');
+      }
     } else if (formData?.accountType === 'company') {
       if (!formData?.companyName?.trim()) {
         missingFields.companyName = 'Company name is required before using Google sign-up.';
@@ -565,6 +691,9 @@ const Register = () => {
       }
       if (!formData?.companyProof) {
         missingFields.companyProof = 'Verification document is required before using Google sign-up.';
+        missingSections.add('company verification');
+      } else if (uploadModeration?.companyProof?.status !== 'approved') {
+        missingFields.companyProof = uploadModeration?.companyProof?.error || 'Verification document must pass moderation before using Google sign-up.';
         missingSections.add('company verification');
       }
     }
@@ -639,7 +768,7 @@ const Register = () => {
           setMessage('An InterviewAI account already exists for this Google email. Redirecting you to Sign In...');
 
           setTimeout(() => {
-            navigate('/login');
+            navigate(loginHref);
           }, 2000);
           return;
         }
@@ -652,9 +781,22 @@ const Register = () => {
       const accountTypeUpper = (formData.accountType || 'candidate').toUpperCase();
       const registrationPayload = {
         accountType: accountTypeUpper,
+        email: data.user.email || undefined,
         fullName: formData.fullName || data.user.user_metadata?.fullName || data.user.email?.split('@')[0] || 'New User',
         experienceLevel: formData.accountType === 'candidate' ? formData.experienceLevel || undefined : undefined,
+        gender: formData.accountType === 'candidate' ? formData.gender || undefined : undefined,
+        targetRole: formData.accountType === 'candidate' ? formData.targetRole || undefined : undefined,
+        careerGoals: formData.accountType === 'candidate' ? formData.careerGoals || undefined : undefined,
+        location: formData.accountType === 'candidate' ? formData.location || undefined : undefined,
+        preferredLanguage: formData.accountType === 'candidate' ? formData.preferredLanguage || undefined : undefined,
         companyName: formData.accountType === 'company' ? formData.companyName || undefined : undefined,
+        companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
+        jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
+        department: formData.accountType === 'company' ? formData.department || undefined : undefined,
+        hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
+        companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
+        companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
+        phoneNumber: formData.accountType === 'company' ? formData.phoneNumber || undefined : undefined,
         industry: formData.industry || undefined,
       };
 
@@ -672,7 +814,7 @@ const Register = () => {
           ? '/candidate-dashboard'
           : '/company-dashboard';
 
-        navigate(redirectPath);
+        navigate(redirectAfterAuth || redirectPath);
         return;
       }
 
@@ -713,33 +855,67 @@ const Register = () => {
       const registrationData = {
         accountType: formData.accountType,
         fullName: formData.fullName,
+        gender: formData.gender,
         experienceLevel: formData.experienceLevel,
         industry: formData.industry,
         targetRole: formData.targetRole,
+        careerGoals: formData.careerGoals,
+        location: formData.location,
+        preferredLanguage: formData.preferredLanguage,
         companyName: formData.companyName,
         companySize: formData.companySize,
         jobTitle: formData.jobTitle,
         department: formData.department,
+        hiringVolume: formData.hiringVolume,
+        companyWebsite: formData.companyWebsite,
+        companyLocation: formData.companyLocation,
+        phoneNumber: formData.phoneNumber,
       };
       localStorage.setItem('pendingRegistration', JSON.stringify(registrationData));
       localStorage.setItem('pendingAccountType', formData.accountType);
 
-      // Step 1: Register with Firebase Auth
-      const { data: authData, error: authError } = await authHelpers.signUp(
-        formData.email,
-        formData.password,
-        {
-          fullName: formData.fullName,
-          accountType: formData.accountType,
-        }
-      );
+      const normalizedEmail = (formData.email || '').trim().toLowerCase();
+      let hasMatchingFirebaseSession = false;
 
-      if (authError) {
-        throw new Error(authError.message || 'Registration failed');
+      try {
+        const { data: sessionSnapshot } = await authHelpers.getSession();
+        const existingSession = sessionSnapshot?.session;
+        const existingEmail = (existingSession?.user?.email || '').trim().toLowerCase();
+
+        if (existingSession?.access_token && normalizedEmail && existingEmail === normalizedEmail) {
+          hasMatchingFirebaseSession = true;
+        } else if (existingSession?.access_token && existingEmail && normalizedEmail && existingEmail !== normalizedEmail) {
+          await authHelpers.signOut();
+        }
+      } catch (error) {
+        console.warn('Failed to check existing Firebase session:', error);
       }
 
-      if (!authData?.user) {
-        throw new Error('Failed to create user account');
+      // Step 1: Ensure we have an authenticated Firebase session
+      if (!hasMatchingFirebaseSession) {
+        const { data: authData, error: authError } = await authHelpers.signUp(
+          formData.email,
+          formData.password,
+          {
+            fullName: formData.fullName,
+            accountType: formData.accountType,
+          }
+        );
+
+        if (authError) {
+          const errorCode = authError?.code;
+
+          if (errorCode === 'auth/email-already-in-use') {
+            const { error: signInError } = await authHelpers.signIn(formData.email, formData.password);
+            if (signInError) {
+              throw new Error(signInError.message || 'Email is already in use. Please sign in instead.');
+            }
+          } else {
+            throw new Error(authError.message || 'Registration failed');
+          }
+        } else if (!authData?.user) {
+          throw new Error('Failed to create user account');
+        }
       }
 
       // Step 2: Check if email confirmation is required
@@ -753,15 +929,28 @@ const Register = () => {
         console.log('Session available immediately, syncing with backend...');
         
         // Sync user data with backend database
-        const accountTypeUpper = formData.accountType.toUpperCase();
+        const accountTypeUpper = (formData.accountType || 'candidate').toUpperCase();
         
         try {
           const registerData = await apiClient.auth.register(
             prepareRegistrationRequestBody({
             accountType: accountTypeUpper,
+            email: formData.email || undefined,
             fullName: formData.fullName,
             experienceLevel: formData.experienceLevel || undefined,
+            gender: formData.accountType === 'candidate' ? formData.gender || undefined : undefined,
+            targetRole: formData.accountType === 'candidate' ? formData.targetRole || undefined : undefined,
+            careerGoals: formData.accountType === 'candidate' ? formData.careerGoals || undefined : undefined,
+            location: formData.accountType === 'candidate' ? formData.location || undefined : undefined,
+            preferredLanguage: formData.accountType === 'candidate' ? formData.preferredLanguage || undefined : undefined,
             companyName: formData.companyName || undefined,
+            companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
+            jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
+            department: formData.accountType === 'company' ? formData.department || undefined : undefined,
+            hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
+            companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
+            companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
+            phoneNumber: formData.accountType === 'company' ? formData.phoneNumber || undefined : undefined,
             industry: formData.industry || undefined,
             })
           );
@@ -780,7 +969,7 @@ const Register = () => {
               ? '/candidate-dashboard' 
               : '/company-dashboard';
             
-            navigate(redirectPath);
+            navigate(redirectAfterAuth || redirectPath);
             return;
           }
         } catch (apiError) {
@@ -793,7 +982,7 @@ const Register = () => {
         setMessage('Registration successful! Please check your email to verify your account.');
         // User will complete registration when they verify email
         setTimeout(() => {
-          navigate('/login');
+          navigate(loginHref);
         }, 3000);
       }
       
@@ -836,7 +1025,7 @@ const Register = () => {
             const dashboardRoute = accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';
-            navigate(dashboardRoute);
+            navigate(redirectAfterAuth || dashboardRoute);
           } catch (error) {
             console.error('Failed to process verification data:', error);
           }
@@ -860,7 +1049,7 @@ const Register = () => {
       window.removeEventListener('storage', handleStorageChange);
       clearInterval(interval);
     };
-  }, [navigate]);
+  }, [navigate, redirectAfterAuth]);
 
   const getStepTitle = () => {
     switch (currentStep) {
@@ -882,8 +1071,11 @@ const Register = () => {
 
   const isStep2ModerationBlocking = currentStep === 2 && (
     formData?.accountType === 'candidate'
-      ? uploadModeration?.profilePhoto?.status !== 'approved'
-      : uploadModeration?.companyLogo?.status !== 'approved'
+      ? (uploadModeration?.profilePhoto?.status !== 'approved' || uploadModeration?.resumeFile?.status !== 'approved')
+      : (
+        uploadModeration?.companyLogo?.status !== 'approved'
+        || uploadModeration?.companyProof?.status !== 'approved'
+      )
   );
 
   return (
@@ -1082,8 +1274,8 @@ const Register = () => {
                               isDetectingLocation={isDetectingLocation}
                               locationHelper={locationHelper}
                               uploadModeration={uploadModeration}
-                              onModerateUpload={moderateImageUpload}
-                              onResetModeration={resetImageModeration}
+                              onModerateUpload={moderateUpload}
+                              onResetModeration={resetUploadModeration}
                             />
                           ) : (
                             <CompanyFields
@@ -1094,8 +1286,8 @@ const Register = () => {
                               isDetectingLocation={isDetectingLocation}
                               locationHelper={locationHelper}
                               uploadModeration={uploadModeration}
-                              onModerateUpload={moderateImageUpload}
-                              onResetModeration={resetImageModeration}
+                              onModerateUpload={moderateUpload}
+                              onResetModeration={resetUploadModeration}
                             />
                           )}
                         </div>

@@ -63,11 +63,11 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">Manage your scheduled interviews</p>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Manage your scheduled interviews</p>
         </div>
         <Button
           variant="default"
@@ -75,7 +75,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           iconName="Plus"
           iconPosition="left"
           onClick={() => setShowScheduleForm(!showScheduleForm)}
-          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
         >
           Schedule
         </Button>
@@ -85,47 +85,47 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           {interviewData?.map((interview) =>
         <div
           key={interview?.id}
-          className="border border-white/30 dark:border-slate-700/50 rounded-2xl p-4 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-300">
+          className="border border-white/30 dark:border-slate-700/50 rounded-2xl p-3 sm:p-4 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-300">
 
-              <div className="flex items-start space-x-4">
+              <div className="flex items-start space-x-3 sm:space-x-4">
                 <img
               src={interview?.companyLogo}
               alt={interview?.companyLogoAlt}
-              className="w-12 h-12 rounded-lg object-cover" />
+              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover flex-shrink-0" />
 
 
                 <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="font-medium text-gray-900 dark:text-slate-100">{interview?.company}</h3>
-                      <p className="text-sm text-gray-500 dark:text-slate-400">{interview?.position}</p>
+                  <div className="flex items-start justify-between gap-2 mb-2">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-medium text-gray-900 dark:text-slate-100 text-sm sm:text-base truncate">{interview?.company}</h3>
+                      <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">{interview?.position}</p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full border ${getStatusColor(interview?.status)}`}>
+                    <span className={`text-xs font-medium px-2 py-1 rounded-full border whitespace-nowrap flex-shrink-0 ${getStatusColor(interview?.status)}`}>
                       {interview?.status}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-4 mb-3 text-sm text-gray-600 dark:text-slate-300">
+                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 xs:gap-3 mb-3 text-xs sm:text-sm text-gray-600 dark:text-slate-300">
                     <div className="flex items-center space-x-2">
-                      <Icon name="Calendar" size={14} className="text-gray-400 dark:text-slate-500" />
-                      <span className="text-gray-700 dark:text-slate-200">{interview?.date}</span>
+                      <Icon name="Calendar" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.date}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Icon name="Clock" size={14} className="text-gray-400 dark:text-slate-500" />
-                      <span className="text-gray-700 dark:text-slate-200">{interview?.time} ({interview?.duration})</span>
+                      <Icon name="Clock" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.time} ({interview?.duration})</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Icon name="User" size={14} className="text-gray-400 dark:text-slate-500" />
-                      <span className="text-gray-700 dark:text-slate-200">{interview?.interviewer}</span>
+                      <Icon name="User" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.interviewer}</span>
                     </div>
                     <div className="flex items-center space-x-2">
-                      <Icon name="Tag" size={14} className="text-gray-400 dark:text-slate-500" />
-                      <span className="text-gray-700 dark:text-slate-200">{interview?.type}</span>
+                      <Icon name="Tag" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
+                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.type}</span>
                     </div>
                   </div>
 
-                  <div className="flex items-center justify-between">
-                    <div className={`text-sm font-medium ${getCountdownColor(interview?.timeLeft)}`}>
+                  <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2 xs:gap-0">
+                    <div className={`text-xs sm:text-sm font-medium ${getCountdownColor(interview?.timeLeft)}`}>
                       <Icon name="Timer" size={14} className="inline mr-1" />
                       {interview?.timeLeft} remaining
                     </div>
@@ -136,7 +136,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     size="sm"
                     iconName="Calendar"
                     iconPosition="left"
-                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                         Reschedule
                       </Button>
@@ -147,7 +147,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     iconName="Video"
                     iconPosition="left"
                     onClick={() => window.location.href = '/live-interview-session'}
-                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                           Join
                         </Button>

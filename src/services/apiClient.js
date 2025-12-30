@@ -123,7 +123,16 @@ async function handleResponse(response) {
         
         // Redirect to login
         if (typeof window !== 'undefined') {
-          window.location.href = '/login';
+          const currentPath = `${window.location.pathname}${window.location.search || ''}`;
+          const safeRedirect =
+            currentPath &&
+            currentPath.startsWith('/') &&
+            !currentPath.startsWith('//') &&
+            !currentPath.startsWith('/login') &&
+            !currentPath.startsWith('/register');
+          window.location.href = safeRedirect
+            ? `/login?redirect=${encodeURIComponent(currentPath)}`
+            : '/login';
         }
       }
     }
@@ -216,11 +225,48 @@ export const apiClient = {
       return this.updateMe(payload);
     },
 
+    async updateProfilePhoto(file) {
+      const formData = new FormData();
+      formData.append('profilePhoto', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/me/profile-photo`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async updateCompanyLogo(file) {
+      const formData = new FormData();
+      formData.append('companyLogo', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/me/company-logo`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
     async deleteUnregisteredAuthUser(userId) {
-      const headers = await getHeaders(false); // Don't include auth since user isn't registered
+      const headers = await getHeaders(true); // Must include Firebase auth token (user may not exist in DB yet)
       console.log('deleteUnregisteredAuthUser API call:', {
         url: `${API_URL}/api/auth/delete-unregistered-auth-user`,
         userId,
+        hasAuth: !!headers['Authorization'],
       });
       
       try {
@@ -258,6 +304,40 @@ export const apiClient = {
       formData.append('file', file);
 
       const response = await fetch(`${API_URL}/api/uploads/moderate/company-logo`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      return handleResponse(response);
+    },
+
+    async moderateResume(file, metadata = {}) {
+      const formData = new FormData();
+      formData.append('resumeFile', file);
+      Object.entries(metadata || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          formData.append(key, value);
+        }
+      });
+
+      const response = await fetch(`${API_URL}/api/uploads/moderate/resume`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      return handleResponse(response);
+    },
+
+    async moderateCompanyProof(file, metadata = {}) {
+      const formData = new FormData();
+      formData.append('companyProof', file);
+      Object.entries(metadata || {}).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          formData.append(key, value);
+        }
+      });
+
+      const response = await fetch(`${API_URL}/api/uploads/moderate/company-proof`, {
         method: 'POST',
         body: formData,
       });
@@ -588,4 +668,3 @@ export const apiClient = {
 };
 
 export default apiClient;
-

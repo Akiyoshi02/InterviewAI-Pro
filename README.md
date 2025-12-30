@@ -89,8 +89,8 @@ VITE_FIREBASE_STORAGE_BUCKET=...
 VITE_FIREBASE_MESSAGING_SENDER_ID=...
 VITE_FIREBASE_APP_ID=...
 VITE_OLLAMA_URL=http://localhost:11434
-VITE_OLLAMA_MODEL=llama3.1:8b
-VITE_LOCAL_WHISPER_URL=http://localhost:5000
+VITE_OLLAMA_MODEL=qwen2.5:7b-instruct
+# Optional: Set VITE_LOCAL_WHISPER_URL if you are running a local Whisper server
 ```
 
 Copy `server/.env.example` to `server/.env` and populate the values (Firebase Admin, Sightengine keys, Ollama, Whisper, etc.).
@@ -110,8 +110,14 @@ npm run dev
 
 Optional services:
 
-- **Ollama**: `ollama run llama3.1:8b` (or your chosen model)
+- **Ollama**: `ollama run qwen2.5:7b-instruct --keepalive 1h` (or your chosen model)
 - **Local Whisper**: `python server/whisper_server.py`
+
+### Qwen2.5-7B-Instruct Configuration
+
+1. `ollama pull qwen2.5:7b-instruct` (≈5.4 GB, runs well on 12 GB GPUs).
+2. Set `VITE_OLLAMA_MODEL` and `OLLAMA_MODEL` to `qwen2.5:7b-instruct`.
+3. The app automatically sends an optimized preset for Qwen: 8K context (`num_ctx=8192`), `gpu_layers=999`, `num_batch=256`, `top_k=40`, `top_p=0.9`, `temperature=0.65`, `repeat_penalty=1.08`, and generous `num_predict` limits. Override via the helper options only if you need different behavior.
 
 ---
 

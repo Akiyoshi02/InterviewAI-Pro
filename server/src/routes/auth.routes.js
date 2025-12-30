@@ -1,6 +1,6 @@
 import express from 'express';
 import { body } from 'express-validator';
-import { authenticate, verifyFirebaseAuth } from '../middleware/auth.middleware.js';
+import { authenticate, requireCandidate, requireCompany, verifyFirebaseAuth } from '../middleware/auth.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 import { AuthController } from '../controllers/auth.controller.js';
 import { registrationUpload } from '../middleware/upload.middleware.js';
@@ -28,8 +28,20 @@ router.post(
       .withMessage('Invalid account type'),
     body('fullName').optional().isString(),
     body('experienceLevel').optional().isString(),
+    body('gender').optional().isString(),
+    body('targetRole').optional().isString(),
+    body('careerGoals').optional().isString(),
+    body('location').optional().isString(),
+    body('preferredLanguage').optional().isString(),
     body('companyName').optional().isString(),
     body('industry').optional().isString(),
+    body('companySize').optional().isString(),
+    body('jobTitle').optional().isString(),
+    body('department').optional().isString(),
+    body('hiringVolume').optional().isString(),
+    body('companyWebsite').optional().isString(),
+    body('companyLocation').optional().isString(),
+    body('phoneNumber').optional().isString(),
   ],
   validateRequest,
   AuthController.register
@@ -56,10 +68,27 @@ router.patch(
   AuthController.updateMe
 );
 
+router.patch(
+  '/me/profile-photo',
+  authenticate,
+  requireCandidate,
+  registrationUpload.single('profilePhoto'),
+  AuthController.updateProfilePhoto
+);
+
+router.patch(
+  '/me/company-logo',
+  authenticate,
+  requireCompany,
+  registrationUpload.single('companyLogo'),
+  AuthController.updateCompanyLogo
+);
+
 // Delete unregistered auth user
-// This endpoint doesn't require authentication since the user isn't registered
+// This endpoint requires Firebase auth; the caller must be the same Firebase user being deleted
 router.post(
   '/delete-unregistered-auth-user',
+  verifyFirebaseAuth,
   [
     body('userId').notEmpty().withMessage('userId is required'),
   ],

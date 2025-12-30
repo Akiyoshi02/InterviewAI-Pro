@@ -32,7 +32,7 @@ const attachSingleInterviewParticipants = async (interview) => {
 export class InterviewController {
   static async createInterview(req, res, next) {
     try {
-      const { mode, jobRole, experienceLevel, industry, interviewTypes, skillFocus, duration, jobId, jobStage, invitationId } = req.body;
+      const { mode, jobRole, experienceLevel, industry, interviewTypes, skillFocus, duration, jobId, jobStage, invitationId, config } = req.body;
       const userId = req.user.id;
       const accountType = req.user.accountType;
       const organizationId = req.user.organizationContext?.organization?.id || null;
@@ -59,6 +59,7 @@ export class InterviewController {
         interviewTypes,
         skillFocus,
         duration,
+        config: config || null, // Store full config object (personality, voice, interviewerName, advancedSettings)
       });
 
       const hydrated = await attachSingleInterviewParticipants({ ...interview, questions: [] });
@@ -114,7 +115,12 @@ export class InterviewController {
           experienceLevel: interview.experienceLevel,
           industry: interview.industry,
           interviewTypes: interview.interviewTypes,
+          skillFocus: interview.skillFocus || [], // Include skillFocus
           totalQuestions: Math.floor((interview.duration || 30) / 3),
+          // Include personality and difficulty from config if available
+          personality: interview.config?.personality || null,
+          difficulty: interview.config?.advancedSettings?.difficulty || 'medium',
+          interviewerName: interview.config?.interviewerName || null,
         };
 
         const generatedQuestions = await LLMService.generateInterviewQuestions(config);

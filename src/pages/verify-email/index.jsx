@@ -139,14 +139,6 @@ const VerifyEmail = () => {
                 console.error('Failed to get user ID:', userError);
               }
               
-              // Sign out first
-              try {
-                await authHelpers.signOut();
-                console.log('Signed out user from Firebase');
-              } catch (signOutError) {
-                console.error('Failed to sign out:', signOutError);
-              }
-              
               // Delete the user from Firebase Auth since they shouldn't have been created
               if (userId) {
                 console.log('Attempting to delete Firebase auth user:', userId);
@@ -167,6 +159,14 @@ const VerifyEmail = () => {
                 }
               } else {
                 console.warn('No user ID available, cannot delete auth user');
+              }
+
+              // Sign out after cleanup attempt
+              try {
+                await authHelpers.signOut();
+                console.log('Signed out user from Firebase');
+              } catch (signOutError) {
+                console.error('Failed to sign out:', signOutError);
               }
               
               // Show error message to user
@@ -241,7 +241,14 @@ const VerifyEmail = () => {
             if (!token) {
               throw new Error('No authentication token available. Please try logging in again.');
             }
-            console.log('Auth token available, proceeding with registration...');
+            console.log('Auth token available. Redirecting to complete registration...');
+
+            setStatus('success');
+            setMessage('Email verified successfully! Please complete your account setup to finish registration.');
+            setTimeout(() => {
+              navigate('/register');
+            }, 1500);
+            return;
             
             try {
               const registerData = await apiClient.auth.register({
@@ -534,4 +541,3 @@ const VerifyEmail = () => {
 };
 
 export default VerifyEmail;
-

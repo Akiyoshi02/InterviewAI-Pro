@@ -14,8 +14,8 @@ const Input = React.forwardRef(({
     // Generate unique ID if not provided
     const inputId = id || `input-${Math.random()?.toString(36)?.substr(2, 9)}`;
 
-    // Base input classes
-    const baseInputClasses = "flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50";
+    // Base input classes with improved mobile styling
+    const baseInputClasses = "flex h-11 sm:h-12 w-full rounded-xl border border-input bg-background px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px]";
 
     // Checkbox-specific styles
     if (type === "checkbox") {
@@ -23,7 +23,7 @@ const Input = React.forwardRef(({
             <input
                 type="checkbox"
                 className={cn(
-                    "h-4 w-4 rounded border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+                    "h-5 w-5 sm:h-4 sm:w-4 rounded border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-colors",
                     className
                 )}
                 ref={ref}
@@ -39,7 +39,7 @@ const Input = React.forwardRef(({
             <input
                 type="radio"
                 className={cn(
-                    "h-4 w-4 rounded-full border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+                    "h-5 w-5 sm:h-4 sm:w-4 rounded-full border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-colors",
                     className
                 )}
                 ref={ref}
@@ -51,12 +51,12 @@ const Input = React.forwardRef(({
 
     // For regular inputs with wrapper structure
     return (
-        <div className="space-y-2">
+        <div className="space-y-1.5 sm:space-y-2">
             {label && (
                 <label
                     htmlFor={inputId}
                     className={cn(
-                        "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
+                        "text-sm sm:text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70",
                         error ? "text-destructive" : "text-foreground"
                     )}
                 >
@@ -78,14 +78,17 @@ const Input = React.forwardRef(({
             />
 
             {description && !error && (
-                <p className="text-sm text-muted-foreground">
+                <p className="text-xs sm:text-sm text-muted-foreground">
                     {description}
                 </p>
             )}
 
             {error && (
-                <p className="text-sm text-destructive">
-                    {error}
+                <p className="text-xs sm:text-sm text-destructive flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                    <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+                  </svg>
+                  {error}
                 </p>
             )}
         </div>
