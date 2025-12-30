@@ -307,7 +307,8 @@ Would you like me to elaborate on any of these areas?`;
 
       setIsTranscribing(true);
       const transcription = await transcribeWithFallback(audioBlob, { language: 'en' });
-      const transcriptText = transcription?.text?.trim();
+      const transcriptText = transcription?.text?.trim()
+        || transcription?.segments?.map((segment) => segment?.text || '').join(' ').trim();
 
       if (transcriptText) {
         if (inputValue?.trim()) {
@@ -610,7 +611,7 @@ This plan is tailored to your current skill level and target companies. Would yo
     return (
       <button
         onClick={onToggle}
-        className="fixed bottom-6 right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-200 flex items-center justify-center z-50"
+        className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-200 flex items-center justify-center z-50"
       >
         <Icon name="MessageCircle" size={24} />
       </button>
@@ -618,7 +619,7 @@ This plan is tailored to your current skill level and target companies. Would yo
   }
 
   return (
-    <div className={`fixed bottom-6 right-6 ${sizeSettings.container} rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] z-50 flex flex-col overflow-hidden`}>
+    <div className={`fixed bottom-20 lg:bottom-6 right-4 lg:right-6 ${sizeSettings.container} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] lg:max-h-[700px] rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] z-50 flex flex-col overflow-hidden`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/30 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
         <div className="flex items-center space-x-2">

@@ -2,8 +2,9 @@ import multer from 'multer';
 import fs from 'fs';
 import path from 'path';
 import { randomUUID } from 'crypto';
+import { fileURLToPath } from 'url';
 
-const uploadsRoot = path.resolve(process.cwd(), 'uploads');
+const uploadsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'uploads');
 const profilePhotosDir = path.join(uploadsRoot, 'profile-photos');
 const resumesDir = path.join(uploadsRoot, 'resumes');
 const companyLogosDir = path.join(uploadsRoot, 'company-logos');
@@ -49,8 +50,6 @@ const allowedMimeTypes = {
     'application/pdf',
     'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'image/jpeg',
-    'image/png',
   ],
 };
 
@@ -59,7 +58,7 @@ const errorMessages = {
   companyLogo: 'Company logo must be a JPG, PNG, WEBP, or SVG image.',
   file: 'Image must be JPG, PNG, WEBP, or SVG.',
   resumeFile: 'Résumé must be a PDF or Word document.',
-  companyProof: 'Verification document must be a PDF, Word document, or image.',
+  companyProof: 'Verification document must be a PDF or Word document.',
 };
 
 const { MulterError } = multer;

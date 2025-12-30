@@ -11,6 +11,8 @@ class AudioRecorderService {
     this.chunks = [];
     this.isRecording = false;
     this.startTime = null;
+    this.mimeType = null;
+    this.pendingDataResolve = null;
     this.onStart = null;
     this.onStop = null;
     this.onError = null;
@@ -28,11 +30,18 @@ class AudioRecorderService {
 
       const mimeType = this.getSupportedMimeType();
       this.mediaRecorder = new MediaRecorder(this.mediaStream, mimeType ? { mimeType } : undefined);
+      this.mimeType = this.mediaRecorder.mimeType || mimeType || null;
+      this.pendingDataResolve = null;
       this.chunks = [];
 
       this.mediaRecorder.ondataavailable = (e) => {
         if (e.data && e.data.size > 0) {
           this.chunks.push(e.data);
+        }
+        if (this.pendingDataResolve) {
+          const resolve = this.pendingDataResolve;
+          this.pendingDataResolve = null;
+          resolve();
         }
       };
 
@@ -72,15 +81,31 @@ class AudioRecorderService {
       this.mediaRecorder.addEventListener('stop', () => resolve(true), { once: true });
     });
 
+    const dataFlushed = new Promise((resolve) => {
+      this.pendingDataResolve = resolve;
+    });
+
+    try {
+      this.mediaRecorder.requestData?.();
+    } catch {}
+
     this.mediaRecorder.stop();
     await stopped;
+    if (this.pendingDataResolve) {
+      await Promise.race([
+        dataFlushed,
+        new Promise((resolve) => setTimeout(resolve, 500))
+      ]);
+      this.pendingDataResolve = null;
+    }
 
     // Build blob
-    const mimeType = this.getSupportedMimeType() || 'audio/webm';
+    const mimeType = this.mimeType || this.mediaRecorder.mimeType || this.getSupportedMimeType() || 'audio/webm';
     const blob = new Blob(this.chunks, { type: mimeType });
 
     // Cleanup
     this.chunks = [];
+    this.mimeType = null;
     if (this.mediaStream) {
       this.mediaStream.getTracks().forEach(t => t.stop());
       this.mediaStream = null;
@@ -109,6 +134,8 @@ class AudioRecorderService {
     this.chunks = [];
     this.isRecording = false;
     this.startTime = null;
+    this.mimeType = null;
+    this.pendingDataResolve = null;
   }
 
   /**

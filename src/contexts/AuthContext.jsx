@@ -11,9 +11,12 @@ import apiClient from '../services/apiClient.js';
 
 const AuthContext = createContext(null);
 
-const AUTH_STORAGE_KEYS = [
+const AUTH_SESSION_STORAGE_KEYS = [
   'user',
   'isAuthenticated',
+];
+
+const AUTH_FLOW_STORAGE_KEYS = [
   'socialAuthVerified',
   'socialAuthData',
   'socialAuthIntent',
@@ -22,9 +25,26 @@ const AUTH_STORAGE_KEYS = [
   'pendingAccountType',
 ];
 
-const clearAuthStorage = () => {
+const clearSessionStorage = () => {
   if (typeof window === 'undefined') return;
-  AUTH_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+  AUTH_SESSION_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+};
+
+const clearAllAuthStorage = () => {
+  if (typeof window === 'undefined') return;
+  [...AUTH_SESSION_STORAGE_KEYS, ...AUTH_FLOW_STORAGE_KEYS].forEach((key) =>
+    window.localStorage.removeItem(key),
+  );
+};
+
+const shouldDeferProfileSync = () => {
+  if (typeof window === 'undefined') return false;
+  const intent = window.localStorage.getItem('socialAuthIntent');
+  const pendingRegistration = window.localStorage.getItem('pendingRegistration');
+  const pendingAccountType = window.localStorage.getItem('pendingAccountType');
+  if (intent !== 'register' && !pendingRegistration && !pendingAccountType) return false;
+  const path = window.location.pathname || '';
+  return path.startsWith('/register') || path.startsWith('/verify-email');
 };
 
 export const AuthProvider = ({ children }) => {
@@ -51,6 +71,12 @@ export const AuthProvider = ({ children }) => {
         throw new Error('No active session found');
       }
 
+      if (shouldDeferProfileSync()) {
+        setUser(null);
+        setStatus('unauthenticated');
+        return null;
+      }
+
       const profile = await apiClient.auth.getMe();
       if (!profile.success || !profile.user) {
         throw new Error('User not found');
@@ -59,8 +85,10 @@ export const AuthProvider = ({ children }) => {
       applyAuthenticatedUser(profile.user);
       return profile.user;
     } catch (err) {
-      console.error('Auth sync error:', err);
-      clearAuthStorage();
+      if (err?.message !== 'No active session found') {
+        console.error('Auth sync error:', err);
+      }
+      clearSessionStorage();
       setUser(null);
       setStatus('unauthenticated');
       setError(err);
@@ -74,18 +102,16 @@ export const AuthProvider = ({ children }) => {
     } catch (err) {
       console.error('Failed to sign out:', err);
     } finally {
-      clearAuthStorage();
+      clearAllAuthStorage();
       setUser(null);
       setStatus('unauthenticated');
     }
   }, []);
 
   useEffect(() => {
-    syncUser();
-  }, [syncUser]);
-
-  useEffect(() => {
     if (typeof authHelpers.onAuthStateChange !== 'function') {
+      // Fallback: immediately attempt to sync the user once
+      syncUser();
       return undefined;
     }
 
@@ -96,7 +122,7 @@ export const AuthProvider = ({ children }) => {
       }
 
       if (event === 'SIGNED_OUT') {
-        clearAuthStorage();
+        clearAllAuthStorage();
         setUser(null);
         setStatus('unauthenticated');
       }

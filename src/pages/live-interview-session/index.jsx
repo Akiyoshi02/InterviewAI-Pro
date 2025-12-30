@@ -358,6 +358,8 @@ const LiveInterviewSession = () => {
           navigate('/login');
         }}
       />
+      {/* Spacer for fixed header */}
+      <div className="h-14 xs:h-16" />
       
       {/* Responsive Interview Layout */}
       <motion.main
@@ -365,7 +367,7 @@ const LiveInterviewSession = () => {
         initial="hidden"
         whileInView="visible"
         viewport={viewportConfig}
-        className="relative z-10 mx-auto max-w-[1800px] px-2 sm:px-3 md:px-4 lg:px-6 py-4 md:py-6 pb-24"
+        className="relative z-10 mx-auto max-w-[1800px] px-2 xs:px-3 sm:px-4 md:px-5 lg:px-6 py-3 xs:py-4 md:py-6 pb-24 lg:pb-6"
       >
         
         {/* Desktop Layout (3 columns) */}
@@ -455,10 +457,10 @@ const LiveInterviewSession = () => {
         {/* Tablet Layout (2 columns) */}
         <motion.div
           variants={fadeUpChild}
-          className="hidden md:grid lg:hidden md:grid-cols-12 gap-3"
+          className="hidden md:grid lg:hidden md:grid-cols-12 gap-2 xs:gap-3"
         >
           {/* Left Column - 7 cols */}
-          <div className="md:col-span-7 flex flex-col gap-3">
+          <div className="md:col-span-7 flex flex-col gap-2 xs:gap-3">
             <AIInterviewerPanel
               isActive={sessionState?.isActive}
               currentQuestion={currentMessage}
@@ -469,7 +471,7 @@ const LiveInterviewSession = () => {
                 totalQuestions: aiTotalQuestions
               }}
             />
-            <div className="flex-1 min-h-[350px]">
+            <div className="flex-1 min-h-[300px] xs:min-h-[350px]">
               <TranscriptionPanel
                 isListening={isAIListening}
                 isAudioEnabled={videoState?.isAudioEnabled}
@@ -530,7 +532,7 @@ const LiveInterviewSession = () => {
         {/* Mobile Layout (Single Column) */}
         <motion.div
           variants={fadeUpChild}
-          className="md:hidden flex flex-col gap-3"
+          className="md:hidden flex flex-col gap-2 xs:gap-3"
         >
           {/* Question Display - Priority 1 */}
           <AIInterviewerPanel
@@ -568,7 +570,7 @@ const LiveInterviewSession = () => {
           <PoseAnalysisPanel poseMetrics={poseMetrics} />
 
           {/* Transcription Panel */}
-          <div className="min-h-[280px]">
+          <div className="min-h-[220px] xs:min-h-[280px]">
             <TranscriptionPanel
               isListening={isAIListening}
               isAudioEnabled={videoState?.isAudioEnabled}
@@ -587,7 +589,7 @@ const LiveInterviewSession = () => {
           </div>
 
           {/* Feedback Panel */}
-          <div className="min-h-[200px]">
+          <div className="min-h-[160px] xs:min-h-[200px]">
             <RealTimeFeedbackPanel
               isActive={sessionState?.isActive}
               currentAnswer={aiState?.currentAnswer}
@@ -610,7 +612,7 @@ const LiveInterviewSession = () => {
           />
         </motion.div>
       </motion.main>      {/* Floating Session Controls - Hidden on mobile to avoid overlap */}
-      <div className="hidden sm:block">
+      <div className="hidden md:block">
         <InterviewSessionControls
           isActive={sessionState?.isActive}
           isRecording={sessionState?.isRecording}

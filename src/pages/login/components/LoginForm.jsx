@@ -23,7 +23,7 @@ const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPa
     
     if (!formData?.email) {
       errors.email = 'Email is required';
-    } else if (!/\S+@\S+\.\S+/?.test(formData?.email)) {
+    } else if (!/\S+@\S+\.\S+/.test(formData?.email)) {
       errors.email = 'Please enter a valid email address';
     }
     
@@ -45,7 +45,7 @@ const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPa
   };
 
   const handleForgotPasswordClick = () => {
-    if (!formData?.email || !/\S+@\S+\.\S+/?.test(formData?.email)) {
+    if (!formData?.email || !/\S+@\S+\.\S+/.test(formData?.email)) {
       setFormErrors(prev => ({
         ...prev,
         email: formData?.email ? 'Please enter a valid email to reset your password' : 'Enter your email address to reset your password'

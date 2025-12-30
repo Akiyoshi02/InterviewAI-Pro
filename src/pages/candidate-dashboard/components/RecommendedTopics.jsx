@@ -91,11 +91,11 @@ const RecommendedTopics = ({ recommendations = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">AI-powered suggestions based on your performance</p>
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">AI-powered suggestions based on your performance</p>
         </div>
         <Button
           variant="ghost"
@@ -129,18 +129,18 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                   {topic?.description}
                 </p>
 
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-4 text-xs text-gray-500 dark:text-slate-400">
+                <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-2 xs:gap-3 text-xs text-gray-500 dark:text-slate-400">
                     <span className={getDifficultyColor(topic?.difficulty)}>
                       {topic?.difficulty}
                     </span>
                     <span className="flex items-center space-x-1">
-                      <Icon name="Clock" size={12} className="text-current" />
+                      <Icon name="Clock" size={12} className="text-current flex-shrink-0" />
                       <span>{topic?.estimatedTime}</span>
                     </span>
                     <span className="flex items-center space-x-1">
-                      <Icon name="Tag" size={12} className="text-current" />
-                      <span>{topic?.category}</span>
+                      <Icon name="Tag" size={12} className="text-current flex-shrink-0" />
+                      <span className="truncate">{topic?.category}</span>
                     </span>
                   </div>
 
@@ -149,7 +149,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                     size="sm"
                     iconName="ArrowRight"
                     iconPosition="right"
-                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 flex-shrink-0 w-full xs:w-auto"
                   >
                     Practice
                   </Button>

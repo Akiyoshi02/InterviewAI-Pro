@@ -45,6 +45,7 @@ export function setupSecurity(app) {
         connectSrc: ["'self'", "https://api.openai.com"],
       },
     },
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
     crossOriginEmbedderPolicy: false, // Required for WebRTC
   }));
 

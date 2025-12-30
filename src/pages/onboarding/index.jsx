@@ -24,6 +24,7 @@ const Onboarding = () => {
     agreeToMarketing: false,
     
     // Candidate fields
+    gender: '',
     experienceLevel: '',
     industry: '',
     targetRole: '',
@@ -144,6 +145,7 @@ const Onboarding = () => {
       // Update user profile with onboarding data
       const updateData = accountType === 'candidate' 
         ? {
+            gender: formData.gender || undefined,
             experienceLevel: formData.experienceLevel,
             industry: formData.industry,
             targetRole: formData.targetRole || undefined,

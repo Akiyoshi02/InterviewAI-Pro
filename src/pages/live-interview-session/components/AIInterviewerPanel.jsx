@@ -9,9 +9,11 @@ const AIInterviewerPanel = ({
   isSpeaking = false,
   isProcessing = false,
   questionProgress = {},
+  interviewerName = null,
   className = ''
 }) => {
   const displayQuestion = currentQuestion || "Welcome! I'm ready to begin the interview when you are.";
+  const displayName = interviewerName || 'AI Interviewer';
 
   return (
     <div
@@ -84,7 +86,7 @@ const AIInterviewerPanel = ({
             <div className="w-7 h-7 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
               <Icon name="MessageSquare" size={14} className="text-white sm:w-4 sm:h-4" />
             </div>
-            <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100">AI Interviewer</span>
+            <span className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100">{displayName}</span>
             {isSpeaking && (
               <div className="flex items-center space-x-0.5 sm:space-x-1">
                 <div className="w-1 h-1 bg-primary rounded-full animate-bounce" />

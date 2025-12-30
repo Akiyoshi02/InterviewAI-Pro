@@ -7,7 +7,30 @@
  */
 
 const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'llama3.1:8b';
+const DEFAULT_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+const QWEN_GENERATION_DEFAULTS = {
+  temperature: 0.65,
+  top_p: 0.9,
+  top_k: 40,
+  repeat_penalty: 1.08,
+  num_ctx: 8192,
+  num_batch: 256,
+  gpu_layers: 999,
+  num_predict: 4096,
+};
+
+const buildGenerationOptions = (options = {}) => ({
+  ...QWEN_GENERATION_DEFAULTS,
+  ...(options.extraOptions || {}),
+  temperature: options.temperature ?? QWEN_GENERATION_DEFAULTS.temperature,
+  top_p: options.top_p ?? QWEN_GENERATION_DEFAULTS.top_p,
+  top_k: options.top_k ?? QWEN_GENERATION_DEFAULTS.top_k,
+  repeat_penalty: options.repeat_penalty ?? QWEN_GENERATION_DEFAULTS.repeat_penalty,
+  num_ctx: options.num_ctx ?? QWEN_GENERATION_DEFAULTS.num_ctx,
+  num_batch: options.num_batch ?? QWEN_GENERATION_DEFAULTS.num_batch,
+  gpu_layers: options.gpu_layers ?? QWEN_GENERATION_DEFAULTS.gpu_layers,
+  num_predict: options.max_tokens ?? QWEN_GENERATION_DEFAULTS.num_predict,
+});
 
 /**
  * Call Ollama API
@@ -23,11 +46,7 @@ async function callOllama(messages, options = {}) {
         model: options.model || DEFAULT_MODEL,
         messages: messages,
         stream: false,
-        options: {
-          temperature: options.temperature || 0.7,
-          top_p: options.top_p || 0.9,
-          num_predict: options.max_tokens || 2000,
-        },
+        options: buildGenerationOptions(options),
       }),
     });
 
@@ -81,7 +100,7 @@ export async function checkOllamaHealth() {
     return { 
       healthy: false, 
       error: error.message,
-      help: 'Install Ollama from https://ollama.ai and run: ollama pull llama3.1:8b',
+      help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct',
       url: OLLAMA_BASE_URL
     };
   }

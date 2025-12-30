@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Icon from '../../components/AppIcon';
 import BrandMark from '../../components/BrandMark';
@@ -8,18 +8,34 @@ import LoginForm from './components/LoginForm';
 import SocialLogin from './components/SocialLogin';
 import LoginFooter from './components/LoginFooter';
 import { authHelpers } from '../../config/firebase.js';
-import { auth } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
 const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const { setAuthenticatedUser } = useAuth();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
   const [statusType, setStatusType] = useState('');
   const [isResettingPassword, setIsResettingPassword] = useState(false);
+
+  const getSafeRedirectPath = (value) => {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed.startsWith('/') || trimmed.startsWith('//')) return null;
+    if (trimmed.startsWith('/login') || trimmed.startsWith('/register')) return null;
+    return trimmed;
+  };
+
+  const redirectPath =
+    getSafeRedirectPath(searchParams.get('redirect')) ||
+    getSafeRedirectPath(location.state?.from) ||
+    null;
+
+  const registerHref = redirectPath ? `/register?redirect=${encodeURIComponent(redirectPath)}` : '/register';
   const friendlyRateLimitMessage = (message) => {
     if (!message) return '';
     const normalized = message.toLowerCase();
@@ -80,15 +96,32 @@ const Login = () => {
             const dashboardRoute = accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';
-            navigate(dashboardRoute);
+            navigate(redirectPath || dashboardRoute, { replace: true });
             return;
           }
         } catch (error) {
-          // User doesn't exist in backend but has Firebase session - clear it
-          console.log('Clearing stale Firebase session (no backend user found)');
+          const message = (error?.message || '').toLowerCase();
+          const isMissingBackendUser =
+            message.includes('user not found') ||
+            message.includes('not found') ||
+            message.includes('404');
+
+          if (isMissingBackendUser) {
+            console.log('Firebase session found without backend user. Redirecting to Create Account.');
+
+            localStorage.removeItem('user');
+            localStorage.removeItem('isAuthenticated');
+            localStorage.removeItem('socialAuthVerified');
+            localStorage.removeItem('socialAuthData');
+
+            navigate(registerHref, { replace: true });
+            return;
+          }
+
+          console.error('Auth session validation failed:', error);
+          console.log('Clearing Firebase session due to unexpected auth error');
           await authHelpers.signOut();
-          
-          // Clear all auth-related localStorage
+
           localStorage.removeItem('user');
           localStorage.removeItem('isAuthenticated');
           localStorage.removeItem('socialAuthVerified');
@@ -104,7 +137,7 @@ const Login = () => {
     };
 
     checkAuth();
-  }, [navigate]);
+  }, [navigate, redirectPath, registerHref]);
 
   // Note: Firebase OAuth callbacks work differently than Supabase
   // They typically redirect to a configured redirect URL
@@ -153,15 +186,35 @@ const Login = () => {
             : '/company-dashboard';
           
           setAuthenticatedUser(userData.user);
-          navigate(dashboardRoute);
+          navigate(redirectPath || dashboardRoute);
         } else {
           throw new Error('Failed to retrieve user information');
         }
       } catch (apiError) {
-        // If user doesn't exist in our database yet, might need to register first
-        if (apiError.message && (apiError.message.includes('User not found') || apiError.message.includes('404'))) {
-          throw new Error('Account not found in our system. Please register first.');
+        const apiMessage = apiError?.message || '';
+        const normalized = apiMessage.toLowerCase();
+        const isMissingBackendUser =
+          normalized.includes('user not found') ||
+          normalized.includes('not found') ||
+          normalized.includes('404');
+
+        if (isMissingBackendUser) {
+          const selectedAccountType = formData.userType || 'candidate';
+          localStorage.setItem('pendingAccountType', selectedAccountType);
+          localStorage.setItem(
+            'pendingRegistration',
+            JSON.stringify({
+              accountType: selectedAccountType,
+              email: formData.email,
+            }),
+          );
+
+          setStatusType('info');
+          setStatusMessage('Your sign-in worked, but your InterviewAI account setup is not complete yet. Redirecting you to Create Account...');
+          setTimeout(() => navigate(registerHref), 1800);
+          return;
         }
+
         throw apiError;
       }
     } catch (err) {
@@ -215,20 +268,13 @@ const Login = () => {
           : '/company-dashboard';
 
         setAuthenticatedUser(userData.user);
-        navigate(dashboardRoute);
+        navigate(redirectPath || dashboardRoute);
         return;
       }
 
       throw new Error('No InterviewAI account is linked to this Google email.');
     } catch (err) {
       console.error('Google login error:', err);
-      if (signedInWithGoogle) {
-        try {
-          await authHelpers.signOut();
-        } catch (signOutError) {
-          console.error('Failed to clean up Google session:', signOutError);
-        }
-      }
       const message = err?.message || 'Google sign-in failed. Please try again.';
       const normalized = message.toLowerCase();
       const isAccountMissing =
@@ -236,10 +282,21 @@ const Login = () => {
         normalized.includes('user not found') ||
         normalized.includes('404');
 
-      if (isAccountMissing) {
+      if (signedInWithGoogle && isAccountMissing) {
         await cleanupUnregisteredAuthUser(firebaseUid);
+      }
+
+      if (signedInWithGoogle) {
+        try {
+          await authHelpers.signOut();
+        } catch (signOutError) {
+          console.error('Failed to clean up Google session:', signOutError);
+        }
+      }
+
+      if (isAccountMissing) {
         setError('No InterviewAI account is linked to this Google email yet. Redirecting you to Create Account...');
-        setTimeout(() => navigate('/register'), 1800);
+        setTimeout(() => navigate(registerHref), 1800);
       } else {
         setError(friendlyRateLimitMessage(message));
       }
@@ -288,7 +345,7 @@ const Login = () => {
   }, []);
 
   const handleNavigateToRegister = () => {
-    navigate('/register');
+    navigate(registerHref);
   };
 
   return (

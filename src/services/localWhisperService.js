@@ -7,13 +7,39 @@
  * @module localWhisperService
  */
 
-const LOCAL_WHISPER_URL = import.meta.env.VITE_LOCAL_WHISPER_URL || 'http://localhost:5000';
+const rawUrl = import.meta.env.VITE_LOCAL_WHISPER_URL?.trim();
+const LOCAL_WHISPER_URL = rawUrl ? rawUrl.replace(/\/$/, '') : null;
+const IS_WHISPER_ENABLED = Boolean(LOCAL_WHISPER_URL);
+
+const getAudioExtension = (mimeType = '') => {
+  const normalized = mimeType.toLowerCase();
+  if (normalized.includes('webm')) return 'webm';
+  if (normalized.includes('ogg')) return 'ogg';
+  if (normalized.includes('m4a')) return 'm4a';
+  if (normalized.includes('mp4')) return 'mp4';
+  if (normalized.includes('wav')) return 'wav';
+  if (normalized.includes('mpeg') || normalized.includes('mp3')) return 'mp3';
+  return 'webm';
+};
+
+const logWhisperDisabled = () => {
+  if (import.meta.env?.DEV) {
+    console.info(
+      'Local Whisper server disabled. Set VITE_LOCAL_WHISPER_URL to enable on-device transcription.',
+    );
+  }
+};
 
 /**
  * Check if the local Whisper server is running and ready
  * @returns {Promise<boolean>} - True if server is healthy
  */
 export async function checkLocalWhisperHealth() {
+  if (!IS_WHISPER_ENABLED) {
+    logWhisperDisabled();
+    return false;
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
@@ -44,6 +70,10 @@ export async function checkLocalWhisperHealth() {
  * @returns {Promise<Object>} - Model information
  */
 export async function getLocalWhisperModels() {
+  if (!IS_WHISPER_ENABLED) {
+    throw new Error('Local Whisper server is not configured.');
+  }
+
   try {
     const response = await fetch(`${LOCAL_WHISPER_URL}/models`);
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -63,6 +93,10 @@ export async function getLocalWhisperModels() {
  * @returns {Promise<Object>} - Transcription result
  */
 export async function transcribeWithLocalWhisper(audioBlob, options = {}) {
+  if (!IS_WHISPER_ENABLED) {
+    throw new Error('Local Whisper server is not configured.');
+  }
+
   const {
     language = 'en',
     translateToEnglish = false
@@ -71,7 +105,8 @@ export async function transcribeWithLocalWhisper(audioBlob, options = {}) {
   try {
     // Create FormData with audio file
     const formData = new FormData();
-    formData.append('audio', audioBlob, 'recording.webm');
+    const extension = getAudioExtension(audioBlob?.type || '');
+    formData.append('audio', audioBlob, `recording.${extension}`);
     formData.append('language', language);
     formData.append('task', translateToEnglish ? 'translate' : 'transcribe');
 
@@ -110,6 +145,12 @@ export async function transcribeWithLocalWhisper(audioBlob, options = {}) {
  * @returns {Promise<Object>} - Transcription result with source indicator
  */
 export async function transcribeWithFallback(audioBlob, options = {}) {
+  if (!IS_WHISPER_ENABLED) {
+    throw new Error(
+      'Local Whisper transcription is disabled. Start the Whisper server and set VITE_LOCAL_WHISPER_URL to enable voice transcription.',
+    );
+  }
+
   console.log(`Attempting local Whisper transcription (${(audioBlob.size / 1024).toFixed(2)} KB audio)`);
   console.log(`Whisper server URL: ${LOCAL_WHISPER_URL}`);
   

@@ -21,13 +21,19 @@ const Checkbox = React.forwardRef(({
     // Size variants
     const sizeClasses = {
         sm: "h-4 w-4",
-        default: "h-4 w-4",
-        lg: "h-5 w-5"
+        default: "h-5 w-5",
+        lg: "h-6 w-6"
+    };
+
+    const iconSizes = {
+        sm: "h-3 w-3",
+        default: "h-3.5 w-3.5",
+        lg: "h-4 w-4"
     };
 
     return (
-        <div className={cn("flex items-start space-x-2", className)}>
-            <div className="relative flex items-center">
+        <div className={cn("flex items-start gap-2 xs:gap-3", className)}>
+            <div className="relative flex items-center pt-0.5">
                 <input
                     type="checkbox"
                     ref={ref}
@@ -42,7 +48,7 @@ const Checkbox = React.forwardRef(({
                 <label
                     htmlFor={checkboxId}
                     className={cn(
-                        "peer shrink-0 rounded-sm border border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground cursor-pointer transition-colors",
+                        "peer shrink-0 rounded-md border-2 border-primary ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground cursor-pointer transition-colors touch-manipulation flex items-center justify-center",
                         sizeClasses?.[size],
                         checked && "bg-primary text-primary-foreground border-primary",
                         indeterminate && "bg-primary text-primary-foreground border-primary",
@@ -51,20 +57,20 @@ const Checkbox = React.forwardRef(({
                     )}
                 >
                     {checked && !indeterminate && (
-                        <Check className="h-3 w-3 text-current flex items-center justify-center" />
+                        <Check className={cn(iconSizes?.[size], "text-current")} />
                     )}
                     {indeterminate && (
-                        <Minus className="h-3 w-3 text-current flex items-center justify-center" />
+                        <Minus className={cn(iconSizes?.[size], "text-current")} />
                     )}
                 </label>
             </div>
             {(label || description || error) && (
-                <div className="flex-1 space-y-1">
+                <div className="flex-1 space-y-0.5 xs:space-y-1">
                     {label && (
                         <label
                             htmlFor={checkboxId}
                             className={cn(
-                                "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer",
+                                "text-sm xs:text-base font-medium leading-snug peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer touch-manipulation",
                                 error ? "text-destructive" : "text-foreground"
                             )}
                         >
@@ -74,13 +80,13 @@ const Checkbox = React.forwardRef(({
                     )}
 
                     {description && !error && (
-                        <p className="text-sm text-muted-foreground">
+                        <p className="text-xs xs:text-sm text-muted-foreground leading-relaxed">
                             {description}
                         </p>
                     )}
 
                     {error && (
-                        <p className="text-sm text-destructive">
+                        <p className="text-xs xs:text-sm text-destructive">
                             {error}
                         </p>
                     )}

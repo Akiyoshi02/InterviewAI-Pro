@@ -239,19 +239,23 @@ const CompanyDashboard = () => {
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
       <div
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 overflow-hidden"
+        className="pointer-events-none fixed inset-0 overflow-hidden z-0"
       >
-        <div className="absolute -top-32 right-0 h-96 w-96 bg-gradient-to-br from-blue-400/30 via-purple-400/20 to-transparent blur-[140px]" />
-        <div className="absolute bottom-0 left-[-10%] h-[420px] w-[420px] bg-gradient-to-tr from-indigo-300/25 via-cyan-200/20 to-transparent blur-[120px]" />
+        <div className="absolute -top-32 right-0 h-60 w-60 sm:h-80 sm:w-80 lg:h-96 lg:w-96 bg-gradient-to-br from-blue-400/30 via-purple-400/20 to-transparent blur-[140px]" />
+        <div className="absolute bottom-0 left-[-10%] h-[300px] w-[300px] sm:h-[420px] sm:w-[420px] bg-gradient-to-tr from-indigo-300/25 via-cyan-200/20 to-transparent blur-[120px]" />
         <div className="absolute inset-0 opacity-50 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
       </div>
 
+      <Header 
+        userType="company"
+        isAuthenticated
+        onLogout={handleLogout}
+      />
+      
+      {/* Spacer for fixed header */}
+      <div className="h-14 xs:h-16" />
+      
       <div className="relative z-10">
-        <Header 
-          userType="company"
-          isAuthenticated
-          onLogout={handleLogout}
-        />
         <div className="flex flex-col lg:flex-row">
           <UserContextNavigation
             userType="company"
@@ -259,77 +263,78 @@ const CompanyDashboard = () => {
             onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
           />
           
-          <main className={`flex-1 transition-all duration-300 lg:pl-4 ${
-            isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-[18rem]'
+          <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${
+            isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'
           }`}>
             <motion.section
               variants={sectionReveal}
               initial="hidden"
-              whileInView="visible"
-              viewport={viewportConfig}
-              className="px-3 sm:px-4 md:px-6 lg:px-8 py-6 sm:py-8 md:py-10 space-y-6 sm:space-y-8 lg:space-y-10"
+              animate="visible"
+              className="container-responsive py-4 xs:py-5 sm:py-6 md:py-8 lg:py-10 space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8"
             >
               {showInitialLoader && (
                 <motion.div
                   variants={fadeUpChild}
-                  className="rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-8 text-center"
+                  className="card-base p-6 sm:p-8 text-center"
                 >
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-primary mx-auto mb-4" />
-                  <p className="text-sm text-muted-foreground">Loading company analytics...</p>
+                  <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-primary mx-auto mb-3 sm:mb-4" />
+                  <p className="text-xs sm:text-sm text-muted-foreground">Loading company analytics...</p>
                 </motion.div>
               )}
+              
+              {/* Hero Welcome Section */}
               <motion.div
                 variants={fadeUpChild}
-                className="relative overflow-hidden rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 sm:p-8 shadow-[0_30px_80px_rgba(15,23,42,0.15)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.5)] backdrop-blur"
+                className="relative overflow-hidden card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark"
               >
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-                <div className="relative z-10 flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-3">
-                    <div className="inline-flex items-center space-x-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-4 py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
-                      <span className="h-2 w-2 rounded-full bg-blue-600 dark:bg-blue-400" />
+                <div className="relative z-10 flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-2 sm:space-y-3">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
+                      <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>AI-powered hiring control center</span>
                     </div>
-                    <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100">
-                      Welcome back, {user?.fullName || user?.email?.split('@')[0] || 'Team Lead'} 👋
+                    <h1 className="text-xl xs:text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
+                      Welcome back, {user?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Team Lead'} 👋
                     </h1>
-                    <p className="text-sm sm:text-base text-gray-600 dark:text-slate-300 max-w-2xl">
+                    <p className="text-xs xs:text-sm sm:text-base text-gray-600 dark:text-slate-300 max-w-2xl leading-relaxed">
                       {user?.companyName || 'Your organization'} is synced. Continue orchestrating interviews,
                       review AI insights, and fast-forward decisions.
                     </p>
                   </div>
-                  <div className="rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-5 shadow-xl shadow-blue-500/40 w-full sm:w-auto">
-                    <p className="text-xs uppercase tracking-[0.25em] text-white/70">Next live event</p>
-                    <div className="mt-2 text-3xl font-semibold">
+                  <div className="rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-4 sm:p-5 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[200px] xl:min-w-[240px]">
+                    <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
+                    <div className="mt-1.5 sm:mt-2 text-xl xs:text-2xl sm:text-3xl font-semibold truncate">
                       {safeInterviews?.find((i) => i?.company)?.company ||
                         user?.companyName ||
                         user?.organizationContext?.organization?.displayName ||
                         'Live session'}
                     </div>
-                    <p className="text-sm text-white/80">
+                    <p className="text-xs sm:text-sm text-white/80 mt-0.5">
                       {interviewsToday > 0 ? `${interviewsToday} interviews today` : 'Pipeline ready'}
                     </p>
                   </div>
                 </div>
-                <div className="relative z-10 mt-6 grid gap-4 sm:grid-cols-3">
+                <div className="relative z-10 mt-4 sm:mt-6 grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 sm:gap-4">
                   {heroHighlights.map((item) => (
                     <div
                       key={item.label}
-                      className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-4 py-3 shadow-sm shadow-blue-500/10"
+                      className="rounded-xl sm:rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-3 py-2 xs:px-4 xs:py-3 shadow-sm"
                     >
-                      <p className="text-xs uppercase tracking-[0.2em] text-gray-500 dark:text-slate-400">{item.label}</p>
-                      <p className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
-                      <p className="text-xs text-gray-500 dark:text-slate-400">{item.detail}</p>
+                      <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
+                      <p className="text-lg xs:text-xl sm:text-2xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
+                      <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
                 </div>
 
-                <div className="relative z-10 mt-6 flex flex-wrap gap-3">
+                <div className="relative z-10 mt-4 sm:mt-6 flex flex-col xs:flex-row flex-wrap gap-2 xs:gap-3">
                   <Button
                     variant="default"
                     iconName="Plus"
                     iconPosition="left"
                     onClick={handleScheduleInterview}
-                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-sm"
                   >
                     Schedule Interview
                   </Button>
@@ -338,7 +343,7 @@ const CompanyDashboard = () => {
                     iconName="Video"
                     iconPosition="left"
                     onClick={() => window.location.href = '/live-interview-session'}
-                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-sm"
                   >
                     Start Live Session
                   </Button>
@@ -388,7 +393,7 @@ const CompanyDashboard = () => {
 
               <motion.div
                 variants={staggeredChildren}
-                className="grid grid-cols-1 xl:grid-cols-4 gap-4 sm:gap-5 md:gap-6 lg:gap-8"
+                className="grid grid-cols-1 xl:grid-cols-4 gap-4 sm:gap-5 md:gap-6"
               >
                 <motion.div variants={fadeUpChild} className="xl:col-span-3">
                   <HiringMetrics 
@@ -416,15 +421,16 @@ const CompanyDashboard = () => {
           </main>
         </div>
 
-        {/* Mobile Navigation Helper */}
-        <div className="lg:hidden fixed bottom-6 right-6 z-20">
+        {/* Floating Action Button - Mobile Only */}
+        <div className="lg:hidden fixed bottom-20 right-4 z-30">
           <Button
             variant="default"
             size="icon"
-            className="w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:from-blue-700 hover:to-purple-700"
+            className="w-12 h-12 xs:w-14 xs:h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:from-blue-700 hover:to-purple-700"
             onClick={handleScheduleInterview}
+            aria-label="Schedule new interview"
           >
-            <Icon name="Plus" size={24} color="white" />
+            <Icon name="Plus" size={22} color="white" />
           </Button>
         </div>
       </div>

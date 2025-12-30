@@ -63,6 +63,21 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
     }));
   };
 
+  const allEnvironmentChecked = checklistItems?.every(item => checkedItems?.[item?.id]);
+
+  const handleToggleAll = () => {
+    const shouldCheckAll = !allEnvironmentChecked;
+    const nextCheckedItems = checklistItems.reduce((acc, item) => {
+      acc[item.id] = shouldCheckAll;
+      return acc;
+    }, {});
+
+    setCheckedItems(prev => ({
+      ...prev,
+      ...nextCheckedItems
+    }));
+  };
+
   const testDevice = async (deviceType) => {
     setDeviceTests(prev => ({ ...prev, [deviceType]: 'testing' }));
     
@@ -88,6 +103,51 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
     }
   };
 
+  const testAllDevices = async () => {
+    setDeviceTests(prev => ({
+      ...prev,
+      camera: 'testing',
+      microphone: 'testing',
+      speakers: 'testing'
+    }));
+
+    let cameraStatus = 'error';
+    let microphoneStatus = 'error';
+
+    try {
+      const stream = await navigator.mediaDevices?.getUserMedia({ video: true, audio: true });
+      cameraStatus = stream?.getVideoTracks()?.length ? 'success' : 'error';
+      microphoneStatus = stream?.getAudioTracks()?.length ? 'success' : 'error';
+      stream?.getTracks()?.forEach(track => track?.stop());
+    } catch {
+      try {
+        const stream = await navigator.mediaDevices?.getUserMedia({ video: true });
+        cameraStatus = stream?.getVideoTracks()?.length ? 'success' : 'error';
+        stream?.getTracks()?.forEach(track => track?.stop());
+      } catch {
+        cameraStatus = 'error';
+      }
+
+      try {
+        const stream = await navigator.mediaDevices?.getUserMedia({ audio: true });
+        microphoneStatus = stream?.getAudioTracks()?.length ? 'success' : 'error';
+        stream?.getTracks()?.forEach(track => track?.stop());
+      } catch {
+        microphoneStatus = 'error';
+      }
+    }
+
+    setDeviceTests(prev => ({
+      ...prev,
+      camera: cameraStatus,
+      microphone: microphoneStatus
+    }));
+
+    setTimeout(() => {
+      setDeviceTests(prev => ({ ...prev, speakers: 'success' }));
+    }, 1000);
+  };
+
   const getDeviceTestIcon = (status) => {
     switch (status) {
       case 'testing': return 'Loader2';
@@ -109,6 +169,7 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
   const requiredItems = checklistItems?.filter(item => item?.required);
   const requiredChecked = requiredItems?.filter(item => checkedItems?.[item?.id])?.length;
   const allDevicesTested = Object.values(deviceTests)?.every(status => status === 'success');
+  const anyDeviceTesting = Object.values(deviceTests)?.some(status => status === 'testing');
   const isComplete = requiredChecked === requiredItems?.length && allDevicesTested;
 
   useEffect(() => {
@@ -127,14 +188,27 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
       <div className="relative overflow-hidden rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
         <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.1),transparent_45%)]" />
         <div className="relative z-10">
-          <h4 className="font-semibold text-gray-900 dark:text-slate-100 mb-4 flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-              <Icon name="Settings" size={16} className="text-white" />
-            </div>
-            <span>Device Testing</span>
-          </h4>
-        
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h4 className="font-semibold text-gray-900 dark:text-slate-100 flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+                <Icon name="Settings" size={16} className="text-white" />
+              </div>
+              <span>Device Testing</span>
+            </h4>
+            <Button
+              variant="outline"
+              size="sm"
+              iconName={anyDeviceTesting ? 'Loader2' : allDevicesTested ? 'RotateCcw' : 'Play'}
+              iconPosition="left"
+              onClick={testAllDevices}
+              disabled={anyDeviceTesting}
+              className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm"
+            >
+              {anyDeviceTesting ? 'Testing...' : allDevicesTested ? 'Retest All' : 'Test All'}
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div className="text-center p-4 rounded-xl border border-gray-200 dark:border-slate-700/50 bg-gray-50/50 dark:bg-slate-800/50">
               <div className="w-16 h-16 bg-gradient-to-br from-blue-600 to-purple-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-lg shadow-blue-500/20">
                 <Icon name="Camera" size={24} className="text-white" />
@@ -201,12 +275,24 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
       <div className="relative overflow-hidden rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
         <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.1),transparent_45%)]" />
         <div className="relative z-10">
-          <h4 className="font-semibold text-gray-900 dark:text-slate-100 mb-4 flex items-center space-x-2">
-            <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-              <Icon name="Home" size={16} className="text-white" />
-            </div>
-            <span>Environment Setup</span>
-          </h4>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+            <h4 className="font-semibold text-gray-900 dark:text-slate-100 flex items-center space-x-2">
+              <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
+                <Icon name="Home" size={16} className="text-white" />
+              </div>
+              <span>Environment Setup</span>
+            </h4>
+            <Button
+              variant="outline"
+              size="sm"
+              iconName={allEnvironmentChecked ? 'XCircle' : 'CheckCircle'}
+              iconPosition="left"
+              onClick={handleToggleAll}
+              className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm"
+            >
+              {allEnvironmentChecked ? 'Clear All' : 'Enable All'}
+            </Button>
+          </div>
           
           <div className="space-y-3">
             {checklistItems?.map((item) => (

@@ -5,19 +5,42 @@
  * Setup Instructions:
  * 1. Download Ollama: https://ollama.ai/download
  * 2. Install and start Ollama service
- * 3. Pull a model: `ollama pull llama3.1:8b`
+ * 3. Pull a model: `ollama pull qwen2.5:7b-instruct`
  * 4. Server runs at: http://localhost:11434
  * 
  * Recommended Models (FREE):
- * - llama3.1:8b (Best for interviews, 4.7GB)
+ * - qwen2.5:7b-instruct (Best mix of quality + speed, 5.4GB)
+ * - llama3.1:8b (Generalist, 4.7GB)
  * - mistral:7b (Fast, 4.1GB)
- * - phi3:medium (Efficient, 7.9GB)
  */
 
 import logger from '../utils/logger.js';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+const QWEN_GENERATION_DEFAULTS = {
+  temperature: 0.65,
+  top_p: 0.9,
+  top_k: 40,
+  repeat_penalty: 1.08,
+  num_ctx: 8192,
+  num_batch: 256,
+  gpu_layers: 999,
+  num_predict: 4096,
+};
+
+const buildGenerationOptions = (options = {}) => ({
+  ...QWEN_GENERATION_DEFAULTS,
+  ...(options.extraOptions || {}),
+  temperature: options.temperature ?? QWEN_GENERATION_DEFAULTS.temperature,
+  top_p: options.top_p ?? QWEN_GENERATION_DEFAULTS.top_p,
+  top_k: options.top_k ?? QWEN_GENERATION_DEFAULTS.top_k,
+  repeat_penalty: options.repeat_penalty ?? QWEN_GENERATION_DEFAULTS.repeat_penalty,
+  num_ctx: options.num_ctx ?? QWEN_GENERATION_DEFAULTS.num_ctx,
+  num_batch: options.num_batch ?? QWEN_GENERATION_DEFAULTS.num_batch,
+  gpu_layers: options.gpu_layers ?? QWEN_GENERATION_DEFAULTS.gpu_layers,
+  num_predict: options.max_tokens ?? QWEN_GENERATION_DEFAULTS.num_predict,
+});
 
 /**
  * Call Ollama API for chat completions
@@ -33,11 +56,7 @@ async function callOllama(messages, options = {}) {
         model: options.model || DEFAULT_MODEL,
         messages: messages,
         stream: false,
-        options: {
-          temperature: options.temperature || 0.7,
-          top_p: options.top_p || 0.9,
-          num_predict: options.max_tokens || 2000,
-        },
+        options: buildGenerationOptions(options),
       }),
     });
 
@@ -67,18 +86,57 @@ function parseJSONResponse(text) {
   }
 }
 
+// Personality descriptions for backend use
+const PERSONALITY_DESCRIPTIONS = {
+  'professional-encouraging': 'Professional, thorough, and encouraging. Maintains a balanced and supportive approach, providing constructive feedback while keeping the candidate at ease.',
+  'warm-insightful': 'Warm, insightful, and detail-oriented. Has a friendly and empathetic style, showing genuine interest in responses and helping candidates showcase their best self.',
+  'strategic-analytical': 'Strategic, analytical, and forward-thinking. Takes a thoughtful and methodical approach, asking probing questions that reveal deep thinking and strategic capabilities.',
+  'experienced-challenging': 'Experienced, challenging, and insightful. Uses a rigorous and thought-provoking style, pushing candidates to demonstrate their true expertise and problem-solving abilities.',
+  'data-driven-methodical': 'Data-driven, methodical, and curious. Takes an evidence-based and systematic approach, asking questions that require concrete examples and measurable outcomes.',
+  'fast-paced-innovative': 'Fast-paced, innovative, and results-oriented. Uses a dynamic and action-focused style, moving quickly through questions while emphasizing practical results and innovation.',
+  'user-focused-empathetic': 'User-focused, empathetic, and creative. Takes a human-centered and understanding approach, emphasizing how solutions impact real people and communities.',
+  'collaborative-team-oriented': 'Collaborative, team-oriented, and inclusive. Emphasizes teamwork and diverse perspectives, asking questions that reveal how candidates work with others.',
+  'direct-transparent': 'Direct, transparent, and candid. Uses straightforward and honest communication, asking clear questions and providing direct feedback.',
+  'growth-oriented-developmental': 'Growth-oriented, developmental, and supportive. Focuses on learning and continuous improvement, helping candidates reflect on their experiences and growth potential.',
+  'conversational-authentic': 'Conversational, authentic, and relatable. Uses a natural and genuine interaction style, making the interview feel like a real conversation between professionals.',
+  'outcome-focused-metrics': 'Outcome-focused, metrics-driven, and results-oriented. Emphasizes measurable impact and performance, asking questions that reveal concrete achievements and quantifiable results.'
+};
+
+function getPersonalityDescription(personalityId) {
+  return PERSONALITY_DESCRIPTIONS[personalityId] || PERSONALITY_DESCRIPTIONS['professional-encouraging'];
+}
+
 export class LLMService {
   /**
    * Generate interview questions
    */
   static async generateInterviewQuestions(config) {
     try {
-      const systemPrompt = `You are an expert technical interviewer. Generate ${config.totalQuestions || 10} interview questions based on the following criteria:
+      const difficulty = config.difficulty || 'medium';
+      const personalityId = config.personality;
+      const interviewerName = config.interviewerName || 'Your Interviewer';
+      
+      // Build personality context if available
+      let personalityContext = '';
+      if (personalityId) {
+        const personalityDesc = getPersonalityDescription(personalityId);
+        personalityContext = `\n\nInterviewer Style: ${personalityDesc}`;
+      }
+      
+      // Build difficulty instruction
+      const difficultyInstruction = difficulty === 'easy' 
+        ? 'Basic questions suitable for junior candidates. Focus on fundamental concepts and straightforward scenarios.'
+        : difficulty === 'hard'
+        ? 'Challenging questions requiring deep expertise. Include complex scenarios, edge cases, and advanced problem-solving.'
+        : 'Moderate questions appropriate for mid-level candidates. Balance between fundamentals and advanced topics.';
+      
+      const systemPrompt = `You are ${interviewerName}, an expert technical interviewer. Generate ${config.totalQuestions || 10} interview questions based on the following criteria:
 - Job Role: ${config.jobRole}
 - Experience Level: ${config.experienceLevel}
 - Industry: ${config.industry}
 - Interview Types: ${config.interviewTypes?.join(', ') || 'General'}
 - Focus Areas: ${config.skillFocus?.join(', ') || 'General'}
+- Difficulty Level: ${difficulty} - ${difficultyInstruction}${personalityContext}
 
 Return ONLY a valid JSON object with this exact structure (no markdown, no explanation):
 {
@@ -86,7 +144,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
     {
       "id": 1,
       "type": "behavioral",
-      "difficulty": "medium",
+      "difficulty": "${difficulty}",
       "question": "Question text here",
       "expectedDuration": "3",
       "evaluationCriteria": ["criteria1", "criteria2"]
@@ -94,8 +152,11 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
   ]
 }
 
-Types can be: behavioral, technical, coding, system_design
-Difficulty can be: easy, medium, hard`;
+Important:
+- ALL questions must have difficulty set to "${difficulty}"
+- Match the difficulty level: ${difficultyInstruction}
+- Types can be: behavioral, technical, coding, system_design
+- Generate questions that align with the interviewer style and personality`;
 
       const messages = [
         { role: 'system', content: systemPrompt },
@@ -252,6 +313,82 @@ Generate the next appropriate question based on the conversation flow. Return ON
   }
 
   /**
+   * Verify whether a business document appears official
+   */
+  static async verifyBusinessDocument({ documentText, summary }) {
+    try {
+      const truncatedText = documentText?.slice(0, 8000) || '';
+      const systemPrompt = `You are a compliance analyst. Determine whether the provided text comes from an official business registration/tax/license certificate.
+
+Provide a JSON response with:
+{
+  "isOfficial": true,
+  "confidence": 0.85,
+  "reasons": ["brief reason 1", "brief reason 2"]
+}
+
+Confidence should be between 0 and 1.`;
+
+      const userContent = [
+        'Document Summary:',
+        summary || 'None',
+        '',
+        'Document Extract:',
+        truncatedText || 'No text available.',
+      ].join('\n');
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ];
+
+      const response = await callOllama(messages, { max_tokens: 400, temperature: 0.3 });
+      return parseJSONResponse(response);
+    } catch (error) {
+      logger.error('Error verifying business document with LLM:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Verify whether a resume looks authentic
+   */
+  static async verifyResumeDocument({ documentText, summary, expectedName }) {
+    try {
+      const truncatedText = documentText?.slice(0, 6000) || '';
+      const systemPrompt = `You are a resume compliance checker. Determine whether the text appears to be a real job résumé for ${expectedName || 'the candidate'}.
+
+Return strict JSON:
+{
+  "isOfficial": true,
+  "confidence": 0.9,
+  "message": "short reason"
+}
+
+Confidence must be between 0 and 1.`;
+
+      const userContent = [
+        'Resume Summary:',
+        summary || 'None',
+        '',
+        'Resume Extract:',
+        truncatedText || 'No text available.',
+      ].join('\n');
+
+      const messages = [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ];
+
+      const response = await callOllama(messages, { max_tokens: 400, temperature: 0.3 });
+      return parseJSONResponse(response);
+    } catch (error) {
+      logger.error('Error verifying resume document with LLM:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Check if Ollama service is running
    */
   static async healthCheck() {
@@ -270,7 +407,7 @@ Generate the next appropriate question based on the conversation flow. Return ON
       return { 
         healthy: false, 
         error: error.message,
-        help: 'Install Ollama from https://ollama.ai and run: ollama pull llama3.1:8b'
+        help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct'
       };
     }
   }

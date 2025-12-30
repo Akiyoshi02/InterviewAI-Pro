@@ -239,7 +239,7 @@ const Support = () => {
 
         <header className="relative z-10">
           <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 pt-4">
-            <div className="flex items-center justify-between rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.3)] backdrop-blur">
+            <div className="flex items-center justify-between rounded-2xl border border-gray-200/60 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.3)] backdrop-blur">
               <div className="flex items-center space-x-3">
                 <BrandMark
                   showTagline
@@ -252,7 +252,7 @@ const Support = () => {
               <Button
                 variant="ghost"
                 onClick={() => navigate('/')}
-                className="rounded-full border border-white/40 dark:border-slate-700/50 text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
+                className="rounded-full border border-gray-200 dark:border-slate-700/50 text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-500"
               >
                 Back to Home
               </Button>
@@ -294,7 +294,7 @@ const Support = () => {
               {contactOptions.map((option) => (
                 <div
                   key={option.id}
-                  className="relative overflow-hidden rounded-3xl border border-white/30 bg-white/85 p-5 sm:p-6 text-center shadow-[0_25px_80px_rgba(15,23,42,0.18)] backdrop-blur hover:shadow-[0_25px_80px_rgba(15,23,42,0.25)] transition-shadow"
+                  className="relative overflow-hidden rounded-3xl border border-gray-200/60 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 p-5 sm:p-6 text-center shadow-[0_25px_80px_rgba(15,23,42,0.18)] dark:shadow-[0_25px_80px_rgba(0,0,0,0.4)] backdrop-blur hover:shadow-[0_25px_80px_rgba(15,23,42,0.25)] dark:hover:shadow-[0_25px_80px_rgba(0,0,0,0.5)] transition-shadow"
                 >
                   <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%)]" />
                   <div className="relative z-10 space-y-4">
@@ -302,8 +302,8 @@ const Support = () => {
                       <Icon name={option.icon} size={22} className="lg:w-6 lg:h-6" />
                     </div>
                     <div>
-                      <h3 className="text-base lg:text-lg font-semibold text-gray-900">{option.title}</h3>
-                      <p className="text-xs lg:text-sm text-gray-500 mt-1">{option.description}</p>
+                      <h3 className="text-base lg:text-lg font-semibold text-gray-900 dark:text-slate-100">{option.title}</h3>
+                      <p className="text-xs lg:text-sm text-gray-500 dark:text-slate-400 mt-1">{option.description}</p>
                     </div>
                     {option.href ? (
                       <a href={option.href} className="inline-block text-blue-600 text-xs lg:text-sm font-medium hover:text-blue-700 hover:underline transition-colors">
@@ -314,7 +314,7 @@ const Support = () => {
                         variant="outline"
                         size="sm"
                         onClick={option.action}
-                        className="rounded-full border border-gray-200 text-gray-800 hover:border-blue-300 hover:text-blue-600 text-xs lg:text-sm"
+                        className="rounded-full border border-gray-200 dark:border-slate-600 text-gray-800 dark:text-slate-200 hover:border-blue-300 dark:hover:border-blue-500 hover:text-blue-600 dark:hover:text-blue-400 text-xs lg:text-sm"
                       >
                         {option.actionLabel}
                       </Button>
@@ -327,12 +327,12 @@ const Support = () => {
 
           {/* Contact Form */}
           <motion.section variants={fadeUpChild}>
-            <div className="relative overflow-hidden rounded-3xl border border-white/30 bg-white/85 p-6 sm:p-8 shadow-[0_25px_80px_rgba(15,23,42,0.18)] backdrop-blur">
+            <div className="relative overflow-hidden rounded-3xl border border-gray-200/60 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 p-6 sm:p-8 shadow-[0_25px_80px_rgba(15,23,42,0.18)] dark:shadow-[0_25px_80px_rgba(0,0,0,0.4)] backdrop-blur">
               <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(147,51,234,0.08),transparent_45%)]" />
               <div className="relative z-10 space-y-5">
                 <div>
-                  <h2 className="text-xl lg:text-2xl font-semibold text-gray-900 mb-2">Send us a Message</h2>
-                  <p className="text-xs lg:text-sm text-gray-600">
+                  <h2 className="text-xl lg:text-2xl font-semibold text-gray-900 dark:text-slate-100 mb-2">Send us a Message</h2>
+                  <p className="text-xs lg:text-sm text-gray-600 dark:text-slate-400">
                     Can't find what you're looking for? Fill out the form below and we'll get back to you within 24 hours.
                   </p>
                 </div>
@@ -375,7 +375,7 @@ const Support = () => {
                     required
                   />
                   <div>
-                    <label className="text-xs lg:text-sm font-medium text-gray-700 mb-2 block">
+                    <label className="text-xs lg:text-sm font-medium text-gray-700 dark:text-slate-300 mb-2 block">
                       Message
                     </label>
                     <textarea
@@ -383,7 +383,7 @@ const Support = () => {
                       value={contactForm.message}
                       onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
                       rows={5}
-                      className="w-full rounded-md border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
+                      className="w-full rounded-md border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                       required
                     />
                   </div>
@@ -407,7 +407,7 @@ const Support = () => {
               return (
                 <div
                   key={category.id}
-                  className="relative overflow-hidden rounded-3xl border border-white/30 bg-white/85 p-5 sm:p-6 shadow-[0_25px_80px_rgba(15,23,42,0.18)] backdrop-blur hover:shadow-[0_25px_80px_rgba(15,23,42,0.25)] transition-shadow"
+                  className="relative overflow-hidden rounded-3xl border border-gray-200/60 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 p-5 sm:p-6 shadow-[0_25px_80px_rgba(15,23,42,0.18)] dark:shadow-[0_25px_80px_rgba(0,0,0,0.4)] backdrop-blur hover:shadow-[0_25px_80px_rgba(15,23,42,0.25)] dark:hover:shadow-[0_25px_80px_rgba(0,0,0,0.5)] transition-shadow"
                 >
                   <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%)]" />
                   <div className="relative z-10">
@@ -419,17 +419,17 @@ const Support = () => {
                         <div className="w-10 h-10 lg:w-12 lg:h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-lg shadow-blue-500/30 group-hover:shadow-blue-500/40 transition-shadow">
                           <Icon name={category.icon} size={20} className="lg:w-5 lg:h-5" />
                         </div>
-                        <h2 className="text-base lg:text-xl font-semibold text-gray-900">{category.title}</h2>
+                        <h2 className="text-base lg:text-xl font-semibold text-gray-900 dark:text-slate-100">{category.title}</h2>
                       </div>
-                      <Icon name={isOpen ? 'ChevronUp' : 'ChevronDown'} size={20} className="text-gray-400 group-hover:text-gray-600 transition-colors" />
+                      <Icon name={isOpen ? 'ChevronUp' : 'ChevronDown'} size={20} className="text-gray-400 dark:text-slate-500 group-hover:text-gray-600 dark:group-hover:text-slate-300 transition-colors" />
                     </button>
 
                     {isOpen && (
-                      <div className="mt-5 lg:mt-6 space-y-4 lg:space-y-5 pt-5 border-t border-white/40">
+                      <div className="mt-5 lg:mt-6 space-y-4 lg:space-y-5 pt-5 border-t border-gray-200/60 dark:border-slate-700/50">
                         {category.faqs.map((faq, index) => (
                           <div key={index} className="space-y-2">
-                            <h3 className="text-sm lg:text-base font-semibold text-gray-900">{faq.q}</h3>
-                            <p className="text-xs lg:text-sm text-gray-600 leading-relaxed">{faq.a}</p>
+                            <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-slate-100">{faq.q}</h3>
+                            <p className="text-xs lg:text-sm text-gray-600 dark:text-slate-400 leading-relaxed">{faq.a}</p>
                           </div>
                         ))}
                       </div>
@@ -442,14 +442,14 @@ const Support = () => {
 
           <motion.section
             variants={fadeUpChild}
-            className="relative overflow-hidden rounded-3xl border border-gray-800 bg-gray-900/60 p-6 sm:p-8 shadow-2xl shadow-black/40 text-gray-300"
+            className="relative overflow-hidden rounded-3xl border border-gray-200/60 dark:border-gray-800 bg-white/85 dark:bg-gray-900/60 p-6 sm:p-8 shadow-[0_25px_80px_rgba(15,23,42,0.18)] dark:shadow-2xl dark:shadow-black/40 backdrop-blur"
           >
-            <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.18),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(147,51,234,0.18),transparent_45%)]" />
+            <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.08),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(147,51,234,0.08),transparent_45%)] dark:bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.18),transparent_45%),radial-gradient(circle_at_100%_20%,rgba(147,51,234,0.18),transparent_45%)]" />
             <div className="relative z-10 space-y-5 lg:space-y-6">
               <div className="flex items-center justify-between flex-wrap gap-3">
-                <h2 className="text-xl lg:text-2xl font-semibold text-white">Additional Resources</h2>
-                <div className="flex items-center space-x-2 text-xs lg:text-sm text-gray-300">
-                  <Icon name='Sparkles' size={14} className="lg:w-4 lg:h-4 text-blue-300" />
+                <h2 className="text-xl lg:text-2xl font-semibold text-gray-900 dark:text-white">Additional Resources</h2>
+                <div className="flex items-center space-x-2 text-xs lg:text-sm text-gray-600 dark:text-gray-300">
+                  <Icon name='Sparkles' size={14} className="lg:w-4 lg:h-4 text-blue-600 dark:text-blue-300" />
                   <span>Guides • Tutorials • Updates</span>
                 </div>
               </div>
@@ -473,20 +473,20 @@ const Support = () => {
                 ].map((resource) => (
                   <div
                     key={resource.title}
-                    className="rounded-2xl border border-gray-800 bg-gray-800/70 p-5 lg:p-6 shadow-inner shadow-black/20 space-y-3 hover:border-blue-400/60 transition-colors"
+                    className="rounded-2xl border border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/70 p-5 lg:p-6 shadow-sm dark:shadow-inner dark:shadow-black/20 space-y-3 hover:border-blue-300 dark:hover:border-blue-400/60 transition-colors"
                   >
                     <div className="flex items-center space-x-3">
                       <div className="w-10 h-10 lg:w-12 lg:h-12 rounded-xl bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white shadow-lg shadow-blue-500/40">
                         <Icon name={resource.icon} size={20} className="lg:w-5 lg:h-5" />
                       </div>
-                      <h3 className="text-sm lg:text-base font-semibold text-white">{resource.title}</h3>
+                      <h3 className="text-sm lg:text-base font-semibold text-gray-900 dark:text-white">{resource.title}</h3>
                     </div>
-                    <p className="text-xs lg:text-sm text-gray-300">{resource.description}</p>
+                    <p className="text-xs lg:text-sm text-gray-600 dark:text-gray-300">{resource.description}</p>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={resource.action}
-                      className="rounded-full border border-gray-700 text-gray-100 hover:border-blue-400 hover:text-white text-xs lg:text-sm"
+                      className="rounded-full border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-100 hover:border-blue-400 hover:text-blue-600 dark:hover:text-white text-xs lg:text-sm"
                     >
                       {resource.label}
                     </Button>
@@ -499,18 +499,18 @@ const Support = () => {
 
         <footer className="relative z-10 mt-8 lg:mt-12">
           <div className="max-w-6xl mx-auto px-3 sm:px-4 lg:px-6 py-4 lg:py-6">
-            <div className="text-center text-xs lg:text-sm text-gray-500">
+            <div className="text-center text-xs lg:text-sm text-gray-500 dark:text-slate-400">
               <p>
                 © {new Date().getFullYear()} InterviewAI Pro ·
-                <a href="/privacy" className="text-blue-600 hover:underline mx-1">
+                <a href="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">
                   Privacy
                 </a>
                 ·
-                <a href="/terms" className="text-blue-600 hover:underline mx-1">
+                <a href="/terms" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">
                   Terms
                 </a>
                 ·
-                <a href="/support" className="text-blue-600 hover:underline mx-1">
+                <a href="/support" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">
                   Support
                 </a>
               </p>

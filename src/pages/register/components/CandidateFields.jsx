@@ -78,9 +78,16 @@ const CandidateFields = ({
       inputRef: resumeUploadRef,
       previewMode: 'document',
       required: true,
-      onValidateFile: null,
-      moderationState: null,
-      onReset: null,
+      onValidateFile: onModerateUpload
+        ? (file) => onModerateUpload('resumeFile', file, {
+            metadata: {
+              expectedFullName: formData?.fullName?.trim() || '',
+              expectedEmail: formData?.email?.trim() || '',
+            },
+          })
+        : null,
+      moderationState: uploadModeration?.resumeFile,
+      onReset: onResetModeration ? () => onResetModeration('resumeFile') : null,
     },
   ];
 
@@ -125,6 +132,7 @@ const CandidateFields = ({
     const currentModeration = moderationState || { status: 'idle', error: '' };
     const moderationError = currentModeration?.error && currentModeration.error !== error ? currentModeration.error : null;
     const isChecking = currentModeration?.status === 'checking' || isUploading;
+    const checkingMessage = previewMode === 'image' ? 'Analyzing image…' : 'Verifying document…';
 
     React.useEffect(() => {
       if (!fileValue || (!isImagePreviewable && !isPdfPreviewable)) {
@@ -265,7 +273,7 @@ const CandidateFields = ({
         )}
 
         {currentModeration?.status === 'checking' && (
-          <p className="mt-2 text-xs text-sky-500 dark:text-sky-400 text-center">Analyzing image…</p>
+          <p className="mt-2 text-xs text-sky-500 dark:text-sky-400 text-center">{checkingMessage}</p>
         )}
         {currentModeration?.status === 'approved' && fileValue && (
           <p className="mt-2 text-xs text-emerald-500 dark:text-emerald-400 text-center">Looks good!</p>

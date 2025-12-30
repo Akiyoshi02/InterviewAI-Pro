@@ -45,13 +45,20 @@ CORS(app, resources={
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Initialize Whisper model
-# Options: "tiny", "base", "small", "medium", "large-v3"
-MODEL_SIZE = os.getenv("WHISPER_MODEL", "medium")  # Use "medium" for high accuracy
-DEVICE = "cuda"  # Use GPU acceleration
-COMPUTE_TYPE = "float16"  # Use FP16 for faster GPU inference
+DEFAULT_MODEL = "large-v3"
+env_model = os.getenv("WHISPER_MODEL", "").strip()
+MODEL_SIZE = env_model or DEFAULT_MODEL
+DEVICE = "cuda"
+COMPUTE_TYPE = "float16"
 
-logger.info(f"Loading Whisper model: {MODEL_SIZE}")
+if env_model:
+    logger.info("Loading Whisper model from WHISPER_MODEL env: %s", MODEL_SIZE)
+else:
+    logger.warning(
+        "WHISPER_MODEL env var is missing; using default model '%s'.",
+        DEFAULT_MODEL,
+    )
+    logger.info("Loading Whisper model: %s", MODEL_SIZE)
 try:
     model = WhisperModel(MODEL_SIZE, device=DEVICE, compute_type=COMPUTE_TYPE)
     logger.info(f"✓ Whisper model loaded on {DEVICE}")
@@ -87,18 +94,32 @@ def transcribe():
             return jsonify({'error': 'No audio file provided'}), 400
         
         audio_file = request.files['audio']
+        filename = audio_file.filename or ''
+        _, ext = os.path.splitext(filename)
+        suffix = ext if ext else '.webm'
         
         # Save to temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix='.webm') as temp_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:
             audio_file.save(temp_file.name)
             temp_path = temp_file.name
         
         logger.info(f"Transcribing audio file: {temp_path}")
+
+        language = request.form.get('language', '').strip().lower()
+        if not language:
+            language = 'en'
+        if language == 'auto':
+            language = None
+
+        task = request.form.get('task', '').strip().lower()
+        if task not in ('transcribe', 'translate'):
+            task = 'transcribe'
         
         # Transcribe with faster-whisper (optimized for accuracy)
         segments, info = model.transcribe(
             temp_path,
-            language="en",  # Fixed language for faster processing
+            language=language,  # Default to English unless specified
+            task=task,
             beam_size=5,  # Higher beam search for better accuracy
             best_of=5,  # More candidates for better quality
             vad_filter=True,  # Voice Activity Detection (removes silence)

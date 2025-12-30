@@ -96,11 +96,11 @@ const AchievementBadges = ({ badges = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Achievement Badges</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
+          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Achievement Badges</h2>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
             {earnedBadges?.length} of {badgeData?.length} badges earned
           </p>
         </div>
@@ -108,7 +108,8 @@ const AchievementBadges = ({ badges = [] }) => {
           variant="ghost"
           size="sm"
           iconName="Trophy"
-          className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
+          iconPosition="left"
+          className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 w-full xs:w-auto"
         >
           Leaderboard
         </Button>

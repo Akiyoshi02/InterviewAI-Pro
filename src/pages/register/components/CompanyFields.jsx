@@ -83,15 +83,22 @@ const CompanyFields = ({
       fieldKey: 'companyProof',
       label: 'Business Verification Document',
       description: 'Provide proof of incorporation, tax certificate, or another legitimacy document.',
-      helper: 'PDF, DOC, DOCX, JPG/PNG · Max 15 MB',
+      helper: 'PDF, DOC, DOCX · Max 15 MB',
       icon: 'ShieldCheck',
-      accept: '.pdf,.doc,.docx,image/*',
+      accept: '.pdf,.doc,.docx',
       inputRef: proofUploadRef,
       previewMode: 'document',
       required: true,
-      onValidateFile: null,
-      moderationState: null,
-      onReset: null,
+      onValidateFile: onModerateUpload
+        ? (file) => onModerateUpload('companyProof', file, {
+            metadata: {
+              expectedCompanyName: formData?.companyName?.trim() || '',
+              expectedCountry: formData?.companyLocation?.trim() || '',
+            },
+          })
+        : null,
+      moderationState: uploadModeration?.companyProof,
+      onReset: onResetModeration ? () => onResetModeration('companyProof') : null,
     },
   ];
 
@@ -129,6 +136,7 @@ const CompanyFields = ({
     const currentModeration = moderationState || { status: 'idle', error: '' };
     const moderationError = currentModeration?.error && currentModeration.error !== error ? currentModeration.error : null;
     const isChecking = currentModeration?.status === 'checking' || isUploading;
+    const checkingMessage = previewMode === 'image' ? 'Analyzing image…' : 'Verifying document…';
 
     React.useEffect(() => {
       if (!fileValue || (!isImagePreviewable && !isPdfPreviewable)) {
@@ -268,7 +276,7 @@ const CompanyFields = ({
           </div>
         )}
         {currentModeration?.status === 'checking' && (
-          <p className="mt-2 text-xs text-sky-500 dark:text-sky-400 text-center">Analyzing image…</p>
+          <p className="mt-2 text-xs text-sky-500 dark:text-sky-400 text-center">{checkingMessage}</p>
         )}
         {currentModeration?.status === 'approved' && hasFile && (
           <p className="mt-2 text-xs text-emerald-500 dark:text-emerald-400 text-center">Looks good!</p>
