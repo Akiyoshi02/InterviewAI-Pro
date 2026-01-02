@@ -1,4 +1,4 @@
-import { activityLogStore, jobStore } from '../services/firebaseData.service.js';
+import { activityLogStore, jobStore, organizationStore } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const sanitizeJob = (job) => {
@@ -114,21 +114,43 @@ export class JobController {
   static async listPublicJobs(req, res, next) {
     try {
       const jobs = await jobStore.listPublished(parseInt(req.query.limit, 10) || 20);
-      const sanitized = jobs.map((job) => ({
-        id: job.id,
-        title: job.title,
-        department: job.department,
-        location: job.location,
-        employmentType: job.employmentType,
-        experienceLevel: job.experienceLevel,
-        description: job.description,
-        requirements: job.requirements || [],
-        responsibilities: job.responsibilities || [],
-        skills: job.skills || [],
-        publishedAt: job.publishedAt,
-        organizationId: job.organizationId,
-      }));
-      res.json({ success: true, jobs: sanitized });
+      
+      // Enrich jobs with organization info
+      const enrichedJobs = await Promise.all(
+        jobs.map(async (job) => {
+          let organization = null;
+          if (job.organizationId) {
+            try {
+              organization = await organizationStore.getById(job.organizationId);
+            } catch (err) {
+              logger.warn(`Failed to fetch organization ${job.organizationId} for job ${job.id}:`, err);
+            }
+          }
+          
+          return {
+            id: job.id,
+            title: job.title,
+            department: job.department,
+            location: job.location,
+            employmentType: job.employmentType,
+            experienceLevel: job.experienceLevel,
+            description: job.description,
+            requirements: job.requirements || [],
+            responsibilities: job.responsibilities || [],
+            skills: job.skills || [],
+            publishedAt: job.publishedAt,
+            organizationId: job.organizationId,
+            organization: organization ? {
+              id: organization.id,
+              name: organization.name,
+              logo: organization.logo,
+              website: organization.website,
+            } : null,
+          };
+        })
+      );
+      
+      res.json({ success: true, jobs: enrichedJobs });
     } catch (error) {
       logger.error('List public jobs error:', error);
       next(error);
@@ -140,6 +162,16 @@ export class JobController {
       const job = await jobStore.getById(req.params.id);
       if (!job || job.status !== 'PUBLISHED') {
         return res.status(404).json({ error: 'Job not found' });
+      }
+
+      // Enrich with organization info
+      let organization = null;
+      if (job.organizationId) {
+        try {
+          organization = await organizationStore.getById(job.organizationId);
+        } catch (err) {
+          logger.warn(`Failed to fetch organization ${job.organizationId} for job ${job.id}:`, err);
+        }
       }
 
       res.json({
@@ -157,10 +189,44 @@ export class JobController {
           skills: job.skills || [],
           publishedAt: job.publishedAt,
           organizationId: job.organizationId,
+          organization: organization ? {
+            id: organization.id,
+            name: organization.name,
+            logo: organization.logo,
+            website: organization.website,
+          } : null,
         },
       });
     } catch (error) {
       logger.error('Get public job error:', error);
+      next(error);
+    }
+  }
+
+  static async deleteJob(req, res, next) {
+    try {
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const jobId = req.params.id;
+
+      const existing = await jobStore.getById(jobId);
+      if (!existing || existing.organizationId !== organizationId) {
+        return res.status(404).json({ error: 'Job not found' });
+      }
+
+      await jobStore.delete(jobId);
+      await activityLogStore.record({
+        organizationId,
+        actorId: req.user.id,
+        actorRole: req.user.organizationContext?.membership?.role,
+        action: 'JOB_DELETED',
+        targetType: 'JOB',
+        targetId: jobId,
+        metadata: { title: existing.title },
+      });
+
+      res.json({ success: true, message: 'Job deleted successfully' });
+    } catch (error) {
+      logger.error('Delete job error:', error);
       next(error);
     }
   }

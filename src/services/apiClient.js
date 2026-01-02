@@ -94,13 +94,54 @@ async function handleResponse(response) {
       return { ...data, success: false, alreadyExists: true };
     }
     
+    // For validation errors (400), include the errors array in the thrown error
+    if (response.status === 400 && data.errors) {
+      const error = new Error(data.error || 'Validation failed');
+      error.errors = data.errors;
+      error.error = data.error;
+      throw error;
+    }
+    
     // Handle authentication errors (401/403) - clear session and redirect
+    // BUT: Don't treat business logic 403 errors (like organization status) as auth errors
     if (response.status === 401 || response.status === 403) {
-      console.error('Authentication error detected, clearing session');
-      
-      // Check if error is about user not existing in Firebase auth
+      // Check if this is a business logic error (organization status, etc.) or an actual auth error
+      const errorCode = data.code || '';
       const errorMsg = data.error || data.message || text || '';
-      if (errorMsg.includes('user_not_found') || errorMsg.includes('JWT') || errorMsg.includes('token')) {
+      
+      // Business logic error codes that should NOT trigger session clearing
+      const businessLogicErrorCodes = [
+        'ORG_PENDING',
+        'ORG_REJECTED',
+        'ORG_SUSPENDED',
+        'ORG_RESTRICTED',
+        'NO_ORGANIZATION'
+      ];
+      
+      // Check if this is a business logic error (only applies to 403, not 401)
+      const isBusinessLogicError = response.status === 403 && (
+        businessLogicErrorCodes.includes(errorCode) ||
+        errorMsg.includes('Organization pending approval') ||
+        errorMsg.includes('Organization access has been') ||
+        errorMsg.includes('Organization access is restricted') ||
+        errorMsg.includes('Organization access required')
+      );
+      
+      // 401 errors are always authentication errors (unless somehow they're business logic, which shouldn't happen)
+      // For 403, only treat as auth error if it's NOT a business logic error AND it contains auth-related keywords
+      const isAuthError = response.status === 401 || (
+        response.status === 403 && 
+        !isBusinessLogicError &&
+        (errorMsg.includes('user_not_found') || 
+         errorMsg.includes('JWT') || 
+         errorMsg.includes('token') ||
+         errorMsg.includes('Unauthorized') ||
+         errorMsg.includes('authentication'))
+      );
+      
+      if (isAuthError) {
+        console.error('Authentication error detected, clearing session');
+        
         // Clear all auth data
         try {
           const { authHelpers } = await import('../config/firebase.js');
@@ -135,6 +176,7 @@ async function handleResponse(response) {
             : '/login';
         }
       }
+      // If it's a business logic error, just throw the error without clearing session
     }
     
     throw new Error(data.error || data.message || text || `API Error: ${response.statusText}`);
@@ -254,6 +296,24 @@ export const apiClient = {
       }
 
       const response = await fetch(`${API_URL}/api/auth/me/company-logo`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async updateResume(file) {
+      const formData = new FormData();
+      formData.append('resumeFile', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/me/resume`, {
         method: 'PATCH',
         headers,
         body: formData,
@@ -513,6 +573,39 @@ export const apiClient = {
       });
       return handleResponse(response);
     },
+
+    // Note: Inviting by email requires the user to already exist.
+    // The backend's addMember requires userId, not email.
+    // For proper invitation flow, you'd need an invitation system or
+    // an endpoint to lookup userId by email.
+    async invite(email, role = 'REVIEWER') {
+      // Check if user exists first
+      const emailCheck = await this.auth.checkEmailAvailability(email);
+      if (!emailCheck.exists) {
+        throw new Error('User with this email does not exist. They must register first.');
+      }
+      // Without a userId lookup endpoint, we can't proceed
+      throw new Error('Invite by email requires user lookup functionality. Please use addMember with userId directly.');
+    },
+
+    async updateMemberRole(userId, role) {
+      const response = await fetch(`${API_URL}/api/organizations/me/members`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ userId, role, status: 'ACTIVE' }),
+      });
+      return handleResponse(response);
+    },
+
+    async removeMember(userId) {
+      // Since there's no DELETE endpoint, we'll set status to INACTIVE
+      const response = await fetch(`${API_URL}/api/organizations/me/members`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ userId, status: 'INACTIVE' }),
+      });
+      return handleResponse(response);
+    },
   },
 
   /**
@@ -565,6 +658,22 @@ export const apiClient = {
       const response = await fetch(`${API_URL}/api/public/jobs/${jobId}`, {
         method: 'GET',
         headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+
+    async getOrganizationJobs() {
+      const response = await fetch(`${API_URL}/api/jobs`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async remove(jobId) {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
       });
       return handleResponse(response);
     },
@@ -660,6 +769,240 @@ export const apiClient = {
     async list(limit = 50) {
       const response = await fetch(`${API_URL}/api/activity?limit=${limit}`, {
         method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * System Admin APIs
+   */
+  admin: {
+    async seedAdmin(payload) {
+      const response = await fetch(`${API_URL}/api/admin/auth/seed-admin`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getStats() {
+      const response = await fetch(`${API_URL}/api/admin/stats`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async listOrganizations(status = null, limit = 100) {
+      const params = new URLSearchParams();
+      if (status) params.append('status', status);
+      params.append('limit', limit);
+      const response = await fetch(`${API_URL}/api/admin/organizations?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async listPendingOrganizations(limit = 50) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/pending?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getOrganization(id) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/${id}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async approveOrganization(id) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/${id}/approve`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async rejectOrganization(id, reason) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/${id}/reject`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ reason }),
+      });
+      return handleResponse(response);
+    },
+
+    async suspendOrganization(id, reason) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/${id}/suspend`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ reason }),
+      });
+      return handleResponse(response);
+    },
+
+    async activateOrganization(id) {
+      const response = await fetch(`${API_URL}/api/admin/organizations/${id}/activate`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getSettings() {
+      const response = await fetch(`${API_URL}/api/admin/settings`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateSettings(settings) {
+      const response = await fetch(`${API_URL}/api/admin/settings`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(settings),
+      });
+      return handleResponse(response);
+    },
+
+    async getAuditLogs(limit = 100, offset = 0) {
+      const response = await fetch(`${API_URL}/api/admin/audit-logs?limit=${limit}&offset=${offset}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Job Application APIs
+   */
+  applications: {
+    async submit(jobId, payload) {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/apply`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getMyApplications() {
+      const response = await fetch(`${API_URL}/api/candidates/applications`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getApplication(id) {
+      const response = await fetch(`${API_URL}/api/applications/${id}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getJobApplications(jobId) {
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/applications`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getOrganizationApplications(status = null, limit = 50) {
+      const params = new URLSearchParams();
+      if (status) params.append('status', status);
+      params.append('limit', limit);
+      const response = await fetch(`${API_URL}/api/organizations/applications?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateStatus(id, status, reviewedBy = null) {
+      const response = await fetch(`${API_URL}/api/applications/${id}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({ status, reviewedBy }),
+      });
+      return handleResponse(response);
+    },
+
+    async withdraw(id) {
+      const response = await fetch(`${API_URL}/api/applications/${id}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  templates: {
+    async create(payload) {
+      const response = await fetch(`${API_URL}/api/templates`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async list() {
+      const response = await fetch(`${API_URL}/api/templates`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async listPublic() {
+      const response = await fetch(`${API_URL}/api/templates/public`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async get(id) {
+      const response = await fetch(`${API_URL}/api/templates/${id}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async update(id, payload) {
+      const response = await fetch(`${API_URL}/api/templates/${id}`, {
+        method: 'PUT',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async duplicate(id) {
+      const response = await fetch(`${API_URL}/api/templates/${id}/duplicate`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async delete(id) {
+      const response = await fetch(`${API_URL}/api/templates/${id}`, {
+        method: 'DELETE',
         headers: await getHeaders(),
       });
       return handleResponse(response);

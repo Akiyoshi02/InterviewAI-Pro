@@ -11,6 +11,10 @@ import pipelineRoutes from './pipeline.routes.js';
 import reviewRoutes from './review.routes.js';
 import activityRoutes from './activity.routes.js';
 import uploadRoutes from './upload.routes.js';
+import adminRoutes from './admin.routes.js';
+import applicationRoutes from './application.routes.js';
+import templateRoutes from './template.routes.js';
+import billingRoutes from './billing.routes.js';
 
 const router = express.Router();
 
@@ -27,6 +31,10 @@ export function setupRoutes(app) {
   app.use('/api/reviews', reviewRoutes);
   app.use('/api/activity', activityRoutes);
   app.use('/api/uploads', uploadRoutes);
+  app.use('/api/admin', adminRoutes);
+  app.use('/api/templates', templateRoutes);
+  app.use('/api/billing', billingRoutes);
+  app.use('/api', applicationRoutes);
 
   // Health check
   app.get('/health', (req, res) => {

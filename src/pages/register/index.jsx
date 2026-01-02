@@ -90,7 +90,6 @@ const Register = () => {
   const loginHref = redirectAfterAuth ? `/login?redirect=${encodeURIComponent(redirectAfterAuth)}` : '/login';
 
   const viewportConfig = { once: true, amount: 0.2 };
-  const skipUploadModeration = import.meta.env.VITE_SKIP_UPLOAD_MODERATION === 'true';
   const friendlyRateLimitMessage = (text) => {
     if (!text) return '';
     const normalized = text.toLowerCase();
@@ -141,14 +140,6 @@ const Register = () => {
 
   const moderateUpload = async (type, file, options = {}) => {
     if (!file || !type) return;
-    if (skipUploadModeration) {
-      setUploadModeration((prev) => ({
-        ...prev,
-        [type]: { status: 'approved', error: '' },
-      }));
-      return true;
-    }
-
     const metadata = options.metadata || {};
     setUploadModeration((prev) => ({
       ...prev,
@@ -810,6 +801,20 @@ const Register = () => {
         localStorage.removeItem('socialAuthIntent');
         setAuthenticatedUser(registerData.user);
 
+        // For company accounts, show approval pending message
+        if (formData.accountType === 'company') {
+          setStatus('success');
+          setMessage('Registration successful! Your organization is pending admin approval. You will be redirected to your dashboard where you can view the approval status. This typically takes 1-2 business days.');
+          
+          // Redirect after showing message
+          setTimeout(() => {
+            const redirectPath = '/company-dashboard';
+            navigate(redirectAfterAuth || redirectPath);
+          }, 4000);
+          return;
+        }
+
+        // For candidates, redirect immediately
         const redirectPath = formData.accountType === 'candidate'
           ? '/candidate-dashboard'
           : '/company-dashboard';
@@ -964,7 +969,20 @@ const Register = () => {
             localStorage.removeItem('socialAuthIntent');
             setAuthenticatedUser(registerData.user);
             
-            // Redirect based on account type
+            // For company accounts, show approval pending message
+            if (formData.accountType === 'company') {
+              setStatus('success');
+              setMessage('Registration successful! Your organization is pending admin approval. You will be redirected to your dashboard where you can view the approval status. This typically takes 1-2 business days.');
+              
+              // Redirect after showing message
+              setTimeout(() => {
+                const redirectPath = '/company-dashboard';
+                navigate(redirectAfterAuth || redirectPath);
+              }, 4000);
+              return;
+            }
+            
+            // For candidates, redirect immediately
             const redirectPath = formData.accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';
@@ -1202,7 +1220,7 @@ const Register = () => {
                   <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
                     <div className="flex-1 flex flex-col min-h-0 space-y-4">
                       {currentStep === 1 && (
-                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[62vh] lg:max-h-[58vh] overflow-y-auto px-1 pr-3 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-slate-600">
                           <AccountTypeSelector
                             selectedType={formData?.accountType}
                             onTypeChange={(type) => handleFieldChange('accountType', type)}
@@ -1231,7 +1249,7 @@ const Register = () => {
                               required
                             />
                           </div>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pb-4">
                             <div className="space-y-2">
                               <Input
                                 label="Password"
@@ -1264,7 +1282,7 @@ const Register = () => {
                       )}
 
                       {currentStep === 2 && (
-                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[55vh] lg:max-h-[50vh] overflow-y-auto px-1 pr-3 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-slate-600">
                           {formData?.accountType === 'candidate' ? (
                             <CandidateFields
                               formData={formData}
@@ -1294,7 +1312,7 @@ const Register = () => {
                       )}
 
                       {currentStep === 3 && (
-                        <div className="flex-1 min-h-0 max-h-[72vh] lg:max-h-[68vh] overflow-y-auto px-1 pr-3 space-y-4">
+                        <div className="flex-1 min-h-0 max-h-[55vh] lg:max-h-[50vh] overflow-y-auto px-1 pr-3 space-y-4 scrollbar-thin scrollbar-thumb-gray-300 dark:scrollbar-thumb-slate-600">
                           <TermsAndPrivacy
                             agreeToTerms={formData?.agreeToTerms}
                             agreeToMarketing={formData?.agreeToMarketing}

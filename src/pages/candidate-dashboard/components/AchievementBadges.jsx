@@ -96,10 +96,10 @@ const AchievementBadges = ({ badges = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
         <div>
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Achievement Badges</h2>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Achievement Badges</h2>
           <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
             {earnedBadges?.length} of {badgeData?.length} badges earned
           </p>
@@ -115,8 +115,8 @@ const AchievementBadges = ({ badges = [] }) => {
         </Button>
       </div>
       {/* Progress Overview */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between text-sm mb-2">
+      <div className="mb-4">
+        <div className="flex items-center justify-between text-xs mb-1.5">
           <span className="text-gray-500 dark:text-slate-400">Overall Progress</span>
           <span className="font-medium text-gray-900 dark:text-slate-100">
             {Math.round((earnedBadges?.length / badgeData?.length) * 100)}%
@@ -131,16 +131,16 @@ const AchievementBadges = ({ badges = [] }) => {
       </div>
       {/* Earned Badges */}
       {earnedBadges?.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100 mb-4">Earned Badges</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+        <div className="mb-4">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-3">Earned Badges</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {earnedBadges?.map((badge) => (
               <div
                 key={badge?.id}
-                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-2xl p-4 text-center hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-300 cursor-pointer group bg-white/80 dark:bg-slate-900/70 backdrop-blur`}
+                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-3 text-center hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200 cursor-pointer group bg-white/80 dark:bg-slate-900/70 backdrop-blur`}
               >
-                <div className={`w-12 h-12 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-3 group-hover:scale-110 transition-transform duration-200`}>
-                  <Icon name={badge?.icon} size={24} color="white" />
+                <div className={`w-10 h-10 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-2 group-hover:scale-105 transition-transform duration-200`}>
+                  <Icon name={badge?.icon} size={20} color="white" />
                 </div>
                 <h4 className="font-medium text-gray-900 dark:text-slate-100 text-sm mb-1">{badge?.name}</h4>
                 <p className="text-xs text-gray-500 dark:text-slate-400 line-clamp-2">{badge?.description}</p>
@@ -165,15 +165,15 @@ const AchievementBadges = ({ badges = [] }) => {
       {/* Available Badges */}
       {availableBadges?.length > 0 && (
         <div>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100 mb-4">Available Badges</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <h3 className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-3">Available Badges</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {availableBadges?.slice(0, 6)?.map((badge) => (
               <div
                 key={badge?.id}
-                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-2xl p-4 text-center opacity-70 hover:opacity-95 transition-all duration-200 cursor-pointer bg-white/70 dark:bg-slate-900/70`}
+                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-3 text-center opacity-70 hover:opacity-95 transition-all duration-200 cursor-pointer bg-white/70 dark:bg-slate-900/70`}
               >
-                <div className={`w-12 h-12 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-3`}>
-                  <Icon name={badge?.icon} size={24} color="white" />
+                <div className={`w-10 h-10 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-2`}>
+                  <Icon name={badge?.icon} size={20} color="white" />
                 </div>
                 <h4 className="font-medium text-gray-900 dark:text-slate-100 text-sm mb-1">{badge?.name}</h4>
                 <p className="text-xs text-gray-500 dark:text-slate-400 line-clamp-2">{badge?.description}</p>
@@ -206,7 +206,7 @@ const AchievementBadges = ({ badges = [] }) => {
         </div>
       )}
       {/* View All Badges */}
-      <div className="mt-6 pt-4 border-t border-white/30 dark:border-slate-700/60">
+      <div className="mt-4 pt-3 border-t border-white/30 dark:border-slate-700/60">
         <Button
           variant="outline"
           fullWidth

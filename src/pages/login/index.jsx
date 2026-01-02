@@ -175,6 +175,29 @@ const Login = () => {
         const userData = await apiClient.auth.getMe();
         
         if (userData.success && userData.user) {
+          // Validate that the selected role matches the actual account type
+          const selectedRole = formData.userType?.toLowerCase() || 'candidate';
+          const actualAccountType = userData.user.accountType?.toLowerCase();
+          
+          // Only validate if account type exists
+          if (actualAccountType) {
+            // Normalize account type for comparison (handle 'company' vs 'employer' etc)
+            const normalizedActualType = actualAccountType === 'company' || actualAccountType === 'employer' 
+              ? 'company' 
+              : 'candidate';
+            const normalizedSelectedType = selectedRole === 'company' || selectedRole === 'employer' 
+              ? 'company' 
+              : 'candidate';
+            
+            if (normalizedActualType !== normalizedSelectedType) {
+              // Sign out the user since they selected the wrong account type
+              await authHelpers.signOut();
+              const roleName = normalizedSelectedType === 'company' ? 'Employer' : 'Job Seeker';
+              const actualRoleName = normalizedActualType === 'company' ? 'Employer' : 'Job Seeker';
+              throw new Error(`You selected "${roleName}" but this account is registered as "${actualRoleName}". Please select the correct role and try again.`);
+            }
+          }
+          
           // Store user data
           localStorage.setItem('user', JSON.stringify(userData.user));
           localStorage.setItem('isAuthenticated', 'true');

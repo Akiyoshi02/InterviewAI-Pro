@@ -8,6 +8,7 @@ import ProtectedRoute from "components/ProtectedRoute";
 import NotFound from "pages/NotFound";
 import HomePage from './pages/home';
 import LiveInterviewSession from './pages/live-interview-session';
+import InterviewLobby from './pages/interview-lobby';
 import CompanyDashboard from './pages/company-dashboard';
 import Login from './pages/login';
 import PracticeInterviewSetup from './pages/practice-interview-setup';
@@ -21,6 +22,10 @@ import Support from './pages/support';
 import Onboarding from './pages/onboarding';
 import JobsPage from './pages/jobs';
 import InvitePage from './pages/invite';
+import SystemAdminDashboard from './pages/system-admin-dashboard';
+import CompanyJobsPage from './pages/company-jobs';
+import MyApplicationsPage from './pages/my-applications';
+import CompanyApplicationsPage from './pages/company-applications';
 
 const Routes = () => {
   return (
@@ -41,10 +46,34 @@ const Routes = () => {
           )}
         />
         <Route
+          path="/interview-lobby/:interviewId"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <InterviewLobby />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/company-dashboard"
           element={(
             <ProtectedRoute roles={['COMPANY']}>
               <CompanyDashboard />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-jobs"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyJobsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-applications"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyApplicationsPage />
             </ProtectedRoute>
           )}
         />
@@ -67,6 +96,14 @@ const Routes = () => {
             </ProtectedRoute>
           )}
         />
+        <Route
+          path="/my-applications"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <MyApplicationsPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route
           path="/onboarding"
@@ -81,6 +118,14 @@ const Routes = () => {
         <Route path="/support" element={<Support />} />
         <Route path="/jobs" element={<JobsPage />} />
         <Route path="/invite" element={<InvitePage />} />
+        <Route
+          path="/system-admin-dashboard"
+          element={(
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <SystemAdminDashboard />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>

@@ -7,6 +7,7 @@ import {
   requireOrganizationContext,
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
+import { requireApprovedOrganization, allowPendingOrganization } from '../middleware/admin.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -14,6 +15,7 @@ const router = express.Router();
 router.post(
   '/',
   authenticate,
+  requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [
     body('jobId').isString().withMessage('Job ID is required'),
@@ -28,6 +30,7 @@ router.post(
 router.get(
   '/',
   authenticate,
+  allowPendingOrganization,
   requireOrganizationContext,
   InvitationController.listInvitations,
 );

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 
 const QuickStartPanel = ({ onStartPractice }) => {
+  const navigate = useNavigate();
   const [selectedRole, setSelectedRole] = useState('');
   const [selectedDifficulty, setSelectedDifficulty] = useState('');
 
@@ -32,18 +34,18 @@ const QuickStartPanel = ({ onStartPractice }) => {
   const isReadyToStart = selectedRole && selectedDifficulty;
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center space-x-3 mb-6">
-        <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-          <Icon name="Play" size={20} color="white" />
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex items-center space-x-2.5 mb-3 sm:mb-4">
+        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+          <Icon name="Play" size={16} color="white" />
         </div>
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Quick Start Practice</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">Begin your AI interview session</p>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Quick Start Practice</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400">Begin your AI interview session</p>
         </div>
       </div>
 
-      <div className="space-y-4 mb-6">
+      <div className="space-y-3 mb-4">
         <Select
           label="Job Role"
           placeholder="Select your target role"
@@ -64,7 +66,7 @@ const QuickStartPanel = ({ onStartPractice }) => {
         />
       </div>
 
-      <div className="space-y-3">
+      <div className="space-y-2.5">
         <Button
           variant="default"
           fullWidth
@@ -77,12 +79,12 @@ const QuickStartPanel = ({ onStartPractice }) => {
           Start Practice Interview
         </Button>
 
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-2">
           <Button
             variant="outline"
             iconName="BookOpen"
             iconPosition="left"
-            onClick={() => window.location.href = '/practice-interview-setup'}
+            onClick={() => navigate('/practice-interview-setup')}
             className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
           >
             Custom Setup
@@ -91,7 +93,7 @@ const QuickStartPanel = ({ onStartPractice }) => {
             variant="ghost"
             iconName="History"
             iconPosition="left"
-            onClick={() => window.location.href = '/candidate-dashboard'}
+            onClick={() => navigate('/candidate-dashboard')}
             className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
           >
             View History
@@ -100,7 +102,7 @@ const QuickStartPanel = ({ onStartPractice }) => {
       </div>
 
       {/* Quick Tips */}
-      <div className="mt-6 p-4 rounded-2xl border border-white/40 dark:border-slate-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30">
+      <div className="mt-4 p-3 rounded-xl border border-white/40 dark:border-slate-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30">
         <div className="flex items-start space-x-2">
           <Icon name="Lightbulb" size={16} className="text-blue-600 dark:text-blue-400 mt-0.5" />
           <div>

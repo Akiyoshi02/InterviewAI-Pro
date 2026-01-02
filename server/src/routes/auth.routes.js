@@ -84,6 +84,14 @@ router.patch(
   AuthController.updateCompanyLogo
 );
 
+router.patch(
+  '/me/resume',
+  authenticate,
+  requireCandidate,
+  registrationUpload.single('resumeFile'),
+  AuthController.updateResume
+);
+
 // Delete unregistered auth user
 // This endpoint requires Firebase auth; the caller must be the same Firebase user being deleted
 router.post(

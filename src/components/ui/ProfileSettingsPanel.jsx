@@ -279,10 +279,14 @@ const ProfileSettingsPanel = ({
   const [photoPreview, setPhotoPreview] = useState('');
   const [photoSourceIndex, setPhotoSourceIndex] = useState(0);
   const [photoSourceFailed, setPhotoSourceFailed] = useState(false);
+  const [resumeFile, setResumeFile] = useState(null);
+  const resumeInputRef = useRef(null);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
+  const [isSavingResume, setIsSavingResume] = useState(false);
   const [profileStatus, setProfileStatus] = useState(null);
   const [photoStatus, setPhotoStatus] = useState(null);
+  const [resumeStatus, setResumeStatus] = useState(null);
   const [preferencesStatus, setPreferencesStatus] = useState(null);
 
   const preferencesKey = useMemo(() => {
@@ -496,6 +500,73 @@ const ProfileSettingsPanel = ({
     setPhotoSourceFailed(true);
   };
 
+  const handleResumeFileChange = (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) {
+      setResumeFile(null);
+      return;
+    }
+
+    // Validate file type
+    const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (!allowedTypes.includes(file.type)) {
+      setResumeStatus({
+        type: 'error',
+        message: 'Resume must be a PDF or Word document.',
+      });
+      setResumeFile(null);
+      if (resumeInputRef.current) {
+        resumeInputRef.current.value = '';
+      }
+      return;
+    }
+
+    // Validate file size (10 MB max)
+    const maxSize = 10 * 1024 * 1024; // 10 MB
+    if (file.size > maxSize) {
+      setResumeStatus({
+        type: 'error',
+        message: 'Resume must be 10 MB or less.',
+      });
+      setResumeFile(null);
+      if (resumeInputRef.current) {
+        resumeInputRef.current.value = '';
+      }
+      return;
+    }
+
+    setResumeStatus(null);
+    setResumeFile(file);
+  };
+
+  const handleSaveResume = async () => {
+    if (!resumeFile) return;
+    setResumeStatus(null);
+    setIsSavingResume(true);
+    try {
+      const response = await apiClient.auth.updateResume(resumeFile);
+      if (!response?.success || !response?.user) {
+        throw new Error('Unable to update the resume. Please try again.');
+      }
+      setAuthenticatedUser(response.user);
+      setResumeFile(null);
+      if (resumeInputRef.current) {
+        resumeInputRef.current.value = '';
+      }
+      setResumeStatus({
+        type: 'success',
+        message: 'Resume updated successfully.',
+      });
+    } catch (error) {
+      setResumeStatus({
+        type: 'error',
+        message: error?.message || 'Failed to update resume.',
+      });
+    } finally {
+      setIsSavingResume(false);
+    }
+  };
+
   return (
     <section
       id={sectionId}
@@ -665,7 +736,7 @@ const ProfileSettingsPanel = ({
                   <img
                     src={photoSource}
                     alt={photoLabel}
-                    className="w-full h-full object-cover"
+                    className={`w-full h-full ${isCompany ? 'object-contain' : 'object-cover'}`}
                     onError={handlePhotoError}
                   />
                 ) : (
@@ -731,6 +802,94 @@ const ProfileSettingsPanel = ({
               className="hidden"
             />
           </div>
+
+          {/* Resume Upload Section - Only for Candidates */}
+          {!isCompany && (
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+              <div className="flex items-center justify-between">
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Resume / CV</h3>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">Keep your resume up to date with your latest achievements.</p>
+                </div>
+              </div>
+
+              <div className={`flex items-center ${photoGap}`}>
+                <div className={`rounded-lg border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                  <Icon name="FileText" size={28} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <div className="flex-1">
+                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                    {resumeFile?.name || (user?.resumeOriginalName ? user.resumeOriginalName : 'No resume uploaded')}
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                    {user?.resumeUrl ? 'Current resume is on file. Upload a new one to replace it.' : 'Upload your resume (PDF or Word document, max 10 MB)'}
+                  </p>
+                  <StatusMessage status={resumeStatus} />
+                </div>
+              </div>
+
+              <div className={`flex flex-wrap gap-2 ${resumeFile ? '' : 'justify-center'}`}>
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  iconName="Upload"
+                  className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                  onClick={() => resumeInputRef.current?.click()}
+                >
+                  {user?.resumeUrl ? 'Update Resume' : 'Upload Resume'}
+                </Button>
+                {resumeFile && (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="rounded-full"
+                      onClick={handleSaveResume}
+                      disabled={isSavingResume}
+                    >
+                      {isSavingResume ? 'Saving...' : 'Save Resume'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="rounded-full text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
+                      onClick={() => {
+                        setResumeFile(null);
+                        setResumeStatus(null);
+                        if (resumeInputRef.current) {
+                          resumeInputRef.current.value = '';
+                        }
+                      }}
+                    >
+                      Cancel
+                    </Button>
+                  </>
+                )}
+                {user?.resumeUrl && !resumeFile && (
+                  <a
+                    href={`${API_BASE_URL}${normalizeUploadsPath(user.resumeUrl)}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                  >
+                    <Icon name="Download" size={14} />
+                    View Current Resume
+                  </a>
+                )}
+              </div>
+
+              <input
+                ref={resumeInputRef}
+                type="file"
+                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                onChange={handleResumeFileChange}
+                className="hidden"
+              />
+            </div>
+          )}
 
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
             <div className="flex items-center justify-between">

@@ -64,7 +64,12 @@ const InvitePage = () => {
     try {
       const result = await apiClient.invitations.accept(token);
       if (result.success) {
-        setActionMessage('Invitation accepted! You can now access the interview session.');
+        if (result.interview?.id) {
+          // Redirect to interview lobby
+          navigate(`/interview-lobby/${result.interview.id}`);
+        } else {
+          setActionMessage('Invitation accepted! You can now access the interview session.');
+        }
       } else {
         setError('Failed to accept invitation.');
       }

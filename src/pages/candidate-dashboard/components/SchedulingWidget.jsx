@@ -1,8 +1,10 @@
 import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
 const SchedulingWidget = ({ upcomingInterviews = [] }) => {
+  const navigate = useNavigate();
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
   const mockUpcomingInterviews = [
@@ -63,11 +65,11 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3">
         <div>
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Manage your scheduled interviews</p>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400">Manage your scheduled interviews</p>
         </div>
         <Button
           variant="default"
@@ -81,17 +83,17 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
         </Button>
       </div>
       {interviewData?.length > 0 ?
-      <div className="space-y-4">
+      <div className="space-y-3">
           {interviewData?.map((interview) =>
         <div
           key={interview?.id}
-          className="border border-white/30 dark:border-slate-700/50 rounded-2xl p-3 sm:p-4 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-1 hover:shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.4)] transition-all duration-300">
+          className="border border-white/30 dark:border-slate-700/50 rounded-xl p-2.5 sm:p-3 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200">
 
-              <div className="flex items-start space-x-3 sm:space-x-4">
+              <div className="flex items-start space-x-2.5 sm:space-x-3">
                 <img
               src={interview?.companyLogo}
               alt={interview?.companyLogoAlt}
-              className="w-10 h-10 sm:w-12 sm:h-12 rounded-lg object-cover flex-shrink-0" />
+              className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover flex-shrink-0" />
 
 
                 <div className="flex-1 min-w-0">
@@ -105,7 +107,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-2 xs:gap-3 mb-3 text-xs sm:text-sm text-gray-600 dark:text-slate-300">
+                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-1.5 xs:gap-2 mb-2 text-xs text-gray-600 dark:text-slate-300">
                     <div className="flex items-center space-x-2">
                       <Icon name="Calendar" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
                       <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.date}</span>
@@ -146,7 +148,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     size="sm"
                     iconName="Video"
                     iconPosition="left"
-                    onClick={() => window.location.href = '/live-interview-session'}
+                    onClick={() => navigate('/live-interview-session')}
                     className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                           Join
@@ -160,8 +162,8 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
         )}
         </div> :
 
-      <div className="text-center py-8">
-          <div className="w-16 h-16 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-slate-800 dark:to-slate-900 border border-white/50 dark:border-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-4">
+      <div className="text-center py-5">
+          <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-slate-800 dark:to-slate-900 border border-white/50 dark:border-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-3">
             <Icon name="Calendar" size={24} className="text-blue-600" />
           </div>
           <h3 className="font-medium text-gray-900 dark:text-slate-100 mb-2">No Upcoming Interviews</h3>
@@ -180,27 +182,16 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
         </div>
       }
       {/* Quick Actions */}
-      <div className="mt-6 pt-4 border-t border-white/30">
-        <div className="grid grid-cols-2 gap-3">
-          <Button
-            variant="outline"
-            iconName="Calendar"
-            iconPosition="left"
-            fullWidth
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            View Calendar
-          </Button>
-          <Button
-            variant="ghost"
-            iconName="Bell"
-            iconPosition="left"
-            fullWidth
-            className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            Reminders
-          </Button>
-        </div>
+      <div className="mt-4 pt-3 border-t border-white/30">
+        <Button
+          variant="outline"
+          iconName="Calendar"
+          iconPosition="left"
+          fullWidth
+          className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+        >
+          View Calendar
+        </Button>
       </div>
     </div>);
 

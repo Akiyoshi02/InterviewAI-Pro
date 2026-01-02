@@ -1,12 +1,15 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
 import Button from './Button';
 
 const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const currentPath = useMemo(() => window?.location?.pathname || '', []);
+  const currentPath = useMemo(() => location.pathname || '', [location.pathname]);
 
   // Handle scroll effect for header
   useEffect(() => {
@@ -33,8 +36,8 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
   }, [isMenuOpen]);
 
   const buildAuthLink = (target) => {
-    const pathname = window?.location?.pathname || '';
-    const search = window?.location?.search || '';
+    const pathname = location.pathname || '';
+    const search = location.search || '';
     const current = `${pathname}${search}`;
 
     const shouldRedirect =
@@ -61,24 +64,30 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
   const candidateNavItems = [
     { label: 'Dashboard', path: '/candidate-dashboard', icon: 'LayoutDashboard' },
     { label: 'Jobs', path: '/jobs', icon: 'Briefcase' },
+    { label: 'Applications', path: '/my-applications', icon: 'FileText', fullLabel: 'My Applications' },
     { label: 'Practice', path: '/practice-interview-setup', icon: 'Play', fullLabel: 'Practice Interview' },
-    { label: 'Live', path: '/live-interview-session', icon: 'Video', fullLabel: 'Live Session' },
   ];
 
   const companyNavItems = [
     { label: 'Dashboard', path: '/company-dashboard', icon: 'LayoutDashboard' },
+    { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase' },
+    { label: 'Applications', path: '/company-applications', icon: 'FileText' },
     { label: 'Setup', path: '/practice-interview-setup', icon: 'Settings', fullLabel: 'Interview Setup' },
     { label: 'Live', path: '/live-interview-session', icon: 'Video', fullLabel: 'Live Session' },
     { label: 'Invites', path: '/company-dashboard#invitations', icon: 'Send', fullLabel: 'Invitations' },
   ];
 
+  const adminNavItems = []; // Admin dashboard has its own tab navigation, no header nav needed
+
   const getNavigationItems = () => {
     if (!isAuthenticated) return [];
-    return userType === 'candidate' ? candidateNavItems : companyNavItems;
+    if (userType === 'candidate') return candidateNavItems;
+    if (userType === 'admin') return adminNavItems; // Empty array - admin uses tab navigation
+    return companyNavItems;
   };
 
   const handleNavClick = (path) => {
-    window.location.href = path;
+    navigate(path);
     setIsMenuOpen(false);
   };
 
@@ -107,45 +116,47 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
             : 'border-b border-white/20 dark:border-slate-800/50 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl'
         }`}
       >
-        <div className={`flex items-center h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto ${
-          isAuthenticated ? 'justify-end lg:justify-between' : 'justify-between'
+        <div className={`flex ${userType === 'admin' ? 'justify-between' : 'lg:grid lg:grid-cols-[1fr_auto_1fr]'} items-center h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto ${
+          isAuthenticated && userType !== 'admin' ? 'justify-end lg:justify-between' : 'justify-between'
         }`}>
           {/* Only show logo in header when NOT authenticated (no sidebar visible) */}
           {!isAuthenticated ? (
             <Logo />
           ) : (
             <>
-              {/* Show logo on mobile when authenticated since sidebar is hidden */}
-              <div className="lg:hidden mr-auto">
+              {/* Show logo when authenticated - always visible for admin, mobile for others */}
+              <div className={userType === 'admin' ? 'mr-auto' : 'lg:hidden mr-auto'}>
                 <Logo />
               </div>
-              {/* Empty spacer on desktop to maintain layout */}
-              <div className="hidden lg:block" />
+              {/* Empty spacer on desktop to maintain layout (only for non-admin) */}
+              {userType !== 'admin' && <div className="hidden lg:block" />}
             </>
           )}
           
           {/* Desktop Navigation */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-            {getNavigationItems()?.map((item) => (
-              <button
-                key={item?.path}
-                onClick={() => handleNavClick(item?.path)}
-                className={navButtonClass(item?.path)}
-                aria-current={isActivePath(item?.path) ? 'page' : undefined}
-              >
-                <Icon
-                  name={item?.icon}
-                  size={16}
-                  className={`flex-shrink-0 ${isActivePath(item?.path) ? 'text-white' : 'text-gray-400'}`}
-                />
-                <span className="hidden xl:inline">{item?.fullLabel || item?.label}</span>
-                <span className="xl:hidden">{item?.label}</span>
-              </button>
-            ))}
-          </nav>
+          {getNavigationItems() && getNavigationItems().length > 0 && (
+            <nav className="hidden lg:flex items-center gap-1 xl:gap-2 lg:justify-self-center">
+              {getNavigationItems()?.map((item) => (
+                <button
+                  key={item?.path}
+                  onClick={() => handleNavClick(item?.path)}
+                  className={navButtonClass(item?.path)}
+                  aria-current={isActivePath(item?.path) ? 'page' : undefined}
+                >
+                  <Icon
+                    name={item?.icon}
+                    size={16}
+                    className={`flex-shrink-0 ${isActivePath(item?.path) ? 'text-white' : 'text-gray-400'}`}
+                  />
+                  <span className="hidden xl:inline">{item?.fullLabel || item?.label}</span>
+                  <span className="xl:hidden">{item?.label}</span>
+                </button>
+              ))}
+            </nav>
+          )}
 
           {/* Desktop Auth Actions */}
-          <div className="hidden md:flex items-center gap-2 lg:gap-3">
+          <div className="hidden md:flex items-center gap-2 lg:gap-3 lg:justify-self-end">
             {!isAuthenticated ? (
               <>
                 <Button

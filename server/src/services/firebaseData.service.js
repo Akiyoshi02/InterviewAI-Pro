@@ -11,6 +11,9 @@ const jobsCollection = firestore.collection('jobs');
 const invitationsCollection = firestore.collection('invitations');
 const interviewReviewsCollection = firestore.collection('interviewReviews');
 const activityLogsCollection = firestore.collection('activityLogs');
+const jobApplicationsCollection = firestore.collection('jobApplications');
+const platformAuditLogsCollection = firestore.collection('platformAuditLogs');
+const systemSettingsCollection = firestore.collection('systemSettings');
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
@@ -29,6 +32,26 @@ const docToData = (doc) => {
   return { id: doc.id, ...doc.data() };
 };
 
+const isIndexBuildingError = (error) => {
+  if (!error) return false;
+  const message = (error.message || '').toLowerCase();
+  const code = typeof error.code === 'string' ? error.code.toLowerCase() : error.code;
+  const isPrecondition = code === 9 || code === 'failed-precondition';
+  return isPrecondition && message.includes('requires an index');
+};
+
+const toMillis = (value) => {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Date.parse(value);
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  if (typeof value?.toMillis === 'function') return value.toMillis();
+  if (typeof value?.toDate === 'function') return value.toDate().getTime();
+  return 0;
+};
+
 const buildUserSummary = (user) => {
   if (!user) return null;
   return {
@@ -37,6 +60,7 @@ const buildUserSummary = (user) => {
     fullName: user.fullName || null,
     accountType: user.accountType || null,
     companyName: user.companyName || null,
+    profilePhotoUrl: user.profilePhotoUrl || user.photoURL || null,
   };
 };
 
@@ -92,6 +116,12 @@ export const userStore = {
     return docToData(snapshot.docs[0]);
   },
 
+  async findByResumeHash(resumeHash) {
+    if (!resumeHash) return [];
+    const snapshot = await usersCollection.where('resumeHash', '==', resumeHash).get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
   async create(uid, data = {}) {
     const payload = {
       id: uid,
@@ -106,6 +136,7 @@ export const userStore = {
       profilePhotoUrl: data.profilePhotoUrl || null,
       resumeUrl: data.resumeUrl || null,
       resumeOriginalName: data.resumeOriginalName || null,
+      resumeHash: data.resumeHash || null,
       companyLogoUrl: data.companyLogoUrl || null,
       companyVerificationUrl: data.companyVerificationUrl || null,
       companyVerificationOriginalName: data.companyVerificationOriginalName || null,
@@ -438,6 +469,9 @@ export const organizationStore = {
       ownerId: data.ownerId || null,
       industry: data.industry || null,
       companySize: data.companySize || null,
+      logo: data.logo || null,
+      website: data.website || null,
+      status: data.status || 'PENDING', // Default to PENDING - requires admin approval
       branding: data.branding || { theme: 'default' },
       settings: data.settings || {
         retentionPolicyDays: 365,
@@ -463,6 +497,131 @@ export const organizationStore = {
     await docRef.set(
       {
         ...data,
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async updateLogo(id, logoUrl) {
+    if (!id) throw new Error('Organization ID is required');
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set({ logo: logoUrl, updatedAt: now() }, { merge: true });
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async listAll(limit = 100, offset = 0) {
+    try {
+      const snapshot = await organizationsCollection
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .offset(offset)
+        .get();
+      return snapshot.docs.map((doc) => organizationDocToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Organization index still building; falling back to in-memory sort.');
+      const snapshot = await organizationsCollection.get();
+      return snapshot.docs
+        .map((doc) => organizationDocToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
+        .slice(offset, offset + limit);
+    }
+  },
+
+  async listByStatus(status, limit = 100) {
+    if (!status) return [];
+    try {
+      const snapshot = await organizationsCollection
+        .where('status', '==', status)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+      return snapshot.docs.map((doc) => organizationDocToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Organization status index still building; falling back to in-memory filter.');
+      const snapshot = await organizationsCollection.get();
+      return snapshot.docs
+        .map((doc) => organizationDocToData(doc))
+        .filter((org) => org.status === status)
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
+        .slice(0, limit);
+    }
+  },
+
+  async approve(id, approvedBy) {
+    if (!id) throw new Error('Organization ID is required');
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        status: 'APPROVED',
+        approvedBy: approvedBy || null,
+        approvedAt: now(),
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async reject(id, reason, rejectedBy) {
+    if (!id) throw new Error('Organization ID is required');
+    if (!reason || !reason.trim()) {
+      throw new Error('Rejection reason is required');
+    }
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        status: 'REJECTED',
+        rejectedReason: reason.trim(),
+        rejectedBy: rejectedBy || null,
+        rejectedAt: now(),
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async suspend(id, reason, suspendedBy) {
+    if (!id) throw new Error('Organization ID is required');
+    if (!reason || !reason.trim()) {
+      throw new Error('Suspension reason is required');
+    }
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        status: 'SUSPENDED',
+        suspensionReason: reason.trim(),
+        suspendedBy: suspendedBy || null,
+        suspendedAt: now(),
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async activate(id) {
+    if (!id) throw new Error('Organization ID is required');
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        status: 'APPROVED',
+        suspendedAt: null,
+        suspensionReason: null,
+        suspendedBy: null,
         updatedAt: now(),
       },
       { merge: true },
@@ -588,6 +747,13 @@ export const jobStore = {
     const snapshot = await jobsCollection.where('status', '==', 'PUBLISHED').orderBy('publishedAt', 'desc').limit(limit).get();
     return snapshot.docs.map((doc) => docToData(doc));
   },
+
+  async delete(id) {
+    if (!id) throw new Error('Job ID is required');
+    const docRef = jobsCollection.doc(id);
+    await docRef.delete();
+    return { id, deleted: true };
+  },
 };
 
 const buildInvitationPayload = (data = {}) => {
@@ -632,8 +798,19 @@ export const invitationStore = {
 
   async listByOrganization(organizationId) {
     if (!organizationId) return [];
-    const snapshot = await invitationsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    try {
+      const snapshot = await invitationsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Invitation index still building; falling back to in-memory sort.');
+      const snapshot = await invitationsCollection.where('organizationId', '==', organizationId).get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+    }
   },
 
   async markAccepted(token, userId) {
@@ -731,6 +908,233 @@ export const activityLogStore = {
       .limit(limit)
       .get();
     return snapshot.docs.map((doc) => docToData(doc));
+  },
+};
+
+export const jobApplicationStore = {
+  async create(data = {}) {
+    const docRef = jobApplicationsCollection.doc();
+    const currentTime = now();
+    const payload = {
+      id: docRef.id,
+      jobId: data.jobId,
+      candidateId: data.candidateId,
+      organizationId: data.organizationId,
+      status: data.status || 'SUBMITTED',
+      resumeUrl: data.resumeUrl || null,
+      coverLetter: data.coverLetter || null,
+      answers: ensureArray(data.answers),
+      submittedAt: data.submittedAt || currentTime,
+      createdAt: currentTime,
+      updatedAt: currentTime,
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async getById(id) {
+    if (!id) return null;
+    const doc = await jobApplicationsCollection.doc(id).get();
+    return docToData(doc);
+  },
+
+  async checkDuplicate(jobId, candidateId) {
+    if (!jobId || !candidateId) return null;
+    const snapshot = await jobApplicationsCollection
+      .where('jobId', '==', jobId)
+      .where('candidateId', '==', candidateId)
+      .limit(1)
+      .get();
+    if (snapshot.empty) return null;
+    return docToData(snapshot.docs[0]);
+  },
+
+  async listByCandidate(candidateId) {
+    if (!candidateId) return [];
+    try {
+      const snapshot = await jobApplicationsCollection
+        .where('candidateId', '==', candidateId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      const snapshot = await jobApplicationsCollection.where('candidateId', '==', candidateId).get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+    }
+  },
+
+  async listByJob(jobId) {
+    if (!jobId) return [];
+    try {
+      const snapshot = await jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      const snapshot = await jobApplicationsCollection.where('jobId', '==', jobId).get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+    }
+  },
+
+  async listByOrganization(organizationId, limit = 50) {
+    if (!organizationId) return [];
+    try {
+      const snapshot = await jobApplicationsCollection
+        .where('organizationId', '==', organizationId)
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      const snapshot = await jobApplicationsCollection
+        .where('organizationId', '==', organizationId)
+        .get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
+        .slice(0, limit);
+    }
+  },
+
+  async update(id, updates) {
+    if (!id) throw new Error('Application ID is required');
+    const updateData = {
+      ...updates,
+      updatedAt: now(),
+    };
+    await jobApplicationsCollection.doc(id).set(updateData, { merge: true });
+    const updated = await jobApplicationsCollection.doc(id).get();
+    return docToData(updated);
+  },
+};
+
+export const platformAuditLogStore = {
+  async record({ actorId, actorType, action, targetType, targetId, metadata = {} }) {
+    const docRef = platformAuditLogsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      actorId: actorId || null,
+      actorType: actorType || null,
+      action: action || 'UNKNOWN',
+      targetType: targetType || null,
+      targetId: targetId || null,
+      metadata,
+      createdAt: now(),
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async list(limit = 100, offset = 0) {
+    try {
+      const snapshot = await platformAuditLogsCollection
+        .orderBy('createdAt', 'desc')
+        .limit(limit)
+        .offset(offset)
+        .get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Platform audit log index still building; falling back to in-memory sort.');
+      const snapshot = await platformAuditLogsCollection.get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
+        .slice(offset, offset + limit);
+    }
+  },
+};
+
+export const systemSettingsStore = {
+  async initialize(adminId) {
+    const settingsDoc = await systemSettingsCollection.doc('main').get();
+    if (settingsDoc.exists) {
+      return docToData(settingsDoc);
+    }
+
+    const defaultSettings = {
+      id: 'main',
+      featureFlags: {
+        enableJobPosting: true,
+        enableInvitations: true,
+        enableReviews: true,
+        enableAnalytics: true,
+      },
+      maintenanceMode: false,
+      defaultAIConfig: {
+        model: 'llama3.2',
+        temperature: 0.7,
+        maxTokens: 2000,
+      },
+      dataRetention: {
+        interviewDataDays: 365,
+        activityLogDays: 90,
+      },
+      createdAt: now(),
+      updatedAt: now(),
+      initializedBy: adminId,
+    };
+
+    await systemSettingsCollection.doc('main').set(defaultSettings);
+    return defaultSettings;
+  },
+
+  async get() {
+    const doc = await systemSettingsCollection.doc('main').get();
+    if (!doc.exists) {
+      // Return defaults if not initialized
+      return {
+        id: 'main',
+        featureFlags: {
+          enableJobPosting: true,
+          enableInvitations: true,
+          enableReviews: true,
+          enableAnalytics: true,
+        },
+        maintenanceMode: false,
+        defaultAIConfig: {
+          model: 'llama3.2',
+          temperature: 0.7,
+          maxTokens: 2000,
+        },
+        dataRetention: {
+          interviewDataDays: 365,
+          activityLogDays: 90,
+        },
+      };
+    }
+    return docToData(doc);
+  },
+
+  async update(updates, updatedBy) {
+    const current = await this.get();
+    const merged = {
+      ...current,
+      ...updates,
+      updatedAt: now(),
+      updatedBy: updatedBy || current.updatedBy,
+    };
+    await systemSettingsCollection.doc('main').set(merged, { merge: true });
+    return merged;
   },
 };
 

@@ -127,6 +127,8 @@ const CompanyFields = ({
 
     const [previewUrl, setPreviewUrl] = React.useState(null);
     const [isUploading, setIsUploading] = React.useState(false);
+    const [inputKey, setInputKey] = React.useState(0);
+    const [shouldOpenDialog, setShouldOpenDialog] = React.useState(false);
     const isImagePreviewable = previewMode === 'image'
       && fileValue instanceof File
       && fileValue.type?.startsWith('image/');
@@ -148,6 +150,32 @@ const CompanyFields = ({
       return () => URL.revokeObjectURL(url);
     }, [fileValue, isImagePreviewable, isPdfPreviewable]);
 
+    // Handle opening dialog after input is recreated
+    React.useEffect(() => {
+      if (shouldOpenDialog) {
+        // Wait for React to render the new input element
+        let retryTimer;
+        const timer = setTimeout(() => {
+          if (inputRef?.current) {
+            inputRef.current.click();
+            setShouldOpenDialog(false);
+          } else {
+            // If ref not ready, try again after a short delay
+            retryTimer = setTimeout(() => {
+              if (inputRef?.current) {
+                inputRef.current.click();
+                setShouldOpenDialog(false);
+              }
+            }, 50);
+          }
+        }, 10);
+        return () => {
+          clearTimeout(timer);
+          if (retryTimer) clearTimeout(retryTimer);
+        };
+      }
+    }, [shouldOpenDialog, inputKey]);
+
     const handleFileChange = async (event) => {
       const file = event?.target?.files?.[0];
       if (!file) return;
@@ -158,6 +186,10 @@ const CompanyFields = ({
           await onValidateFile(file);
         }
         onFieldChange(fieldKey, file);
+        // Reset input value after successful upload to ensure onChange fires on next selection
+        if (inputRef?.current) {
+          inputRef.current.value = '';
+        }
       } catch (validationError) {
         if (inputRef?.current) {
           inputRef.current.value = '';
@@ -166,6 +198,13 @@ const CompanyFields = ({
       } finally {
         setIsUploading(false);
       }
+    };
+
+    const handleFileInputClick = () => {
+      // Force input recreation by updating key to ensure a fresh input element
+      // This fixes the issue where onChange doesn't fire on first file selection
+      setInputKey(prev => prev + 1);
+      setShouldOpenDialog(true);
     };
 
     const handleRemoveFile = () => {
@@ -197,7 +236,7 @@ const CompanyFields = ({
             {isImagePreviewable && previewUrl && (
               <div className="flex self-center flex-col items-center gap-3">
                 <div className="w-44 h-44 rounded-full overflow-hidden border-2 border-white/80 dark:border-slate-700/80 shadow-lg">
-                  <img src={previewUrl} alt={`${label} preview`} className="w-full h-full object-cover" />
+                  <img src={previewUrl} alt={`${label} preview`} className="w-full h-full object-contain" />
                 </div>
                 <div className="text-center min-w-0">
                   <p className="text-sm font-medium text-gray-900 dark:text-slate-100 break-words max-w-[240px] mx-auto">{fileValue?.name}</p>
@@ -239,7 +278,7 @@ const CompanyFields = ({
                 size="sm"
                 iconName="Upload"
                 className="rounded-full"
-                onClick={() => inputRef?.current?.click()}
+                onClick={handleFileInputClick}
                 disabled={isChecking}
                 loading={isChecking}
               >
@@ -267,7 +306,7 @@ const CompanyFields = ({
               size="sm"
               iconName="Upload"
               className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-              onClick={() => inputRef?.current?.click()}
+              onClick={handleFileInputClick}
               disabled={isChecking}
               loading={isChecking}
             >
@@ -290,6 +329,7 @@ const CompanyFields = ({
         )}
 
         <input
+          key={inputKey}
           ref={inputRef}
           type="file"
           accept={accept}
