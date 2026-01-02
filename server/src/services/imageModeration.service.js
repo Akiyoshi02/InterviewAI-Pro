@@ -4,17 +4,12 @@ import path from 'path';
 import logger from '../utils/logger.js';
 
 const { SIGHTENGINE_USER, SIGHTENGINE_SECRET } = process.env;
-const SKIP_UPLOAD_MODERATION = process.env.SKIP_UPLOAD_MODERATION === 'true';
 
-if (SKIP_UPLOAD_MODERATION) {
-  logger.warn('Upload moderation disabled (SKIP_UPLOAD_MODERATION=true).');
-}
-
-if (!SKIP_UPLOAD_MODERATION && (!SIGHTENGINE_USER || !SIGHTENGINE_SECRET)) {
+if (!SIGHTENGINE_USER || !SIGHTENGINE_SECRET) {
   logger.warn('Sightengine keys are missing. Image moderation is disabled.');
 }
 
-const moderationClient = !SKIP_UPLOAD_MODERATION && SIGHTENGINE_USER && SIGHTENGINE_SECRET
+const moderationClient = SIGHTENGINE_USER && SIGHTENGINE_SECRET
   ? sightengine(SIGHTENGINE_USER, SIGHTENGINE_SECRET)
   : null;
 
@@ -35,10 +30,6 @@ const ensureSuccessfulResponse = (response) => {
 };
 
 const performModeration = async ({ filePath, models }) => {
-  if (SKIP_UPLOAD_MODERATION) {
-    return null;
-  }
-
   if (!moderationClient) {
     logger.warn('Sightengine not configured. Skipping moderation.');
     return null;

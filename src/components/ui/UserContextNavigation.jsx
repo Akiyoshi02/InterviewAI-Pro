@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
 import Button from './Button';
@@ -99,15 +100,16 @@ const UserContextNavigation = ({
   className = '' 
 }) => {
   const { user } = useAuth();
-  const [activeItem, setActiveItem] = useState('/candidate-dashboard');
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [activeItem, setActiveItem] = useState(location.pathname);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileImageIndex, setProfileImageIndex] = useState(0);
   const [profileImageFailed, setProfileImageFailed] = useState(false);
 
   useEffect(() => {
-    const currentPath = window.location?.pathname;
-    setActiveItem(currentPath);
-  }, []);
+    setActiveItem(location.pathname);
+  }, [location.pathname]);
 
   const candidateNavItems = [
     { 
@@ -123,16 +125,16 @@ const UserContextNavigation = ({
       description: 'Browse available positions'
     },
     { 
+      label: 'My Applications', 
+      path: '/my-applications', 
+      icon: 'FileText',
+      description: 'Track your job applications'
+    },
+    { 
       label: 'Practice Interview', 
       path: '/practice-interview-setup', 
       icon: 'Play',
       description: 'Set up practice sessions'
-    },
-    { 
-      label: 'Live Session', 
-      path: '/live-interview-session', 
-      icon: 'Video',
-      description: 'Join live interviews'
     },
   ];
 
@@ -142,6 +144,18 @@ const UserContextNavigation = ({
       path: '/company-dashboard', 
       icon: 'LayoutDashboard',
       description: 'Company overview and analytics'
+    },
+    { 
+      label: 'Jobs', 
+      path: '/company-jobs', 
+      icon: 'Briefcase',
+      description: 'Manage job postings'
+    },
+    { 
+      label: 'Applications', 
+      path: '/company-applications', 
+      icon: 'FileText',
+      description: 'Review candidate applications'
     },
     { 
       label: 'Interview Setup', 
@@ -161,7 +175,7 @@ const UserContextNavigation = ({
 
   const handleNavigation = (path) => {
     setActiveItem(path);
-    window.location.href = path;
+    navigate(path);
   };
 
   const handleProfileClick = () => {
@@ -316,7 +330,7 @@ const UserContextNavigation = ({
                     <img
                       src={profileImageUrl}
                       alt="Profile"
-                      className="h-full w-full object-cover"
+                      className={`h-full w-full ${userType === 'company' ? 'object-contain' : 'object-cover'}`}
                       onError={handleProfileImageError}
                     />
                   ) : (
@@ -331,7 +345,7 @@ const UserContextNavigation = ({
                 {!isCollapsed && (
                   <div className="flex-1 min-w-0">
                     <div className="font-semibold text-sm xl:text-base text-gray-900 dark:text-slate-100 truncate">
-                      {userType === 'candidate' ? displayName : `${userType} Mode`}
+                      {displayName}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-slate-400 truncate">
                       {userType === 'candidate' ? candidateRole : companyRole}
@@ -388,7 +402,7 @@ const UserContextNavigation = ({
                 <img
                   src={profileImageUrl}
                   alt="Profile"
-                  className="h-full w-full object-cover"
+                  className={`h-full w-full ${userType === 'company' ? 'object-contain' : 'object-cover'}`}
                   onError={handleProfileImageError}
                 />
               ) : (

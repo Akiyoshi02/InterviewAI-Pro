@@ -91,11 +91,11 @@ const RecommendedTopics = ({ recommendations = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-6">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
         <div>
-          <h2 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">AI-powered suggestions based on your performance</p>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400">AI-powered suggestions based on your performance</p>
         </div>
         <Button
           variant="ghost"
@@ -106,15 +106,15 @@ const RecommendedTopics = ({ recommendations = [] }) => {
           Refresh
         </Button>
       </div>
-      <div className="space-y-4">
+      <div className="space-y-2.5">
         {topicData?.slice(0, 4)?.map((topic) => (
           <div
             key={topic?.id}
-            className={`rounded-2xl border p-4 transition-all duration-300 hover:-translate-y-1 hover:shadow-[0_20px_50px_rgba(15,23,42,0.12)] cursor-pointer backdrop-blur ${getPriorityBg(topic?.priority)}`}
+            className={`rounded-xl border p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] cursor-pointer backdrop-blur ${getPriorityBg(topic?.priority)}`}
           >
-            <div className="flex items-start space-x-4">
-              <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 text-white shadow-lg shadow-blue-500/30">
-                <Icon name={topic?.icon} size={20} color="white" />
+            <div className="flex items-start space-x-3">
+              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 text-white shadow-md shadow-blue-500/25">
+                <Icon name={topic?.icon} size={16} color="white" />
               </div>
 
               <div className="flex-1 min-w-0">
@@ -125,7 +125,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                   </span>
                 </div>
 
-                <p className="text-sm text-gray-500 dark:text-slate-400 mb-3">
+                <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
                   {topic?.description}
                 </p>
 
@@ -156,7 +156,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                 </div>
 
                 {/* Progress Bar */}
-                <div className="mt-3">
+                <div className="mt-2">
                   <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400 mb-1">
                     <span>Community Progress</span>
                     <span>{topic?.completionRate}%</span>
@@ -174,7 +174,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
         ))}
       </div>
       {/* View All Topics */}
-      <div className="mt-6 pt-4 border-t border-white/30">
+      <div className="mt-4 pt-3 border-t border-white/30">
         <Button
           variant="outline"
           fullWidth

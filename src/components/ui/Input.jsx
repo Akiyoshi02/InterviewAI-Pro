@@ -9,6 +9,7 @@ const Input = React.forwardRef(({
     error,
     required = false,
     id,
+    iconName,
     ...props
 }, ref) => {
     // Generate unique ID if not provided

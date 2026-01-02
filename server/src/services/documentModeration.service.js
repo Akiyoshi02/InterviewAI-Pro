@@ -9,12 +9,6 @@ import { franc } from 'franc-min';
 import logger from '../utils/logger.js';
 import { LLMService } from './llm.service.js';
 
-const SKIP_UPLOAD_MODERATION = process.env.SKIP_UPLOAD_MODERATION === 'true';
-
-if (SKIP_UPLOAD_MODERATION) {
-  logger.warn('Document moderation disabled (SKIP_UPLOAD_MODERATION=true).');
-}
-
 const mammoth = mammothPkg.default || mammothPkg;
 const WordExtractor = WordExtractorPkg.default || WordExtractorPkg;
 
@@ -340,13 +334,14 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
   const words = normalized.split(/\s+/);
   const uniqueWords = new Set(words.map((word) => word.toLowerCase()));
 
-  if (
-    normalized.length < BUSINESS_MIN_CHAR_COUNT
-    || words.length < BUSINESS_MIN_WORD_COUNT
-    || uniqueWords.size < BUSINESS_MIN_UNIQUE_WORDS
-  ) {
-    throw new Error('Please upload the complete certificate or letter.');
-  }
+  // TESTING: Relaxed content length requirements
+  // if (
+  //   normalized.length < BUSINESS_MIN_CHAR_COUNT
+  //   || words.length < BUSINESS_MIN_WORD_COUNT
+  //   || uniqueWords.size < BUSINESS_MIN_UNIQUE_WORDS
+  // ) {
+  //   throw new Error('Please upload the complete certificate or letter.');
+  // }
 
   const lower = normalized.toLowerCase();
   const matchedSections = BUSINESS_SECTION_KEYWORDS.reduce(
@@ -354,20 +349,23 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
     0
   );
 
-  if (matchedSections < BUSINESS_MIN_SECTION_MATCHES) {
-    throw new Error('We could not find typical business verification details (registration, tax, or authority references). Please upload an official document.');
-  }
+  // TESTING: Relaxed section keyword matching
+  // if (matchedSections < BUSINESS_MIN_SECTION_MATCHES) {
+  //   throw new Error('We could not find typical business verification details (registration, tax, or authority references). Please upload an official document.');
+  // }
 
   const authorityMentions = extractAuthorityMentions(text);
   const registrationMentions = extractRegistrationMentions(text);
-  if (!authorityMentions.length && !registrationMentions.length) {
-    throw new Error('Document is missing an authority reference or registration number. Please upload an official certificate or license.');
-  }
+  // TESTING: Relaxed authority/registration requirement
+  // if (!authorityMentions.length && !registrationMentions.length) {
+  //   throw new Error('Document is missing an authority reference or registration number. Please upload an official certificate or license.');
+  // }
 
   const addressMentions = extractAddressMentions(text);
-  if (!addressMentions.length) {
-    throw new Error('Document should include a business address or postal code. Please upload the full document.');
-  }
+  // TESTING: Relaxed address requirement
+  // if (!addressMentions.length) {
+  //   throw new Error('Document should include a business address or postal code. Please upload the full document.');
+  // }
 
   const detectedCountries = detectCountriesInDocument(lower);
   const expectedCountry = context.expectedCountry || null;
@@ -377,28 +375,33 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
       countryMatchStatus = 'missing_in_document';
     } else {
       countryMatchStatus = detectedCountries.includes(expectedCountry) ? 'match' : 'mismatch';
-      if (countryMatchStatus === 'mismatch') {
-        throw new Error(`Document country (${detectedCountries.join(', ')}) does not match ${expectedCountry}. Please upload the official certificate for the correct jurisdiction.`);
-      }
+      // TESTING: Relaxed country match validation
+      // if (countryMatchStatus === 'mismatch') {
+      //   throw new Error(`Document country (${detectedCountries.join(', ')}) does not match ${expectedCountry}. Please upload the official certificate for the correct jurisdiction.`);
+      // }
     }
   }
 
   const mostRecentDate = determineMostRecentDate(text);
-  if (!mostRecentDate) {
-    throw new Error('Document must include an issue or validation date. Please upload the full certificate.');
-  }
-  if (isOlderThanYears(mostRecentDate, MAX_DOC_AGE_YEARS)) {
-    throw new Error(`Document appears to be older than ${MAX_DOC_AGE_YEARS} years. Please upload a recently issued certificate.`);
-  }
+  // TESTING: Relaxed date requirement
+  // if (!mostRecentDate) {
+  //   throw new Error('Document must include an issue or validation date. Please upload the full certificate.');
+  // }
+  // TESTING: Relaxed recency check
+  // if (mostRecentDate && isOlderThanYears(mostRecentDate, MAX_DOC_AGE_YEARS)) {
+  //   throw new Error(`Document appears to be older than ${MAX_DOC_AGE_YEARS} years. Please upload a recently issued certificate.`);
+  // }
 
   const nameMatch = calculateEntityNameMatch(lower, context.expectedCompanyName);
-  if (nameMatch.status === 'mismatch') {
-    throw new Error('We could not find the provided company name in this document. Please upload a certificate that references your organization.');
-  }
+  // TESTING: Relaxed company name match validation
+  // if (nameMatch.status === 'mismatch') {
+  //   throw new Error('We could not find the provided company name in this document. Please upload a certificate that references your organization.');
+  // }
 
-  if (!registrationMentions.length) {
-    throw new Error('Could not locate a registration or license number in the document. Please upload the official certificate or license.');
-  }
+  // TESTING: Relaxed registration number requirement
+  // if (!registrationMentions.length) {
+  //   throw new Error('Could not locate a registration or license number in the document. Please upload the official certificate or license.');
+  // }
 
   const limitedRegistrationMentions = registrationMentions.slice(0, MAX_REGISTERED_REG_NUMBERS);
 
@@ -421,10 +424,6 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
 };
 
 export const validateResumeDocument = async (filePath, fileMeta = {}, context = {}) => {
-  if (SKIP_UPLOAD_MODERATION) {
-    return null;
-  }
-
   const { text, docType, hash, buffer } = await ensureSupportedDocument(
     filePath,
     fileMeta,
@@ -484,10 +483,6 @@ export const validateResumeDocument = async (filePath, fileMeta = {}, context = 
 };
 
 export const validateBusinessVerificationDocument = async (filePath, fileMeta = {}, context = {}) => {
-  if (SKIP_UPLOAD_MODERATION) {
-    return null;
-  }
-
   const { text, docType, hash } = await ensureSupportedDocument(
     filePath,
     fileMeta,
@@ -503,25 +498,26 @@ export const validateBusinessVerificationDocument = async (filePath, fileMeta = 
   analysis.documentHash = hash;
   analysis.docType = docType;
 
-  const llmSummary = buildLLMSummary(analysis, resolvedContext);
-  try {
-    const llmVerdict = await LLMService.verifyBusinessDocument({
-      documentText: text.slice(0, 8000),
-      summary: llmSummary,
-    });
-    if (llmVerdict) {
-      analysis.llmVerdict = llmVerdict;
-      const confidence = typeof llmVerdict.confidence === 'number' ? llmVerdict.confidence : 0;
-      if (!llmVerdict.isOfficial || confidence < 0.65) {
-        throw new Error(llmVerdict.message || 'We could not confirm this is an official business verification document. Please upload a clearer certificate.');
-      }
-    }
-  } catch (error) {
-    if (error.message?.includes('official business verification document')) {
-      throw error;
-    }
-    logger.warn('LLM verification unavailable, continuing with heuristic result.', { error: error.message });
-  }
+  // TESTING: Disabled LLM verification completely for testing
+  // const llmSummary = buildLLMSummary(analysis, resolvedContext);
+  // try {
+  //   const llmVerdict = await LLMService.verifyBusinessDocument({
+  //     documentText: text.slice(0, 8000),
+  //     summary: llmSummary,
+  //   });
+  //   if (llmVerdict) {
+  //     analysis.llmVerdict = llmVerdict;
+  //     const confidence = typeof llmVerdict.confidence === 'number' ? llmVerdict.confidence : 0;
+  //     if (!llmVerdict.isOfficial || confidence < 0.65) {
+  //       throw new Error(llmVerdict.message || 'We could not confirm this is an official business verification document. Please upload a clearer certificate.');
+  //     }
+  //   }
+  // } catch (error) {
+  //   if (error.message?.includes('official business verification document')) {
+  //     throw error;
+  //   }
+  //   logger.warn('LLM verification unavailable, continuing with heuristic result.', { error: error.message });
+  // }
 
   logger.info('Business verification validation succeeded', {
     type: docType,

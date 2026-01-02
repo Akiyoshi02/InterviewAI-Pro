@@ -92,9 +92,9 @@ const RecentActivityFeed = ({ activities = [] }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Recent Activity</h2>
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex items-center justify-between mb-3 sm:mb-4">
+        <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recent Activity</h2>
         <Button
           variant="ghost"
           size="sm"
@@ -104,14 +104,14 @@ const RecentActivityFeed = ({ activities = [] }) => {
           View All
         </Button>
       </div>
-      <div className="space-y-4">
+      <div className="space-y-2.5">
         {activityData?.slice(0, 6)?.map((activity) => (
           <div
             key={activity?.id}
-            className="flex items-start space-x-4 p-4 rounded-2xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200 cursor-pointer"
+            className="flex items-start space-x-3 p-2.5 sm:p-3 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200 cursor-pointer"
           >
-            <div className={`w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 text-white ${getActivityColor(activity?.type)}`}>
-              <Icon name={getActivityIcon(activity?.type)} size={20} color="currentColor" />
+            <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white ${getActivityColor(activity?.type)}`}>
+              <Icon name={getActivityIcon(activity?.type)} size={16} color="currentColor" />
             </div>
 
             <div className="flex-1 min-w-0">
@@ -163,7 +163,7 @@ const RecentActivityFeed = ({ activities = [] }) => {
         ))}
       </div>
       {/* View More Button */}
-      <div className="mt-6 pt-4 border-t border-white/30 dark:border-slate-700/60">
+      <div className="mt-4 pt-3 border-t border-white/30 dark:border-slate-700/60">
         <Button
           variant="outline"
           fullWidth

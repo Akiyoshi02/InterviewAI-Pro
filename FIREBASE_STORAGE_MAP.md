@@ -24,7 +24,7 @@ Firestore Collections
 users
 - id
 - email
-- accountType
+- accountType (CANDIDATE | COMPANY | SYSTEM_ADMIN)
 - fullName
 - experienceLevel
 - skills
@@ -132,6 +132,11 @@ organizations
 - ownerId
 - industry
 - companySize
+- status (PENDING | APPROVED | REJECTED | SUSPENDED)
+- approvedBy
+- approvedAt
+- rejectedReason
+- suspensionReason
 - branding
 - settings
 - createdAt
@@ -164,6 +169,8 @@ jobs
 - status
 - stages
 - templateConfig
+- applicationQuestions
+- acceptingApplications
 - reviewerIds
 - hiringManagerId
 - publishedAt
@@ -209,6 +216,42 @@ activityLogs
 - targetId
 - metadata
 - createdAt
+
+jobApplications
+- id
+- jobId
+- candidateId
+- organizationId
+- status (SUBMITTED | SCREENING | INTERVIEWING | SHORTLISTED | REJECTED | HIRED)
+- resumeUrl
+- coverLetter
+- answers
+- submittedAt
+- reviewedAt
+- reviewedBy
+- interviewId
+- createdAt
+- updatedAt
+
+systemSettings
+- id (always 'global')
+- featureFlags
+- maintenanceMode
+- defaultAIConfig
+- dataRetention
+- updatedBy
+- createdAt
+- updatedAt
+
+platformAuditLogs
+- id
+- actorId
+- actorType
+- action
+- targetType
+- targetId
+- metadata
+- timestamp
 
 Realtime Database Paths
 -----------------------

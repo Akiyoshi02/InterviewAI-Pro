@@ -1,4 +1,5 @@
-import { activityLogStore, invitationStore, jobStore } from '../services/firebaseData.service.js';
+import { activityLogStore, invitationStore, jobStore, interviewStore, userStore, organizationStore } from '../services/firebaseData.service.js';
+import { emailNotifications } from '../services/email.service.js';
 import logger from '../utils/logger.js';
 
 const sanitizeInvitation = (invitation) => {
@@ -49,6 +50,18 @@ export class InvitationController {
           email: invitation.email,
         },
       });
+
+      // Send invitation email
+      try {
+        const organization = await organizationStore.getById(organizationId);
+        if (organization) {
+          await emailNotifications.sendInvitationReceived(invitation, job, organization);
+          logger.info(`Invitation email sent to ${invitation.email}`);
+        }
+      } catch (emailError) {
+        logger.error('Failed to send invitation email:', emailError);
+        // Don't fail the request if email fails
+      }
 
       res.status(201).json({ success: true, invitation: sanitizeInvitation(invitation) });
     } catch (error) {
@@ -122,6 +135,16 @@ export class InvitationController {
       }
 
       if (invitation.status !== 'PENDING') {
+        // Check if interview already exists for this invitation
+        const existingInterview = await interviewStore.getByInvitationId(invitation.id);
+        if (existingInterview) {
+          return res.json({
+            success: true,
+            invitation: sanitizeInvitation(invitation),
+            interview: { id: existingInterview.id },
+            message: 'Invitation already accepted',
+          });
+        }
         return res.status(400).json({ error: 'Invitation is no longer available' });
       }
 
@@ -129,8 +152,41 @@ export class InvitationController {
         return res.status(400).json({ error: 'Invitation has expired' });
       }
 
+      // Mark invitation as accepted
       const accepted = await invitationStore.markAccepted(token, req.user.id);
-      res.json({ success: true, invitation: sanitizeInvitation(accepted) });
+
+      // Get job details for interview creation
+      const job = await jobStore.getById(invitation.jobId);
+      if (!job) {
+        return res.status(404).json({ error: 'Associated job not found' });
+      }
+
+      // Create an interview linked to this invitation
+      const interview = await interviewStore.create({
+        mode: 'HIRING',
+        candidateId: req.user.id,
+        companyId: invitation.invitedBy,
+        organizationId: invitation.organizationId,
+        jobId: invitation.jobId,
+        jobStage: invitation.stage || 'INITIAL_SCREENING',
+        invitationId: invitation.id,
+        jobRole: job.title,
+        experienceLevel: job.experienceLevel || 'MID',
+        industry: job.department || 'Technology',
+        interviewTypes: job.templateConfig?.interviewTypes || ['BEHAVIORAL', 'TECHNICAL'],
+        skillFocus: job.requiredSkills || [],
+        duration: job.templateConfig?.duration || 30,
+        config: job.templateConfig || null,
+      });
+
+      logger.info(`Interview ${interview.id} created for accepted invitation ${invitation.id}`);
+
+      res.json({
+        success: true,
+        invitation: sanitizeInvitation(accepted),
+        interview: { id: interview.id },
+        message: 'Invitation accepted and interview created',
+      });
     } catch (error) {
       logger.error('Accept invitation error:', error);
       next(error);

@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useMemo, useState } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
 
 const PIPELINE_COLUMNS = [
@@ -80,48 +81,55 @@ const CandidatePipeline = () => {
   };
 
   return (
-    <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-6">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
         <div>
-          <h2 className="text-xl font-semibold text-gray-900 dark:text-slate-100">Recruiter Pipeline</h2>
-          <p className="text-sm text-gray-500 dark:text-slate-400">
-            Real-time status of every candidate interview synced from the AI assistant.
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recruiter Pipeline</h2>
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Real-time status of every candidate interview
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={loadPipeline} disabled={loading}>
+        <Button 
+          variant="ghost" 
+          size="sm" 
+          iconName="RefreshCw"
+          onClick={loadPipeline} 
+          disabled={loading}
+          className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
+        >
           Refresh
         </Button>
       </div>
 
       {error && (
-        <div className="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
+        <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs sm:text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/10 dark:text-red-100">
           {error}
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-2 sm:gap-3">
         {PIPELINE_COLUMNS.map((column) => {
           const candidates = groupedPipeline[column.id] || [];
           return (
-            <div key={column.id} className="space-y-4">
+            <div key={column.id} className="space-y-2.5">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-2">
                   <div className={`w-3 h-3 ${column.color} rounded-full`} />
-                  <h3 className="font-medium text-gray-900 dark:text-slate-100">{column.title}</h3>
+                  <h3 className="font-medium text-gray-900 dark:text-slate-100 text-sm">{column.title}</h3>
                 </div>
-                <span className="text-sm font-medium text-gray-600 dark:text-slate-400 bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 px-2 py-1 rounded-full">
+                <span className="text-xs sm:text-sm font-medium text-gray-600 dark:text-slate-400 bg-white/70 dark:bg-slate-800/70 border border-white/40 dark:border-slate-700/50 px-2 py-0.5 rounded-full">
                   {candidates.length}
                 </span>
               </div>
 
-              <div className="space-y-3 min-h-[220px] rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 p-3">
+              <div className="space-y-2.5 rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 p-2.5">
                 {candidates.map((candidate) => (
                   <div
                     key={candidate.interviewId}
-                    className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 space-y-2 shadow-sm"
+                    className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-2.5 sm:p-3 space-y-2 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
                   >
                     <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                      <p className="text-xs sm:text-sm font-semibold text-gray-900 dark:text-slate-100">
                         {candidate.candidate?.fullName || 'Candidate'}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-slate-400">
@@ -144,8 +152,8 @@ const CandidatePipeline = () => {
                   </div>
                 ))}
                 {!candidates.length && (
-                  <p className="text-sm text-gray-500 dark:text-slate-400">
-                    {loading ? 'Syncing...' : 'No candidates in this stage.'}
+                  <p className="text-xs text-gray-500 dark:text-slate-400 text-center py-2">
+                    {loading ? 'Syncing...' : 'Empty'}
                   </p>
                 )}
               </div>

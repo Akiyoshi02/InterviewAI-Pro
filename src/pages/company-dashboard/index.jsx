@@ -12,6 +12,8 @@ import QuickActions from './components/QuickActions';
 import OrganizationAdminPanel from './components/OrganizationAdminPanel';
 import InvitationManager from './components/InvitationManager';
 import ReviewerPanel from './components/ReviewerPanel';
+import AIChatAssistant from './components/AIChatAssistant';
+import PendingApprovalBanner from './components/PendingApprovalBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
@@ -21,15 +23,20 @@ const CompanyDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, status } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [interviews, setInterviews] = useState([]);
   const [metrics, setMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const viewportConfig = { once: true, amount: 0.2 };
+  const handleToggleAIChat = () => {
+    setIsAIChatOpen(!isAIChatOpen);
+  };
+
+  const viewportConfig = { once: true, amount: 0.15 };
 
   const sectionReveal = {
-    hidden: { opacity: 0, y: 40 },
+    hidden: { opacity: 0, y: 32 },
     visible: {
       opacity: 1,
       y: 0,
@@ -41,7 +48,7 @@ const CompanyDashboard = () => {
     hidden: {},
     visible: {
       transition: {
-        staggerChildren: 0.12,
+        staggerChildren: 0.08,
         delayChildren: 0.05
       }
     }
@@ -52,7 +59,7 @@ const CompanyDashboard = () => {
     visible: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.45, ease: 'easeOut' }
+      transition: { duration: 0.5, ease: 'easeOut' }
     }
   };
 
@@ -106,10 +113,10 @@ const CompanyDashboard = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
+      <div className="min-h-screen bg-background flex items-center justify-center p-4">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading dashboard...</p>
+          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
+          <p className="text-sm sm:text-base text-muted-foreground">Loading dashboard...</p>
         </div>
       </div>
     );
@@ -122,12 +129,11 @@ const CompanyDashboard = () => {
     .slice(0, 4)
     .map(interview => ({
       type: interview.status === 'COMPLETED' ? 'interview_completed' : 'live_session',
-      title: `${interview.candidate?.fullName || 'Candidate'} - ${interview.jobRole || 'Interview'}`,
+      title: `${interview.candidate?.fullName || interview.candidate?.email || 'Candidate'} - ${interview.jobRole || 'Interview'}`,
       description: interview.status === 'COMPLETED' 
         ? `Interview completed ${interview.endedAt || interview.updatedAt ? new Date(interview.endedAt || interview.updatedAt).toLocaleDateString() : ''}`
         : 'Interview in progress',
-      timestamp: interview.updatedAt || interview.createdAt ? new Date(interview.updatedAt || interview.createdAt) : new Date(),
-      interview
+      timestamp: interview.updatedAt || interview.createdAt ? new Date(interview.updatedAt || interview.createdAt) : new Date()
     }));
 
   const interviewsToday = safeInterviews.filter((interview) => {
@@ -241,8 +247,8 @@ const CompanyDashboard = () => {
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden z-0"
       >
-        <div className="absolute -top-32 right-0 h-60 w-60 sm:h-80 sm:w-80 lg:h-96 lg:w-96 bg-gradient-to-br from-blue-400/30 via-purple-400/20 to-transparent blur-[140px]" />
-        <div className="absolute bottom-0 left-[-10%] h-[300px] w-[300px] sm:h-[420px] sm:w-[420px] bg-gradient-to-tr from-indigo-300/25 via-cyan-200/20 to-transparent blur-[120px]" />
+        <div className="absolute -top-24 right-0 h-60 w-60 sm:h-80 sm:w-80 bg-gradient-to-br from-blue-400/30 to-purple-500/20 blur-3xl" />
+        <div className="absolute bottom-0 left-[-10%] h-[300px] w-[300px] sm:h-[420px] sm:w-[420px] bg-gradient-to-tr from-indigo-300/25 via-blue-200/20 to-transparent blur-[120px]" />
         <div className="absolute inset-0 opacity-50 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
       </div>
 
@@ -270,26 +276,31 @@ const CompanyDashboard = () => {
               variants={sectionReveal}
               initial="hidden"
               animate="visible"
-              className="container-responsive py-4 xs:py-5 sm:py-6 md:py-8 lg:py-10 space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8"
+              className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
             >
               {showInitialLoader && (
                 <motion.div
                   variants={fadeUpChild}
-                  className="card-base p-6 sm:p-8 text-center"
+                  className="card-base p-4 sm:p-6 text-center"
                 >
                   <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-primary mx-auto mb-3 sm:mb-4" />
-                  <p className="text-xs sm:text-sm text-muted-foreground">Loading company analytics...</p>
+                  <p className="text-xs sm:text-sm text-muted-foreground">Syncing your company data...</p>
                 </motion.div>
+              )}
+
+              {/* Pending Approval Banner */}
+              {!showInitialLoader && user?.organizationContext?.organization && (
+                <PendingApprovalBanner organization={user.organizationContext.organization} />
               )}
               
               {/* Hero Welcome Section */}
               <motion.div
                 variants={fadeUpChild}
-                className="relative overflow-hidden card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark"
+                className="relative overflow-hidden card-base p-2.5 xs:p-3 sm:p-4 shadow-glass dark:shadow-glass-dark"
               >
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-                <div className="relative z-10 flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-2 sm:space-y-3">
+                <div className="relative z-10 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1 sm:space-y-1.5">
                     <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>AI-powered hiring control center</span>
@@ -302,9 +313,9 @@ const CompanyDashboard = () => {
                       review AI insights, and fast-forward decisions.
                     </p>
                   </div>
-                  <div className="rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-4 sm:p-5 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[200px] xl:min-w-[240px]">
+                  <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
                     <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
-                    <div className="mt-1.5 sm:mt-2 text-xl xs:text-2xl sm:text-3xl font-semibold truncate">
+                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
                       {safeInterviews?.find((i) => i?.company)?.company ||
                         user?.companyName ||
                         user?.organizationContext?.organization?.displayName ||
@@ -315,52 +326,21 @@ const CompanyDashboard = () => {
                     </p>
                   </div>
                 </div>
-                <div className="relative z-10 mt-4 sm:mt-6 grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 sm:gap-4">
+                <div className="relative z-10 mt-2 sm:mt-3 grid grid-cols-1 xs:grid-cols-3 gap-1.5 xs:gap-2 sm:gap-2.5">
                   {heroHighlights.map((item) => (
                     <div
                       key={item.label}
-                      className="rounded-xl sm:rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-3 py-2 xs:px-4 xs:py-3 shadow-sm"
+                      className="rounded-lg border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-2 py-1.5 xs:px-2.5 xs:py-2 shadow-sm"
                     >
                       <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
-                      <p className="text-lg xs:text-xl sm:text-2xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
+                      <p className="text-base xs:text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
                       <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
                 </div>
-
-                <div className="relative z-10 mt-4 sm:mt-6 flex flex-col xs:flex-row flex-wrap gap-2 xs:gap-3">
-                  <Button
-                    variant="default"
-                    iconName="Plus"
-                    iconPosition="left"
-                    onClick={handleScheduleInterview}
-                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-sm"
-                  >
-                    Schedule Interview
-                  </Button>
-                  <Button
-                    variant="outline"
-                    iconName="Video"
-                    iconPosition="left"
-                    onClick={() => window.location.href = '/live-interview-session'}
-                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-sm"
-                  >
-                    Start Live Session
-                  </Button>
-                </div>
               </motion.div>
 
-              <motion.div variants={fadeUpChild}>
-                <OverviewPanel
-                  activeJobPostings={metrics?.activeJobPostings || safeInterviews?.length || 0}
-                  pendingReviews={safeInterviews?.filter(i => i && i.status === 'COMPLETED' && !i.evaluation)?.length || 0}
-                  upcomingInterviews={safeInterviews?.filter(i => i && i.status === 'SCHEDULED')?.length || 0}
-                  onViewAllJobs={() => console.log('View all jobs')}
-                  onViewPendingReviews={() => console.log('View pending reviews')}
-                  onViewUpcomingInterviews={() => console.log('View upcoming interviews')}
-                />
-              </motion.div>
-
+              {/* Quick Actions */}
               <motion.div variants={fadeUpChild}>
                 <DashboardQuickActions
                   userType="company"
@@ -369,19 +349,42 @@ const CompanyDashboard = () => {
                 />
               </motion.div>
 
-              <motion.div variants={fadeUpChild}>
-                <CandidatePipeline
-                />
+              {/* Main Content Grid */}
+              <motion.div
+                variants={staggeredChildren}
+                className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3"
+              >
+                <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
+                  <OverviewPanel
+                    activeJobPostings={metrics?.activeJobPostings || safeInterviews?.length || 0}
+                    pendingReviews={safeInterviews?.filter(i => i && i.status === 'COMPLETED' && !i.evaluation)?.length || 0}
+                    upcomingInterviews={safeInterviews?.filter(i => i && i.status === 'SCHEDULED')?.length || 0}
+                    onViewAllJobs={() => console.log('View all jobs')}
+                    onViewPendingReviews={() => console.log('View pending reviews')}
+                    onViewUpcomingInterviews={() => console.log('View upcoming interviews')}
+                  />
+                  <CandidatePipeline />
+                  <HiringMetrics 
+                    metrics={metrics}
+                    interviews={safeInterviews}
+                    onExportReport={handleExportReport} 
+                  />
+                  {user?.organizationContext?.membership?.role === 'ADMIN' && (
+                    <OrganizationAdminPanel />
+                  )}
+                </motion.div>
+                <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
+                  <QuickActions
+                    onScheduleInterview={handleScheduleInterview}
+                    onCreateTemplate={handleCreateTemplate}
+                    onGenerateReport={handleGenerateReport}
+                  />
+                  <ReviewerPanel interviews={safeInterviews} />
+                  <InvitationManager />
+                </motion.div>
               </motion.div>
 
-              <motion.div variants={fadeUpChild}>
-                <InvitationManager />
-              </motion.div>
-
-              <motion.div variants={fadeUpChild}>
-                <ReviewerPanel interviews={safeInterviews} />
-              </motion.div>
-
+              {/* Recent Interviews - Full Width */}
               <motion.div variants={fadeUpChild} data-section="candidates">
                 <CandidateTable
                   interviews={safeInterviews}
@@ -390,33 +393,6 @@ const CompanyDashboard = () => {
                   onUpdateStatus={handleUpdateStatus}
                 />
               </motion.div>
-
-              <motion.div
-                variants={staggeredChildren}
-                className="grid grid-cols-1 xl:grid-cols-4 gap-4 sm:gap-5 md:gap-6"
-              >
-                <motion.div variants={fadeUpChild} className="xl:col-span-3">
-                  <HiringMetrics 
-                    metrics={metrics}
-                    interviews={safeInterviews}
-                    onExportReport={handleExportReport} 
-                  />
-                </motion.div>
-                
-                <motion.div variants={fadeUpChild} className="xl:col-span-1">
-                  <QuickActions
-                    onScheduleInterview={handleScheduleInterview}
-                    onCreateTemplate={handleCreateTemplate}
-                    onGenerateReport={handleGenerateReport}
-                  />
-                </motion.div>
-              </motion.div>
-
-              {user?.organizationContext?.membership?.role === 'ADMIN' && (
-                <motion.div variants={fadeUpChild}>
-                  <OrganizationAdminPanel />
-                </motion.div>
-              )}
             </motion.section>
           </main>
         </div>
@@ -434,8 +410,16 @@ const CompanyDashboard = () => {
           </Button>
         </div>
       </div>
+      {/* AI Chat Assistant */}
+      <AIChatAssistant 
+        isOpen={isAIChatOpen}
+        onToggle={handleToggleAIChat}
+        interviews={safeInterviews}
+        metrics={metrics}
+      />
     </div>
   );
 };
 
 export default CompanyDashboard;
+

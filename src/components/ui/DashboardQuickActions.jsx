@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import Button from './Button';
 
@@ -8,6 +9,7 @@ const DashboardQuickActions = ({
   onActionClick,
   className = ''
 }) => {
+  const navigate = useNavigate();
   const candidateActions = [
     {
       id: 'start-practice',
@@ -19,12 +21,12 @@ const DashboardQuickActions = ({
       color: 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/40'
     },
     {
-      id: 'join-live',
-      title: 'Join Live Interview',
-      description: 'Enter scheduled interview session',
-      icon: 'Video',
+      id: 'browse-jobs',
+      title: 'Browse Jobs',
+      description: 'Explore available job opportunities',
+      icon: 'Briefcase',
       variant: 'secondary',
-      path: '/live-interview-session',
+      path: '/jobs',
       color: 'bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/30'
     },
     {
@@ -74,7 +76,7 @@ const DashboardQuickActions = ({
     if (onActionClick) {
       onActionClick(action);
     } else {
-      window.location.href = action?.path;
+      navigate(action?.path);
     }
   };
 
@@ -119,18 +121,18 @@ const DashboardQuickActions = ({
   };
 
   return (
-    <div className={`space-y-4 sm:space-y-5 md:space-y-6 ${className}`}>
+    <div className={`space-y-2 sm:space-y-3 ${className}`}>
       {/* Quick Actions Grid */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2 sm:gap-3">
         {actions?.map((action) => (
           <div
             key={action?.id}
-            className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 md:p-6 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur hover:-translate-y-1 hover:shadow-[0_30px_80px_rgba(59,130,246,0.25)] dark:hover:shadow-[0_30px_80px_rgba(59,130,246,0.3)] transition-all duration-300 cursor-pointer group"
+            className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_15px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_15px_40px_rgba(0,0,0,0.3)] backdrop-blur hover:-translate-y-0.5 hover:shadow-[0_20px_50px_rgba(59,130,246,0.2)] dark:hover:shadow-[0_20px_50px_rgba(59,130,246,0.25)] transition-all duration-200 cursor-pointer group"
             onClick={() => handleActionClick(action)}
           >
-            <div className="flex items-start space-x-3 sm:space-x-4">
-              <div className={`w-10 h-10 sm:w-12 sm:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center text-white ${action?.color} group-hover:scale-110 transition-transform duration-200`}>
-                <Icon name={action?.icon} size={20} className="sm:w-6 sm:h-6" color="currentColor" />
+            <div className="flex items-start space-x-2.5 sm:space-x-3">
+              <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg sm:rounded-xl flex items-center justify-center text-white ${action?.color} group-hover:scale-105 transition-transform duration-200 flex-shrink-0`}>
+                <Icon name={action?.icon} size={18} className="sm:w-5 sm:h-5" color="currentColor" />
               </div>
               
               <div className="flex-1 min-w-0">
@@ -141,7 +143,7 @@ const DashboardQuickActions = ({
                   {action?.description}
                 </p>
                 
-                <div className="mt-3 sm:mt-4">
+                <div className="mt-2 sm:mt-3">
                   <Button
                     variant={action?.variant}
                     size="sm"

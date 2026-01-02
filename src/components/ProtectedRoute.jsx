@@ -30,10 +30,15 @@ const ProtectedRoute = ({ children, roles = [] }) => {
     );
 
     if (!isAllowed) {
-      const fallback =
-        normalizedRole === 'COMPANY'
-          ? '/company-dashboard'
-          : '/candidate-dashboard';
+      // Determine fallback based on account type
+      let fallback = '/';
+      if (normalizedRole === 'COMPANY') {
+        fallback = '/company-dashboard';
+      } else if (normalizedRole === 'CANDIDATE') {
+        fallback = '/candidate-dashboard';
+      } else if (normalizedRole === 'SYSTEM_ADMIN') {
+        fallback = '/system-admin-dashboard';
+      }
       return <Navigate to={fallback} replace />;
     }
   }

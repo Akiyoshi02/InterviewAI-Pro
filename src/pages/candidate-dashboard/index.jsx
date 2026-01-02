@@ -11,6 +11,8 @@ import RecommendedTopics from './components/RecommendedTopics';
 import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
 import AIChatAssistant from './components/AIChatAssistant';
+import Icon from '../../components/AppIcon';
+import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
@@ -192,12 +194,12 @@ const CandidateDashboard = () => {
               variants={sectionReveal}
               initial="hidden"
               animate="visible"
-              className="container-responsive py-4 xs:py-5 sm:py-6 md:py-8 lg:py-10 space-y-4 xs:space-y-5 sm:space-y-6 lg:space-y-8"
+              className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
             >
               {showInitialLoader && (
                 <motion.div
                   variants={fadeUpChild}
-                  className="card-base p-6 sm:p-8 text-center"
+                  className="card-base p-4 sm:p-6 text-center"
                 >
                   <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-primary mx-auto mb-3 sm:mb-4" />
                   <p className="text-xs sm:text-sm text-muted-foreground">Syncing your interview data...</p>
@@ -207,11 +209,11 @@ const CandidateDashboard = () => {
               {/* Hero Welcome Section */}
               <motion.div
                 variants={fadeUpChild}
-                className="relative overflow-hidden card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark"
+                className="relative overflow-hidden card-base p-2.5 xs:p-3 sm:p-4 shadow-glass dark:shadow-glass-dark"
               >
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-                <div className="relative z-10 flex flex-col gap-4 sm:gap-6 lg:flex-row lg:items-center lg:justify-between">
-                  <div className="space-y-2 sm:space-y-3">
+                <div className="relative z-10 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="space-y-1 sm:space-y-1.5">
                     <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>Realtime performance intelligence</span>
@@ -224,22 +226,22 @@ const CandidateDashboard = () => {
                       schedule live interviews, and unlock new achievement badges.
                     </p>
                   </div>
-                  <div className="rounded-xl sm:rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-4 sm:p-5 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[200px] xl:min-w-[240px]">
+                  <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
                     <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Live status</p>
-                    <div className="mt-1.5 sm:mt-2 text-xl xs:text-2xl sm:text-3xl font-semibold truncate">{safeInterviews?.[0]?.company || 'Interview AI'}</div>
+                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">{safeInterviews?.[0]?.company || 'Interview AI'}</div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
                       {safeInterviews?.[0]?.date ? `Next interview • ${safeInterviews[0].date}` : 'Pipeline ready'}
                     </p>
                   </div>
                 </div>
-                <div className="relative z-10 mt-4 sm:mt-6 grid grid-cols-1 xs:grid-cols-3 gap-2 xs:gap-3 sm:gap-4">
+                <div className="relative z-10 mt-2 sm:mt-3 grid grid-cols-1 xs:grid-cols-3 gap-1.5 xs:gap-2 sm:gap-2.5">
                   {heroHighlights.map((item) => (
                     <div
                       key={item.label}
-                      className="rounded-xl sm:rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-3 py-2 xs:px-4 xs:py-3 shadow-sm"
+                      className="rounded-lg border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-2 py-1.5 xs:px-2.5 xs:py-2 shadow-sm"
                     >
                       <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
-                      <p className="text-lg xs:text-xl sm:text-2xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
+                      <p className="text-base xs:text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
                       <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
@@ -254,36 +256,72 @@ const CandidateDashboard = () => {
               {/* Main Content Grid */}
               <motion.div
                 variants={staggeredChildren}
-                className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6"
+                className="space-y-2 sm:space-y-3"
               >
-                <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-4 sm:space-y-6">
+                {/* Progress Overview - Full Width */}
+                <motion.div variants={fadeUpChild}>
                   <ProgressOverviewCard 
                     analytics={analytics}
                     interviews={safeInterviews}
                   />
-                  <RecentActivityFeed activities={safeInterviews} />
                 </motion.div>
-                <motion.div variants={fadeUpChild} className="space-y-4 sm:space-y-6">
-                  <QuickStartPanel />
-                  <SchedulingWidget />
-                  <AchievementBadges />
+
+                {/* My Applications Quick Link */}
+                <motion.div variants={fadeUpChild}>
+                  <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-4">
+                        <div className="p-3 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600">
+                          <Icon name="FileText" size={20} color="white" />
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                            My Applications
+                          </h3>
+                          <p className="text-sm text-gray-600 dark:text-slate-400">
+                            Track and manage your job applications
+                          </p>
+                        </div>
+                      </div>
+                      <Button
+                        onClick={() => navigate('/my-applications')}
+                        variant="outline"
+                        className="rounded-full"
+                      >
+                        <Icon name="ArrowRight" size={16} className="mr-2" />
+                        View All
+                      </Button>
+                    </div>
+                  </div>
                 </motion.div>
+
+                {/* Two Column Grid */}
+                <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3">
+                  <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
+                    <RecentActivityFeed activities={safeInterviews} />
+                    <SchedulingWidget />
+                  </motion.div>
+                  <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
+                    <QuickStartPanel />
+                    <AchievementBadges />
+                  </motion.div>
+                </div>
               </motion.div>
 
               {/* Insights Section */}
               <motion.div
                 variants={fadeUpChild}
-                className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-6"
+                className="grid grid-cols-1 lg:grid-cols-2 gap-2 sm:gap-3"
               >
                 <RecommendedTopics />
-                <div className="card-base p-4 sm:p-6 shadow-card">
+                <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
                   <div className="flex items-center justify-between mb-3 sm:mb-4">
-                    <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">AI-Powered Insights</h3>
+                    <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">AI-Powered Insights</h2>
                     <span className="text-[10px] xs:text-xs uppercase tracking-widest sm:tracking-[0.3em] text-blue-600 dark:text-blue-400">Live feed</span>
                   </div>
-                  <div className="space-y-3 sm:space-y-4">
-                    <div className="flex items-start gap-2 sm:gap-3">
-                      <div className="mt-1.5 h-2 w-2 rounded-full bg-blue-500 flex-shrink-0" />
+                  <div className="space-y-2.5">
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500 flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Communication confidence +23%
@@ -293,8 +331,8 @@ const CandidateDashboard = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-2 sm:gap-3">
-                      <div className="mt-1.5 h-2 w-2 rounded-full bg-green-500 flex-shrink-0" />
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Technical problem-solving in top quartile
@@ -304,8 +342,8 @@ const CandidateDashboard = () => {
                         </p>
                       </div>
                     </div>
-                    <div className="flex items-start gap-2 sm:gap-3">
-                      <div className="mt-1.5 h-2 w-2 rounded-full bg-amber-500 flex-shrink-0" />
+                    <div className="flex items-start gap-2">
+                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
                       <div className="min-w-0">
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Opportunity: deepen system design answers

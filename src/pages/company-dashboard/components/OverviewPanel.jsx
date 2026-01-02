@@ -55,31 +55,31 @@ const OverviewPanel = ({
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 sm:gap-6">
+    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2 sm:gap-3">
       {overviewStats?.map((stat) => (
         <div
           key={stat?.id}
-          className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 hover:-translate-y-1 hover:shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_25px_70px_rgba(0,0,0,0.4)] transition-all duration-300 cursor-pointer group backdrop-blur"
+          className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200 cursor-pointer group backdrop-blur"
           onClick={stat?.onClick}
         >
           <div className="flex items-start justify-between">
-            <div className="flex-1">
-              <div className="flex items-center space-x-3 mb-4">
-                <div className={`w-12 h-12 rounded-2xl bg-gradient-to-br ${stat?.gradient} flex items-center justify-center text-white group-hover:scale-110 transition-transform duration-200 shadow-lg shadow-blue-500/20`}>
-                  <Icon name={stat?.icon} size={24} color="currentColor" />
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center space-x-2.5 mb-2 sm:mb-3">
+                <div className={`w-9 h-9 sm:w-10 sm:h-10 rounded-xl bg-gradient-to-br ${stat?.gradient} flex items-center justify-center text-white group-hover:scale-105 transition-transform duration-200 shadow-lg shadow-blue-500/25 flex-shrink-0`}>
+                  <Icon name={stat?.icon} size={18} color="currentColor" />
                 </div>
-                <div>
-                  <h3 className="text-sm font-medium text-gray-500 dark:text-slate-400">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-xs sm:text-sm font-medium text-gray-500 dark:text-slate-400 truncate">
                     {stat?.title}
                   </h3>
-                  <div className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                  <div className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">
                     {stat?.value}
                   </div>
                 </div>
               </div>
               
               <div className="flex items-center justify-between">
-                <span className={`text-sm font-medium ${getChangeColor(stat?.changeType)}`}>
+                <span className={`text-xs sm:text-sm font-medium ${getChangeColor(stat?.changeType)}`}>
                   {stat?.change}
                 </span>
                 <Icon 
