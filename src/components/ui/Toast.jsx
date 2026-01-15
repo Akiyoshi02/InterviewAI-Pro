@@ -69,7 +69,7 @@ const Toast = ({ toast, onRemove }) => {
 
   const typeConfig = {
     success: {
-      icon: 'CheckCircle2',
+      icon: 'CheckCircle',
       bgGradient: 'from-emerald-500 to-teal-600',
       bgLight: 'bg-emerald-50 dark:bg-emerald-900/30',
       borderColor: 'border-emerald-200 dark:border-emerald-700/50',

@@ -9,25 +9,32 @@ import CandidatePipeline from './components/CandidatePipeline';
 import CandidateTable from './components/CandidateTable';
 import HiringMetrics from './components/HiringMetrics';
 import QuickActions from './components/QuickActions';
-import OrganizationAdminPanel from './components/OrganizationAdminPanel';
-import InvitationManager from './components/InvitationManager';
 import ReviewerPanel from './components/ReviewerPanel';
 import AIChatAssistant from './components/AIChatAssistant';
 import PendingApprovalBanner from './components/PendingApprovalBanner';
+import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { hasPermission } from '../../utils/rolePermissions';
 
 const CompanyDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, status } = useAuth();
+  const { maintenanceMode } = useMaintenanceMode();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [interviews, setInterviews] = useState([]);
+  const [jobs, setJobs] = useState([]);
   const [metrics, setMetrics] = useState(null);
+  const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // Get organization role for permission checks
+  const organizationRole = user?.organizationContext?.membership?.role;
 
   const handleToggleAIChat = () => {
     setIsAIChatOpen(!isAIChatOpen);
@@ -63,6 +70,15 @@ const CompanyDashboard = () => {
     }
   };
 
+  const formatCompanyLabel = (company) => {
+    if (!company) return '';
+    if (typeof company === 'string') return company;
+    if (typeof company === 'object') {
+      return company.companyName || company.fullName || company.email || '';
+    }
+    return '';
+  };
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -84,9 +100,11 @@ const CompanyDashboard = () => {
     setDataLoading(true);
     setError(null);
     try {
-      const [interviewsResult, metricsResult] = await Promise.allSettled([
+      const [interviewsResult, metricsResult, jobsResult, dashboardMetricsResult] = await Promise.allSettled([
         apiClient.interviews.getCompanyInterviews(),
         apiClient.analytics.getCompanyMetrics(),
+        apiClient.jobs.getOrganizationJobs(),
+        apiClient.analytics.getDashboardMetrics(),
       ]);
 
       if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
@@ -100,6 +118,18 @@ const CompanyDashboard = () => {
       } else {
         setMetrics(null);
       }
+
+      if (jobsResult.status === 'fulfilled' && jobsResult.value.success) {
+        setJobs(jobsResult.value.jobs || []);
+      } else {
+        setJobs([]);
+      }
+
+      if (dashboardMetricsResult.status === 'fulfilled' && dashboardMetricsResult.value.success) {
+        setDashboardMetrics(dashboardMetricsResult.value.metrics || null);
+      } else {
+        setDashboardMetrics(null);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load dashboard data. Please try again.');
     } finally {
@@ -110,6 +140,48 @@ const CompanyDashboard = () => {
   useEffect(() => {
     fetchCompanyData();
   }, [fetchCompanyData]);
+
+  // Handle hash routing for navigation to specific sections (e.g., candidates)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash;
+      if (hash) {
+        // Remove the # symbol
+        const sectionId = hash.substring(1);
+        
+        // Skip invitations hash - it now has its own page
+        if (sectionId === 'invitations') {
+          return;
+        }
+        
+        // Wait a bit for the page to render if needed
+        setTimeout(() => {
+          const element = document.querySelector(`[data-section="${sectionId}"]`);
+          if (element) {
+            // Calculate offset for fixed header
+            const headerHeight = 64; // h-16 = 64px
+            const elementPosition = element.getBoundingClientRect().top + window.pageYOffset;
+            const offsetPosition = elementPosition - headerHeight;
+
+            window.scrollTo({
+              top: offsetPosition,
+              behavior: 'smooth'
+            });
+          }
+        }, 100);
+      }
+    };
+
+    // Handle initial hash if present
+    handleHashChange();
+
+    // Listen for hash changes
+    window.addEventListener('hashchange', handleHashChange);
+
+    return () => {
+      window.removeEventListener('hashchange', handleHashChange);
+    };
+  }, []);
 
   if (status === 'loading' || !user) {
     return (
@@ -124,6 +196,11 @@ const CompanyDashboard = () => {
 
   // Calculate derived data - must be before conditional returns (Rules of Hooks)
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  
+  // Count active (published) job postings
+  const activeJobPostings = safeJobs.filter(job => job?.status === 'PUBLISHED').length;
+  
   const recentActivity = safeInterviews
     .filter(i => i && ['COMPLETED', 'IN_PROGRESS'].includes(i.status))
     .slice(0, 4)
@@ -150,12 +227,13 @@ const CompanyDashboard = () => {
   const heroHighlights = [
     {
       label: 'Active roles',
-      value: metrics?.activeJobPostings || safeInterviews?.length || 0,
-      detail: 'Open requisitions'
+      value: dashboardMetrics?.activeJobPostings?.value ?? activeJobPostings,
+      detail: dashboardMetrics?.activeJobPostings?.changeText || 
+        (activeJobPostings === 1 ? 'Open requisition' : 'Open requisitions')
     },
     {
       label: 'Avg time to hire',
-      value: metrics?.averageTimeToHire || '18d',
+      value: metrics?.averageTimeToHire || '—',
       detail: 'Last 30 days'
     },
     {
@@ -164,6 +242,12 @@ const CompanyDashboard = () => {
       detail: 'On the calendar'
     }
   ];
+
+  const latestCompanyName =
+    formatCompanyLabel(safeInterviews?.find((i) => i?.company)?.company) ||
+    user?.companyName ||
+    user?.organizationContext?.organization?.displayName ||
+    'Live session';
 
   if (error) {
     return (
@@ -230,8 +314,8 @@ const CompanyDashboard = () => {
         window.location.href = '/practice-interview-setup';
         break;
       case 'review-candidates':
-        // Scroll to candidate table or filter
-        document.querySelector('[data-section="candidates"]')?.scrollIntoView({ behavior: 'smooth' });
+        // Navigate to candidates page
+        navigate('/company-candidates');
         break;
       case 'live-session':
         window.location.href = '/live-interview-session';
@@ -256,7 +340,11 @@ const CompanyDashboard = () => {
         userType="company"
         isAuthenticated
         onLogout={handleLogout}
+        organizationRole={user?.organizationContext?.membership?.role}
       />
+      
+      {/* Maintenance Mode Banner */}
+      {maintenanceMode && <MaintenanceBanner />}
       
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -316,10 +404,7 @@ const CompanyDashboard = () => {
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
                     <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
                     <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
-                      {safeInterviews?.find((i) => i?.company)?.company ||
-                        user?.companyName ||
-                        user?.organizationContext?.organization?.displayName ||
-                        'Live session'}
+                      {latestCompanyName}
                     </div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
                       {interviewsToday > 0 ? `${interviewsToday} interviews today` : 'Pipeline ready'}
@@ -346,6 +431,14 @@ const CompanyDashboard = () => {
                   userType="company"
                   recentActivity={recentActivity}
                   onActionClick={handleActionClick}
+                  stats={{
+                    totalCandidates: safeInterviews.length,
+                    completionRate: safeInterviews.length > 0 
+                      ? Math.round((safeInterviews.filter(i => i?.status === 'COMPLETED').length / safeInterviews.length) * 100)
+                      : null,
+                    activeSessions: safeInterviews.filter(i => i?.status === 'IN_PROGRESS').length,
+                    avgScore: metrics?.averageScore ? Math.round(metrics.averageScore) : null
+                  }}
                 />
               </motion.div>
 
@@ -356,21 +449,26 @@ const CompanyDashboard = () => {
               >
                 <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
                   <OverviewPanel
-                    activeJobPostings={metrics?.activeJobPostings || safeInterviews?.length || 0}
+                    dashboardMetrics={dashboardMetrics}
+                    activeJobPostings={activeJobPostings}
                     pendingReviews={safeInterviews?.filter(i => i && i.status === 'COMPLETED' && !i.evaluation)?.length || 0}
                     upcomingInterviews={safeInterviews?.filter(i => i && i.status === 'SCHEDULED')?.length || 0}
-                    onViewAllJobs={() => console.log('View all jobs')}
-                    onViewPendingReviews={() => console.log('View pending reviews')}
-                    onViewUpcomingInterviews={() => console.log('View upcoming interviews')}
+                    interviewsToday={interviewsToday}
+                    onViewAllJobs={() => navigate('/company-jobs')}
+                    onViewPendingReviews={() => navigate('/company-candidates')}
+                    onViewUpcomingInterviews={() => navigate('/company-interviews')}
                   />
-                  <CandidatePipeline />
-                  <HiringMetrics 
-                    metrics={metrics}
-                    interviews={safeInterviews}
-                    onExportReport={handleExportReport} 
-                  />
-                  {user?.organizationContext?.membership?.role === 'ADMIN' && (
-                    <OrganizationAdminPanel />
+                  
+                  {/* Show pipeline and metrics for ADMIN and RECRUITER only */}
+                  {hasPermission(organizationRole, 'MANAGE_CANDIDATES') && (
+                    <>
+                      <CandidatePipeline />
+                      <HiringMetrics 
+                        metrics={metrics}
+                        interviews={safeInterviews}
+                        onExportReport={handleExportReport} 
+                      />
+                    </>
                   )}
                 </motion.div>
                 <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
@@ -378,9 +476,9 @@ const CompanyDashboard = () => {
                     onScheduleInterview={handleScheduleInterview}
                     onCreateTemplate={handleCreateTemplate}
                     onGenerateReport={handleGenerateReport}
+                    organizationRole={organizationRole}
                   />
                   <ReviewerPanel interviews={safeInterviews} />
-                  <InvitationManager />
                 </motion.div>
               </motion.div>
 
@@ -397,18 +495,20 @@ const CompanyDashboard = () => {
           </main>
         </div>
 
-        {/* Floating Action Button - Mobile Only */}
-        <div className="lg:hidden fixed bottom-20 right-4 z-30">
-          <Button
-            variant="default"
-            size="icon"
-            className="w-12 h-12 xs:w-14 xs:h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:from-blue-700 hover:to-purple-700"
-            onClick={handleScheduleInterview}
-            aria-label="Schedule new interview"
-          >
-            <Icon name="Plus" size={22} color="white" />
-          </Button>
-        </div>
+        {/* Floating Action Button - Mobile Only - ADMIN and RECRUITER only */}
+        {hasPermission(organizationRole, 'SEND_INVITATIONS') && (
+          <div className="lg:hidden fixed bottom-20 right-4 z-30">
+            <Button
+              variant="default"
+              size="icon"
+              className="w-12 h-12 xs:w-14 xs:h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:from-blue-700 hover:to-purple-700"
+              onClick={handleScheduleInterview}
+              aria-label="Schedule new interview"
+            >
+              <Icon name="Plus" size={22} color="white" />
+            </Button>
+          </div>
+        )}
       </div>
       {/* AI Chat Assistant */}
       <AIChatAssistant 
@@ -422,4 +522,3 @@ const CompanyDashboard = () => {
 };
 
 export default CompanyDashboard;
-

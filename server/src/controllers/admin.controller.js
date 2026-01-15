@@ -532,6 +532,23 @@ export class AdminController {
   /**
    * Get system settings
    */
+  static async getMaintenanceStatus(req, res, next) {
+    try {
+      const settings = await systemSettingsStore.get();
+      res.json({
+        success: true,
+        maintenanceMode: settings?.maintenanceMode || false,
+      });
+    } catch (error) {
+      logger.error('Get maintenance status error:', error);
+      // On error, return false (no maintenance mode)
+      res.json({
+        success: true,
+        maintenanceMode: false,
+      });
+    }
+  }
+
   static async getSettings(req, res, next) {
     try {
       const settings = await systemSettingsStore.get();

@@ -96,7 +96,7 @@ const formatDate = (dateInput) => {
   return date.toLocaleDateString();
 };
 
-const ApplicationsManager = ({ jobId = null }) => {
+const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const navigate = useNavigate();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -701,35 +701,45 @@ const ApplicationsManager = ({ jobId = null }) => {
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                         Current Status
                       </h3>
-                      <div className="flex gap-2 flex-wrap">
-                        {['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'].map((status) => {
-                          const config = getStatusConfig(status, null);
-                          const isCurrent = selectedApplication.status === status;
-                          const isWithdrawnApp = isWithdrawn(selectedApplication);
-                          
-                          return (
-                            <button
-                              key={status}
-                              onClick={() => !isCurrent && !isWithdrawnApp && handleStatusChange(selectedApplication.id, status)}
-                              disabled={updating === selectedApplication.id || isCurrent || isWithdrawnApp}
-                              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                                isCurrent
-                                  ? config.color
-                                  : isWithdrawnApp
-                                  ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 cursor-not-allowed'
-                                  : 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
-                              }`}
-                              title={isWithdrawnApp ? 'Cannot change status of withdrawn applications' : ''}
-                            >
-                              {config.label}
-                            </button>
-                          );
-                        })}
-                      </div>
-                      {isWithdrawn(selectedApplication) && (
-                        <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
-                          This application was withdrawn by the candidate.
-                        </p>
+                      {canUpdateStatus ? (
+                        <>
+                          <div className="flex gap-2 flex-wrap">
+                            {['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'].map((status) => {
+                              const config = getStatusConfig(status, null);
+                              const isCurrent = selectedApplication.status === status;
+                              const isWithdrawnApp = isWithdrawn(selectedApplication);
+                              
+                              return (
+                                <button
+                                  key={status}
+                                  onClick={() => !isCurrent && !isWithdrawnApp && handleStatusChange(selectedApplication.id, status)}
+                                  disabled={updating === selectedApplication.id || isCurrent || isWithdrawnApp}
+                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                    isCurrent
+                                      ? config.color
+                                      : isWithdrawnApp
+                                      ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 cursor-not-allowed'
+                                      : 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
+                                  }`}
+                                  title={isWithdrawnApp ? 'Cannot change status of withdrawn applications' : ''}
+                                >
+                                  {config.label}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {isWithdrawn(selectedApplication) && (
+                            <p className="text-xs text-orange-600 dark:text-orange-400 mt-2">
+                              This application was withdrawn by the candidate.
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-medium ${
+                          getStatusConfig(selectedApplication.status, selectedApplication.withdrawnBy)?.color || 'bg-gray-100 text-gray-700'
+                        }`}>
+                          {getStatusConfig(selectedApplication.status, selectedApplication.withdrawnBy)?.label || selectedApplication.status}
+                        </div>
                       )}
                     </div>
 

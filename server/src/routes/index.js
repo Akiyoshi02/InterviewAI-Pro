@@ -6,6 +6,7 @@ import analyticsRoutes from './analytics.routes.js';
 import organizationRoutes from './organization.routes.js';
 import jobRoutes from './job.routes.js';
 import invitationRoutes from './invitation.routes.js';
+import teamInvitationRoutes from './teamInvitation.routes.js';
 import publicRoutes from './public.routes.js';
 import pipelineRoutes from './pipeline.routes.js';
 import reviewRoutes from './review.routes.js';
@@ -15,10 +16,12 @@ import adminRoutes from './admin.routes.js';
 import applicationRoutes from './application.routes.js';
 import templateRoutes from './template.routes.js';
 import billingRoutes from './billing.routes.js';
+import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
 
 const router = express.Router();
 
 export function setupRoutes(app) {
+  // Routes (maintenance mode is checked within each route after authentication)
   app.use('/api/auth', authRoutes);
   app.use('/api/interviews', interviewRoutes);
   app.use('/api/video', videoRoutes);
@@ -26,6 +29,7 @@ export function setupRoutes(app) {
   app.use('/api/organizations', organizationRoutes);
   app.use('/api/jobs', jobRoutes);
   app.use('/api/invitations', invitationRoutes);
+  app.use('/api/organizations/me/team-invitations', teamInvitationRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/pipeline', pipelineRoutes);
   app.use('/api/reviews', reviewRoutes);
@@ -35,6 +39,9 @@ export function setupRoutes(app) {
   app.use('/api/templates', templateRoutes);
   app.use('/api/billing', billingRoutes);
   app.use('/api', applicationRoutes);
+
+  // Add maintenance header to all API responses
+  app.use('/api', addMaintenanceHeader);
 
   // Health check
   app.get('/health', (req, res) => {

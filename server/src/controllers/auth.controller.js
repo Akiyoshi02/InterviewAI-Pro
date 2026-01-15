@@ -1,5 +1,5 @@
 import { deleteFirebaseUser } from '../config/firebase.js';
-import { organizationMemberStore, organizationStore, userStore } from '../services/firebaseData.service.js';
+import { organizationMemberStore, organizationStore, userStore, teamInvitationStore } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { validateCandidateProfilePhoto, validateCompanyLogo } from '../services/imageModeration.service.js';
@@ -144,10 +144,36 @@ export class AuthController {
         hiringVolume,
         companyWebsite,
         phoneNumber,
+        teamInvitationToken,
       } = req.body;
       const firebaseUid = req.user.uid;
       const email = (req.user.email || '').toLowerCase();
-      const accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
+      let accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
+
+      let invitedOrganizationId = null;
+      let invitedRole = null;
+      let teamInvitation = null;
+
+      // If registering via team invitation, validate and override account type & organization
+      if (teamInvitationToken) {
+        teamInvitation = await teamInvitationStore.getByToken(teamInvitationToken);
+
+        if (!teamInvitation || !teamInvitationStore.isValid(teamInvitation)) {
+          const error = new Error('Invalid or expired team invitation.');
+          error.status = 400;
+          throw error;
+        }
+
+        if (teamInvitation.email.toLowerCase() !== email) {
+          const error = new Error('Email does not match the team invitation.');
+          error.status = 400;
+          throw error;
+        }
+
+        accountTypeEnum = 'COMPANY';
+        invitedOrganizationId = teamInvitation.organizationId;
+        invitedRole = teamInvitation.role;
+      }
 
       if (accountTypeEnum === 'CANDIDATE') {
         if (!profilePhoto) {
@@ -192,7 +218,7 @@ export class AuthController {
         }
       }
 
-      if (accountTypeEnum === 'COMPANY') {
+      if (accountTypeEnum === 'COMPANY' && !teamInvitationToken) {
         if (!companyLogo) {
           const error = new Error('Company logo is required.');
           error.status = 400;
@@ -259,7 +285,17 @@ export class AuthController {
       let organization = null;
       let membership = null;
 
-      if (accountTypeEnum === 'COMPANY') {
+      if (accountTypeEnum === 'COMPANY' && teamInvitationToken && invitedOrganizationId && invitedRole) {
+        // Joining an existing organization via team invitation
+        primaryOrganizationId = invitedOrganizationId;
+        organizationRoles = [{ organizationId: invitedOrganizationId, role: invitedRole }];
+
+        membership = await organizationMemberStore.addMember({
+          organizationId: invitedOrganizationId,
+          userId: firebaseUid,
+          role: invitedRole,
+        });
+      } else if (accountTypeEnum === 'COMPANY') {
         // Build logo URL before creating organization
         const logoUrl = companyLogo ? buildUploadUrl(COMPANY_LOGO_BASE_PATH, companyLogo.filename) : null;
         
@@ -340,6 +376,11 @@ export class AuthController {
             : null,
       });
       userCreated = true;
+
+      // If this was a team invitation registration, mark invitation as accepted
+      if (teamInvitationToken && teamInvitation) {
+        await teamInvitationStore.markAccepted(teamInvitation.id, firebaseUid);
+      }
 
       res.status(201).json({
         success: true,

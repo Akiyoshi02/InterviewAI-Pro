@@ -1,10 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient.js';
 
-const CandidateManager = () => {
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
+const CandidateManager = ({ canStartReview = true }) => {
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterJob, setFilterJob] = useState('all');
@@ -214,23 +217,24 @@ const CandidateManager = () => {
         </div>
       )}
 
-      {/* Details Modal */}
-      <AnimatePresence>
-        {showDetails && selectedCandidate && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
-            onClick={() => setShowDetails(false)}
-          >
+      {/* Details Modal - Rendered outside section using Portal */}
+      {showDetails && selectedCandidate && typeof document !== 'undefined' ? createPortal(
+        <AnimatePresence>
+          {showDetails && selectedCandidate && (
             <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full my-8"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto"
+              onClick={() => setShowDetails(false)}
             >
+              <motion.div
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                onClick={(e) => e.stopPropagation()}
+                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full my-8"
+              >
               {/* Modal Header */}
               <div className="flex items-start justify-between p-6 border-b border-gray-200 dark:border-slate-700">
                 <div className="flex items-center gap-3">
@@ -299,11 +303,30 @@ const CandidateManager = () => {
                   )}
                 </div>
 
-                {/* Skills */}
+                {/* Key Skills */}
+                {selectedCandidate.job?.skills && selectedCandidate.job.skills.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                      Key Skills
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCandidate.job.skills.map((skill) => (
+                        <span
+                          key={skill}
+                          className="px-3 py-1 rounded-full border border-blue-100 text-xs text-blue-600 dark:border-blue-500/30 dark:text-blue-300"
+                        >
+                          {skill}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Candidate Skills */}
                 {selectedCandidate.candidate?.skills && selectedCandidate.candidate.skills.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
-                      Skills
+                      Candidate Skills
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {selectedCandidate.candidate.skills.map((skill, idx) => (
@@ -327,7 +350,12 @@ const CandidateManager = () => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => window.open(selectedCandidate.resumeUrl, '_blank')}
+                      onClick={() => {
+                        const resumeUrl = selectedCandidate.resumeUrl.startsWith('http') 
+                          ? selectedCandidate.resumeUrl 
+                          : `${API_URL}${selectedCandidate.resumeUrl.startsWith('/') ? selectedCandidate.resumeUrl : `/${selectedCandidate.resumeUrl}`}`;
+                        window.open(resumeUrl, '_blank', 'noopener,noreferrer');
+                      }}
                     >
                       <Icon name="FileText" className="w-4 h-4 mr-2" />
                       View Resume
@@ -395,8 +423,10 @@ const CandidateManager = () => {
               </div>
             </motion.div>
           </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>,
+        document.body
+      ) : null}
     </div>
   );
 };

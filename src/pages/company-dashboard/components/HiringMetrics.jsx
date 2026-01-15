@@ -3,142 +3,55 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
 const HiringMetrics = ({ metrics: propsMetrics, interviews = [], onExportReport }) => {
+  // Calculate completion rate from real data if available
+  const completedInterviews = interviews.filter(i => i?.status === 'COMPLETED').length;
+  const calculatedCompletionRate = interviews.length > 0 
+    ? Math.round((completedInterviews / interviews.length) * 100) 
+    : null;
+
   const metricsData = [
     {
       id: 'time-to-hire',
       title: 'Average Time to Hire',
-      value: propsMetrics?.averageTimeToHire || '18 days',
-      change: '-3 days',
-      changeType: 'positive',
+      value: propsMetrics?.averageTimeToHire || '—',
+      change: propsMetrics?.averageTimeToHireChange || '',
+      changeType: 'neutral',
       icon: 'Clock',
       gradient: 'from-blue-600 to-purple-600'
     },
     {
-      id: 'satisfaction',
-      title: 'Candidate Satisfaction',
-      value: propsMetrics?.candidateSatisfaction || '4.8/5',
-      change: '+0.2',
-      changeType: 'positive',
+      id: 'avg-score',
+      title: 'Average Score',
+      value: propsMetrics?.averageScore ? `${Math.round(propsMetrics.averageScore)}%` : '—',
+      change: propsMetrics?.averageScoreChange || '',
+      changeType: propsMetrics?.averageScoreChange?.startsWith('+') ? 'positive' : 'neutral',
       icon: 'Star',
       gradient: 'from-emerald-500 to-teal-500'
     },
     {
       id: 'completion',
       title: 'Interview Completion Rate',
-      value: propsMetrics?.completionRate || '94%',
-      change: '+2%',
-      changeType: 'positive',
+      value: propsMetrics?.completionRate || (calculatedCompletionRate !== null ? `${calculatedCompletionRate}%` : '—'),
+      change: propsMetrics?.completionRateChange || '',
+      changeType: 'neutral',
       icon: 'CheckCircle',
       gradient: 'from-purple-500 to-pink-500'
     },
     {
-      id: 'quality',
-      title: 'Hire Quality Score',
-      value: propsMetrics?.hireQuality || '87%',
-      change: '+5%',
-      changeType: 'positive',
+      id: 'in-progress',
+      title: 'In Progress',
+      value: propsMetrics?.inProgressInterviews ?? interviews.filter(i => i?.status === 'IN_PROGRESS').length,
+      change: '',
+      changeType: 'neutral',
       icon: 'TrendingUp',
       gradient: 'from-cyan-500 to-blue-500'
     }
   ];
 
-  const recentActivity = [
-    {
-      id: 1,
-      type: 'interview_completed',
-      candidate: 'Sarah Johnson',
-      position: 'Frontend Developer',
-      timestamp: new Date(Date.now() - 1800000),
-      score: 92
-    },
-    {
-      id: 2,
-      type: 'candidate_approved',
-      candidate: 'Michael Chen',
-      position: 'Backend Developer',
-      timestamp: new Date(Date.now() - 3600000),
-      score: 88
-    },
-    {
-      id: 3,
-      type: 'interview_scheduled',
-      candidate: 'Emily Rodriguez',
-      position: 'UX Designer',
-      timestamp: new Date(Date.now() - 7200000),
-      score: null
-    },
-    {
-      id: 4,
-      type: 'template_created',
-      candidate: null,
-      position: 'Data Scientist',
-      timestamp: new Date(Date.now() - 10800000),
-      score: null
-    }
-  ];
-
-  const getActivityIcon = (type) => {
-    const iconMap = {
-      interview_completed: 'CheckCircle',
-      candidate_approved: 'UserCheck',
-      interview_scheduled: 'Calendar',
-      template_created: 'Settings'
-    };
-    return iconMap?.[type] || 'Activity';
-  };
-
-  const getActivityColor = (type) => {
-    const colorMap = {
-      interview_completed: 'text-emerald-600 dark:text-emerald-400',
-      candidate_approved: 'text-blue-600 dark:text-blue-400',
-      interview_scheduled: 'text-purple-600 dark:text-purple-400',
-      template_created: 'text-cyan-500 dark:text-cyan-400'
-    };
-    return colorMap?.[type] || 'text-gray-500 dark:text-slate-400';
-  };
-
-  const getActivityMessage = (activity) => {
-    // Helper to get candidate name
-    const getCandidateName = (candidate) => {
-      if (typeof candidate === 'string') return candidate;
-      if (typeof candidate === 'object' && candidate) {
-        return candidate.fullName || candidate.email || 'Candidate';
-      }
-      return 'Candidate';
-    };
-
-    const candidateName = getCandidateName(activity?.candidate);
-
-    switch (activity?.type) {
-      case 'interview_completed':
-        return `${candidateName} completed interview for ${activity?.position} (Score: ${activity?.score}%)`;
-      case 'candidate_approved':
-        return `${candidateName} approved for ${activity?.position} position`;
-      case 'interview_scheduled':
-        return `Interview scheduled with ${candidateName} for ${activity?.position}`;
-      case 'template_created':
-        return `New interview template created for ${activity?.position}`;
-      default:
-        return 'Unknown activity';
-    }
-  };
-
-  const getTimeAgo = (timestamp) => {
-    const now = new Date();
-    const diffInMinutes = Math.floor((now - timestamp) / (1000 * 60));
-    
-    if (diffInMinutes < 60) {
-      return `${diffInMinutes}m ago`;
-    } else if (diffInMinutes < 1440) {
-      return `${Math.floor(diffInMinutes / 60)}h ago`;
-    } else {
-      return `${Math.floor(diffInMinutes / 1440)}d ago`;
-    }
-  };
-
-  const totalInterviews = interviews.length || 156;
-  const hiresMade = interviews.filter(i => i?.pipelineStatus === 'HIRED').length || 42;
-  const successRate = totalInterviews > 0 ? Math.round((hiresMade / totalInterviews) * 100) : 89;
+  // Use real data - no fake fallback values
+  const totalInterviews = interviews.length;
+  const hiresMade = interviews.filter(i => i?.pipelineStatus === 'HIRED').length;
+  const successRate = totalInterviews > 0 ? Math.round((hiresMade / totalInterviews) * 100) : 0;
 
   return (
     <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur space-y-3 sm:space-y-4">
@@ -157,11 +70,15 @@ const HiringMetrics = ({ metrics: propsMetrics, interviews = [], onExportReport 
                 <div className="text-base sm:text-lg font-bold text-gray-900 dark:text-slate-100">
                   {metric?.value}
                 </div>
-                <div className={`text-xs font-medium ${
-                  metric?.changeType === 'positive' ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'
-                }`}>
-                  {metric?.change}
-                </div>
+                {metric?.change && (
+                  <div className={`text-xs font-medium ${
+                    metric?.changeType === 'positive' ? 'text-emerald-600 dark:text-emerald-400' 
+                    : metric?.changeType === 'negative' ? 'text-rose-500 dark:text-rose-400'
+                    : 'text-gray-500 dark:text-slate-400'
+                  }`}>
+                    {metric?.change}
+                  </div>
+                )}
               </div>
             </div>
             <h3 className="text-xs font-medium text-gray-500 dark:text-slate-400">{metric?.title}</h3>

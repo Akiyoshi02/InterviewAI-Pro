@@ -6,11 +6,16 @@ import ApplicationsManager from '../company-dashboard/components/ApplicationsMan
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
+import { hasPermission } from '../../utils/rolePermissions';
 
 const CompanyApplicationsPage = () => {
   const { user, logout, isAuthenticated, status } = useAuth();
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
+  
+  // Get organization role for permission checks
+  const organizationRole = user?.organizationContext?.membership?.role;
+  const canUpdateApplications = hasPermission(organizationRole, 'UPDATE_APPLICATION_STATUS');
 
   const cachedIsAuthenticated = typeof window !== 'undefined' && window.localStorage.getItem('isAuthenticated') === 'true';
   const showSidebar = isAuthenticated || (status === 'loading' && cachedIsAuthenticated);
@@ -47,6 +52,7 @@ const CompanyApplicationsPage = () => {
         userType={userType}
         isAuthenticated={showSidebar}
         onLogout={handleLogout}
+        organizationRole={user?.organizationContext?.membership?.role}
       />
 
       {/* Spacer for fixed header */}
@@ -88,7 +94,7 @@ const CompanyApplicationsPage = () => {
                 </div>
               </div>
               
-              <ApplicationsManager />
+              <ApplicationsManager canUpdateStatus={canUpdateApplications} />
             </motion.section>
           </main>
         </div>

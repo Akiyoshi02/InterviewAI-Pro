@@ -11,14 +11,17 @@ import RecommendedTopics from './components/RecommendedTopics';
 import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
 import AIChatAssistant from './components/AIChatAssistant';
+import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
   const { user, logout, status } = useAuth();
+  const { maintenanceMode } = useMaintenanceMode();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [interviews, setInterviews] = useState([]);
@@ -63,6 +66,31 @@ const CandidateDashboard = () => {
       y: 0,
       transition: { duration: 0.5, ease: 'easeOut' }
     }
+  };
+
+  const formatCompanyLabel = (company) => {
+    if (!company) return '';
+    if (typeof company === 'string') return company;
+    if (typeof company === 'object') {
+      return company.companyName || company.fullName || company.email || '';
+    }
+    return '';
+  };
+
+  const formatInterviewDate = (value) => {
+    if (!value) return '';
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return '';
+      const parsed = Date.parse(trimmed);
+      return Number.isNaN(parsed) ? trimmed : new Date(parsed).toLocaleDateString();
+    }
+    if (typeof value?.toDate === 'function') {
+      const date = value.toDate();
+      return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+    }
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
   };
 
 
@@ -137,6 +165,14 @@ const CandidateDashboard = () => {
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
   const readinessScore = analytics?.averageScore ?? 82;
   const insightsCount = analytics?.insightsCount ?? 6;
+  const latestInterview = safeInterviews[0] || null;
+  const latestCompanyName = formatCompanyLabel(latestInterview?.company) || 'Interview AI';
+  const latestInterviewDate = formatInterviewDate(
+    latestInterview?.scheduledFor ||
+    latestInterview?.date ||
+    latestInterview?.createdAt ||
+    latestInterview?.updatedAt
+  );
 
   const heroHighlights = [
     {
@@ -174,6 +210,9 @@ const CandidateDashboard = () => {
         isAuthenticated
         onLogout={handleLogout}
       />
+      
+      {/* Maintenance Mode Banner */}
+      {maintenanceMode && <MaintenanceBanner />}
       
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -228,9 +267,9 @@ const CandidateDashboard = () => {
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
                     <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Live status</p>
-                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">{safeInterviews?.[0]?.company || 'Interview AI'}</div>
+                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">{latestCompanyName}</div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
-                      {safeInterviews?.[0]?.date ? `Next interview • ${safeInterviews[0].date}` : 'Pipeline ready'}
+                      {latestInterviewDate ? `Next interview - ${latestInterviewDate}` : 'Pipeline ready'}
                     </p>
                   </div>
                 </div>

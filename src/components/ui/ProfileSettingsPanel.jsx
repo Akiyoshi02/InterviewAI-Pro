@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { motion } from 'framer-motion';
 import Button from './Button';
 import Input from './Input';
 import Select from './Select';
 import Icon from '../AppIcon';
+import OrganizationSettings from './OrganizationSettings';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
@@ -234,12 +236,8 @@ const buildProfileDefaults = (user, isCompany) => ({
   industry: isCompany
     ? user?.industry || ''
     : formatCandidateFieldValue('industry', user?.industry || ''),
-  companyName: user?.companyName || '',
-  companySize: user?.companySize || '',
   jobTitle: user?.jobTitle || '',
   department: user?.department || '',
-  companyWebsite: user?.companyWebsite || '',
-  companyLocation: user?.companyLocation || '',
   phoneNumber: user?.phoneNumber || '',
 });
 
@@ -275,6 +273,12 @@ const ProfileSettingsPanel = ({
   const [preferences, setPreferences] = useState(
     isCompany ? companyPreferencesDefaults : candidatePreferencesDefaults,
   );
+  const [workingHours, setWorkingHours] = useState({
+    timezone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    startTime: '09:00',
+    endTime: '17:00',
+    workDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
+  });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const [photoSourceIndex, setPhotoSourceIndex] = useState(0);
@@ -288,6 +292,7 @@ const ProfileSettingsPanel = ({
   const [photoStatus, setPhotoStatus] = useState(null);
   const [resumeStatus, setResumeStatus] = useState(null);
   const [preferencesStatus, setPreferencesStatus] = useState(null);
+  const [activeTab, setActiveTab] = useState(isCompany ? 'company' : 'user');
 
   const preferencesKey = useMemo(() => {
     const identifier = user?.id || user?.email || 'guest';
@@ -438,13 +443,8 @@ const ProfileSettingsPanel = ({
       const payload = isCompany
         ? {
             fullName: profileForm.fullName,
-            companyName: profileForm.companyName,
-            companySize: profileForm.companySize,
-            industry: profileForm.industry,
             jobTitle: profileForm.jobTitle,
             department: profileForm.department,
-            companyWebsite: profileForm.companyWebsite,
-            companyLocation: profileForm.companyLocation,
             phoneNumber: profileForm.phoneNumber,
           }
         : {
@@ -601,8 +601,63 @@ const ProfileSettingsPanel = ({
         </div>
       </div>
 
-      <div className={`grid ${gridGap} lg:grid-cols-3`}>
-        <div className={`lg:col-span-2 ${columnSpacing}`}>
+      {/* Tabs for Company Users */}
+      {isCompany && (
+        <div className="mb-6">
+          <div className="border-b border-gray-200 dark:border-slate-700">
+            <nav className="-mb-px flex space-x-4 sm:space-x-6 lg:space-x-8 overflow-x-auto scrollbar-hide">
+              <button
+                onClick={() => setActiveTab('company')}
+                className={`
+                  whitespace-nowrap py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 flex-shrink-0
+                  ${
+                    activeTab === 'company'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-slate-400 dark:hover:text-slate-300'
+                  }
+                `}
+              >
+                <Icon name="Building2" className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span>Company Profile</span>
+              </button>
+              <button
+                onClick={() => setActiveTab('user')}
+                className={`
+                  whitespace-nowrap py-3 sm:py-4 px-2 sm:px-1 border-b-2 font-medium text-xs sm:text-sm flex items-center gap-1.5 sm:gap-2 flex-shrink-0
+                  ${
+                    activeTab === 'user'
+                      ? 'border-blue-600 text-blue-600 dark:text-blue-400'
+                      : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300 dark:text-slate-400 dark:hover:text-slate-300'
+                  }
+                `}
+              >
+                <Icon name="UserCircle" className="w-3.5 h-3.5 sm:w-4 sm:h-4 flex-shrink-0" />
+                <span>User Profile</span>
+              </button>
+            </nav>
+          </div>
+        </div>
+      )}
+
+      {/* Tab Content */}
+      {isCompany && activeTab === 'company' ? (
+        <motion.div
+          key="company"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <OrganizationSettings />
+        </motion.div>
+      ) : (
+        <motion.div
+          key={isCompany ? 'user' : 'profile'}
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.2 }}
+          className={`flex flex-col ${gridGap}`}
+        >
+          <div className={columnSpacing}>
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
             <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
               <div>
@@ -637,23 +692,6 @@ const ProfileSettingsPanel = ({
               {isCompany ? (
                 <>
                   <Input
-                    label="Company name"
-                    value={profileForm.companyName}
-                    onChange={(event) => handleProfileFieldChange('companyName', event.target.value)}
-                  />
-                  <Select
-                    label="Company size"
-                    options={companySizeOptions}
-                    value={profileForm.companySize}
-                    onChange={(value) => handleProfileFieldChange('companySize', value)}
-                    placeholder="Select size"
-                  />
-                  <Input
-                    label="Industry"
-                    value={profileForm.industry}
-                    onChange={(event) => handleProfileFieldChange('industry', event.target.value)}
-                  />
-                  <Input
                     label="Job title"
                     value={profileForm.jobTitle}
                     onChange={(event) => handleProfileFieldChange('jobTitle', event.target.value)}
@@ -664,17 +702,6 @@ const ProfileSettingsPanel = ({
                     value={profileForm.department}
                     onChange={(value) => handleProfileFieldChange('department', value)}
                     placeholder="Select department"
-                  />
-                  <Input
-                    label="Company website"
-                    type="url"
-                    value={profileForm.companyWebsite}
-                    onChange={(event) => handleProfileFieldChange('companyWebsite', event.target.value)}
-                  />
-                  <Input
-                    label="Company location"
-                    value={profileForm.companyLocation}
-                    onChange={(event) => handleProfileFieldChange('companyLocation', event.target.value)}
                   />
                   <Input
                     label="Phone number"
@@ -721,87 +748,93 @@ const ProfileSettingsPanel = ({
           </div>
         </div>
 
-        <div className={columnSpacing}>
-          <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
-            <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{photoLabel}</h3>
-                <p className="text-sm text-gray-500 dark:text-slate-400">Keep your profile visuals fresh.</p>
-              </div>
-            </div>
+         <div className={columnSpacing}>
+           {/* Profile Photo Upload Section - Only for Candidates */}
+           {!isCompany && (
+             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+               <div className="flex items-center justify-between">
+                 <div>
+                   <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{photoLabel}</h3>
+                   <p className="text-sm text-gray-500 dark:text-slate-400">Keep your profile visuals fresh.</p>
+                 </div>
+               </div>
 
-            <div className={`flex items-center ${photoGap}`}>
-              <div className={`rounded-full border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-hidden ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
-                {photoSource ? (
-                  <img
-                    src={photoSource}
-                    alt={photoLabel}
-                    className={`w-full h-full ${isCompany ? 'object-contain' : 'object-cover'}`}
-                    onError={handlePhotoError}
-                  />
-                ) : (
-                  <Icon name={photoIcon} size={28} className="text-blue-600 dark:text-blue-400" />
-                )}
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                  {photoFile?.name || (photoSource ? 'Current image' : 'No image uploaded')}
-                </p>
-                <p className="text-xs text-gray-500 dark:text-slate-400">{photoHelper}</p>
-                <StatusMessage status={photoStatus} />
-              </div>
-            </div>
+               <div className={`flex items-center ${photoGap}`}>
+                 <div className={`relative rounded-full border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-visible ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                   {photoSource ? (
+                     <>
+                       <div className={`w-full h-full rounded-full overflow-hidden ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                         <img
+                           src={photoSource}
+                           alt={photoLabel}
+                           className="w-full h-full object-cover"
+                           onError={handlePhotoError}
+                         />
+                       </div>
+                       {photoFile && (
+                         <button
+                           type="button"
+                           onClick={() => {
+                             setPhotoFile(null);
+                             setPhotoStatus(null);
+                             if (fileInputRef.current) {
+                               fileInputRef.current.value = '';
+                             }
+                           }}
+                           className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                           aria-label="Cancel upload"
+                         >
+                           <Icon name="X" size={12} color="white" />
+                         </button>
+                       )}
+                     </>
+                   ) : (
+                     <Icon name={photoIcon} size={28} className="text-blue-600 dark:text-blue-400" />
+                   )}
+                 </div>
+                 <div className="flex-1">
+                   <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                     {photoFile?.name || (photoSource ? 'Current image' : 'No image uploaded')}
+                   </p>
+                   <p className="text-xs text-gray-500 dark:text-slate-400">{photoHelper}</p>
+                   <StatusMessage status={photoStatus} />
+                 </div>
+               </div>
 
-            <div className={`flex flex-wrap gap-2 ${photoFile ? '' : 'justify-center'}`}>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                iconName="Upload"
-                className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                Choose file
-              </Button>
-              {photoFile && (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="rounded-full"
-                    onClick={handleSavePhoto}
-                    disabled={isSavingPhoto}
-                  >
-                    {isSavingPhoto ? 'Saving...' : 'Save photo'}
-                  </Button>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="rounded-full text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
-                    onClick={() => {
-                      setPhotoFile(null);
-                      setPhotoStatus(null);
-                      if (fileInputRef.current) {
-                        fileInputRef.current.value = '';
-                      }
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                </>
-              )}
-            </div>
+               <div className="flex flex-wrap gap-2 justify-center">
+                 <Button
+                   type="button"
+                   variant="default"
+                   size="sm"
+                   iconName="Upload"
+                   className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                   onClick={() => fileInputRef.current?.click()}
+                 >
+                   Choose file
+                 </Button>
+                 {photoFile && (
+                   <Button
+                     type="button"
+                     variant="outline"
+                     size="sm"
+                     className="rounded-full"
+                     onClick={handleSavePhoto}
+                     disabled={isSavingPhoto}
+                   >
+                     {isSavingPhoto ? 'Saving...' : 'Save photo'}
+                   </Button>
+                 )}
+               </div>
 
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept={isCompany ? 'image/*,.svg' : 'image/*'}
-              onChange={handlePhotoFileChange}
-              className="hidden"
-            />
-          </div>
+               <input
+                 ref={fileInputRef}
+                 type="file"
+                 accept="image/*"
+                 onChange={handlePhotoFileChange}
+                 className="hidden"
+               />
+             </div>
+           )}
 
           {/* Resume Upload Section - Only for Candidates */}
           {!isCompany && (
@@ -936,7 +969,8 @@ const ProfileSettingsPanel = ({
             </div>
           </div>
         </div>
-      </div>
+        </motion.div>
+      )}
     </section>
   );
 };

@@ -1,61 +1,82 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { hasPermission } from '../../../utils/rolePermissions';
 
-const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport }) => {
-  const quickActions = [
-    {
-      id: 'schedule-interview',
-      title: 'Schedule Interview',
-      description: 'Set up a new candidate interview session',
-      icon: 'Calendar',
-      color: 'from-blue-600 to-purple-600',
-      onClick: onScheduleInterview || (() => window.location.href = '/practice-interview-setup')
-    },
-    {
-      id: 'create-template',
-      title: 'Create Job Template',
-      description: 'Design custom interview questions and criteria',
-      icon: 'FileText',
-      color: 'from-cyan-500 to-blue-500',
-      onClick: onCreateTemplate || (() => window.location.href = '/practice-interview-setup')
-    },
-    {
-      id: 'generate-report',
-      title: 'Generate Reports',
-      description: 'Export hiring analytics and candidate data',
-      icon: 'BarChart3',
-      color: 'from-emerald-500 to-teal-500',
-      onClick: onGenerateReport || (() => {})
-    }
-  ];
+const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole }) => {
+  const quickActions = useMemo(() => {
+    const actions = [
+      {
+        id: 'schedule-interview',
+        title: 'Schedule Interview',
+        description: 'Set up a new candidate interview session',
+        icon: 'Calendar',
+        color: 'from-blue-600 to-purple-600',
+        onClick: onScheduleInterview || (() => window.location.href = '/practice-interview-setup'),
+        requiredPermission: 'SEND_INVITATIONS'
+      },
+      {
+        id: 'create-template',
+        title: 'Create Job Template',
+        description: 'Design custom interview questions and criteria',
+        icon: 'FileText',
+        color: 'from-cyan-500 to-blue-500',
+        onClick: onCreateTemplate || (() => window.location.href = '/practice-interview-setup'),
+        requiredPermission: 'CREATE_TEMPLATES'
+      },
+      {
+        id: 'generate-report',
+        title: 'Generate Reports',
+        description: 'Export hiring analytics and candidate data',
+        icon: 'BarChart3',
+        color: 'from-emerald-500 to-teal-500',
+        onClick: onGenerateReport || (() => {}),
+        requiredPermission: 'EXPORT_REPORTS'
+      }
+    ];
 
-  const shortcuts = [
-    {
-      id: 'live-session',
-      title: 'Start Live Session',
-      icon: 'Video',
-      path: '/live-interview-session'
-    },
-    {
-      id: 'candidate-search',
-      title: 'Search Candidates',
-      icon: 'Search',
-      path: '/company-dashboard'
-    },
-    {
-      id: 'settings',
-      title: 'Interview Settings',
-      icon: 'Settings',
-      path: '/practice-interview-setup'
-    },
-    {
-      id: 'analytics',
-      title: 'View Analytics',
-      icon: 'TrendingUp',
-      path: '/company-dashboard'
-    }
-  ];
+    // Filter actions based on role permissions
+    return actions.filter(action => 
+      !action.requiredPermission || hasPermission(organizationRole, action.requiredPermission)
+    );
+  }, [onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole]);
+
+  const shortcuts = useMemo(() => {
+    const items = [
+      {
+        id: 'live-session',
+        title: 'Start Live Session',
+        icon: 'Video',
+        path: '/live-interview-session',
+        requiredPermission: 'SEND_INVITATIONS'
+      },
+      {
+        id: 'candidate-search',
+        title: 'Search Candidates',
+        icon: 'Search',
+        path: '/company-dashboard'
+      },
+      {
+        id: 'settings',
+        title: 'Interview Settings',
+        icon: 'Settings',
+        path: '/practice-interview-setup',
+        requiredPermission: 'CREATE_TEMPLATES'
+      },
+      {
+        id: 'analytics',
+        title: 'View Analytics',
+        icon: 'TrendingUp',
+        path: '/company-dashboard',
+        requiredPermission: 'VIEW_ANALYTICS'
+      }
+    ];
+
+    // Filter shortcuts based on role permissions
+    return items.filter(item => 
+      !item.requiredPermission || hasPermission(organizationRole, item.requiredPermission)
+    );
+  }, [organizationRole]);
 
   return (
     <div className="space-y-2">

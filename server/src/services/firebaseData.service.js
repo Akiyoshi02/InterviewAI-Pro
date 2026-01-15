@@ -7,6 +7,7 @@ const interviewsCollection = firestore.collection('interviews');
 const webrtcCollection = firestore.collection('webrtcSessions');
 const organizationsCollection = firestore.collection('organizations');
 const organizationMembersCollection = firestore.collection('organizationMembers');
+const teamInvitationsCollection = firestore.collection('teamInvitations'); // New: Team member invitations
 const jobsCollection = firestore.collection('jobs');
 const invitationsCollection = firestore.collection('invitations');
 const interviewReviewsCollection = firestore.collection('interviewReviews');
@@ -14,6 +15,7 @@ const activityLogsCollection = firestore.collection('activityLogs');
 const jobApplicationsCollection = firestore.collection('jobApplications');
 const platformAuditLogsCollection = firestore.collection('platformAuditLogs');
 const systemSettingsCollection = firestore.collection('systemSettings');
+const analyticsSnapshotsCollection = firestore.collection('analyticsSnapshots'); // For historical metrics tracking
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
@@ -107,6 +109,11 @@ export const userStore = {
   async getByUid(uid) {
     const doc = await usersCollection.doc(uid).get();
     return docToData(doc);
+  },
+
+  // Alias for compatibility with controllers expecting getById
+  async getById(id) {
+    return this.getByUid(id);
   },
 
   async getByEmail(email) {
@@ -457,6 +464,289 @@ export const analyticsStore = {
       inProgressInterviews: interviews.filter((i) => i.status === 'IN_PROGRESS').length,
     };
   },
+
+  /**
+   * Get dashboard metrics with historical comparison data (week-over-week)
+   * @param {string} organizationId - The organization ID
+   * @returns {Object} Metrics with change indicators
+   */
+  async getDashboardMetricsWithComparison(organizationId) {
+    try {
+      // Get current metrics
+      const currentMetrics = await this.getCurrentOrganizationMetrics(organizationId);
+      
+      // Get snapshot from 7 days ago for comparison
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const previousMetrics = await this.getSnapshotNearDate(organizationId, oneWeekAgo);
+
+      // Calculate changes
+      const calculateChange = (current, previous, suffix = '') => {
+        if (previous === null || previous === undefined) {
+          return { value: current, changeText: 'New', changeType: 'neutral' };
+        }
+        const diff = current - previous;
+        if (diff === 0) {
+          return { value: current, changeText: 'No change', changeType: 'neutral' };
+        }
+        const sign = diff > 0 ? '+' : '';
+        return {
+          value: current,
+          changeText: `${sign}${diff}${suffix} this week`,
+          changeType: diff > 0 ? 'positive' : 'negative',
+        };
+      };
+
+      // Special handling for pending reviews (lower is better)
+      const calculatePendingChange = (current, previous) => {
+        if (previous === null || previous === undefined) {
+          return { 
+            value: current, 
+            changeText: current > 0 ? `${current} pending` : 'All caught up', 
+            changeType: current > 0 ? 'urgent' : 'positive' 
+          };
+        }
+        const diff = current - previous;
+        if (diff === 0) {
+          return { 
+            value: current, 
+            changeText: current > 0 ? `${current} pending` : 'All caught up', 
+            changeType: current > 0 ? 'urgent' : 'positive' 
+          };
+        }
+        const sign = diff > 0 ? '+' : '';
+        return {
+          value: current,
+          changeText: `${sign}${diff} this week`,
+          changeType: diff > 0 ? 'urgent' : 'positive', // More pending = urgent, less = positive
+        };
+      };
+
+      return {
+        activeJobPostings: calculateChange(
+          currentMetrics.activeJobPostings,
+          previousMetrics?.activeJobPostings
+        ),
+        pendingReviews: calculatePendingChange(
+          currentMetrics.pendingReviews,
+          previousMetrics?.pendingReviews
+        ),
+        upcomingInterviews: calculateChange(
+          currentMetrics.upcomingInterviews,
+          previousMetrics?.upcomingInterviews
+        ),
+        // Additional metrics
+        totalInterviews: currentMetrics.totalInterviews,
+        completedInterviews: currentMetrics.completedInterviews,
+        averageScore: currentMetrics.averageScore,
+        totalCandidates: currentMetrics.totalCandidates,
+        hiredCount: currentMetrics.hiredCount,
+        snapshotDate: currentMetrics.snapshotDate,
+      };
+    } catch (error) {
+      logger.error('getDashboardMetricsWithComparison error:', error);
+      // Return basic metrics without comparison on error
+      const current = await this.getCurrentOrganizationMetrics(organizationId);
+      return {
+        activeJobPostings: { value: current.activeJobPostings, changeText: '', changeType: 'neutral' },
+        pendingReviews: { value: current.pendingReviews, changeText: current.pendingReviews > 0 ? `${current.pendingReviews} pending` : 'All caught up', changeType: current.pendingReviews > 0 ? 'urgent' : 'positive' },
+        upcomingInterviews: { value: current.upcomingInterviews, changeText: '', changeType: 'neutral' },
+        totalInterviews: current.totalInterviews,
+        completedInterviews: current.completedInterviews,
+        averageScore: current.averageScore,
+        totalCandidates: current.totalCandidates,
+        hiredCount: current.hiredCount,
+        snapshotDate: current.snapshotDate,
+      };
+    }
+  },
+
+  /**
+   * Get current organization metrics (live data)
+   * @param {string} organizationId - The organization ID
+   * @returns {Object} Current metrics
+   */
+  async getCurrentOrganizationMetrics(organizationId) {
+    // Get all jobs for the organization
+    const jobsSnapshot = await jobsCollection
+      .where('organizationId', '==', organizationId)
+      .get();
+    const jobs = jobsSnapshot.docs.map(docToData);
+    const activeJobPostings = jobs.filter(j => j?.status === 'PUBLISHED').length;
+
+    // Get all interviews for the organization
+    const interviewsSnapshot = await interviewsCollection
+      .where('organizationId', '==', organizationId)
+      .get();
+    const interviews = interviewsSnapshot.docs.map(docToData);
+    
+    // Calculate metrics
+    const completedInterviews = interviews.filter(i => i?.status === 'COMPLETED');
+    const pendingReviews = completedInterviews.filter(i => !i?.evaluation).length;
+    const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
+    
+    // Get upcoming interviews (scheduled for today or future)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const upcomingInterviews = scheduledInterviews.filter(i => {
+      const scheduledDate = i?.scheduledFor ? new Date(i.scheduledFor) : null;
+      return scheduledDate && scheduledDate >= today;
+    }).length;
+
+    // Get pipeline data for hired count
+    const hiredCount = interviews.filter(i => i?.pipelineStatus === 'HIRED').length;
+
+    // Calculate average score
+    const scoredInterviews = completedInterviews.filter(i => i?.overallScore != null);
+    const averageScore = scoredInterviews.length > 0
+      ? scoredInterviews.reduce((sum, i) => sum + (i.overallScore || 0), 0) / scoredInterviews.length
+      : 0;
+
+    // Get application count (total unique candidates)
+    const applicationsSnapshot = await jobApplicationsCollection
+      .where('organizationId', '==', organizationId)
+      .get();
+    const totalCandidates = applicationsSnapshot.size;
+
+    return {
+      activeJobPostings,
+      pendingReviews,
+      upcomingInterviews,
+      totalInterviews: interviews.length,
+      completedInterviews: completedInterviews.length,
+      averageScore: Math.round(averageScore * 100) / 100,
+      totalCandidates,
+      hiredCount,
+      snapshotDate: now(),
+    };
+  },
+
+  /**
+   * Create a daily snapshot of organization metrics for historical tracking
+   * @param {string} organizationId - The organization ID
+   * @returns {Object} The created snapshot
+   */
+  async createDailySnapshot(organizationId) {
+    try {
+      const today = new Date();
+      const dateKey = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      // Check if a snapshot already exists for today
+      const existingSnapshot = await analyticsSnapshotsCollection
+        .where('organizationId', '==', organizationId)
+        .where('dateKey', '==', dateKey)
+        .limit(1)
+        .get();
+
+      if (!existingSnapshot.empty) {
+        // Update existing snapshot
+        const existingDoc = existingSnapshot.docs[0];
+        const metrics = await this.getCurrentOrganizationMetrics(organizationId);
+        await existingDoc.ref.update({
+          ...metrics,
+          updatedAt: now(),
+        });
+        return { id: existingDoc.id, ...existingDoc.data(), ...metrics };
+      }
+
+      // Create new snapshot
+      const metrics = await this.getCurrentOrganizationMetrics(organizationId);
+      const docRef = analyticsSnapshotsCollection.doc();
+      const snapshot = {
+        id: docRef.id,
+        organizationId,
+        dateKey,
+        ...metrics,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+
+      await docRef.set(snapshot);
+      logger.info(`Created daily analytics snapshot for org ${organizationId}: ${dateKey}`);
+      return snapshot;
+    } catch (error) {
+      logger.error('createDailySnapshot error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get the snapshot nearest to a specific date
+   * @param {string} organizationId - The organization ID
+   * @param {Date} targetDate - The target date to find snapshot for
+   * @returns {Object|null} The snapshot or null if not found
+   */
+  async getSnapshotNearDate(organizationId, targetDate) {
+    try {
+      const dateKey = targetDate.toISOString().split('T')[0];
+      
+      // Try to find exact date match first
+      let snapshot = await analyticsSnapshotsCollection
+        .where('organizationId', '==', organizationId)
+        .where('dateKey', '==', dateKey)
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        return docToData(snapshot.docs[0]);
+      }
+
+      // If no exact match, find the nearest snapshot before the target date
+      snapshot = await analyticsSnapshotsCollection
+        .where('organizationId', '==', organizationId)
+        .where('dateKey', '<=', dateKey)
+        .orderBy('dateKey', 'desc')
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        return docToData(snapshot.docs[0]);
+      }
+
+      return null;
+    } catch (error) {
+      // Handle index building error gracefully
+      if (isIndexBuildingError(error)) {
+        logger.warn('Analytics snapshot index not ready, returning null for comparison');
+        console.error('Firestore index error - click the link below to create the index:');
+        console.error(error.message || error);
+        return null;
+      }
+      logger.error('getSnapshotNearDate error:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Get historical snapshots for trend analysis
+   * @param {string} organizationId - The organization ID
+   * @param {number} days - Number of days of history to retrieve
+   * @returns {Array} Array of snapshots
+   */
+  async getSnapshots(organizationId, days = 7) {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateKey = startDate.toISOString().split('T')[0];
+
+      const snapshot = await analyticsSnapshotsCollection
+        .where('organizationId', '==', organizationId)
+        .where('dateKey', '>=', startDateKey)
+        .orderBy('dateKey', 'desc')
+        .get();
+
+      return snapshot.docs.map(docToData);
+    } catch (error) {
+      if (isIndexBuildingError(error)) {
+        logger.warn('Analytics snapshot index not ready, returning empty array');
+        console.error('Firestore index error - click the link below to create the index:');
+        console.error(error.message || error);
+        return [];
+      }
+      logger.error('getSnapshots error:', error);
+      return [];
+    }
+  },
 };
 
 export const organizationStore = {
@@ -526,6 +816,8 @@ export const organizationStore = {
         throw error;
       }
       logger.warn('Organization index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await organizationsCollection.get();
       return snapshot.docs
         .map((doc) => organizationDocToData(doc))
@@ -548,6 +840,8 @@ export const organizationStore = {
         throw error;
       }
       logger.warn('Organization status index still building; falling back to in-memory filter.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await organizationsCollection.get();
       return snapshot.docs
         .map((doc) => organizationDocToData(doc))
@@ -805,7 +1099,13 @@ export const invitationStore = {
       if (!isIndexBuildingError(error)) {
         throw error;
       }
+      // Log the full error message which contains the index creation link
+      // Firestore errors include a clickable link in the error message
       logger.warn('Invitation index still building; falling back to in-memory sort.');
+      // Log the full error object so the link is visible in the terminal
+      // The link is in error.message and will be clickable in most terminals
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await invitationsCollection.where('organizationId', '==', organizationId).get();
       return snapshot.docs
         .map((doc) => docToData(doc))
@@ -961,7 +1261,9 @@ export const jobApplicationStore = {
       if (!isIndexBuildingError(error)) {
         throw error;
       }
-      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      logger.warn('Job application index missing or still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await jobApplicationsCollection.where('candidateId', '==', candidateId).get();
       return snapshot.docs
         .map((doc) => docToData(doc))
@@ -981,7 +1283,9 @@ export const jobApplicationStore = {
       if (!isIndexBuildingError(error)) {
         throw error;
       }
-      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      logger.warn('Job application index missing or still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await jobApplicationsCollection.where('jobId', '==', jobId).get();
       return snapshot.docs
         .map((doc) => docToData(doc))
@@ -1002,7 +1306,9 @@ export const jobApplicationStore = {
       if (!isIndexBuildingError(error)) {
         throw error;
       }
-      logger.warn('Job application index missing or still building; falling back to in-memory sort. Please create the required Firestore composite index.');
+      logger.warn('Job application index missing or still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await jobApplicationsCollection
         .where('organizationId', '==', organizationId)
         .get();
@@ -1055,6 +1361,8 @@ export const platformAuditLogStore = {
         throw error;
       }
       logger.warn('Platform audit log index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
       const snapshot = await platformAuditLogsCollection.get();
       return snapshot.docs
         .map((doc) => docToData(doc))
@@ -1135,6 +1443,152 @@ export const systemSettingsStore = {
     };
     await systemSettingsCollection.doc('main').set(merged, { merge: true });
     return merged;
+  },
+};
+
+/**
+ * Team Invitation Store
+ * Handles invitations for team members (RECRUITER/REVIEWER) to join an organization
+ */
+export const teamInvitationStore = {
+  /**
+   * Create a team invitation
+   */
+  async create({ organizationId, email, role, invitedBy }) {
+    if (!organizationId || !email || !role) {
+      throw new Error('organizationId, email, and role are required');
+    }
+
+    const normalizedRole = sanitizeOrgRole(role) || 'RECRUITER';
+    const token = randomUUID();
+    const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(); // 7 days
+
+    const invitation = {
+      organizationId,
+      email: email.toLowerCase().trim(),
+      role: normalizedRole,
+      token,
+      status: 'PENDING',
+      invitedBy,
+      invitedAt: now(),
+      expiresAt,
+      acceptedAt: null,
+      acceptedBy: null,
+    };
+
+    const docRef = await teamInvitationsCollection.add(invitation);
+    const doc = await docRef.get();
+    return docToData(doc);
+  },
+
+  /**
+   * Get invitation by token
+   */
+  async getByToken(token) {
+    if (!token) return null;
+    const snapshot = await teamInvitationsCollection
+      .where('token', '==', token)
+      .limit(1)
+      .get();
+    
+    if (snapshot.empty) return null;
+    return docToData(snapshot.docs[0]);
+  },
+
+  /**
+   * Get invitation by ID
+   */
+  async getById(id) {
+    if (!id) return null;
+    const doc = await teamInvitationsCollection.doc(id).get();
+    return docToData(doc);
+  },
+
+  /**
+   * List invitations for an organization
+   */
+  async listByOrganization(organizationId, status = null) {
+    if (!organizationId) return [];
+    
+    let query = teamInvitationsCollection.where('organizationId', '==', organizationId);
+    
+    if (status) {
+      query = query.where('status', '==', status);
+    }
+    
+    const snapshot = await query.orderBy('invitedAt', 'desc').get();
+    return snapshot.docs.map(docToData);
+  },
+
+  /**
+   * Check if invitation exists for email in organization
+   */
+  async findPendingByEmail(organizationId, email) {
+    if (!organizationId || !email) return null;
+    
+    const snapshot = await teamInvitationsCollection
+      .where('organizationId', '==', organizationId)
+      .where('email', '==', email.toLowerCase().trim())
+      .where('status', '==', 'PENDING')
+      .limit(1)
+      .get();
+    
+    if (snapshot.empty) return null;
+    return docToData(snapshot.docs[0]);
+  },
+
+  /**
+   * Mark invitation as accepted
+   */
+  async markAccepted(id, userId) {
+    if (!id) throw new Error('Invitation ID is required');
+    
+    const docRef = teamInvitationsCollection.doc(id);
+    await docRef.update({
+      status: 'ACCEPTED',
+      acceptedBy: userId,
+      acceptedAt: now(),
+      updatedAt: now(),
+    });
+    
+    const updated = await docRef.get();
+    return docToData(updated);
+  },
+
+  /**
+   * Revoke invitation
+   */
+  async revoke(id) {
+    if (!id) throw new Error('Invitation ID is required');
+    
+    const docRef = teamInvitationsCollection.doc(id);
+    await docRef.update({
+      status: 'REVOKED',
+      updatedAt: now(),
+    });
+    
+    const updated = await docRef.get();
+    return docToData(updated);
+  },
+
+  /**
+   * Check if invitation is valid (not expired, not accepted, not revoked)
+   */
+  isValid(invitation) {
+    if (!invitation) return false;
+    if (invitation.status !== 'PENDING') return false;
+    
+    const expiresAt = new Date(invitation.expiresAt);
+    return expiresAt > new Date();
+  },
+
+  /**
+   * Delete invitation
+   */
+  async delete(id) {
+    if (!id) throw new Error('Invitation ID is required');
+    await teamInvitationsCollection.doc(id).delete();
+    return { success: true };
   },
 };
 

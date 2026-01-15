@@ -94,6 +94,14 @@ async function handleResponse(response) {
       return { ...data, success: false, alreadyExists: true };
     }
     
+    // Special handling for 503 Service Unavailable (maintenance mode)
+    if (response.status === 503 && data.code === 'MAINTENANCE_MODE') {
+      const error = new Error(data.error || 'The platform is currently under maintenance. Please try again later.');
+      error.code = 'MAINTENANCE_MODE';
+      error.maintenanceMode = true;
+      throw error;
+    }
+    
     // For validation errors (400), include the errors array in the thrown error
     if (response.status === 400 && data.errors) {
       const error = new Error(data.error || 'Validation failed');
@@ -427,6 +435,11 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    // Alias for getById for better readability
+    async getInterview(interviewId) {
+      return this.getById(interviewId);
+    },
+
     async start(interviewId) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/start`, {
         method: 'POST',
@@ -500,6 +513,31 @@ export const apiClient = {
 
     async getCompanyMetrics() {
       const response = await fetch(`${API_URL}/api/analytics/company/metrics`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Get dashboard metrics with historical comparison (week-over-week changes)
+     * Returns metrics like activeJobPostings, pendingReviews, upcomingInterviews
+     * with changeText and changeType for displaying trends
+     */
+    async getDashboardMetrics() {
+      const response = await fetch(`${API_URL}/api/analytics/dashboard-metrics`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Get historical metrics snapshots for trend analysis
+     * @param {number} days - Number of days of history (max 30)
+     */
+    async getHistoricalMetrics(days = 7) {
+      const response = await fetch(`${API_URL}/api/analytics/historical?days=${days}`, {
         method: 'GET',
         headers: await getHeaders(),
       });
@@ -1003,6 +1041,51 @@ export const apiClient = {
     async delete(id) {
       const response = await fetch(`${API_URL}/api/templates/${id}`, {
         method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  // Team Invitations
+  teamInvitations: {
+    async send(email, role) {
+      const response = await fetch(`${API_URL}/api/organizations/me/team-invitations`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ email, role }),
+      });
+      return handleResponse(response);
+    },
+
+    async list(status = null) {
+      const url = status 
+        ? `${API_URL}/api/organizations/me/team-invitations?status=${status}`
+        : `${API_URL}/api/organizations/me/team-invitations`;
+      const response = await fetch(url, {
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getByToken(token) {
+      const response = await fetch(`${API_URL}/api/public/team-invitations/${token}`, {
+        headers: await getHeaders(false), // Public endpoint, no auth
+      });
+      return handleResponse(response);
+    },
+
+    async revoke(id) {
+      const response = await fetch(`${API_URL}/api/organizations/me/team-invitations/${id}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async resend(id) {
+      const response = await fetch(`${API_URL}/api/organizations/me/team-invitations/${id}/resend`, {
+        method: 'POST',
         headers: await getHeaders(),
       });
       return handleResponse(response);

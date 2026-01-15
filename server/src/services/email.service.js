@@ -1083,9 +1083,181 @@ export const emailNotifications = {
       dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
     });
   },
+
+  async sendTeamInvitation({ to, organizationName, role, inviteLink, expiresInDays = 7 }) {
+    const roleDisplay = {
+      ADMIN: 'Administrator',
+      RECRUITER: 'Recruiter',
+      REVIEWER: 'Reviewer',
+    }[role] || role;
+
+    const subject = `You've been invited to join ${organizationName} 🎉`;
+    
+    const text = `
+Hi there,
+
+You've been invited to join ${organizationName} as a ${roleDisplay}!
+
+${organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.
+
+Your Role: ${roleDisplay}
+
+To accept this invitation and create your account:
+${inviteLink}
+
+This invitation will expire in ${expiresInDays} days.
+
+Best regards,
+The InterviewAI Pro Team
+    `.trim();
+
+    const html = `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+      line-height: 1.6; 
+      color: #1F2937; 
+      background: linear-gradient(to bottom, #EFF6FF 0%, #FFFFFF 50%, #F3E8FF 100%);
+      padding: 20px;
+    }
+    .email-wrapper { max-width: 600px; margin: 0 auto; }
+    .container { 
+      background: #FFFFFF; 
+      border-radius: 24px; 
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header { 
+      background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%); 
+      color: white; 
+      padding: 40px 30px; 
+      text-align: center; 
+    }
+    .header h1 { 
+      font-size: 28px; 
+      font-weight: 700; 
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
+    .content { 
+      background: #FAFBFC; 
+      padding: 40px 30px; 
+    }
+    .content p { 
+      margin: 16px 0; 
+      font-size: 16px; 
+      line-height: 1.7;
+    }
+    .button { 
+      display: inline-block; 
+      padding: 14px 28px; 
+      margin: 20px 0; 
+      background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%); 
+      color: white !important; 
+      text-decoration: none; 
+      border-radius: 12px;
+      font-weight: 600;
+      font-size: 16px;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+      transition: transform 0.2s;
+    }
+    .button:hover { 
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+    }
+    .role-badge {
+      display: inline-block;
+      padding: 8px 16px;
+      margin: 16px 0;
+      background: linear-gradient(135deg, #10B981 0%, #14B8A6 100%);
+      color: white;
+      border-radius: 20px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+    .details { 
+      background: white; 
+      padding: 20px; 
+      border-radius: 12px; 
+      margin: 24px 0;
+      border: 1px solid #E5E7EB;
+    }
+    .details p { 
+      margin: 8px 0; 
+      font-size: 14px;
+    }
+    .footer { 
+      padding: 24px 30px;
+      background: #F9FAFB;
+      color: #6B7280;
+      font-size: 14px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .footer p { margin: 8px 0; }
+    @media only screen and (max-width: 600px) {
+      body { padding: 10px; }
+      .header, .content { padding: 24px 20px; }
+      .header h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>🎉 You're Invited!</h1>
+      </div>
+      <div class="content">
+        <p>Hi there,</p>
+        <p>You've been invited to join <strong>${organizationName}</strong> on InterviewAI Pro!</p>
+        
+        <div style="text-align: center;">
+          <span class="role-badge">Your Role: ${roleDisplay}</span>
+        </div>
+
+        <p>${organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.</p>
+        
+        <div class="details">
+          <p><strong>Organization:</strong> ${organizationName}</p>
+          <p><strong>Your Role:</strong> ${roleDisplay}</p>
+          <p><strong>Expires In:</strong> ${expiresInDays} days</p>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${inviteLink}" class="button">Accept Invitation & Create Account</a>
+        </div>
+
+        <p style="font-size: 14px; color: #6B7280; margin-top: 24px;">
+          This invitation link is unique to you and will expire in ${expiresInDays} days. If you have any questions, please contact ${organizationName} directly.
+        </p>
+      </div>
+      <div class="footer">
+        <p><strong>InterviewAI Pro</strong></p>
+        <p>This email was sent because ${organizationName} invited you to join their team.</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim();
+
+    return await sendEmail({ to, subject, text, html });
+  },
 };
 
 export default {
+  sendEmail,
+  sendTemplatedEmail,
+  ...emailNotifications,
+};
+
+export const emailService = {
   sendEmail,
   sendTemplatedEmail,
   ...emailNotifications,

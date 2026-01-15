@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import MessageDialog from '../../../components/ui/MessageDialog';
 import apiClient from '../../../services/apiClient.js';
 
 const SystemSettings = () => {
@@ -10,6 +12,8 @@ const SystemSettings = () => {
   const [saving, setSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
   const [editedSettings, setEditedSettings] = useState(null);
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [messageDialog, setMessageDialog] = useState({ open: false, title: '', message: '', variant: 'success' });
 
   useEffect(() => {
     loadSettings();
@@ -81,22 +85,41 @@ const SystemSettings = () => {
         setSettings(result.settings);
         setEditedSettings(JSON.parse(JSON.stringify(result.settings)));
         setHasChanges(false);
-        alert('Settings saved successfully!');
+        setMessageDialog({
+          open: true,
+          title: 'Success',
+          message: 'Settings saved successfully!',
+          variant: 'success',
+        });
+      } else {
+        setMessageDialog({
+          open: true,
+          title: 'Error',
+          message: result.error || 'Failed to save settings. Please try again.',
+          variant: 'error',
+        });
       }
-    } catch (error) {
-      console.error('Failed to save settings:', error);
-      alert('Failed to save settings. Please try again.');
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+      setMessageDialog({
+        open: true,
+        title: 'Error',
+        message: 'Failed to save settings. Please try again.',
+        variant: 'error',
+      });
     } finally {
       setSaving(false);
     }
   };
 
   const handleReset = () => {
-    if (!confirm('Discard all changes and reset to current saved settings?')) {
-      return;
-    }
+    setShowResetConfirm(true);
+  };
+
+  const confirmReset = () => {
     setEditedSettings(JSON.parse(JSON.stringify(settings)));
     setHasChanges(false);
+    setShowResetConfirm(false);
   };
 
   if (loading) {
@@ -349,6 +372,28 @@ const SystemSettings = () => {
           {settings.updatedBy && ` by admin ${settings.updatedBy}`}
         </div>
       )}
+
+      {/* Reset Confirmation Dialog */}
+      <ConfirmDialog
+        open={showResetConfirm}
+        onClose={() => setShowResetConfirm(false)}
+        onConfirm={confirmReset}
+        title="Discard Changes?"
+        message="Are you sure you want to discard all changes and reset to the current saved settings? This action cannot be undone."
+        confirmText="Discard Changes"
+        cancelText="Cancel"
+        variant="warning"
+      />
+
+      {/* Message Dialog */}
+      <MessageDialog
+        open={messageDialog.open}
+        onClose={() => setMessageDialog({ ...messageDialog, open: false })}
+        title={messageDialog.title}
+        message={messageDialog.message}
+        variant={messageDialog.variant}
+        buttonText="OK"
+      />
     </div>
   );
 };

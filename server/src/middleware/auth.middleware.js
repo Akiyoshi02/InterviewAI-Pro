@@ -1,5 +1,6 @@
 import { verifyFirebaseToken } from '../config/firebase.js';
 import { organizationMemberStore, organizationStore, userStore } from '../services/firebaseData.service.js';
+import { checkMaintenanceMode } from './maintenance.middleware.js';
 import logger from '../utils/logger.js';
 
 /**
@@ -156,5 +157,11 @@ export function requireOrgRole(roles = []) {
 
 /**
  * Combined auth middleware
+ * Includes maintenance mode check after authentication
  */
-export const authenticate = [verifyFirebaseAuth, loadUser, loadOrganizationContext];
+export const authenticate = [
+  verifyFirebaseAuth,
+  loadUser,
+  loadOrganizationContext,
+  checkMaintenanceMode, // Check maintenance mode after user is loaded
+];

@@ -1,6 +1,31 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 
+const formatCompanyLabel = (company) => {
+  if (!company) return '';
+  if (typeof company === 'string') return company;
+  if (typeof company === 'object') {
+    return company.companyName || company.fullName || company.email || '';
+  }
+  return '';
+};
+
+const formatInterviewDate = (value) => {
+  if (!value) return '';
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return '';
+    const parsed = Date.parse(trimmed);
+    return Number.isNaN(parsed) ? trimmed : new Date(parsed).toLocaleDateString();
+  }
+  if (typeof value?.toDate === 'function') {
+    const date = value.toDate();
+    return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+  }
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
+};
+
 // Accept either `progressData` (legacy) or `analytics` prop from parent.
 const ProgressOverviewCard = ({ progressData, analytics }) => {
   // Prefer explicit progressData, then analytics, then an empty object
@@ -15,6 +40,11 @@ const ProgressOverviewCard = ({ progressData, analytics }) => {
   } = data;
 
   const progressPercentage = Math.min((completedSessions / 20) * 100, 100);
+  const nextInterviewCompany = formatCompanyLabel(nextInterview?.company);
+  const nextInterviewDate = formatInterviewDate(nextInterview?.date);
+  const nextInterviewSummary = [nextInterviewCompany, nextInterviewDate]
+    .filter(Boolean)
+    .join(' - ') || 'Upcoming interview';
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur">
@@ -86,7 +116,7 @@ const ProgressOverviewCard = ({ progressData, analytics }) => {
             <div className="flex-1">
               <div className="font-medium text-gray-900 dark:text-slate-100">Upcoming Interview</div>
               <div className="text-sm text-gray-600 dark:text-slate-300">
-                {nextInterview?.company} • {nextInterview?.date}
+                {nextInterviewSummary}
               </div>
             </div>
             <div className="text-sm font-semibold text-blue-600 dark:text-blue-400">

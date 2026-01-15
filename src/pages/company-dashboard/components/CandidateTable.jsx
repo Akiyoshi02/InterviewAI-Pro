@@ -8,85 +8,19 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterPosition, setFilterPosition] = useState('all');
 
-  // Use provided interviews or fallback to demo data
-  const candidates = interviews.length > 0 ? interviews.map((interview, idx) => ({
+  // Transform interviews to display format
+  const candidates = interviews.map((interview, idx) => ({
     id: interview.id || idx,
     name: interview.candidate?.fullName || 'Candidate',
     email: interview.candidate?.email || '',
     position: interview.jobRole || 'Position',
     interviewDate: interview.scheduledFor ? new Date(interview.scheduledFor).toLocaleDateString() : 'TBD',
-    aiScore: interview.overallScore || Math.floor(Math.random() * 20) + 80,
+    aiScore: interview.overallScore || null,
     status: interview.status?.toLowerCase() || 'completed',
     avatar: interview.candidate?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(interview.candidate?.fullName || 'C')}&background=6366f1&color=fff`,
     duration: interview.duration ? `${Math.round(interview.duration / 60)} min` : '—',
     experience: '—'
-  })) : [
-    {
-      id: 1,
-      name: 'Sarah Johnson',
-      email: 'sarah.johnson@email.com',
-      position: 'Frontend Developer',
-      interviewDate: '2025-10-30',
-      aiScore: 92,
-      status: 'completed',
-      avatar: "https://images.unsplash.com/photo-1706565029071-f8f70ce91e71",
-      avatarAlt: 'Professional headshot of woman with brown hair in white blazer',
-      duration: '45 min',
-      experience: '3 years'
-    },
-    {
-      id: 2,
-      name: 'Michael Chen',
-      email: 'michael.chen@email.com',
-      position: 'Backend Developer',
-      interviewDate: '2025-10-29',
-      aiScore: 88,
-      status: 'under_review',
-      avatar: "https://images.unsplash.com/photo-1629272039203-7d76fdaf1324",
-      avatarAlt: 'Professional headshot of Asian man with black hair in navy suit',
-      duration: '52 min',
-      experience: '5 years'
-    },
-    {
-      id: 3,
-      name: 'Emily Rodriguez',
-      email: 'emily.rodriguez@email.com',
-      position: 'UX Designer',
-      interviewDate: '2025-10-28',
-      aiScore: 95,
-      status: 'approved',
-      avatar: "https://images.unsplash.com/photo-1510975866110-51c411b08b0b",
-      avatarAlt: 'Professional headshot of Hispanic woman with long dark hair in blue shirt',
-      duration: '38 min',
-      experience: '4 years'
-    },
-    {
-      id: 4,
-      name: 'David Wilson',
-      email: 'david.wilson@email.com',
-      position: 'Full Stack Developer',
-      interviewDate: '2025-10-27',
-      aiScore: 85,
-      status: 'rejected',
-      avatar: "https://images.unsplash.com/photo-1585066047759-3438c34cf676",
-      avatarAlt: 'Professional headshot of man with beard in gray suit',
-      duration: '41 min',
-      experience: '2 years'
-    },
-    {
-      id: 5,
-      name: 'Lisa Thompson',
-      email: 'lisa.thompson@email.com',
-      position: 'Product Manager',
-      interviewDate: '2025-10-26',
-      aiScore: 90,
-      status: 'completed',
-      avatar: "https://images.unsplash.com/photo-1553984658-2b507d7bb3d9",
-      avatarAlt: 'Professional headshot of blonde woman in black blazer',
-      duration: '48 min',
-      experience: '6 years'
-    }
-  ];
+  }));
 
 
   const statusOptions = [
@@ -165,6 +99,15 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
 
       {/* Desktop Table */}
       <div className="hidden lg:block overflow-x-auto">
+        {candidates.length === 0 ? (
+          <div className="text-center py-12">
+            <Icon name="Users" size={48} className="mx-auto text-gray-300 dark:text-slate-600 mb-4" />
+            <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100 mb-2">No interviews yet</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              When candidates complete interviews, they will appear here.
+            </p>
+          </div>
+        ) : (
         <table className="w-full">
           <thead>
             <tr className="border-b border-white/30 dark:border-slate-700 text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400">
@@ -206,9 +149,13 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
                   </div>
                 </td>
                 <td className="py-4 px-4 text-center">
-                  <span className={`text-lg font-bold ${getScoreColor(candidate?.aiScore)}`}>
-                    {candidate?.aiScore}%
-                  </span>
+                  {candidate?.aiScore != null ? (
+                    <span className={`text-lg font-bold ${getScoreColor(candidate?.aiScore)}`}>
+                      {candidate?.aiScore}%
+                    </span>
+                  ) : (
+                    <span className="text-sm text-gray-400 dark:text-slate-500">—</span>
+                  )}
                 </td>
                 <td className="py-4 px-4 text-center">
                   {getStatusBadge(candidate?.status)}
@@ -247,11 +194,21 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
             ))}
           </tbody>
         </table>
+        )}
       </div>
 
       {/* Mobile Cards */}
       <div className="lg:hidden space-y-3">
-        {candidates?.map((candidate) => (
+        {candidates.length === 0 ? (
+          <div className="text-center py-8">
+            <Icon name="Users" size={40} className="mx-auto text-gray-300 dark:text-slate-600 mb-3" />
+            <h3 className="text-base font-medium text-gray-900 dark:text-slate-100 mb-1">No interviews yet</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              When candidates complete interviews, they will appear here.
+            </p>
+          </div>
+        ) : (
+        candidates?.map((candidate) => (
           <div key={candidate?.id} className="bg-white/70 dark:bg-slate-900/60 border border-white/40 dark:border-slate-700/50 rounded-xl p-3 sm:p-4 space-y-3 backdrop-blur">
             <div className="flex items-center space-x-3">
               <img
@@ -274,9 +231,13 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
               </div>
               <div>
                 <p className="text-gray-500 dark:text-slate-400">AI Score</p>
-                <p className={`font-bold ${getScoreColor(candidate?.aiScore)}`}>
-                  {candidate?.aiScore}%
-                </p>
+                {candidate?.aiScore != null ? (
+                  <p className={`font-bold ${getScoreColor(candidate?.aiScore)}`}>
+                    {candidate?.aiScore}%
+                  </p>
+                ) : (
+                  <p className="text-gray-400 dark:text-slate-500">—</p>
+                )}
               </div>
             </div>
             
@@ -303,7 +264,8 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
               </Button>
             </div>
           </div>
-        ))}
+        ))
+        )}
       </div>
     </div>
   );

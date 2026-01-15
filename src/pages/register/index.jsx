@@ -801,20 +801,6 @@ const Register = () => {
         localStorage.removeItem('socialAuthIntent');
         setAuthenticatedUser(registerData.user);
 
-        // For company accounts, show approval pending message
-        if (formData.accountType === 'company') {
-          setStatus('success');
-          setMessage('Registration successful! Your organization is pending admin approval. You will be redirected to your dashboard where you can view the approval status. This typically takes 1-2 business days.');
-          
-          // Redirect after showing message
-          setTimeout(() => {
-            const redirectPath = '/company-dashboard';
-            navigate(redirectAfterAuth || redirectPath);
-          }, 4000);
-          return;
-        }
-
-        // For candidates, redirect immediately
         const redirectPath = formData.accountType === 'candidate'
           ? '/candidate-dashboard'
           : '/company-dashboard';
@@ -969,20 +955,7 @@ const Register = () => {
             localStorage.removeItem('socialAuthIntent');
             setAuthenticatedUser(registerData.user);
             
-            // For company accounts, show approval pending message
-            if (formData.accountType === 'company') {
-              setStatus('success');
-              setMessage('Registration successful! Your organization is pending admin approval. You will be redirected to your dashboard where you can view the approval status. This typically takes 1-2 business days.');
-              
-              // Redirect after showing message
-              setTimeout(() => {
-                const redirectPath = '/company-dashboard';
-                navigate(redirectAfterAuth || redirectPath);
-              }, 4000);
-              return;
-            }
-            
-            // For candidates, redirect immediately
+            // Redirect based on account type
             const redirectPath = formData.accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';

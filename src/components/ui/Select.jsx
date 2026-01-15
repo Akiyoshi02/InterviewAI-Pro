@@ -141,12 +141,12 @@ const Select = React.forwardRef(({
     const hasValue = multiple ? value?.length > 0 : value !== undefined && value !== '';
 
     return (
-        <div ref={selectRef} className={cn("relative", className)}>
+        <div ref={selectRef} className={cn("space-y-1.5 sm:space-y-2", className)}>
             {label && (
                 <label
                     htmlFor={selectId}
                     className={cn(
-                        "text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 mb-2 block",
+                        "text-sm sm:text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 block",
                         error ? "text-destructive" : "text-foreground"
                     )}
                 >
@@ -160,7 +160,7 @@ const Select = React.forwardRef(({
                     id={selectId}
                     type="button"
                     className={cn(
-                        "flex h-11 sm:h-12 min-h-[44px] w-full items-center justify-between rounded-xl border border-input bg-white dark:bg-slate-900 text-black dark:text-slate-100 px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation transition-colors",
+                        "flex h-11 sm:h-12 min-h-[44px] w-full items-center justify-between rounded-xl border border-input bg-background dark:bg-slate-900 text-foreground dark:text-slate-100 px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation transition-colors",
                         error && "border-destructive focus:ring-destructive",
                         !hasValue && "text-muted-foreground dark:text-slate-400"
                     )}

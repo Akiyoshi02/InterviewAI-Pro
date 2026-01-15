@@ -11,7 +11,7 @@ const stageOptions = [
   { value: 'FINAL', label: 'Final Review' },
 ];
 
-const InvitationManager = () => {
+const InvitationManager = ({ onRefresh }) => {
   const [jobs, setJobs] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -55,6 +55,13 @@ const InvitationManager = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Expose loadData to parent via callback
+  useEffect(() => {
+    if (onRefresh) {
+      onRefresh(loadData);
+    }
+  }, [onRefresh]);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
     if (!form.jobId || !form.email) {
@@ -89,25 +96,6 @@ const InvitationManager = () => {
 
   return (
     <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
-        <div>
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Invitation Manager</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">
-            Send AI-powered pre-screening invites
-          </p>
-        </div>
-        <Button 
-          variant="ghost" 
-          size="sm" 
-          iconName="RefreshCw"
-          onClick={loadData} 
-          disabled={loading}
-          className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
-        >
-          Refresh
-        </Button>
-      </div>
-
       {statusMessage && (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs sm:text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
           {statusMessage}

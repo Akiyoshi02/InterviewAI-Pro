@@ -57,8 +57,6 @@ img, video {
 /* Better button defaults */
 button {
   cursor: pointer;
-  border: none;
-  background: none;
   font-family: inherit;
   font-size: inherit;
 }

@@ -23,9 +23,15 @@ import Onboarding from './pages/onboarding';
 import JobsPage from './pages/jobs';
 import InvitePage from './pages/invite';
 import SystemAdminDashboard from './pages/system-admin-dashboard';
+import AcceptTeamInvitePage from './pages/accept-team-invite';
 import CompanyJobsPage from './pages/company-jobs';
 import MyApplicationsPage from './pages/my-applications';
 import CompanyApplicationsPage from './pages/company-applications';
+import CompanyInterviewsPage from './pages/company-interviews';
+import CompanyInvitationsPage from './pages/company-invitations';
+import CompanyCandidatesPage from './pages/company-candidates';
+import CompanyAnalyticsPage from './pages/company-analytics';
+import CompanyTeamMembersPage from './pages/company-team-members';
 
 const Routes = () => {
   return (
@@ -77,6 +83,46 @@ const Routes = () => {
             </ProtectedRoute>
           )}
         />
+        <Route
+          path="/company-interviews"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyInterviewsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-invitations"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyInvitationsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-candidates"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyCandidatesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-analytics"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyAnalyticsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-team-members"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyTeamMembersPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/login" element={<Login />} />
         <Route
           path="/practice-interview-setup"
@@ -88,6 +134,7 @@ const Routes = () => {
         />
         <Route path="/register" element={<Register />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/accept-team-invite/:token" element={<AcceptTeamInvitePage />} />
         <Route
           path="/candidate-dashboard"
           element={(

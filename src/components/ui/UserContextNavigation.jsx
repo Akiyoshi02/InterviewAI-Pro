@@ -4,8 +4,10 @@ import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
 import Button from './Button';
 import ProfileSettingsModal from './ProfileSettingsModal';
+import NavigationMenu from './NavigationMenu';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
+import { filterNavByRole } from '../../utils/rolePermissions';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
@@ -140,38 +142,60 @@ const UserContextNavigation = ({
 
   const companyNavItems = [
     { 
+      key: 'dashboard',
       label: 'Dashboard', 
       path: '/company-dashboard', 
       icon: 'LayoutDashboard',
       description: 'Company overview and analytics'
     },
     { 
-      label: 'Jobs', 
-      path: '/company-jobs', 
+      key: 'hiring',
+      label: 'Hiring', 
       icon: 'Briefcase',
-      description: 'Manage job postings'
+      description: 'Jobs, applications, and candidates',
+      items: [
+        { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', description: 'Manage job postings', requiredPermission: 'ACCESS_JOBS_PAGE' },
+        { label: 'Applications', path: '/company-applications', icon: 'FileText', description: 'Review candidate applications', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
+        { label: 'Candidates', path: '/company-candidates', icon: 'Users', description: 'Manage candidate pipeline', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
+      ]
     },
     { 
-      label: 'Applications', 
-      path: '/company-applications', 
-      icon: 'FileText',
-      description: 'Review candidate applications'
+      key: 'interviews',
+      label: 'Interviews', 
+      icon: 'Calendar',
+      description: 'Invitations and interviews',
+      items: [
+        { label: 'Invitations', path: '/company-invitations', icon: 'Send', description: 'Send and manage interview invitations', requiredPermission: 'ACCESS_INVITATIONS_PAGE' },
+        { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', description: 'View and manage interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
+      ]
     },
     { 
-      label: 'Interview Setup', 
-      path: '/practice-interview-setup', 
-      icon: 'Settings',
-      description: 'Configure interview parameters'
+      key: 'analytics',
+      label: 'Analytics', 
+      path: '/company-analytics', 
+      icon: 'BarChart3',
+      description: 'View progress and metrics',
+      requiredPermission: 'ACCESS_ANALYTICS_PAGE'
     },
     { 
-      label: 'Live Session', 
-      path: '/live-interview-session', 
-      icon: 'Video',
-      description: 'Conduct live interviews'
+      key: 'team',
+      label: 'Team Members', 
+      path: '/company-team-members', 
+      icon: 'Users2',
+      description: 'Manage team members and invitations',
+      requiredPermission: 'MANAGE_MEMBERS'
     },
   ];
 
-  const navigationItems = userType === 'candidate' ? candidateNavItems : companyNavItems;
+  // Filter navigation items based on organization role for company users
+  const navigationItems = useMemo(() => {
+    if (userType === 'candidate') return candidateNavItems;
+    if (userType === 'company') {
+      const role = user?.organizationContext?.membership?.role;
+      return filterNavByRole(companyNavItems, role);
+    }
+    return companyNavItems;
+  }, [userType, user?.organizationContext?.membership?.role]);
 
   const handleNavigation = (path) => {
     setActiveItem(path);
@@ -277,41 +301,16 @@ const UserContextNavigation = ({
             </div>
 
             {/* Navigation Items */}
-            <nav className="flex-1 p-3 xl:p-4 space-y-1.5 overflow-y-auto scroll-container">
-              {navigationItems?.map((item) => {
-                const isActive = activeItem === item?.path;
-                
-                return (
-                  <button
-                    key={item?.path}
-                    onClick={() => handleNavigation(item?.path)}
-                    className={`w-full flex items-center gap-3 px-3 py-2.5 xl:py-3 rounded-xl xl:rounded-2xl transition-all duration-200 group min-h-touch ${
-                      isActive
-                        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
-                        : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-white/70 dark:hover:bg-slate-800/70'
-                    }`}
-                    title={isCollapsed ? item?.label : ''}
-                    aria-current={isActive ? 'page' : undefined}
-                  >
-                    <Icon 
-                      name={item?.icon} 
-                      size={20} 
-                      className={`flex-shrink-0 ${isActive ? 'text-white' : 'text-gray-400 dark:text-slate-500'}`}
-                    />
-                    {!isCollapsed && (
-                      <div className="flex-1 text-left min-w-0">
-                        <div className="font-semibold text-sm xl:text-base truncate">{item?.label}</div>
-                        <div className={`text-xs truncate ${
-                          isActive ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'
-                        }`}>
-                          {item?.description}
-                        </div>
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </nav>
+            <div className="flex-1 overflow-y-auto scroll-container">
+              <NavigationMenu
+                items={navigationItems}
+                variant="accordion"
+                onItemClick={handleNavigation}
+                activeItem={activeItem}
+                isCollapsed={isCollapsed}
+                className="p-3 xl:p-4"
+              />
+            </div>
 
             {/* User Context Indicator */}
             <div className="p-3 xl:p-4 border-t border-white/20 dark:border-slate-800">

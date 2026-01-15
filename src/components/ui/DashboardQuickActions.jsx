@@ -7,7 +7,9 @@ const DashboardQuickActions = ({
   userType = 'candidate',
   recentActivity = [],
   onActionClick,
-  className = ''
+  className = '',
+  // Stats props for real data (optional - will show "—" if not provided)
+  stats = {}
 }) => {
   const navigate = useNavigate();
   const candidateActions = [
@@ -209,44 +211,44 @@ const DashboardQuickActions = ({
           </div>
         </div>
       )}
-      {/* Quick Stats */}
+      {/* Quick Stats - Uses real data passed via stats prop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {userType === 'candidate' ? (
           <>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">12</div>
+              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.practiceSessions ?? '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Practice Sessions</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">85%</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.avgScore != null ? `${stats.avgScore}%` : '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Score</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">3</div>
+              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.liveInterviews ?? '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Live Interviews</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">24h</div>
+              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.totalPracticeTime ?? '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Total Practice</div>
             </div>
           </>
         ) : (
           <>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">48</div>
+              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.totalCandidates ?? '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Candidates</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">92%</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.completionRate != null ? `${stats.completionRate}%` : '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Completion Rate</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">15</div>
+              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.activeSessions ?? '—'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Active Sessions</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">4.8</div>
-              <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Rating</div>
+              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.avgScore != null ? stats.avgScore : '—'}</div>
+              <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Score</div>
             </div>
           </>
         )}

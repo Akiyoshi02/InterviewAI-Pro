@@ -56,7 +56,8 @@ const ReviewerPanel = ({ interviews = [] }) => {
       }
     } catch (err) {
       setReviews([]);
-      setStatusMessage(err.message || 'Failed to load reviews.');
+      const errorMsg = err?.message || (typeof err === 'string' ? err : 'Failed to load reviews.');
+      setStatusMessage(errorMsg);
     } finally {
       setLoading(false);
     }
@@ -86,10 +87,12 @@ const ReviewerPanel = ({ interviews = [] }) => {
         setForm({ score: '', decision: 'ADVANCE', notes: '' });
         setStatusMessage('Review submitted.');
       } else {
-        setStatusMessage(result.error || 'Failed to submit review.');
+        const errorMsg = typeof result.error === 'string' ? result.error : (result.error?.message || 'Failed to submit review.');
+        setStatusMessage(errorMsg);
       }
     } catch (err) {
-      setStatusMessage(err.message || 'Failed to submit review.');
+      const errorMsg = err?.message || (typeof err === 'string' ? err : 'Failed to submit review.');
+      setStatusMessage(errorMsg);
     } finally {
       setSubmitting(false);
     }
@@ -116,7 +119,7 @@ const ReviewerPanel = ({ interviews = [] }) => {
 
       {statusMessage && (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs sm:text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
-          {statusMessage}
+          {typeof statusMessage === 'string' ? statusMessage : String(statusMessage)}
         </div>
       )}
 
@@ -192,8 +195,16 @@ const ReviewerPanel = ({ interviews = [] }) => {
                 className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/70 p-3 space-y-2 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
               >
                 <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400">
-                  <span>{review.reviewer?.fullName || review.reviewer?.email || 'Reviewer'}</span>
-                  <span>{new Date(review.createdAt).toLocaleString()}</span>
+                  <span>
+                    {(() => {
+                      const reviewer = review.reviewer;
+                      if (typeof reviewer === 'object' && reviewer !== null) {
+                        return reviewer.fullName || reviewer.email || 'Reviewer';
+                      }
+                      return 'Reviewer';
+                    })()}
+                  </span>
+                  <span>{review.createdAt ? new Date(review.createdAt).toLocaleString() : '—'}</span>
                 </div>
                 <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                   {review.decision || 'Feedback'} • {review.score ? `${review.score}/100` : 'No score'}

@@ -489,6 +489,7 @@ const Login = () => {
                 isResettingPassword={isResettingPassword}
                 statusMessage={statusMessage}
                 statusType={statusType}
+                initialEmail={location.state?.email}
               />
               <SocialLogin 
                 onSocialLogin={handleSocialLogin}

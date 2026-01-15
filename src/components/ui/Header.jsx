@@ -3,8 +3,11 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
 import Button from './Button';
+import RoleBadge from './RoleBadge';
+import NavigationMenu from './NavigationMenu';
+import { filterNavByRole } from '../../utils/rolePermissions';
 
-const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
+const Header = ({ userType = null, isAuthenticated = false, onLogout, organizationRole = null }) => {
   const navigate = useNavigate();
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -69,12 +72,49 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
   ];
 
   const companyNavItems = [
-    { label: 'Dashboard', path: '/company-dashboard', icon: 'LayoutDashboard' },
-    { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase' },
-    { label: 'Applications', path: '/company-applications', icon: 'FileText' },
-    { label: 'Setup', path: '/practice-interview-setup', icon: 'Settings', fullLabel: 'Interview Setup' },
-    { label: 'Live', path: '/live-interview-session', icon: 'Video', fullLabel: 'Live Session' },
-    { label: 'Invites', path: '/company-dashboard#invitations', icon: 'Send', fullLabel: 'Invitations' },
+    { 
+      key: 'dashboard',
+      label: 'Dashboard', 
+      path: '/company-dashboard', 
+      icon: 'LayoutDashboard' 
+    },
+    { 
+      key: 'hiring',
+      label: 'Hiring', 
+      icon: 'Briefcase',
+      fullLabel: 'Hiring',
+      items: [
+        { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', requiredPermission: 'ACCESS_JOBS_PAGE' },
+        { label: 'Applications', path: '/company-applications', icon: 'FileText', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
+        { label: 'Candidates', path: '/company-candidates', icon: 'Users', fullLabel: 'Candidates', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
+      ]
+    },
+    { 
+      key: 'interviews',
+      label: 'Interviews', 
+      icon: 'Calendar',
+      fullLabel: 'Interviews',
+      items: [
+        { label: 'Invitations', path: '/company-invitations', icon: 'Send', fullLabel: 'Invitations', requiredPermission: 'ACCESS_INVITATIONS_PAGE' },
+        { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', fullLabel: 'Interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
+      ]
+    },
+    { 
+      key: 'analytics',
+      label: 'Analytics', 
+      path: '/company-analytics', 
+      icon: 'BarChart3', 
+      fullLabel: 'Analytics', 
+      requiredPermission: 'ACCESS_ANALYTICS_PAGE' 
+    },
+    { 
+      key: 'team',
+      label: 'Team', 
+      path: '/company-team-members', 
+      icon: 'Users2', 
+      fullLabel: 'Team Members', 
+      requiredPermission: 'MANAGE_MEMBERS' 
+    },
   ];
 
   const adminNavItems = []; // Admin dashboard has its own tab navigation, no header nav needed
@@ -83,11 +123,41 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
     if (!isAuthenticated) return [];
     if (userType === 'candidate') return candidateNavItems;
     if (userType === 'admin') return adminNavItems; // Empty array - admin uses tab navigation
+    
+    // For company users, filter navigation based on organization role
+    if (userType === 'company') {
+      return filterNavByRole(companyNavItems, organizationRole);
+    }
+    
     return companyNavItems;
   };
 
   const handleNavClick = (path) => {
-    navigate(path);
+    // Guard against undefined/null paths (e.g., when clicking groups without paths)
+    if (!path || typeof path !== 'string') {
+      return;
+    }
+    
+    // Handle hash routes specially
+    if (path.includes('#')) {
+      const [basePath, hash] = path.split('#');
+      // If we're already on the base path, just update the hash
+      if (location.pathname === basePath) {
+        window.location.hash = hash;
+        // Trigger hashchange event manually for consistency
+        window.dispatchEvent(new HashChangeEvent('hashchange'));
+      } else {
+        // Navigate to base path first, then set hash
+        navigate(basePath);
+        setTimeout(() => {
+          window.location.hash = hash;
+          // Trigger hashchange event manually
+          window.dispatchEvent(new HashChangeEvent('hashchange'));
+        }, 50);
+      }
+    } else {
+      navigate(path);
+    }
     setIsMenuOpen(false);
   };
 
@@ -135,24 +205,14 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
           
           {/* Desktop Navigation */}
           {getNavigationItems() && getNavigationItems().length > 0 && (
-            <nav className="hidden lg:flex items-center gap-1 xl:gap-2 lg:justify-self-center">
-              {getNavigationItems()?.map((item) => (
-                <button
-                  key={item?.path}
-                  onClick={() => handleNavClick(item?.path)}
-                  className={navButtonClass(item?.path)}
-                  aria-current={isActivePath(item?.path) ? 'page' : undefined}
-                >
-                  <Icon
-                    name={item?.icon}
-                    size={16}
-                    className={`flex-shrink-0 ${isActivePath(item?.path) ? 'text-white' : 'text-gray-400'}`}
-                  />
-                  <span className="hidden xl:inline">{item?.fullLabel || item?.label}</span>
-                  <span className="xl:hidden">{item?.label}</span>
-                </button>
-              ))}
-            </nav>
+            <div className="hidden lg:block lg:justify-self-center">
+              <NavigationMenu
+                items={getNavigationItems()}
+                variant="dropdown"
+                onItemClick={handleNavClick}
+                activeItem={currentPath}
+              />
+            </div>
           )}
 
           {/* Desktop Auth Actions */}
@@ -175,16 +235,21 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
                 </Button>
               </>
             ) : (
-              <Button
-                variant="outline"
-                iconName="LogOut"
-                iconPosition="left"
-                onClick={handleLogout}
-                className="rounded-full text-xs lg:text-sm px-3 lg:px-4 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 min-h-touch"
-              >
-                <span className="hidden sm:inline">Sign Out</span>
-                <span className="sm:hidden">Exit</span>
-              </Button>
+              <>
+                {userType === 'company' && organizationRole && (
+                  <RoleBadge role={organizationRole} className="mr-1" />
+                )}
+                <Button
+                  variant="outline"
+                  iconName="LogOut"
+                  iconPosition="left"
+                  onClick={handleLogout}
+                  className="rounded-full text-xs lg:text-sm px-3 lg:px-4 border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 min-h-touch"
+                >
+                  <span className="hidden sm:inline">Sign Out</span>
+                  <span className="sm:hidden">Exit</span>
+                </Button>
+              </>
             )}
           </div>
 
@@ -219,27 +284,12 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout }) => {
         <div className="h-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-l border-gray-200/50 dark:border-slate-800 shadow-2xl overflow-y-auto safe-area-padding">
           <div className="px-4 py-5 space-y-4">
             {/* Navigation Items */}
-            <nav className="space-y-1">
-              {getNavigationItems()?.map((item) => (
-                <button
-                  key={item?.path}
-                  onClick={() => handleNavClick(item?.path)}
-                  className={`flex items-center gap-3 w-full text-left px-4 py-3.5 rounded-xl transition-all duration-200 min-h-touch ${
-                    isActivePath(item?.path)
-                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-md shadow-blue-500/30'
-                      : 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700'
-                  }`}
-                  aria-current={isActivePath(item?.path) ? 'page' : undefined}
-                >
-                  <Icon 
-                    name={item?.icon} 
-                    size={20} 
-                    className={isActivePath(item?.path) ? 'text-white' : 'text-gray-400 dark:text-slate-500'} 
-                  />
-                  <span className="font-medium text-base">{item?.fullLabel || item?.label}</span>
-                </button>
-              ))}
-            </nav>
+            <NavigationMenu
+              items={getNavigationItems()}
+              variant="accordion"
+              onItemClick={handleNavClick}
+              activeItem={currentPath}
+            />
             
             {/* Auth Actions */}
             <div className="pt-4 border-t border-gray-200 dark:border-slate-700/50 space-y-3">

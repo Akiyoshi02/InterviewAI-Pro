@@ -1,14 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Input from '../../../components/ui/Input';
 
-const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPassword, statusMessage, statusType }) => {
+const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPassword, statusMessage, statusType, initialEmail }) => {
   const [formData, setFormData] = useState({
-    email: '',
+    email: initialEmail || '',
     password: '',
     userType: 'candidate'
   });
+
+  // Update email if initialEmail prop changes
+  useEffect(() => {
+    if (initialEmail) {
+      setFormData(prev => ({ ...prev, email: initialEmail }));
+    }
+  }, [initialEmail]);
   const [formErrors, setFormErrors] = useState({});
 
   const handleInputChange = (field, value) => {

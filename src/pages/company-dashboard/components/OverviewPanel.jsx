@@ -2,43 +2,68 @@ import React from 'react';
 import Icon from '../../../components/AppIcon';
 
 
+/**
+ * OverviewPanel - Displays key metrics with historical comparison data
+ * 
+ * @param {Object} dashboardMetrics - Comprehensive metrics from backend API
+ * @param {Object} dashboardMetrics.activeJobPostings - Job posting metrics with change data
+ * @param {Object} dashboardMetrics.pendingReviews - Pending review metrics with urgency data
+ * @param {Object} dashboardMetrics.upcomingInterviews - Upcoming interview metrics
+ * 
+ * Fallback props for backwards compatibility:
+ * @param {number} activeJobPostings - Fallback count
+ * @param {number} pendingReviews - Fallback count
+ * @param {number} upcomingInterviews - Fallback count
+ * @param {number} interviewsToday - Fallback count for today's interviews
+ */
 const OverviewPanel = ({ 
-  activeJobPostings = 12,
-  pendingReviews = 8,
-  upcomingInterviews = 5,
+  dashboardMetrics = null,
+  activeJobPostings = 0,
+  pendingReviews = 0,
+  upcomingInterviews = 0,
+  interviewsToday = 0,
   onViewAllJobs,
   onViewPendingReviews,
   onViewUpcomingInterviews
 }) => {
+  // Use backend dashboardMetrics if available, otherwise fall back to prop values
+  const hasBackendMetrics = dashboardMetrics !== null;
+
+  // Extract metrics from backend response or use fallbacks
+  const jobMetrics = hasBackendMetrics ? dashboardMetrics.activeJobPostings : null;
+  const reviewMetrics = hasBackendMetrics ? dashboardMetrics.pendingReviews : null;
+  const interviewMetrics = hasBackendMetrics ? dashboardMetrics.upcomingInterviews : null;
+
+  // Build stats array with real or fallback data
   const overviewStats = [
     {
       id: 'active-jobs',
       title: 'Active Job Postings',
-      value: activeJobPostings,
+      value: jobMetrics?.value ?? activeJobPostings,
       icon: 'Briefcase',
       gradient: 'from-blue-600 to-purple-600',
-      change: '+3 this week',
-      changeType: 'positive',
+      change: jobMetrics?.changeText ?? (activeJobPostings > 0 ? `${activeJobPostings} open` : 'No active jobs'),
+      changeType: jobMetrics?.changeType ?? (activeJobPostings > 0 ? 'positive' : 'neutral'),
       onClick: onViewAllJobs
     },
     {
       id: 'pending-reviews',
       title: 'Pending Reviews',
-      value: pendingReviews,
+      value: reviewMetrics?.value ?? pendingReviews,
       icon: 'Clock',
       gradient: 'from-amber-500 to-orange-500',
-      change: '2 urgent',
-      changeType: 'urgent',
+      change: reviewMetrics?.changeText ?? (pendingReviews > 0 ? `${pendingReviews} pending` : 'All caught up'),
+      changeType: reviewMetrics?.changeType ?? (pendingReviews > 0 ? 'urgent' : 'positive'),
       onClick: onViewPendingReviews
     },
     {
       id: 'upcoming-interviews',
       title: 'Upcoming Interviews',
-      value: upcomingInterviews,
+      value: interviewMetrics?.value ?? upcomingInterviews,
       icon: 'Calendar',
       gradient: 'from-emerald-500 to-teal-500',
-      change: 'Today: 2',
-      changeType: 'neutral',
+      change: interviewMetrics?.changeText ?? (interviewsToday > 0 ? `Today: ${interviewsToday}` : 'None scheduled'),
+      changeType: interviewMetrics?.changeType ?? (interviewsToday > 0 ? 'positive' : 'neutral'),
       onClick: onViewUpcomingInterviews
     }
   ];
@@ -48,6 +73,10 @@ const OverviewPanel = ({
       case 'positive':
         return 'text-emerald-600 dark:text-emerald-400';
       case 'urgent':
+        return 'text-rose-500 dark:text-rose-400';
+      case 'warning':
+        return 'text-amber-600 dark:text-amber-400';
+      case 'negative':
         return 'text-rose-500 dark:text-rose-400';
       default:
         return 'text-gray-500 dark:text-slate-400';
