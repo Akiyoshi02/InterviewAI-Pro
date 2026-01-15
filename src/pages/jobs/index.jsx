@@ -33,6 +33,8 @@ const JobsPage = () => {
   const [applicationJob, setApplicationJob] = useState(null);
   const [applicationSuccess, setApplicationSuccess] = useState(false);
   const [applicationsByJobId, setApplicationsByJobId] = useState(new Map()); // Map<jobId, {status, withdrawnBy}>
+  const [currentPage, setCurrentPage] = useState(1);
+  const [jobsPerPage] = useState(3);
   
   // Check localStorage for cached auth state to prevent flash during initial load
   const cachedIsAuthenticated = useMemo(() => {
@@ -209,6 +211,12 @@ const JobsPage = () => {
     return mapping[level] || level.charAt(0) + level.slice(1).toLowerCase();
   };
 
+  // Pagination calculations
+  const totalPages = Math.ceil(jobs.length / jobsPerPage);
+  const startIndex = (currentPage - 1) * jobsPerPage;
+  const endIndex = startIndex + jobsPerPage;
+  const paginatedJobs = jobs.slice(startIndex, endIndex);
+
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
       <div
@@ -342,7 +350,8 @@ const JobsPage = () => {
                     </Button>
                   </div>
                 ) : (
-                  jobs.map((job) => {
+                  <>
+                  {paginatedJobs.map((job) => {
                     const applicationInfo = isAuthenticated && user?.accountType?.toUpperCase() === 'CANDIDATE' 
                       ? applicationsByJobId.get(job.id) 
                       : null;
@@ -550,7 +559,72 @@ const JobsPage = () => {
                       </div>
                     </motion.div>
                     );
-                  })
+                  })}
+
+                  {/* Pagination Controls */}
+                  {totalPages > 1 && (
+                    <div className="col-span-full flex items-center justify-between gap-4 mt-6">
+                      <div className="text-sm text-gray-600 dark:text-slate-400">
+                        Showing {startIndex + 1} to {Math.min(endIndex, jobs.length)} of {jobs.length} jobs
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                          disabled={currentPage === 1}
+                          className="rounded-full"
+                        >
+                          <Icon name="ChevronLeft" size={16} />
+                          Previous
+                        </Button>
+                        <div className="flex items-center gap-1">
+                          {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                            if (
+                              page === 1 ||
+                              page === totalPages ||
+                              (page >= currentPage - 1 && page <= currentPage + 1)
+                            ) {
+                              return (
+                                <button
+                                  key={page}
+                                  onClick={() => setCurrentPage(page)}
+                                  className={`min-w-[40px] h-10 px-3 rounded-full text-sm font-medium transition-colors ${
+                                    currentPage === page
+                                      ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                                      : 'bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
+                                  }`}
+                                >
+                                  {page}
+                                </button>
+                              );
+                            } else if (
+                              page === currentPage - 2 ||
+                              page === currentPage + 2
+                            ) {
+                              return (
+                                <span key={page} className="text-gray-500 dark:text-slate-500 px-1">
+                                  ...
+                                </span>
+                              );
+                            }
+                            return null;
+                          })}
+                        </div>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                          disabled={currentPage === totalPages}
+                          className="rounded-full"
+                        >
+                          Next
+                          <Icon name="ChevronRight" size={16} />
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                  </>
                 )}
               </motion.div>
             )}

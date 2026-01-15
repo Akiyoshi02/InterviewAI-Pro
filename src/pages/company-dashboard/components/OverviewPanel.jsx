@@ -29,10 +29,23 @@ const OverviewPanel = ({
   // Use backend dashboardMetrics if available, otherwise fall back to prop values
   const hasBackendMetrics = dashboardMetrics !== null;
 
+  // Debug logging
+  if (process.env.NODE_ENV === 'development') {
+    console.log('OverviewPanel - dashboardMetrics:', dashboardMetrics);
+    console.log('OverviewPanel - hasBackendMetrics:', hasBackendMetrics);
+  }
+
   // Extract metrics from backend response or use fallbacks
   const jobMetrics = hasBackendMetrics ? dashboardMetrics.activeJobPostings : null;
   const reviewMetrics = hasBackendMetrics ? dashboardMetrics.pendingReviews : null;
   const interviewMetrics = hasBackendMetrics ? dashboardMetrics.upcomingInterviews : null;
+
+  // Debug logging for extracted metrics
+  if (process.env.NODE_ENV === 'development') {
+    console.log('OverviewPanel - jobMetrics:', jobMetrics);
+    console.log('OverviewPanel - reviewMetrics:', reviewMetrics);
+    console.log('OverviewPanel - interviewMetrics:', interviewMetrics);
+  }
 
   // Build stats array with real or fallback data
   const overviewStats = [

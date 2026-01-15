@@ -26,6 +26,7 @@ const CandidateDashboard = () => {
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [interviews, setInterviews] = useState([]);
   const [analytics, setAnalytics] = useState(null);
+  const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -99,9 +100,10 @@ const CandidateDashboard = () => {
     setDataLoading(true);
     setError(null);
     try {
-      const [interviewsResult, analyticsResult] = await Promise.allSettled([
+      const [interviewsResult, analyticsResult, dashboardMetricsResult] = await Promise.allSettled([
         apiClient.interviews.getMyInterviews(),
         apiClient.analytics.getDashboard(),
+        apiClient.analytics.getCandidateDashboardMetrics(),
       ]);
 
       if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
@@ -114,6 +116,12 @@ const CandidateDashboard = () => {
         setAnalytics(analyticsResult.value.stats || null);
       } else {
         setAnalytics(null);
+      }
+
+      if (dashboardMetricsResult.status === 'fulfilled' && dashboardMetricsResult.value.success) {
+        setDashboardMetrics(dashboardMetricsResult.value.metrics || null);
+      } else {
+        setDashboardMetrics(null);
       }
     } catch (err) {
       setError(err.message || 'Failed to load dashboard data. Please try again.');
@@ -163,8 +171,20 @@ const CandidateDashboard = () => {
 
   // Ensure interviews is always an array
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
-  const readinessScore = analytics?.averageScore ?? 82;
-  const insightsCount = analytics?.insightsCount ?? 6;
+  
+  // Use comparison metrics if available, otherwise fall back to calculated values
+  const scoreMetrics = dashboardMetrics?.averageScore;
+  const completedMetrics = dashboardMetrics?.completedInterviews;
+  const scheduledMetrics = dashboardMetrics?.scheduledInterviews;
+  const gradeMetrics = dashboardMetrics?.currentGrade;
+  
+  // Fallback calculations from raw data
+  const completedInterviews = completedMetrics?.value ?? safeInterviews.filter(i => i?.status?.toUpperCase() === 'COMPLETED').length;
+  const scheduledInterviews = scheduledMetrics?.value ?? safeInterviews.filter(i => i?.status?.toUpperCase() === 'SCHEDULED').length;
+  const averageScore = scoreMetrics?.value ?? analytics?.averageScore ?? null;
+  const currentGrade = gradeMetrics?.value ?? null;
+  
+  // Find the latest/upcoming interview for display
   const latestInterview = safeInterviews[0] || null;
   const latestCompanyName = formatCompanyLabel(latestInterview?.company) || 'Interview AI';
   const latestInterviewDate = formatInterviewDate(
@@ -176,19 +196,19 @@ const CandidateDashboard = () => {
 
   const heroHighlights = [
     {
-      label: 'Readiness score',
-      value: `${Math.round(readinessScore)}%`,
-      detail: 'Last 30 day average'
+      label: 'Average score',
+      value: averageScore ? `${Math.round(averageScore)}%` : '—',
+      detail: scoreMetrics?.changeText || 'From completed interviews'
     },
     {
-      label: 'Upcoming sessions',
-      value: safeInterviews?.length || 0,
-      detail: 'Interviews scheduled'
+      label: 'Upcoming',
+      value: scheduledInterviews,
+      detail: scheduledMetrics?.changeText || 'Interviews scheduled'
     },
     {
-      label: 'AI insights',
-      value: insightsCount,
-      detail: 'Generated this week'
+      label: 'Completed',
+      value: completedInterviews,
+      detail: completedMetrics?.changeText || 'Total interviews done'
     }
   ];
 
@@ -289,7 +309,16 @@ const CandidateDashboard = () => {
 
               {/* Quick Actions */}
               <motion.div variants={fadeUpChild}>
-                <DashboardQuickActions userType="candidate" className="relative z-10" />
+                <DashboardQuickActions 
+                  userType="candidate" 
+                  className="relative z-10"
+                  stats={{
+                    practiceSessions: completedInterviews,
+                    avgScore: averageScore ? Math.round(averageScore) : null,
+                    liveInterviews: scheduledInterviews + (dashboardMetrics?.inProgressInterviews || 0),
+                    totalPracticeTime: null // Not tracked in backend yet
+                  }}
+                />
               </motion.div>
 
               {/* Main Content Grid */}
@@ -302,6 +331,7 @@ const CandidateDashboard = () => {
                   <ProgressOverviewCard 
                     analytics={analytics}
                     interviews={safeInterviews}
+                    dashboardMetrics={dashboardMetrics}
                   />
                 </motion.div>
 
@@ -338,7 +368,7 @@ const CandidateDashboard = () => {
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3">
                   <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
                     <RecentActivityFeed activities={safeInterviews} />
-                    <SchedulingWidget />
+                    <SchedulingWidget upcomingInterviews={safeInterviews} />
                   </motion.div>
                   <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
                     <QuickStartPanel />

@@ -533,11 +533,36 @@ export const apiClient = {
     },
 
     /**
-     * Get historical metrics snapshots for trend analysis
+     * Get historical metrics snapshots for trend analysis (company)
      * @param {number} days - Number of days of history (max 30)
      */
     async getHistoricalMetrics(days = 7) {
       const response = await fetch(`${API_URL}/api/analytics/historical?days=${days}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Get candidate dashboard metrics with historical comparison (week-over-week changes)
+     * Returns metrics like completedInterviews, scheduledInterviews, averageScore, currentGrade
+     * with changeText and changeType for displaying trends
+     */
+    async getCandidateDashboardMetrics() {
+      const response = await fetch(`${API_URL}/api/analytics/candidate/dashboard-metrics`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Get candidate historical metrics snapshots for trend analysis
+     * @param {number} days - Number of days of history (max 30)
+     */
+    async getCandidateHistoricalMetrics(days = 7) {
+      const response = await fetch(`${API_URL}/api/analytics/candidate/historical?days=${days}`, {
         method: 'GET',
         headers: await getHeaders(),
       });

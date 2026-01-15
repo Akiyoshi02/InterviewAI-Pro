@@ -23,6 +23,8 @@ const InvitationManager = ({ onRefresh }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(3);
 
   const loadData = async () => {
     setLoading(true);
@@ -49,6 +51,12 @@ const InvitationManager = ({ onRefresh }) => {
       setLoading(false);
     }
   };
+
+  // Pagination calculations
+  const totalPages = Math.ceil(invitations.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedInvitations = invitations.slice(startIndex, endIndex);
 
   useEffect(() => {
     loadData();
@@ -153,7 +161,7 @@ const InvitationManager = ({ onRefresh }) => {
             </tr>
           </thead>
           <tbody>
-            {invitations.map((invite) => (
+            {paginatedInvitations.map((invite) => (
               <tr key={invite.id} className="border-b border-white/30 dark:border-slate-700/50 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors duration-200">
                 <td className="py-3 text-gray-900 dark:text-slate-100">{invite.email}</td>
                 <td className="py-3 text-gray-500 dark:text-slate-400">{invite.jobId}</td>
@@ -182,6 +190,70 @@ const InvitationManager = ({ onRefresh }) => {
           </tbody>
         </table>
       </div>
+
+      {/* Pagination Controls */}
+      {totalPages > 1 && (
+        <div className="flex items-center justify-between gap-4 mt-6">
+          <div className="text-sm text-gray-600 dark:text-slate-400">
+            Showing {startIndex + 1} to {Math.min(endIndex, invitations.length)} of {invitations.length} invitations
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+              disabled={currentPage === 1}
+              className="rounded-full"
+            >
+              <Icon name="ChevronLeft" size={16} />
+              Previous
+            </Button>
+            <div className="flex items-center gap-1">
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                if (
+                  page === 1 ||
+                  page === totalPages ||
+                  (page >= currentPage - 1 && page <= currentPage + 1)
+                ) {
+                  return (
+                    <button
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
+                      className={`min-w-[40px] h-10 px-3 rounded-full text-sm font-medium transition-colors ${
+                        currentPage === page
+                          ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                          : 'bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
+                      }`}
+                    >
+                      {page}
+                    </button>
+                  );
+                } else if (
+                  page === currentPage - 2 ||
+                  page === currentPage + 2
+                ) {
+                  return (
+                    <span key={page} className="text-gray-500 dark:text-slate-500 px-1">
+                      ...
+                    </span>
+                  );
+                }
+                return null;
+              })}
+            </div>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+              disabled={currentPage === totalPages}
+              className="rounded-full"
+            >
+              Next
+              <Icon name="ChevronRight" size={16} />
+            </Button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

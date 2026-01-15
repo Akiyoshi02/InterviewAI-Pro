@@ -100,6 +100,8 @@ const MyApplicationsList = () => {
   const [withdrawDialog, setWithdrawDialog] = useState({ open: false, applicationId: null });
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [expandedJobs, setExpandedJobs] = useState(new Set());
+  const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage] = useState(3);
 
   useEffect(() => {
     loadApplications();
@@ -281,6 +283,18 @@ const MyApplicationsList = () => {
   const totalApplicationsCount = Object.values(filteredGroupedApplications).reduce((sum, jobData) => sum + jobData.filteredCount, 0);
   const totalJobsCount = Object.keys(filteredGroupedApplications).length;
 
+  // Pagination calculations
+  const jobsArray = Object.entries(filteredGroupedApplications);
+  const totalPages = Math.ceil(jobsArray.length / itemsPerPage);
+  const startIndex = (currentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+  const paginatedJobs = jobsArray.slice(startIndex, endIndex);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
+
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
       <div className="space-y-4">
@@ -357,7 +371,8 @@ const MyApplicationsList = () => {
               </div>
             </div>
           ) : (
-            Object.entries(filteredGroupedApplications).map(([jobId, jobData], index) => {
+            <>
+            {paginatedJobs.map(([jobId, jobData], index) => {
               const isExpanded = expandedJobs.has(jobId);
               const latestApplication = jobData.applications[0]; // Most recent application
               const statusConfig = getStatusConfig(latestApplication.status, latestApplication.withdrawnBy);
@@ -516,7 +531,72 @@ const MyApplicationsList = () => {
                   </AnimatePresence>
                 </motion.div>
               );
-            })
+            })}
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+              <div className="flex items-center justify-between gap-4 mt-6">
+                <div className="text-sm text-gray-600 dark:text-slate-400">
+                  Showing {startIndex + 1} to {Math.min(endIndex, jobsArray.length)} of {jobsArray.length} positions
+                </div>
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    className="rounded-full"
+                  >
+                    <Icon name="ChevronLeft" size={16} />
+                    Previous
+                  </Button>
+                  <div className="flex items-center gap-1">
+                    {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
+                      if (
+                        page === 1 ||
+                        page === totalPages ||
+                        (page >= currentPage - 1 && page <= currentPage + 1)
+                      ) {
+                        return (
+                          <button
+                            key={page}
+                            onClick={() => setCurrentPage(page)}
+                            className={`min-w-[40px] h-10 px-3 rounded-full text-sm font-medium transition-colors ${
+                              currentPage === page
+                                ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white'
+                                : 'bg-white dark:bg-slate-800 border border-gray-300 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-slate-700'
+                            }`}
+                          >
+                            {page}
+                          </button>
+                        );
+                      } else if (
+                        page === currentPage - 2 ||
+                        page === currentPage + 2
+                      ) {
+                        return (
+                          <span key={page} className="text-gray-500 dark:text-slate-500 px-1">
+                            ...
+                          </span>
+                        );
+                      }
+                      return null;
+                    })}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                    disabled={currentPage === totalPages}
+                    className="rounded-full"
+                  >
+                    Next
+                    <Icon name="ChevronRight" size={16} />
+                  </Button>
+                </div>
+              </div>
+            )}
+            </>
           )}
         </div>
       </div>

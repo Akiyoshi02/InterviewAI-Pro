@@ -7,43 +7,67 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   const navigate = useNavigate();
   const [showScheduleForm, setShowScheduleForm] = useState(false);
 
-  const mockUpcomingInterviews = [
-  {
-    id: 1,
-    company: 'TechCorp Solutions',
-    companyLogo: "https://img.rocket.new/generatedImages/rocket_gen_img_19ef03916-1761928021757.png",
-    companyLogoAlt: 'TechCorp Solutions company logo with blue and white geometric design',
-    position: 'Senior Software Engineer',
-    date: '2025-11-02',
-    time: '10:00 AM',
-    duration: '60 min',
-    type: 'Technical Interview',
-    interviewer: 'Sarah Johnson',
-    interviewerAvatar: "https://images.unsplash.com/photo-1684262855358-88f296a2cfc2",
-    interviewerAvatarAlt: 'Professional headshot of Sarah Johnson, blonde woman in navy blazer smiling',
-    status: 'confirmed',
-    meetingLink: 'https://meet.techcorp.com/interview-123',
-    timeLeft: '2 days'
-  },
-  {
-    id: 2,
-    company: 'InnovateLabs',
-    companyLogo: "https://img.rocket.new/generatedImages/rocket_gen_img_19eeba3e9-1761928018608.png",
-    companyLogoAlt: 'InnovateLabs company logo with green circular design and tech elements',
-    position: 'Product Manager',
-    date: '2025-11-05',
-    time: '2:30 PM',
-    duration: '45 min',
-    type: 'Behavioral Interview',
-    interviewer: 'Michael Chen',
-    interviewerAvatar: "https://images.unsplash.com/photo-1687256457585-3608dfa736c5",
-    interviewerAvatarAlt: 'Professional headshot of Michael Chen, Asian man with glasses in dark suit',
-    status: 'pending',
-    timeLeft: '5 days'
-  }];
+  // Transform real interview data into the display format
+  const transformInterviews = (interviews) => {
+    if (!Array.isArray(interviews)) return [];
+    
+    // Filter for scheduled/upcoming interviews and transform
+    return interviews
+      .filter(interview => {
+        const status = interview?.status?.toUpperCase();
+        return status === 'SCHEDULED' || status === 'PENDING';
+      })
+      .map(interview => {
+        const companyName = interview?.company?.companyName || 
+                           interview?.company?.fullName || 
+                           interview?.company?.displayName ||
+                           (typeof interview?.company === 'string' ? interview.company : null) ||
+                           'Interview Session';
+        const companyLogo = interview?.company?.logo || interview?.company?.logoUrl || null;
+        const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
+        
+        // Calculate time left
+        let timeLeft = '';
+        if (scheduledDate) {
+          const now = new Date();
+          const diffMs = scheduledDate - now;
+          const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+          if (diffDays <= 0) {
+            timeLeft = 'Today';
+          } else if (diffDays === 1) {
+            timeLeft = '1 day';
+          } else {
+            timeLeft = `${diffDays} days`;
+          }
+        }
+        
+        return {
+          id: interview?.id,
+          company: companyName,
+          companyLogo: companyLogo,
+          companyLogoAlt: `${companyName} logo`,
+          position: interview?.jobRole || interview?.position || 'Interview',
+          date: scheduledDate ? scheduledDate.toLocaleDateString() : 'TBD',
+          time: scheduledDate ? scheduledDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'TBD',
+          duration: interview?.duration || '45 min',
+          type: interview?.interviewType || interview?.type || 'Interview',
+          interviewer: interview?.interviewer?.name || interview?.interviewerName || null,
+          interviewerAvatar: interview?.interviewer?.avatar || null,
+          status: interview?.status?.toLowerCase() === 'scheduled' ? 'confirmed' : 'pending',
+          meetingLink: interview?.meetingLink || null,
+          timeLeft
+        };
+      })
+      .sort((a, b) => {
+        // Sort by date, earliest first
+        const dateA = new Date(a.date);
+        const dateB = new Date(b.date);
+        return dateA - dateB;
+      });
+  };
 
-
-  const interviewData = upcomingInterviews?.length > 0 ? upcomingInterviews : mockUpcomingInterviews;
+  // Use transformed real data - no mock fallback
+  const interviewData = transformInterviews(upcomingInterviews);
 
   const getStatusColor = (status) => {
     const colorMap = {
@@ -90,10 +114,22 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           className="border border-white/30 dark:border-slate-700/50 rounded-xl p-2.5 sm:p-3 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200">
 
               <div className="flex items-start space-x-2.5 sm:space-x-3">
-                <img
-              src={interview?.companyLogo}
-              alt={interview?.companyLogoAlt}
-              className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover flex-shrink-0" />
+                {interview?.companyLogo ? (
+                  <img
+                    src={interview.companyLogo}
+                    alt={interview?.companyLogoAlt}
+                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover flex-shrink-0"
+                    onError={(e) => {
+                      e.target.style.display = 'none';
+                      e.target.nextSibling.style.display = 'flex';
+                    }}
+                  />
+                ) : null}
+                <div 
+                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex-shrink-0 items-center justify-center ${interview?.companyLogo ? 'hidden' : 'flex'}`}
+                >
+                  <Icon name="Building2" size={18} color="white" />
+                </div>
 
 
                 <div className="flex-1 min-w-0">

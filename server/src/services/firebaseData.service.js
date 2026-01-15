@@ -481,13 +481,23 @@ export const analyticsStore = {
       const previousMetrics = await this.getSnapshotNearDate(organizationId, oneWeekAgo);
 
       // Calculate changes
-      const calculateChange = (current, previous, suffix = '') => {
+      const calculateChange = (current, previous, suffix = '', isInterviews = false) => {
         if (previous === null || previous === undefined) {
           return { value: current, changeText: 'New', changeType: 'neutral' };
         }
         const diff = current - previous;
         if (diff === 0) {
           return { value: current, changeText: 'No change', changeType: 'neutral' };
+        }
+        if (isInterviews) {
+          // For interviews, use "X more than last week" or "X fewer than last week"
+          const absDiff = Math.abs(diff);
+          const direction = diff > 0 ? 'more' : 'fewer';
+          return {
+            value: current,
+            changeText: `${absDiff} ${direction} than last week`,
+            changeType: diff > 0 ? 'positive' : 'negative',
+          };
         }
         const sign = diff > 0 ? '+' : '';
         return {
@@ -517,7 +527,7 @@ export const analyticsStore = {
         const sign = diff > 0 ? '+' : '';
         return {
           value: current,
-          changeText: `${sign}${diff} this week`,
+          changeText: `${sign}${diff} pending`,
           changeType: diff > 0 ? 'urgent' : 'positive', // More pending = urgent, less = positive
         };
       };
@@ -533,7 +543,9 @@ export const analyticsStore = {
         ),
         upcomingInterviews: calculateChange(
           currentMetrics.upcomingInterviews,
-          previousMetrics?.upcomingInterviews
+          previousMetrics?.upcomingInterviews,
+          '',
+          true // Mark as interviews to use "more/fewer than last week" format
         ),
         // Additional metrics
         totalInterviews: currentMetrics.totalInterviews,
@@ -744,6 +756,292 @@ export const analyticsStore = {
         return [];
       }
       logger.error('getSnapshots error:', error);
+      return [];
+    }
+  },
+
+  // ============================================
+  // CANDIDATE ANALYTICS FUNCTIONS
+  // ============================================
+
+  /**
+   * Get current candidate metrics (live data)
+   * @param {string} candidateId - The candidate user ID
+   * @returns {Object} Current metrics
+   */
+  async getCurrentCandidateMetrics(candidateId) {
+    const interviews = await interviewStore.listByCandidate(candidateId);
+    
+    const completedInterviews = interviews.filter(i => i?.status === 'COMPLETED');
+    const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
+    const inProgressInterviews = interviews.filter(i => i?.status === 'IN_PROGRESS');
+    
+    // Calculate average score from completed interviews
+    const scoredInterviews = completedInterviews.filter(i => i?.overallScore != null);
+    const averageScore = scoredInterviews.length > 0
+      ? scoredInterviews.reduce((sum, i) => sum + (i.overallScore || 0), 0) / scoredInterviews.length
+      : 0;
+
+    // Calculate grade based on average score
+    const getGrade = (score) => {
+      if (!score || score === 0) return null;
+      if (score >= 90) return 'A+';
+      if (score >= 85) return 'A';
+      if (score >= 80) return 'B+';
+      if (score >= 75) return 'B';
+      if (score >= 70) return 'C+';
+      if (score >= 65) return 'C';
+      return 'D';
+    };
+
+    return {
+      totalInterviews: interviews.length,
+      completedInterviews: completedInterviews.length,
+      scheduledInterviews: scheduledInterviews.length,
+      inProgressInterviews: inProgressInterviews.length,
+      averageScore: Math.round(averageScore * 100) / 100,
+      currentGrade: getGrade(averageScore),
+      snapshotDate: now(),
+    };
+  },
+
+  /**
+   * Get candidate dashboard metrics with historical comparison (week-over-week)
+   * @param {string} candidateId - The candidate user ID
+   * @returns {Object} Metrics with change indicators
+   */
+  async getCandidateDashboardMetricsWithComparison(candidateId) {
+    try {
+      // Get current metrics
+      const currentMetrics = await this.getCurrentCandidateMetrics(candidateId);
+      
+      // Get snapshot from 7 days ago for comparison
+      const oneWeekAgo = new Date();
+      oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
+      const previousMetrics = await this.getCandidateSnapshotNearDate(candidateId, oneWeekAgo);
+
+      // Calculate changes
+      const calculateChange = (current, previous, suffix = '') => {
+        if (previous === null || previous === undefined) {
+          return { value: current, changeText: 'New', changeType: 'neutral' };
+        }
+        const diff = current - previous;
+        if (diff === 0) {
+          return { value: current, changeText: 'No change', changeType: 'neutral' };
+        }
+        const sign = diff > 0 ? '+' : '';
+        return {
+          value: current,
+          changeText: `${sign}${diff}${suffix} this week`,
+          changeType: diff > 0 ? 'positive' : 'negative',
+        };
+      };
+
+      // Special handling for score (show percentage change)
+      const calculateScoreChange = (current, previous) => {
+        if (!current || current === 0) {
+          return { value: current, changeText: 'No scores yet', changeType: 'neutral' };
+        }
+        if (previous === null || previous === undefined || previous === 0) {
+          return { value: current, changeText: 'First score!', changeType: 'positive' };
+        }
+        const diff = Math.round(current - previous);
+        if (diff === 0) {
+          return { value: current, changeText: 'Steady', changeType: 'neutral' };
+        }
+        const sign = diff > 0 ? '+' : '';
+        return {
+          value: current,
+          changeText: `${sign}${diff}% this week`,
+          changeType: diff > 0 ? 'positive' : 'negative',
+        };
+      };
+
+      // Grade change
+      const calculateGradeChange = (current, previous) => {
+        if (!current) {
+          return { value: '—', changeText: 'Complete interviews to get a grade', changeType: 'neutral' };
+        }
+        if (!previous) {
+          return { value: current, changeText: 'First grade!', changeType: 'positive' };
+        }
+        if (current === previous) {
+          return { value: current, changeText: 'Maintained', changeType: 'neutral' };
+        }
+        // Grade improved (A+ > A > B+ > B > C+ > C > D)
+        const gradeOrder = ['D', 'C', 'C+', 'B', 'B+', 'A', 'A+'];
+        const currentIdx = gradeOrder.indexOf(current);
+        const prevIdx = gradeOrder.indexOf(previous);
+        const improved = currentIdx > prevIdx;
+        return {
+          value: current,
+          changeText: improved ? `↑ from ${previous}` : `↓ from ${previous}`,
+          changeType: improved ? 'positive' : 'negative',
+        };
+      };
+
+      return {
+        completedInterviews: calculateChange(
+          currentMetrics.completedInterviews,
+          previousMetrics?.completedInterviews
+        ),
+        scheduledInterviews: calculateChange(
+          currentMetrics.scheduledInterviews,
+          previousMetrics?.scheduledInterviews
+        ),
+        averageScore: calculateScoreChange(
+          currentMetrics.averageScore,
+          previousMetrics?.averageScore
+        ),
+        currentGrade: calculateGradeChange(
+          currentMetrics.currentGrade,
+          previousMetrics?.currentGrade
+        ),
+        // Additional metrics without comparison
+        totalInterviews: currentMetrics.totalInterviews,
+        inProgressInterviews: currentMetrics.inProgressInterviews,
+        snapshotDate: currentMetrics.snapshotDate,
+      };
+    } catch (error) {
+      logger.error('getCandidateDashboardMetricsWithComparison error:', error);
+      // Return basic metrics without comparison on error
+      const current = await this.getCurrentCandidateMetrics(candidateId);
+      return {
+        completedInterviews: { value: current.completedInterviews, changeText: '', changeType: 'neutral' },
+        scheduledInterviews: { value: current.scheduledInterviews, changeText: '', changeType: 'neutral' },
+        averageScore: { value: current.averageScore, changeText: '', changeType: 'neutral' },
+        currentGrade: { value: current.currentGrade || '—', changeText: '', changeType: 'neutral' },
+        totalInterviews: current.totalInterviews,
+        inProgressInterviews: current.inProgressInterviews,
+        snapshotDate: current.snapshotDate,
+      };
+    }
+  },
+
+  /**
+   * Create a daily snapshot of candidate metrics for historical tracking
+   * @param {string} candidateId - The candidate user ID
+   * @returns {Object} The created snapshot
+   */
+  async createCandidateDailySnapshot(candidateId) {
+    try {
+      const today = new Date();
+      const dateKey = today.toISOString().split('T')[0]; // YYYY-MM-DD format
+
+      // Check if a snapshot already exists for today
+      const existingSnapshot = await analyticsSnapshotsCollection
+        .where('candidateId', '==', candidateId)
+        .where('dateKey', '==', dateKey)
+        .limit(1)
+        .get();
+
+      if (!existingSnapshot.empty) {
+        // Update existing snapshot
+        const existingDoc = existingSnapshot.docs[0];
+        const metrics = await this.getCurrentCandidateMetrics(candidateId);
+        await existingDoc.ref.update({
+          ...metrics,
+          updatedAt: now(),
+        });
+        return { id: existingDoc.id, ...existingDoc.data(), ...metrics };
+      }
+
+      // Create new snapshot
+      const metrics = await this.getCurrentCandidateMetrics(candidateId);
+      const docRef = analyticsSnapshotsCollection.doc();
+      const snapshot = {
+        id: docRef.id,
+        candidateId,
+        dateKey,
+        type: 'candidate', // Distinguish from organization snapshots
+        ...metrics,
+        createdAt: now(),
+        updatedAt: now(),
+      };
+
+      await docRef.set(snapshot);
+      logger.info(`Created daily candidate analytics snapshot for user ${candidateId}: ${dateKey}`);
+      return snapshot;
+    } catch (error) {
+      logger.error('createCandidateDailySnapshot error:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Get the candidate snapshot nearest to a specific date
+   * @param {string} candidateId - The candidate user ID
+   * @param {Date} targetDate - The target date to find snapshot for
+   * @returns {Object|null} The snapshot or null if not found
+   */
+  async getCandidateSnapshotNearDate(candidateId, targetDate) {
+    try {
+      const dateKey = targetDate.toISOString().split('T')[0];
+      
+      // Try to find exact date match first
+      let snapshot = await analyticsSnapshotsCollection
+        .where('candidateId', '==', candidateId)
+        .where('dateKey', '==', dateKey)
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        return docToData(snapshot.docs[0]);
+      }
+
+      // If no exact match, find the nearest snapshot before the target date
+      snapshot = await analyticsSnapshotsCollection
+        .where('candidateId', '==', candidateId)
+        .where('dateKey', '<=', dateKey)
+        .orderBy('dateKey', 'desc')
+        .limit(1)
+        .get();
+
+      if (!snapshot.empty) {
+        return docToData(snapshot.docs[0]);
+      }
+
+      return null;
+    } catch (error) {
+      // Handle index building error gracefully
+      if (isIndexBuildingError(error)) {
+        logger.warn('Candidate analytics snapshot index not ready, returning null for comparison');
+        console.error('Firestore index error - click the link below to create the index:');
+        console.error(error.message || error);
+        return null;
+      }
+      logger.error('getCandidateSnapshotNearDate error:', error);
+      return null;
+    }
+  },
+
+  /**
+   * Get candidate historical snapshots for trend analysis
+   * @param {string} candidateId - The candidate user ID
+   * @param {number} days - Number of days of history to retrieve
+   * @returns {Array} Array of snapshots
+   */
+  async getCandidateSnapshots(candidateId, days = 7) {
+    try {
+      const startDate = new Date();
+      startDate.setDate(startDate.getDate() - days);
+      const startDateKey = startDate.toISOString().split('T')[0];
+
+      const snapshot = await analyticsSnapshotsCollection
+        .where('candidateId', '==', candidateId)
+        .where('dateKey', '>=', startDateKey)
+        .orderBy('dateKey', 'desc')
+        .get();
+
+      return snapshot.docs.map(docToData);
+    } catch (error) {
+      if (isIndexBuildingError(error)) {
+        logger.warn('Candidate analytics snapshot index not ready, returning empty array');
+        console.error('Firestore index error - click the link below to create the index:');
+        console.error(error.message || error);
+        return [];
+      }
+      logger.error('getCandidateSnapshots error:', error);
       return [];
     }
   },

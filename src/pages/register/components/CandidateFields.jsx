@@ -352,35 +352,51 @@ const CandidateFields = ({
         maxLength={200}
       />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Input
-            label="Current Location"
-            type="text"
-            placeholder="e.g., San Francisco, CA"
-            value={formData?.location}
-            onChange={(e) => onFieldChange('location', e?.target?.value)}
-            error={errors?.location}
-          />
-          <div className="flex justify-center">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              iconName="MapPin"
-              onClick={() => onDetectLocation?.('location')}
-              loading={detectingForCandidate}
+        <div className="space-y-1.5 sm:space-y-2">
+          <label className="text-sm font-medium leading-none text-foreground">
+            Current Location
+          </label>
+          <div className="relative">
+            <input
+              type="text"
+              value={detectingForCandidate && locationFeedback?.message ? locationFeedback.message : formData?.location || ''}
+              onChange={(e) => onFieldChange('location', e?.target?.value)}
+              placeholder="e.g., San Francisco, CA"
               disabled={isDetectingLocation}
-              className="rounded-full"
+              className={`flex h-11 sm:h-12 w-full rounded-xl border bg-background px-3 sm:px-4 pr-[90px] sm:pr-[100px] py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px] ${
+                errors?.location ? 'border-destructive focus-visible:ring-destructive' : 'border-input'
+              }`}
+            />
+            <button
+              type="button"
+              onClick={() => onDetectLocation?.('location')}
+              disabled={isDetectingLocation}
+              className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              Use current location
-            </Button>
+              {detectingForCandidate ? (
+                <>
+                  <Icon name="Loader2" size={14} className="animate-spin" />
+                  <span className="hidden sm:inline">Detecting</span>
+                </>
+              ) : (
+                <>
+                  <Icon name="MapPin" size={14} />
+                  <span className="hidden sm:inline">Detect</span>
+                </>
+              )}
+            </button>
           </div>
-          {locationFeedback?.status === 'error' && locationFeedback?.message && (
-            <div className="flex justify-center">
-              <span className={`text-xs ${locationStatusClass}`}>
-                {locationFeedback.message}
-              </span>
-            </div>
+          {errors?.location && (
+            <p className="text-xs sm:text-sm text-destructive flex items-start gap-1.5">
+              <Icon name="AlertCircle" size={12} className="mt-0.5 flex-shrink-0" />
+              {errors.location}
+            </p>
+          )}
+          {locationFeedback?.status === 'error' && locationFeedback?.message && !errors?.location && (
+            <p className="text-xs sm:text-sm text-destructive flex items-start gap-1.5">
+              <Icon name="AlertCircle" size={12} className="mt-0.5 flex-shrink-0" />
+              {locationFeedback.message}
+            </p>
           )}
         </div>
 

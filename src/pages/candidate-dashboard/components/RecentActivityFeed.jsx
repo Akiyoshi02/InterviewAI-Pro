@@ -3,52 +3,66 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
 const RecentActivityFeed = ({ activities = [] }) => {
-  const mockActivities = [
-    {
-      id: 1,
-      type: 'practice',
-      title: 'Completed Software Engineer Practice',
-      description: 'Advanced level • 45 minutes • Score: 92%',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      score: 92,
-      feedback: 'Excellent technical knowledge demonstration'
-    },
-    {
-      id: 2,
-      type: 'achievement',
-      title: 'Earned "Communication Expert" Badge',
-      description: 'Achieved 90%+ in communication skills assessment',
-      timestamp: new Date(Date.now() - 6 * 60 * 60 * 1000),
-      badge: 'Communication Expert'
-    },
-    {
-      id: 3,
-      type: 'practice',
-      title: 'Product Manager Mock Interview',
-      description: 'Intermediate level • 30 minutes • Score: 78%',
-      timestamp: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-      score: 78,
-      feedback: 'Good strategic thinking, work on stakeholder management'
-    },
-    {
-      id: 4,
-      type: 'feedback',
-      title: 'AI Feedback Report Generated',
-      description: 'Comprehensive analysis of your last 5 sessions',
-      timestamp: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-      insights: 3
-    },
-    {
-      id: 5,
-      type: 'live',
-      title: 'Live Interview with TechCorp',
-      description: 'Scheduled for tomorrow • Senior Developer role',
-      timestamp: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-      company: 'TechCorp'
-    }
-  ];
+  // Transform real interview data into activity format
+  const transformInterviewsToActivities = (interviews) => {
+    if (!Array.isArray(interviews) || interviews.length === 0) return [];
+    
+    return interviews.map((interview, index) => {
+      const status = interview?.status?.toUpperCase();
+      const companyName = interview?.company?.companyName || 
+                         interview?.company?.fullName || 
+                         interview?.company?.email ||
+                         (typeof interview?.company === 'string' ? interview.company : null) ||
+                         'Practice Session';
+      const jobRole = interview?.jobRole || interview?.position || 'Interview';
+      const score = interview?.overallScore || interview?.score;
+      const createdAt = interview?.createdAt || interview?.updatedAt;
+      const timestamp = createdAt ? new Date(createdAt) : new Date();
+      
+      // Determine activity type based on interview status and type
+      let type = 'practice';
+      let title = '';
+      let description = '';
+      
+      if (status === 'COMPLETED') {
+        type = 'completed';
+        title = `Completed ${jobRole} Interview`;
+        description = score ? `Score: ${Math.round(score)}%` : 'Interview completed';
+        if (companyName && companyName !== 'Practice Session') {
+          description = `${companyName} • ${description}`;
+        }
+      } else if (status === 'IN_PROGRESS') {
+        type = 'live';
+        title = `${jobRole} - In Progress`;
+        description = companyName !== 'Practice Session' ? `With ${companyName}` : 'Practice session in progress';
+      } else if (status === 'SCHEDULED') {
+        type = 'live';
+        const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
+        title = `Upcoming: ${jobRole}`;
+        description = scheduledDate 
+          ? `${companyName} • ${scheduledDate.toLocaleDateString()}`
+          : `${companyName}`;
+      } else {
+        type = 'practice';
+        title = `${jobRole} Session`;
+        description = companyName !== 'Practice Session' ? companyName : 'Practice interview';
+      }
+      
+      return {
+        id: interview?.id || `interview-${index}`,
+        type,
+        title,
+        description,
+        timestamp,
+        score: score ? Math.round(score) : null,
+        feedback: interview?.feedback?.summary || interview?.evaluation?.summary || null,
+        company: companyName
+      };
+    });
+  };
 
-  const activityData = activities?.length > 0 ? activities : mockActivities;
+  // Use transformed real data - no mock fallback
+  const activityData = transformInterviewsToActivities(activities);
 
   const getActivityIcon = (type) => {
     const iconMap = {

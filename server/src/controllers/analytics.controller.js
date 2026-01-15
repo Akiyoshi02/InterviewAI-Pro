@@ -93,5 +93,68 @@ export class AnalyticsController {
       next(error);
     }
   }
+
+  // ============================================
+  // CANDIDATE ANALYTICS ENDPOINTS
+  // ============================================
+
+  /**
+   * Get candidate dashboard metrics with historical comparison data
+   * This endpoint provides real-time metrics with week-over-week comparisons for candidates
+   */
+  static async getCandidateDashboardMetrics(req, res, next) {
+    try {
+      const candidateId = req.user.id;
+
+      if (req.user.accountType?.toUpperCase() !== 'CANDIDATE') {
+        return res.status(403).json({
+          success: false,
+          error: 'This endpoint is for candidates only',
+        });
+      }
+
+      const metrics = await analyticsStore.getCandidateDashboardMetricsWithComparison(candidateId);
+
+      // Also create a daily snapshot for historical tracking (fire-and-forget)
+      analyticsStore.createCandidateDailySnapshot(candidateId).catch((err) => {
+        logger.warn('Failed to create candidate daily snapshot:', err.message);
+      });
+
+      res.json({
+        success: true,
+        metrics,
+      });
+    } catch (error) {
+      logger.error('Get candidate dashboard metrics error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get candidate historical metrics snapshots for trend analysis
+   */
+  static async getCandidateHistoricalMetrics(req, res, next) {
+    try {
+      const candidateId = req.user.id;
+      const days = Math.min(parseInt(req.query.days, 10) || 7, 30); // Max 30 days
+
+      if (req.user.accountType?.toUpperCase() !== 'CANDIDATE') {
+        return res.status(403).json({
+          success: false,
+          error: 'This endpoint is for candidates only',
+        });
+      }
+
+      const snapshots = await analyticsStore.getCandidateSnapshots(candidateId, days);
+
+      res.json({
+        success: true,
+        snapshots,
+      });
+    } catch (error) {
+      logger.error('Get candidate historical metrics error:', error);
+      next(error);
+    }
+  }
 }
 
