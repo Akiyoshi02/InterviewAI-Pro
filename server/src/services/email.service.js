@@ -340,6 +340,146 @@ The InterviewAI Pro Team
     `.trim(),
   },
 
+  EMAIL_VERIFICATION: {
+    subject: 'Verify your email to finish creating your InterviewAI Pro account',
+    getText: (data) => `
+Hi ${data.fullName || 'there'},
+
+Use this 8-digit code to verify your email:
+${data.verificationCode}
+
+This code expires in ${data.expiresInMinutes} minutes.
+
+Or verify with this link:
+${data.verificationLink}
+
+If you did not request this, you can ignore this email.
+
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif;
+      line-height: 1.6;
+      color: #1F2937;
+      background: linear-gradient(to bottom, #EFF6FF 0%, #FFFFFF 50%, #F3E8FF 100%);
+      padding: 20px;
+    }
+    .email-wrapper { max-width: 600px; margin: 0 auto; }
+    .container {
+      background: #FFFFFF;
+      border-radius: 24px;
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header {
+      background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+      color: white;
+      padding: 40px 30px;
+      text-align: center;
+    }
+    .header h1 {
+      font-size: 28px;
+      font-weight: 700;
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
+    .content {
+      background: #FAFBFC;
+      padding: 40px 30px;
+    }
+    .content p {
+      margin-bottom: 16px;
+      color: #1F2937;
+      font-size: 16px;
+    }
+    .code-box {
+      display: inline-block;
+      font-size: 28px;
+      letter-spacing: 6px;
+      font-weight: 700;
+      padding: 12px 18px;
+      border-radius: 12px;
+      background: #FFFFFF;
+      border: 1px solid #E5E7EB;
+      margin: 16px 0 24px;
+    }
+    .button {
+      display: inline-block;
+      background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%);
+      color: #FFFFFF !important;
+      padding: 14px 32px;
+      text-decoration: none;
+      border-radius: 12px;
+      margin: 12px 0 24px;
+      font-weight: 600;
+      font-size: 16px;
+      transition: transform 0.2s, box-shadow 0.2s;
+      box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    }
+    .button, .button * {
+      color: #FFFFFF !important;
+    }
+    .button:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 6px 16px rgba(37, 99, 235, 0.4);
+    }
+    .note {
+      font-size: 14px;
+      color: #6B7280;
+    }
+    .footer {
+      text-align: center;
+      padding: 24px 30px;
+      background: #F9FAFB;
+      color: #6B7280;
+      font-size: 14px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .footer p { margin: 8px 0; }
+    @media only screen and (max-width: 600px) {
+      body { padding: 10px; }
+      .header, .content { padding: 24px 20px; }
+      .header h1 { font-size: 24px; }
+      .code-box { font-size: 22px; letter-spacing: 4px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>Verify Your Email</h1>
+      </div>
+      <div class="content">
+        <p>Hi ${data.fullName || 'there'},</p>
+        <p>Use this 8-digit code to verify your email:</p>
+        <div class="code-box">${data.verificationCode}</div>
+        <p>This code expires in ${data.expiresInMinutes} minutes.</p>
+        <p>Or verify instantly with the link below:</p>
+        <div style="text-align: center;">
+          <a href="${data.verificationLink}" class="button">Verify Email</a>
+        </div>
+        <p class="note">If you did not request this, you can ignore this email.</p>
+      </div>
+      <div class="footer">
+        <p><strong>InterviewAI Pro</strong></p>
+        <p>Best regards,<br>The InterviewAI Pro Team</p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim(),
+  },
+
   INVITATION_RECEIVED: {
     subject: 'You\'ve Been Invited to an Interview!',
     getText: (data) => `
@@ -803,6 +943,143 @@ ${data.companyName}
 </html>
     `.trim(),
   },
+
+  NEWSLETTER_WELCOME: {
+    subject: 'Welcome to InterviewAI Pro Newsletter! 🚀',
+    getText: (data) => `
+Hi there,
+
+Thank you for subscribing to the InterviewAI Pro newsletter!
+
+You'll now receive:
+- Monthly updates on AI interviewing trends
+- Hiring benchmarks and industry insights
+- Feature releases and product updates
+- Best practices for interviews and hiring
+
+We're excited to have you on board!
+
+If you ever want to unsubscribe, you can do so here: ${data.unsubscribeUrl}
+
+Best regards,
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => `
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { 
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Arial, sans-serif; 
+      line-height: 1.6; 
+      color: #1F2937; 
+      background: linear-gradient(to bottom, #EFF6FF 0%, #FFFFFF 50%, #F3E8FF 100%);
+      padding: 20px;
+    }
+    .email-wrapper { max-width: 600px; margin: 0 auto; }
+    .container { 
+      background: #FFFFFF; 
+      border-radius: 24px; 
+      overflow: hidden;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+    }
+    .header { 
+      background: linear-gradient(135deg, #2563EB 0%, #7C3AED 100%); 
+      color: white; 
+      padding: 40px 30px; 
+      text-align: center; 
+    }
+    .header h1 { 
+      font-size: 28px; 
+      font-weight: 700; 
+      margin: 0;
+      letter-spacing: -0.5px;
+    }
+    .content { 
+      background: #FAFBFC; 
+      padding: 40px 30px; 
+    }
+    .content p { 
+      margin-bottom: 16px; 
+      color: #1F2937;
+      font-size: 16px;
+    }
+    .features { 
+      background: white; 
+      padding: 24px; 
+      border-radius: 16px; 
+      margin: 24px 0;
+      border: 1px solid #E5E7EB;
+    }
+    .features h3 {
+      color: #1F2937;
+      font-size: 18px;
+      font-weight: 600;
+      margin-bottom: 16px;
+    }
+    .feature-item { 
+      padding: 12px 0; 
+      border-bottom: 1px solid #F3F4F6; 
+      color: #374151;
+      font-size: 15px;
+    }
+    .feature-item:last-child { border-bottom: none; }
+    .footer {
+      text-align: center;
+      padding: 24px 30px;
+      background: #F9FAFB;
+      color: #6B7280;
+      font-size: 14px;
+      border-top: 1px solid #E5E7EB;
+    }
+    .footer p { margin: 8px 0; }
+    .footer a { 
+      color: #6B7280; 
+      text-decoration: underline;
+    }
+    @media only screen and (max-width: 600px) {
+      body { padding: 10px; }
+      .header, .content { padding: 24px 20px; }
+      .header h1 { font-size: 24px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="email-wrapper">
+    <div class="container">
+      <div class="header">
+        <h1>🚀 Welcome to InterviewAI Pro!</h1>
+      </div>
+      <div class="content">
+        <p>Hi there,</p>
+        <p>Thank you for subscribing to the InterviewAI Pro newsletter! We're thrilled to have you join our community.</p>
+        
+        <div class="features">
+          <h3>What to expect from us:</h3>
+          <div class="feature-item">📊 Monthly updates on AI interviewing trends</div>
+          <div class="feature-item">📈 Hiring benchmarks and industry insights</div>
+          <div class="feature-item">✨ Feature releases and product updates</div>
+          <div class="feature-item">💡 Best practices for interviews and hiring</div>
+        </div>
+
+        <p>We promise to keep our emails valuable and respect your inbox. You can unsubscribe anytime.</p>
+        
+        <p>Thanks for being part of our journey!</p>
+        <p><strong>The InterviewAI Pro Team</strong></p>
+      </div>
+      <div class="footer">
+        <p>© ${new Date().getFullYear()} InterviewAI Pro. Crafted in Sri Lanka.</p>
+        <p><a href="${data.unsubscribeUrl}">Unsubscribe from this list</a></p>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
+    `.trim()
+  },
 };
 
 /**
@@ -1025,6 +1302,16 @@ export async function sendTemplatedEmail(templateName, data) {
  * Email notification helpers
  */
 export const emailNotifications = {
+  async sendEmailVerification({ email, fullName, verificationCode, verificationLink, expiresInMinutes = 10 }) {
+    return await sendTemplatedEmail('EMAIL_VERIFICATION', {
+      email,
+      fullName: fullName || 'there',
+      verificationCode,
+      verificationLink,
+      expiresInMinutes,
+    });
+  },
+
   async sendOrganizationApproved(organization, owner) {
     return await sendTemplatedEmail('ORGANIZATION_APPROVED', {
       email: owner.email,

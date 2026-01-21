@@ -4,6 +4,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import MessageDialog from '../../../components/ui/MessageDialog';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const SystemSettings = () => {
@@ -124,11 +125,12 @@ const SystemSettings = () => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading settings"
+        message="Fetching current platform configuration."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 
@@ -175,20 +177,12 @@ const SystemSettings = () => {
                 <Button
                   size="sm"
                   onClick={handleSave}
+                  loading={saving}
                   disabled={saving}
                   className="bg-purple-600 hover:bg-purple-700 text-white"
                 >
-                  {saving ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Saving...</span>
-                    </div>
-                  ) : (
-                    <>
-                      <Icon name="Save" className="w-4 h-4 mr-2" />
-                      Save Changes
-                    </>
-                  )}
+                  {!saving && <Icon name="Save" className="w-4 h-4 mr-2" />}
+                  {saving ? 'Saving...' : 'Save Changes'}
                 </Button>
               </>
             )}

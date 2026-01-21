@@ -8,6 +8,7 @@ import {
   updateProfile,
   GoogleAuthProvider,
   signInWithPopup,
+  sendEmailVerification,
   sendPasswordResetEmail,
   verifyPasswordResetCode,
   confirmPasswordReset
@@ -170,6 +171,31 @@ export const authHelpers = {
     };
   },
 
+  async reloadUser() {
+    const user = auth.currentUser;
+    if (!user) {
+      return { data: { user: null }, error: null };
+    }
+    try {
+      await user.reload();
+      return {
+        data: {
+          user: {
+            id: user.uid,
+            email: user.email,
+            email_confirmed_at: user.emailVerified ? new Date().toISOString() : null,
+            user_metadata: {
+              fullName: user.displayName || null
+            }
+          }
+        },
+        error: null
+      };
+    } catch (error) {
+      return { data: { user: null }, error };
+    }
+  },
+
   onAuthStateChange(callback) {
     return onAuthStateChanged(auth, async (user) => {
       if (user) {
@@ -193,6 +219,14 @@ export const authHelpers = {
     });
   },
 
+  async refreshAccessToken() {
+    const user = auth.currentUser;
+    if (!user) {
+      return null;
+    }
+    return await user.getIdToken(true);
+  },
+
   async getAccessToken() {
     const user = auth.currentUser;
     if (user) {
@@ -201,6 +235,19 @@ export const authHelpers = {
     return null;
   }
   ,
+
+  async sendEmailVerification(actionCodeSettings = undefined) {
+    const user = auth.currentUser;
+    if (!user) {
+      return { success: false, error: new Error('No authenticated user found.') };
+    }
+    try {
+      await sendEmailVerification(user, actionCodeSettings);
+      return { success: true, error: null };
+    } catch (error) {
+      return { success: false, error };
+    }
+  },
 
   async signInWithGoogle() {
     try {
@@ -267,4 +314,3 @@ export const authHelpers = {
 
 // Export default for backward compatibility
 export default { auth, authHelpers };
-

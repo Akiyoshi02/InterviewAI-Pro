@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import Icon from '../../components/AppIcon';
+import PublicHeader from '../../components/layout/PublicHeader';
+import PublicFooter from '../../components/layout/PublicFooter';
 import { 
   Star, 
   Sparkles, 
@@ -17,34 +18,13 @@ import {
   PlayCircle,
   Calendar,
   FileText,
-  Phone,
-  Twitter,
-  Linkedin,
-  Github,
-  Menu,
-  X,
-  Mail,
-  PhoneCall,
-  ShieldCheck,
-  ArrowUpRight
+  Phone
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
+import Icon from '../../components/AppIcon';
 
 const HomePage = () => {
   const navigate = useNavigate();
-  const [isNavOpen, setIsNavOpen] = useState(false);
-
-  // Lock body scroll when mobile menu is open
-  useEffect(() => {
-    if (isNavOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [isNavOpen]);
 
   // Check if this is an OAuth callback redirect
   useEffect(() => {
@@ -56,35 +36,10 @@ const HomePage = () => {
     }
   }, [navigate]);
 
-  const navLinks = [
-    { label: 'Platform', href: '#platform', icon: 'Layers' },
-    { label: 'Features', href: '#features', icon: 'Zap' },
-    { label: 'Testimonials', href: '#testimonials', icon: 'MessageSquare' },
-    { label: 'Enterprise', href: '#enterprise', icon: 'Building2' },
-    { label: 'Support', href: '/support', icon: 'HelpCircle' }
-  ];
-
   const highlightSignals = [
     { icon: Sparkles, title: 'AI Interview Coach', meta: 'Adaptive prompts & scoring' },
     { icon: Scale, title: 'Bias-Resistant Hiring', meta: 'SOC 2 & GDPR aligned' },
     { icon: Clock, title: '< 2 min setup', meta: 'Live-ready interview rooms' }
-  ];
-
-  const footerHighlights = [
-    { icon: Users, label: 'Professionals coached', value: '50K+' },
-    { icon: Clock, label: 'Avg. setup time', value: '< 4 mins' },
-    { icon: Award, label: 'Success rate', value: '95%' }
-  ];
-
-  const contactChannels = [
-    { icon: Mail, label: 'Email', value: 'hello@interviewai.pro', href: 'mailto:hello@interviewai.pro' },
-    { icon: PhoneCall, label: 'Partnerships', value: '+1 (415) 555-0134', href: 'tel:+14155550134' }
-  ];
-
-  const socialLinks = [
-    { icon: Twitter, label: 'Twitter', href: '#' },
-    { icon: Linkedin, label: 'LinkedIn', href: '#' },
-    { icon: Github, label: 'GitHub', href: '#' }
   ];
 
   const viewportConfig = { once: true, amount: 0.15 };
@@ -129,304 +84,96 @@ const HomePage = () => {
     }
   };
 
-  const handleNavLink = (href) => {
-    setIsNavOpen(false);
-    if (href.startsWith('#') && typeof document !== 'undefined') {
-      const target = document.querySelector(href);
-      if (target) {
-        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        return;
-      }
-    }
-    navigate(href);
-  };
-
-  const handleInstantSignIn = async () => {
-    try {
-      const { authHelpers } = await import('../../config/firebase.js');
-      const apiClient = (await import('../../services/apiClient.js')).default;
-      const { data } = await authHelpers.getSession();
-      const session = data?.session;
-
-      if (session) {
-        const userData = await apiClient.auth.getMe();
-        if (userData.success && userData.user) {
-          const accountType = userData.user.accountType?.toLowerCase();
-          const dashboardRoute =
-            accountType === 'candidate' ? '/candidate-dashboard' : '/company-dashboard';
-
-          localStorage.setItem('user', JSON.stringify(userData.user));
-          localStorage.setItem('isAuthenticated', 'true');
-          navigate(dashboardRoute);
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('Instant sign-in check failed', error);
-    }
-
-    navigate('/login');
-  };
 
   const stats = [
-    { icon: Award, value: '95%', label: 'Job Offer Success Rate' },
-    { icon: TrendingUp, value: '40%', label: 'Average Salary Increase' },
-    { icon: Clock, value: '75%', label: 'Reduced Screening Time' },
-    { icon: Users, value: '50K+', label: 'Successful Interviews' }
+    { icon: Award, value: '95%', label: 'Candidate Success Rate' },
+    { icon: Clock, value: '75%', label: 'Faster Hiring Process' },
+    { icon: Scale, value: '100%', label: 'Bias-Free Assessments' },
+    { icon: Users, value: '50K+', label: 'Interviews Conducted' }
   ];
 
   const candidateTestimonials = [
     {
-      name: 'Sarah Chen',
-      role: 'Software Engineer at Tech Startup',
-      image: '👩‍💻',
+      name: 'Dilini Perera',
+      role: 'Software Engineer at Virtusa',
+      image: 'https://ui-avatars.com/api/?name=Dilini+Perera&background=4F46E5&color=fff&size=128&bold=true',
       rating: 5,
-      text: 'InterviewAI Pro transformed my interview anxiety into confidence. I practiced for 2 weeks and landed my dream job with a 40% salary increase!'
+      text: 'InterviewAI Pro හරහා මගේ interview anxiety confidence එකක් බවට හැරුණා. සති 2ක් practice කරලා 40% salary වැඩි කරගෙන dream job එක ගත්තා! This platform changed my life.'
     },
     {
-      name: 'Marcus Johnson',
-      role: 'Marketing Manager at Fortune 500',
-      image: '👨‍💼',
+      name: 'Kasun Fernando',
+      role: 'Business Analyst at Dialog Axiata',
+      image: 'https://ui-avatars.com/api/?name=Kasun+Fernando&background=7C3AED&color=fff&size=128&bold=true',
       rating: 5,
-      text: 'The AI feedback was incredibly detailed. It helped me identify weak points I never knew I had. Got 3 job offers after using this platform.'
+      text: 'The AI feedback was incredibly detailed and helped me identify weak points in my communication. Got 3 job offers including from IFS and hSenid within a month!'
     },
     {
-      name: 'Emily Rodriguez',
-      role: 'Product Manager at SaaS Company',
-      image: '👩‍💼',
+      name: 'Thisara Weerasinghe',
+      role: 'Product Manager at CodeGen',
+      image: 'https://ui-avatars.com/api/?name=Thisara+Weerasinghe&background=2563EB&color=fff&size=128&bold=true',
       rating: 5,
-      text: 'As someone changing careers, this platform gave me the confidence to transition from finance to tech. The industry-specific questions were perfect.'
+      text: 'Transitioning from banking to tech seemed impossible, but this platform gave me the confidence I needed. The industry-specific questions prepared me perfectly for Sri Lankan tech companies.'
     }
   ];
 
   const corporateTestimonials = [
     {
-      name: 'David Park',
-      role: 'Head of Talent at TechCorp',
-      image: '👨‍💻',
+      name: 'Rohan Jayasuriya',
+      role: 'Head of Talent at WSO2',
+      image: 'https://ui-avatars.com/api/?name=Rohan+Jayasuriya&background=059669&color=fff&size=128&bold=true',
       rating: 5,
-      text: 'We reduced our initial screening time by 75% while improving candidate quality. The bias reduction features are game-changing for fair hiring.'
+      text: 'We reduced our initial screening time by 75% while significantly improving candidate quality. The bias-free assessment features ensure we hire the best talent based purely on merit.'
     },
     {
-      name: 'Lisa Thompson',
-      role: 'HR Director at Global Inc',
-      image: '👩‍💼',
+      name: 'Nadeesha Silva',
+      role: 'HR Director at John Keells Holdings',
+      image: 'https://ui-avatars.com/api/?name=Nadeesha+Silva&background=DC2626&color=fff&size=128&bold=true',
       rating: 5,
-      text: 'Our hiring efficiency improved dramatically. The collaborative assessment tools help our team make better decisions faster.'
+      text: 'Our hiring efficiency improved dramatically across all our subsidiaries. The analytics dashboard provides insights we never had before, helping us make data-driven recruitment decisions.'
     }
   ];
 
   const features = [
     {
       icon: MessageSquare,
-      title: 'AI-Powered Interview Simulation',
-      description: 'Practice with our advanced AI that adapts to your responses and provides real-time feedback on your performance.',
+      title: 'AI-Powered Interview Platform',
+      description: 'Advanced AI that conducts realistic interviews for candidates to practice and helps companies screen applicants efficiently with consistent, intelligent questioning.',
       highlights: [
         'Natural conversation flow',
         'Instant performance feedback',
-        'Personalized improvement suggestions',
+        'Automated candidate screening',
         'Industry-specific questions'
       ]
     },
     {
       icon: Scale,
-      title: 'Bias-Free Hiring Process',
-      description: 'Eliminate unconscious bias with our structured evaluation system that focuses on skills and competencies.',
+      title: 'Bias-Free Evaluation System',
+      description: 'Eliminate unconscious bias with our structured evaluation system that ensures fair assessments for candidates while helping companies focus purely on skills and competencies.',
       highlights: [
         'Standardized evaluation criteria',
-        'Anonymous initial screening',
         'Objective scoring system',
-        'Compliance tracking'
+        'Anonymous screening options',
+        'Compliance tracking & reporting'
       ]
     },
     {
       icon: BarChart3,
-      title: 'Advanced Analytics Dashboard',
-      description: 'Track your progress with detailed analytics that show improvement areas and benchmark against industry standards.',
+      title: 'Comprehensive Analytics Dashboard',
+      description: 'Candidates track their improvement with detailed progress analytics. Companies gain insights into hiring pipelines, candidate quality, and team performance metrics.',
       highlights: [
-        'Performance tracking',
+        'Performance & progress tracking',
         'Industry benchmarking',
-        'Skill gap analysis',
-        'Progress visualization'
+        'Hiring pipeline analytics',
+        'Customizable reports & insights'
       ]
     }
   ];
 
   const companies = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple'];
 
-  const footerLinks = {
-    platform: [
-      { name: 'Practice Mode', path: '/practice-interview-setup' },
-      { name: 'Hiring Portal', path: '/company-dashboard' },
-      { name: 'AI Interview', path: '/live-interview-session' },
-      { name: 'Analytics', path: '/candidate-dashboard' }
-    ],
-    resources: [
-      { name: 'Learning Center', path: '/support' },
-      { name: 'Success Stories', path: '#testimonials' },
-      { name: 'Interview Tips', path: '/support' },
-      { name: 'Career Guides', path: '/support' }
-    ],
-    company: [
-      { name: 'About Us', path: '#about' },
-      { name: 'Careers', path: '#careers' },
-      { name: 'Press', path: '#press' },
-      { name: 'Contact', path: '/support' }
-    ],
-    support: [
-      { name: 'Help Center', path: '/support' },
-      { name: 'API Docs', path: '#api' },
-      { name: 'Status', path: '#status' },
-      { name: 'Privacy Policy', path: '/privacy' }
-    ]
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
-      {/* Navigation - Matching Dashboard Header Style */}
-      <header className="fixed top-0 left-0 right-0 z-50 w-full border-b border-gray-200/50 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl shadow-sm">
-        <div className="flex items-center justify-between h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto">
-          {/* Logo */}
-          <div className="flex items-center gap-2 xs:gap-3 flex-shrink-0">
-            <Sparkles className="h-5 w-5 xs:h-6 xs:w-6 text-blue-600" />
-            <div>
-              <p className="text-sm xs:text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-slate-100">
-                InterviewAI <span className="text-blue-600 dark:text-blue-400">Pro</span>
-              </p>
-              <p className="hidden sm:block text-[9px] xs:text-[10px] text-gray-500 dark:text-slate-400 leading-tight">
-                Human-ready interviews, AI precision.
-              </p>
-            </div>
-          </div>
-
-          {/* Desktop Navigation - Center */}
-          <nav className="hidden lg:flex items-center gap-1 xl:gap-2">
-            {navLinks.map((item) => (
-              <button
-                key={item.href}
-                onClick={() => handleNavLink(item.href)}
-                className="flex items-center gap-1.5 xl:gap-2 text-xs xl:text-sm font-medium transition-all duration-200 px-2.5 xl:px-3 py-2 rounded-full text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-white/60 dark:hover:bg-slate-800/60 min-h-touch"
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
-
-          {/* CTA Buttons - Right */}
-          <div className="hidden md:flex items-center gap-2 lg:gap-3">
-            <Button
-              onClick={handleInstantSignIn}
-              variant="ghost"
-              className="rounded-full border border-gray-200/60 dark:border-slate-700 text-xs lg:text-sm px-3 lg:px-4 text-gray-700 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-slate-800/70 min-h-touch"
-            >
-              Sign In
-            </Button>
-            <Button
-              onClick={() => navigate('/register')}
-              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-xs lg:text-sm px-3 lg:px-5 shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 min-h-touch"
-            >
-              Get Started
-            </Button>
-          </div>
-
-          {/* Mobile Menu Button */}
-          <button
-            type="button"
-            onClick={() => setIsNavOpen((prev) => !prev)}
-            className="md:hidden flex items-center justify-center w-10 h-10 xs:w-11 xs:h-11 rounded-xl border border-gray-200/50 dark:border-slate-700/50 bg-white/50 dark:bg-slate-800/50 text-gray-700 dark:text-slate-300 transition-colors hover:bg-white/80 dark:hover:bg-slate-800/80"
-            aria-label={isNavOpen ? 'Close menu' : 'Open menu'}
-            aria-expanded={isNavOpen}
-          >
-            {isNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          </button>
-        </div>
-      </header>
-
-      {/* Mobile Menu Panel - Slides in from right below the header */}
-      <div 
-        className={`fixed top-14 xs:top-16 right-0 bottom-0 z-[101] w-full md:hidden transform transition-transform duration-300 ease-out ${
-          isNavOpen ? 'translate-x-0' : 'translate-x-full'
-        }`}
-      >
-        <div className="h-full bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-l border-gray-200/50 dark:border-slate-800 shadow-2xl overflow-y-auto">
-          <div className="px-4 py-5 space-y-4">
-            {/* Navigation Items */}
-            <nav className="space-y-1">
-              {navLinks.map((item) => (
-                <button
-                  key={item.href}
-                  onClick={() => handleNavLink(item.href)}
-                  className="flex items-center gap-3 w-full text-left px-4 py-3.5 rounded-xl text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700 transition-all duration-200 min-h-touch"
-                >
-                  <Icon name={item.icon} size={20} className="text-gray-400 dark:text-slate-500" />
-                  <span className="font-medium text-base">{item.label}</span>
-                </button>
-              ))}
-            </nav>
-            
-            {/* Auth Actions */}
-            <div className="pt-4 border-t border-gray-200 dark:border-slate-700/50 space-y-3">
-              <Button
-                variant="ghost"
-                fullWidth
-                onClick={() => {
-                  setIsNavOpen(false);
-                  handleInstantSignIn();
-                }}
-                className="rounded-xl border border-gray-200 dark:border-slate-700 text-base py-3.5 text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 min-h-touch"
-              >
-                Sign In
-              </Button>
-              <Button
-                variant="default"
-                fullWidth
-                onClick={() => {
-                  setIsNavOpen(false);
-                  navigate('/register');
-                }}
-                className="rounded-xl bg-gradient-to-r from-blue-600 to-purple-600 border-none text-base py-3.5 shadow-md shadow-blue-500/30 min-h-touch"
-              >
-                Get Started Free
-              </Button>
-            </div>
-
-            {/* Quick Links for Mobile */}
-            <div className="pt-4 border-t border-gray-200 dark:border-slate-700/50">
-              <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-slate-500 mb-3 px-1">Quick Links</p>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  onClick={() => handleNavLink('/support')}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <Icon name="HelpCircle" size={16} />
-                  <span>Help</span>
-                </button>
-                <button
-                  onClick={() => handleNavLink('/privacy')}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <Icon name="Shield" size={16} />
-                  <span>Privacy</span>
-                </button>
-                <button
-                  onClick={() => handleNavLink('/terms')}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <Icon name="FileText" size={16} />
-                  <span>Terms</span>
-                </button>
-                <button
-                  onClick={() => handleNavLink('mailto:hello@interviewai.pro')}
-                  className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  <Icon name="Mail" size={16} />
-                  <span>Contact</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
+      <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16 md:h-18" />
@@ -472,19 +219,19 @@ const HomePage = () => {
               variants={fadeUpChild}
               className="text-2xl xs:text-3xl sm:text-4xl md:text-4xl lg:text-5xl xl:text-6xl font-bold text-gray-900 dark:text-slate-100 mb-4 xs:mb-5 sm:mb-6 leading-tight"
             >
-              Transform Interview{' '}
-              <span className="text-blue-600 dark:text-blue-400">Anxiety</span>
+              Revolutionize Interviews{' '}
+              <span className="text-blue-600 dark:text-blue-400">with AI</span>
               <br className="hidden xs:block" />
-              <span className="xs:hidden"> </span>into Career{' '}
-              <span className="text-green-500 dark:text-green-400">Confidence</span>
+              <span className="xs:hidden"> </span>for Candidates{' '}
+              <span className="text-green-500 dark:text-green-400">&</span> Companies
             </motion.h1>
             
             <motion.p
               variants={fadeUpChild}
               className="text-sm xs:text-base sm:text-lg md:text-lg lg:text-xl text-gray-600 dark:text-slate-300 mb-6 xs:mb-7 sm:mb-8 leading-relaxed max-w-xl"
             >
-              Where AI meets human potential. Practice with our intelligent interview simulator, 
-              eliminate bias in hiring, and level the playing field for career advancement.
+              Where AI meets human potential. Candidates practice and build confidence with our intelligent interview simulator. 
+              Companies streamline hiring, eliminate bias, and discover top talent faster than ever.
             </motion.p>
             
             <motion.div variants={fadeUpChild} className="flex flex-col xs:flex-row flex-wrap gap-3 xs:gap-4 mb-6 xs:mb-7 sm:mb-8">
@@ -494,10 +241,20 @@ const HomePage = () => {
                   className="w-full xs:w-auto rounded-xl xs:rounded-full bg-gradient-to-r from-blue-600 to-purple-600 px-5 xs:px-6 sm:px-7 md:px-8 lg:px-9 py-3 xs:py-3.5 sm:py-4 text-sm xs:text-base sm:text-base md:text-lg font-semibold text-white shadow-md shadow-blue-500/30 transition flex items-center justify-center gap-2 hover:from-blue-700 hover:to-purple-700 min-h-touch"
                 >
                   <Sparkles className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5" />
-                  Start Practicing Free
+                  Get Started Free
                   <svg className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
                   </svg>
+                </Button>
+              </motion.div>
+              <motion.div whileHover={{ y: -3, scale: 1.01 }} whileTap={{ scale: 0.98 }} className="w-full xs:w-auto">
+                <Button
+                  onClick={() => navigate('/login')}
+                  variant="outline"
+                  className="w-full xs:w-auto rounded-xl xs:rounded-full border-2 border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-5 xs:px-6 sm:px-7 md:px-8 lg:px-9 py-3 xs:py-3.5 sm:py-4 text-sm xs:text-base sm:text-base md:text-lg font-semibold text-gray-700 dark:text-slate-200 transition flex items-center justify-center gap-2 hover:border-blue-500 dark:hover:border-blue-400 hover:text-blue-600 dark:hover:text-blue-400 min-h-touch"
+                >
+                  <Users className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5" />
+                  Sign In
                 </Button>
               </motion.div>
             </motion.div>
@@ -563,10 +320,10 @@ const HomePage = () => {
         <div className="max-w-7xl mx-auto px-4 xs:px-5 sm:px-6 lg:px-8">
           <motion.div variants={fadeUpChild} className="text-center mb-8 xs:mb-10 sm:mb-12 md:mb-14">
             <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-3 xs:mb-4">
-              Trusted by Thousands of Professionals
+              Trusted by Candidates & Companies Worldwide
             </h2>
             <p className="text-sm xs:text-base sm:text-lg md:text-xl text-gray-600 dark:text-slate-300 max-w-2xl mx-auto">
-              Join the community that's transforming careers and revolutionizing hiring processes
+              Join thousands of job seekers building confidence and companies discovering exceptional talent
             </p>
           </motion.div>
           
@@ -619,7 +376,7 @@ const HomePage = () => {
                   <Award className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
                   <span>Candidate Success Stories</span>
                 </div>
-                <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-2">Real results from job seekers like you</h2>
+                <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-2">Real results from candidates worldwide</h2>
               </motion.div>
             </div>
             
@@ -641,7 +398,11 @@ const HomePage = () => {
                   </div>
                   <p className="text-xs xs:text-sm sm:text-base text-gray-700 dark:text-slate-300 mb-4 xs:mb-5 sm:mb-6 italic leading-relaxed">"{testimonial.text}"</p>
                   <div className="flex items-center space-x-2 xs:space-x-3">
-                    <div className="text-xl xs:text-2xl sm:text-3xl">{testimonial.image}</div>
+                    <img 
+                      src={testimonial.image} 
+                      alt={testimonial.name}
+                      className="w-10 h-10 xs:w-12 xs:h-12 sm:w-14 sm:h-14 rounded-full object-cover flex-shrink-0"
+                    />
                     <div>
                       <div className="font-semibold text-xs xs:text-sm sm:text-base text-gray-900 dark:text-slate-100">{testimonial.name}</div>
                       <div className="text-[10px] xs:text-xs sm:text-sm text-gray-600 dark:text-slate-400">{testimonial.role}</div>
@@ -666,7 +427,7 @@ const HomePage = () => {
                   <FileText className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
                   <span>Corporate Success</span>
                 </div>
-                <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-2">Trusted by leading companies</h2>
+                <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl font-bold text-gray-900 dark:text-slate-100 mb-2">Trusted by hiring teams globally</h2>
               </motion.div>
             </div>
             
@@ -688,7 +449,11 @@ const HomePage = () => {
                   </div>
                   <p className="text-xs xs:text-sm sm:text-base text-gray-700 dark:text-slate-300 mb-4 xs:mb-5 sm:mb-6 italic leading-relaxed">"{testimonial.text}"</p>
                   <div className="flex items-center space-x-2 xs:space-x-3">
-                    <div className="text-xl xs:text-2xl sm:text-3xl">{testimonial.image}</div>
+                    <img 
+                      src={testimonial.image} 
+                      alt={testimonial.name}
+                      className="w-10 h-10 xs:w-12 xs:h-12 sm:w-14 sm:h-14 rounded-full object-cover flex-shrink-0"
+                    />
                     <div>
                       <div className="font-semibold text-xs xs:text-sm sm:text-base text-gray-900 dark:text-slate-100">{testimonial.name}</div>
                       <div className="text-[10px] xs:text-xs sm:text-sm text-gray-600 dark:text-slate-400">{testimonial.role}</div>
@@ -771,7 +536,7 @@ const HomePage = () => {
             </h2>
             <p className="text-sm xs:text-base sm:text-lg md:text-xl text-gray-600 dark:text-slate-300 max-w-3xl mx-auto">
               Our cutting-edge technology combines artificial intelligence with human insight 
-              to create the most effective interview preparation and hiring platform.
+              to create the most effective platform for interview preparation, talent assessment, and smart hiring.
             </p>
           </motion.div>
 
@@ -831,10 +596,10 @@ const HomePage = () => {
                       <motion.img
                         src={
                           index === 0 
-                            ? "https://images.unsplash.com/photo-1552664730-d307ca884978?w=800&auto=format&fit=crop"
+                            ? "/assets/images/feature-ai-interview.jpg"
                             : index === 1
-                            ? "https://images.unsplash.com/photo-1600880292203-757bb62b4baf?w=800&auto=format&fit=crop"
-                            : "https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=800&auto=format&fit=crop"
+                            ? "/assets/images/feature-bias-free.jpg"
+                            : "/assets/images/feature-analytics.jpg"
                         }
                         alt={feature.title}
                         className="w-full h-40 xs:h-48 sm:h-56 md:h-64 lg:h-72 xl:h-80 object-cover rounded-lg xs:rounded-xl"
@@ -868,17 +633,39 @@ const HomePage = () => {
             viewport={viewportConfig}
             transition={{ duration: 0.6 }}
           >
-            Ready to Transform Your Interview Experience?
+            Ready to Transform Your Interview Process?
           </motion.h2>
           <motion.p
-            className="text-sm xs:text-base sm:text-lg md:text-xl text-blue-100 mb-3 xs:mb-4"
+            className="text-sm xs:text-base sm:text-lg md:text-xl text-blue-100 mb-6 xs:mb-8"
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={viewportConfig}
             transition={{ duration: 0.6, delay: 0.1 }}
           >
-            Join thousands of professionals who have already elevated their careers with InterviewAI Pro.
+            Join thousands of professionals building interview confidence and companies discovering top talent with InterviewAI Pro.
           </motion.p>
+          <motion.div
+            className="flex flex-col xs:flex-row flex-wrap justify-center gap-3 xs:gap-4"
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={viewportConfig}
+            transition={{ duration: 0.6, delay: 0.2 }}
+          >
+            <Button
+              onClick={() => navigate('/register')}
+              className="w-full xs:w-auto rounded-xl xs:rounded-full bg-white text-blue-600 px-6 xs:px-7 md:px-8 py-3 xs:py-3.5 text-sm xs:text-base md:text-lg font-semibold shadow-md transition hover:bg-gray-50 min-h-touch"
+            >
+              <Users className="h-4 w-4 xs:h-5 xs:w-5 mr-2" />
+              For Candidates
+            </Button>
+            <Button
+              onClick={() => navigate('/register')}
+              className="w-full xs:w-auto rounded-xl xs:rounded-full bg-white text-purple-600 px-6 xs:px-7 md:px-8 py-3 xs:py-3.5 text-sm xs:text-base md:text-lg font-semibold shadow-md transition hover:bg-gray-50 min-h-touch"
+            >
+              <Icon name="Building2" className="h-4 w-4 xs:h-5 xs:w-5 mr-2" />
+              For Companies
+            </Button>
+          </motion.div>
         </div>
       </motion.section>
 
@@ -901,7 +688,7 @@ const HomePage = () => {
           >
             <h2 className="text-lg xs:text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-slate-100 mb-3 xs:mb-4">Need a Custom Solution?</h2>
             <p className="text-xs xs:text-sm sm:text-base md:text-lg text-gray-600 dark:text-slate-300 mb-5 xs:mb-6 sm:mb-7 md:mb-8 max-w-2xl mx-auto">
-              We work with organizations of all sizes to create tailored interview and hiring solutions. 
+              We work with individuals and organizations of all sizes to create tailored interview preparation and hiring solutions. 
               Contact our team to discuss your specific requirements.
             </p>
             <motion.div
@@ -913,7 +700,7 @@ const HomePage = () => {
             >
               <motion.div whileHover={{ scale: 1.04 }} whileTap={{ scale: 0.97 }} variants={fadeUpChild} className="w-full xs:w-auto">
                 <Button
-                  onClick={() => navigate('/support')}
+                  onClick={() => navigate('/help-center')}
                   className="w-full xs:w-auto rounded-xl xs:rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-700 px-4 xs:px-5 sm:px-6 py-2.5 xs:py-3 text-sm xs:text-base font-semibold text-gray-900 dark:text-slate-100 shadow-sm transition hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 flex items-center justify-center gap-2 min-h-touch"
                 >
                   <FileText className="h-4 w-4 xs:h-5 xs:w-5" />
@@ -963,191 +750,7 @@ const HomePage = () => {
         </div>
       </motion.section>
 
-      {/* Footer */}
-      <motion.footer
-        className="bg-gray-900 dark:bg-slate-950 text-gray-300 dark:text-slate-400 border-t border-gray-800 dark:border-slate-800 py-10 xs:py-12 sm:py-14 md:py-16"
-        variants={sectionReveal}
-        initial="hidden"
-        whileInView="visible"
-        viewport={viewportConfig}
-      >
-        <div className="max-w-7xl mx-auto px-4 xs:px-5 sm:px-6 lg:px-8 space-y-8 xs:space-y-10 sm:space-y-12">
-          <motion.div
-            className="grid gap-6 xs:gap-8 lg:grid-cols-[1.2fr_0.8fr]"
-            variants={staggeredChildren}
-          >
-            <motion.div
-              variants={fadeUpChild}
-              className="rounded-2xl xs:rounded-3xl border border-gray-800 bg-gray-900/60 p-5 xs:p-6 sm:p-8 shadow-2xl shadow-black/40"
-            >
-              <div className="flex items-center gap-2 xs:gap-3 mb-4 xs:mb-5 sm:mb-6">
-                <div className="flex items-center space-x-2">
-                  <Sparkles className="h-4 w-4 xs:h-5 xs:w-5 sm:h-6 sm:w-6 text-blue-400" />
-                  <div>
-                    <p className="text-base xs:text-lg sm:text-xl font-semibold text-white">
-                      InterviewAI <span className="text-blue-400">Pro</span>
-                    </p>
-                    <p className="text-[10px] xs:text-xs text-gray-400">Human-ready interviews, AI precision.</p>
-                  </div>
-                </div>
-              </div>
-              <p className="text-xs xs:text-sm sm:text-base text-gray-400 dark:text-slate-400 mb-5 xs:mb-6 max-w-2xl leading-relaxed">
-                We blend adaptive AI, structured scoring, and bias-aware workflows so candidates and talent teams
-                share one consistent interview experience.
-              </p>
-
-              <motion.div className="grid gap-3 xs:gap-4 grid-cols-1 xs:grid-cols-3" variants={staggeredChildren}>
-                {footerHighlights.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <motion.div
-                      key={item.label}
-                      variants={fadeUpChild}
-                      className="rounded-xl xs:rounded-2xl border border-gray-800 dark:border-slate-700 bg-gray-800/70 dark:bg-slate-800/70 px-3 xs:px-4 py-2.5 xs:py-3 shadow-inner shadow-black/20"
-                    >
-                      <div className="flex items-center gap-1.5 xs:gap-2 text-[10px] xs:text-xs font-medium text-blue-300">
-                        <Icon className="h-3 w-3 xs:h-4 xs:w-4" />
-                        {item.label}
-                      </div>
-                      <p className="text-lg xs:text-xl sm:text-2xl font-semibold text-white mt-1.5 xs:mt-2">{item.value}</p>
-                    </motion.div>
-                  );
-                })}
-              </motion.div>
-
-              <motion.div className="mt-5 xs:mt-6 flex flex-col xs:flex-row flex-wrap gap-3 xs:gap-4" variants={fadeUpChild}>
-                {contactChannels.map((channel) => {
-                  const Icon = channel.icon;
-                  return (
-                    <a
-                      key={channel.label}
-                      href={channel.href}
-                      className="group flex items-center gap-2.5 xs:gap-3 rounded-xl xs:rounded-2xl border border-gray-800 dark:border-slate-700 bg-gray-900/80 dark:bg-slate-800/80 px-3 xs:px-4 py-2.5 xs:py-3 text-xs xs:text-sm text-gray-300 dark:text-slate-400 shadow-sm transition hover:border-blue-500/40 dark:hover:border-blue-600/40 hover:bg-blue-950/30 dark:hover:bg-blue-900/30 hover:text-white dark:hover:text-slate-100 min-h-touch"
-                    >
-                      <span className="flex h-8 w-8 xs:h-9 xs:w-9 sm:h-10 sm:w-10 items-center justify-center rounded-lg xs:rounded-xl bg-blue-500/10 text-blue-300 flex-shrink-0">
-                        <Icon className="h-3.5 w-3.5 xs:h-4 xs:w-4" />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="text-[10px] xs:text-xs uppercase tracking-wide text-gray-500">{channel.label}</p>
-                        <p className="font-semibold text-white text-xs xs:text-sm truncate">{channel.value}</p>
-                      </div>
-                      <ArrowUpRight className="h-3.5 w-3.5 xs:h-4 xs:w-4 text-gray-500 group-hover:text-blue-300 flex-shrink-0" />
-                    </a>
-                  );
-                })}
-              </motion.div>
-            </motion.div>
-
-            <motion.div
-              variants={fadeUpChild}
-              className="rounded-2xl xs:rounded-3xl border border-gray-800 bg-gray-900/60 p-5 xs:p-6 sm:p-8 shadow-2xl shadow-black/40"
-            >
-              <h4 className="text-base xs:text-lg font-semibold text-white mb-2">Stay in the loop</h4>
-              <p className="text-xs xs:text-sm text-gray-400 mb-4 xs:mb-5">
-                Monthly drops on AI interviewing, hiring benchmarks, and feature releases.
-              </p>
-              <div className="flex flex-col gap-3">
-                <div className="flex flex-col xs:flex-row rounded-xl xs:rounded-2xl border border-gray-800 bg-gray-900 p-1 gap-2 xs:gap-0">
-                  <input
-                    type="email"
-                    placeholder="Work Email"
-                    className="flex-1 bg-transparent px-3 py-2.5 xs:py-2 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none rounded-lg xs:rounded-none min-h-touch"
-                  />
-                  <Button className="rounded-xl xs:rounded-full bg-gradient-to-r from-blue-600 to-purple-600 px-4 py-2.5 xs:py-2 text-sm font-semibold text-white shadow-md shadow-blue-500/30 transition hover:from-blue-700 hover:to-purple-700 min-h-touch">
-                    Subscribe
-                  </Button>
-                </div>
-              </div>
-              <div className="mt-6 xs:mt-8 grid grid-cols-2 gap-3 xs:gap-4 text-xs xs:text-sm text-gray-400">
-                <div className="rounded-xl xs:rounded-2xl border border-gray-800 bg-blue-500/10 px-3 xs:px-4 py-2.5 xs:py-3">
-                  <p className="text-[10px] xs:text-xs uppercase tracking-wide text-blue-300">Live readiness</p>
-                  <p className="text-white text-sm xs:text-base sm:text-lg font-semibold">24/5 coaches</p>
-                </div>
-                <div className="rounded-xl xs:rounded-2xl border border-gray-800 bg-blue-500/10 px-3 xs:px-4 py-2.5 xs:py-3">
-                  <p className="text-[10px] xs:text-xs uppercase tracking-wide text-blue-300">Response SLA</p>
-                  <p className="text-white text-sm xs:text-base sm:text-lg font-semibold">&lt; 4 hrs avg</p>
-                </div>
-                <div className="rounded-xl xs:rounded-2xl border border-gray-800 bg-blue-500/10 px-3 xs:px-4 py-2.5 xs:py-3">
-                  <p className="text-[10px] xs:text-xs uppercase tracking-wide text-blue-300">Uptime</p>
-                  <p className="text-white text-sm xs:text-base sm:text-lg font-semibold">99.9%</p>
-                </div>
-                <div className="rounded-xl xs:rounded-2xl border border-gray-800 bg-blue-500/10 px-3 xs:px-4 py-2.5 xs:py-3">
-                  <p className="text-[10px] xs:text-xs uppercase tracking-wide text-blue-300">Support coverage</p>
-                  <p className="text-white text-sm xs:text-base sm:text-lg font-semibold">Global</p>
-                </div>
-              </div>
-            </motion.div>
-          </motion.div>
-
-          <motion.div
-            className="grid gap-6 xs:gap-8 grid-cols-1 md:grid-cols-[1fr_2fr]"
-            variants={fadeUpChild}
-          >
-            <div className="space-y-4 xs:space-y-5">
-              <p className="text-xs xs:text-sm font-semibold text-gray-400">Follow the build</p>
-              <div className="flex flex-wrap gap-2 xs:gap-3">
-                {socialLinks.map((social) => {
-                  const Icon = social.icon;
-                  return (
-                    <a
-                      key={social.label}
-                      href={social.href}
-                      className="flex items-center gap-1.5 xs:gap-2 rounded-full border border-gray-800 dark:border-slate-700 bg-gray-900/70 dark:bg-slate-800/70 px-3 xs:px-4 py-2 xs:py-2.5 text-xs xs:text-sm text-gray-300 dark:text-slate-400 transition hover:border-blue-500/40 dark:hover:border-blue-600/40 hover:text-white dark:hover:text-slate-100 min-h-touch"
-                    >
-                      <Icon className="h-3.5 w-3.5 xs:h-4 xs:w-4" />
-                      {social.label}
-                    </a>
-                  );
-                })}
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 xs:gap-5 sm:gap-6 text-xs xs:text-sm">
-              {Object.entries(footerLinks).map(([section, links]) => (
-                <div key={section} className="space-y-2 xs:space-y-3">
-                  <p className="text-[10px] xs:text-xs uppercase tracking-wide text-gray-500">{section}</p>
-                  <ul className="space-y-1.5 xs:space-y-2">
-                    {links.map((link, linkIndex) => (
-                      <li key={`${section}-${link.path}-${linkIndex}`}>
-                        <a
-                          href={link.path}
-                          onClick={(e) => {
-                            if (!link.path.startsWith('#')) {
-                              e.preventDefault();
-                              navigate(link.path);
-                            }
-                          }}
-                          className="text-gray-400 dark:text-slate-500 transition hover:text-white dark:hover:text-slate-200"
-                        >
-                          {link.name}
-                        </a>
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div
-            className="flex flex-col gap-3 xs:gap-4 border-t border-gray-800 dark:border-slate-800 pt-5 xs:pt-6 text-xs xs:text-sm text-gray-400 dark:text-slate-500 sm:flex-row sm:items-center sm:justify-between"
-            variants={fadeUpChild}
-          >
-            <p>© {new Date().getFullYear()} InterviewAI Pro. Crafted in SF & remote.</p>
-            <div className="flex flex-wrap gap-3 xs:gap-4 text-gray-500 dark:text-slate-500">
-              <a href="/terms" onClick={(e) => { e.preventDefault(); navigate('/terms'); }} className="hover:text-white dark:hover:text-slate-200 transition">
-                Terms
-              </a>
-              <a href="/privacy" onClick={(e) => { e.preventDefault(); navigate('/privacy'); }} className="hover:text-white dark:hover:text-slate-200 transition">
-                Privacy
-              </a>
-              <a href="#status" className="hover:text-white dark:hover:text-slate-200 transition">
-                Status
-              </a>
-            </div>
-          </motion.div>
-        </div>
-      </motion.footer>
+      <PublicFooter />
     </div>
   );
 };

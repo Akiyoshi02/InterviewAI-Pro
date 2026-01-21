@@ -5,6 +5,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -114,6 +115,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   useEffect(() => {
     loadApplications();
   }, [jobId]);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
 
   const loadApplications = async () => {
     try {
@@ -327,11 +333,12 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading applications"
+        message="Syncing candidate submissions and review queues."
+        variant="card"
+        tone="primary"
+      />
     );
   }
 
@@ -374,11 +381,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedJobs = jobsArray.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
@@ -894,20 +896,12 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     <Button
                       variant="primary"
                       onClick={handleStartReview}
+                      loading={startingReview}
                       disabled={startingReview || isWithdrawn(selectedApplication)}
                       className="flex-1"
                     >
-                      {startingReview ? (
-                        <>
-                          <Icon name="Loader2" className="w-4 h-4 mr-2 animate-spin" />
-                          Starting...
-                        </>
-                      ) : (
-                        <>
-                          <Icon name="Play" className="w-4 h-4 mr-2" />
-                          Start Review
-                        </>
-                      )}
+                      {!startingReview && <Icon name="Play" className="w-4 h-4 mr-2" />}
+                      {startingReview ? 'Starting...' : 'Start Review'}
                     </Button>
                   </div>
                 </div>

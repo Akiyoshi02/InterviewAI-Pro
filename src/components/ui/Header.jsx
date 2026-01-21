@@ -331,7 +331,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
               <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-slate-500 mb-3 px-1">Quick Links</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
-                  onClick={() => handleNavClick('/support')}
+                  onClick={() => handleNavClick('/help-center')}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <Icon name="HelpCircle" size={16} />

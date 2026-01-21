@@ -1,6 +1,7 @@
 import React from "react";
 import { BrowserRouter, Routes as RouterRoutes, Route } from "react-router-dom";
 import ScrollToTop from "components/ScrollToTop";
+import PageTitleManager from "components/PageTitleManager";
 import ErrorBoundary from "components/ErrorBoundary";
 import OAuthRedirectHandler from "components/OAuthRedirectHandler";
 import ThemeToggleButton from "components/ThemeToggleButton";
@@ -18,9 +19,20 @@ import CandidateDashboard from './pages/candidate-dashboard';
 import VerifyEmail from './pages/verify-email';
 import Privacy from './pages/privacy';
 import Terms from './pages/terms';
-import Support from './pages/support';
+import Contact from './pages/contact';
+import HelpCenter from './pages/help-center';
+import LearningCenter from './pages/learning-center';
+import SuccessStories from './pages/success-stories';
+import InterviewGuides from './pages/interview-guides';
+import HelpArticles from './pages/help-articles';
 import Onboarding from './pages/onboarding';
+import About from './pages/about';
+import Careers from './pages/careers';
+import Press from './pages/press';
+import APIDocsPage from './pages/api-docs';
+import StatusPage from './pages/status';
 import JobsPage from './pages/jobs';
+import JobDetailPage from './pages/job-detail';
 import InvitePage from './pages/invite';
 import SystemAdminDashboard from './pages/system-admin-dashboard';
 import AcceptTeamInvitePage from './pages/accept-team-invite';
@@ -38,6 +50,7 @@ const Routes = () => {
     <BrowserRouter>
       <ErrorBoundary>
       <ScrollToTop />
+      <PageTitleManager />
       <OAuthRedirectHandler />
       <ThemeToggleButton />
       <RouterRoutes>
@@ -162,8 +175,19 @@ const Routes = () => {
         />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="/terms" element={<Terms />} />
-        <Route path="/support" element={<Support />} />
+        <Route path="/contact" element={<Contact />} />
+        <Route path="/help-center" element={<HelpCenter />} />
+        <Route path="/learning-center" element={<LearningCenter />} />
+        <Route path="/success-stories" element={<SuccessStories />} />
+        <Route path="/interview-guides" element={<InterviewGuides />} />
+        <Route path="/help-articles" element={<HelpArticles />} />
+        <Route path="/about" element={<About />} />
+        <Route path="/careers" element={<Careers />} />
+        <Route path="/press" element={<Press />} />
+        <Route path="/api-docs" element={<APIDocsPage />} />
+        <Route path="/status" element={<StatusPage />} />
         <Route path="/jobs" element={<JobsPage />} />
+        <Route path="/jobs/:id" element={<JobDetailPage />} />
         <Route path="/invite" element={<InvitePage />} />
         <Route
           path="/system-admin-dashboard"

@@ -4,6 +4,7 @@ import jsPDF from 'jspdf';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 
@@ -148,12 +149,12 @@ const CandidateProgressDashboard = () => {
     const logoUrl = getCompanyLogoUrl(user);
     
     const now = new Date();
-    const reportDate = now.toLocaleDateString('en-US', { 
+    const reportDate = now.toLocaleDateString('en-GB', { 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric' 
     });
-    const reportTime = now.toLocaleTimeString('en-US', { 
+    const reportTime = now.toLocaleTimeString('en-GB', { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
@@ -709,7 +710,7 @@ const CandidateProgressDashboard = () => {
         checkNewPage(rowHeight + 2);
         const candidateName = activity.candidate?.fullName || activity.candidate?.email || 'Unknown';
         const jobTitle = activity.job?.title || 'Unknown position';
-        const date = new Date(activity.submittedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+        const date = new Date(activity.submittedAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
         const appId = activity.id ? activity.id.substring(0, 8) : 'N/A';
         
         // Row background
@@ -811,12 +812,12 @@ const CandidateProgressDashboard = () => {
       || user?.organizationContext?.organization?.displayName 
       || 'Company';
     const now = new Date();
-    const reportDate = now.toLocaleDateString('en-US', { 
+    const reportDate = now.toLocaleDateString('en-GB', { 
       year: 'numeric', 
       month: 'long', 
       day: 'numeric' 
     });
-    const reportTime = now.toLocaleTimeString('en-US', { 
+    const reportTime = now.toLocaleTimeString('en-GB', { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
@@ -938,7 +939,7 @@ const CandidateProgressDashboard = () => {
         const candidateName = (activity.candidate?.fullName || 'Unknown').replace(/"/g, '""');
         const candidateEmail = activity.candidate?.email || 'N/A';
         const jobTitle = (activity.job?.title || 'Unknown position').replace(/"/g, '""');
-        const date = new Date(activity.submittedAt).toLocaleDateString('en-US', { 
+        const date = new Date(activity.submittedAt).toLocaleDateString('en-GB', { 
           year: 'numeric', 
           month: 'short', 
           day: 'numeric' 
@@ -1132,11 +1133,12 @@ const CandidateProgressDashboard = () => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading analytics"
+        message="Crunching candidate pipeline metrics."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 

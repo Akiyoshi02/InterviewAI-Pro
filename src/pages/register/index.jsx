@@ -45,18 +45,40 @@ const Register = () => {
     profilePhoto: null,
     resumeFile: null,
     gender: '',
+    phoneNumber: '', // For candidates - interview reminders
+    highestQualification: '',
+    fieldOfStudy: '',
+    institutionName: '',
+    graduationYear: '',
+    skills: [],
+    certifications: [],
+    linkedinUrl: '', // For candidates
+    githubUrl: '',
+    portfolioUrl: '',
+    availability: '',
+    preferredWorkType: '',
+    preferredEmploymentType: '',
+    expectedSalary: '',
     
     // Company specific fields
     companyName: '',
+    companyType: '',
     companySize: '',
     jobTitle: '',
     department: '',
     hiringVolume: '',
     companyWebsite: '',
     companyLocation: '',
-    phoneNumber: '',
+    companyPhoneNumber: '', // For companies
+    companyAddress: '',
+    companyDescription: '',
+    facebookUrl: '',
+    companyLinkedinUrl: '', // For companies
     companyLogo: null,
     companyProof: null,
+    businessRegistrationNumber: '',
+    companyEmail: '',
+    establishedYear: '',
   });
 
   const [errors, setErrors] = useState({});
@@ -77,6 +99,18 @@ const Register = () => {
     companyLogo: { status: 'idle', error: '' },
     companyProof: { status: 'idle', error: '' },
   });
+  const [emailVerification, setEmailVerification] = useState({
+    status: 'idle',
+    message: '',
+    email: '',
+  });
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const [isCheckingVerification, setIsCheckingVerification] = useState(false);
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationCodeError, setVerificationCodeError] = useState('');
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [resendAvailableAt, setResendAvailableAt] = useState(null);
+  const [resendSeconds, setResendSeconds] = useState(0);
 
   const getSafeRedirectPath = (value) => {
     if (!value || typeof value !== 'string') return null;
@@ -99,6 +133,13 @@ const Register = () => {
     return text;
   };
 
+  const extractWaitSeconds = (text) => {
+    if (!text) return null;
+    const match = text.match(/wait\s+(\d+)\s+seconds/i);
+    return match ? Number(match[1]) : null;
+  };
+
+  const normalizeEmail = (value) => (value || '').trim().toLowerCase();
   const formatDetectedLocation = (data, coords) => {
     if (!data && !coords) {
       return '';
@@ -223,6 +264,19 @@ const Register = () => {
 
     const multipartPayload = new FormData();
     Object.entries(payload).forEach(([key, value]) => {
+      if (Array.isArray(value)) {
+        const filteredValues = value
+          .map((item) => (typeof item === 'string' ? item.trim() : item))
+          .filter((item) => item !== undefined && item !== null && item !== '');
+        if (filteredValues.length === 0) {
+          return;
+        }
+        filteredValues.forEach((item) => {
+          multipartPayload.append(key, item);
+        });
+        return;
+      }
+
       if (value !== undefined && value !== null && value !== '') {
         multipartPayload.append(key, value);
       }
@@ -292,6 +346,11 @@ const Register = () => {
         companyWebsite: pendingData.companyWebsite || prev.companyWebsite,
         companyLocation: pendingData.companyLocation || prev.companyLocation,
         phoneNumber: pendingData.phoneNumber || prev.phoneNumber,
+        companyAddress: pendingData.companyAddress || prev.companyAddress,
+        companyDescription: pendingData.companyDescription || prev.companyDescription,
+        facebookUrl: pendingData.facebookUrl || prev.facebookUrl,
+        linkedinUrl: pendingData.linkedinUrl || prev.linkedinUrl,
+        youtubeUrl: pendingData.youtubeUrl || prev.youtubeUrl,
       };
     });
   }, []);
@@ -381,6 +440,208 @@ const Register = () => {
     }
   };
 
+  useEffect(() => {
+    if (!emailVerification.email) {
+      return;
+    }
+    if (normalizeEmail(emailVerification.email) !== normalizeEmail(formData?.email)) {
+      setEmailVerification({ status: 'idle', message: '', email: '' });
+      setVerificationCode('');
+      setVerificationCodeError('');
+      setResendAvailableAt(null);
+      setResendSeconds(0);
+    }
+  }, [emailVerification.email, formData?.email, normalizeEmail]);
+
+  useEffect(() => {
+    if (!resendAvailableAt) {
+      setResendSeconds(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000));
+      setResendSeconds(remaining);
+      if (remaining <= 0) {
+        setResendAvailableAt(null);
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [resendAvailableAt]);
+
+  const ensureFirebaseSessionForVerification = async () => {
+    const targetEmail = normalizeEmail(formData?.email);
+    if (!targetEmail) {
+      throw new Error('Please enter a valid email address.');
+    }
+
+    const { data: sessionSnapshot } = await authHelpers.getSession();
+    const existingSession = sessionSnapshot?.session;
+    const existingEmail = normalizeEmail(existingSession?.user?.email);
+
+    if (existingSession?.access_token && existingEmail === targetEmail) {
+      return existingSession.user;
+    }
+
+    if (existingSession?.access_token && existingEmail && existingEmail !== targetEmail) {
+      await authHelpers.signOut();
+    }
+
+    const { data: authData, error: authError } = await authHelpers.signUp(
+      formData.email,
+      formData.password,
+      {
+        fullName: formData.fullName,
+        accountType: formData.accountType,
+      }
+    );
+
+    if (authError) {
+      if (authError.code === 'auth/email-already-in-use') {
+        const { data: signInData, error: signInError } = await authHelpers.signIn(formData.email, formData.password);
+        if (signInError || !signInData?.user) {
+          throw new Error(signInError?.message || 'Email is already in use. Please sign in instead.');
+        }
+        return signInData.user;
+      }
+      throw new Error(authError.message || 'Unable to create your account.');
+    }
+
+    if (!authData?.user) {
+      throw new Error('Failed to create your account.');
+    }
+
+    return authData.user;
+  };
+
+  const sendVerificationEmail = async () => {
+    const targetEmail = normalizeEmail(formData?.email);
+    setIsSendingVerification(true);
+    setVerificationCodeError('');
+    setEmailVerification({ status: 'sending', message: '', email: targetEmail });
+
+    try {
+      await ensureFirebaseSessionForVerification();
+      const result = await apiClient.auth.startEmailVerification({
+        email: targetEmail,
+        fullName: formData.fullName,
+      });
+
+      if (result?.verified) {
+        await authHelpers.reloadUser();
+        await authHelpers.refreshAccessToken();
+        setEmailVerification({
+          status: 'verified',
+          email: targetEmail,
+          message: 'Email verified. You can continue to the next step.',
+        });
+        setVerificationCode('');
+        setVerificationCodeError('');
+        setResendAvailableAt(null);
+        setResendSeconds(0);
+        setCurrentStep(2);
+        return true;
+      }
+
+      setEmailVerification({
+        status: 'sent',
+        email: targetEmail,
+        message: result?.message
+          || `We sent a verification email to ${targetEmail}. Use the 8-digit code below or click the link to continue.`,
+      });
+      setResendAvailableAt(Date.now() + 60 * 1000);
+      return true;
+    } catch (error) {
+      const message = friendlyRateLimitMessage(error.message) || 'Unable to send a verification email. Please try again.';
+      setEmailVerification({
+        status: 'error',
+        email: targetEmail,
+        message,
+      });
+      const waitSeconds = extractWaitSeconds(error.message);
+      if (waitSeconds) {
+        setResendAvailableAt(Date.now() + waitSeconds * 1000);
+      }
+      return false;
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const checkEmailVerification = async ({ updatePendingState = true } = {}) => {
+    setIsCheckingVerification(true);
+    try {
+      const { data, error } = await authHelpers.reloadUser();
+      if (error) {
+        throw error;
+      }
+      if (!data?.user) {
+        throw new Error('Please sign in again to confirm your email verification.');
+      }
+
+      const verified = Boolean(data?.user?.email_confirmed_at);
+      if (verified) {
+        await authHelpers.refreshAccessToken();
+        setEmailVerification({
+          status: 'verified',
+          email: normalizeEmail(data?.user?.email),
+          message: 'Email verified. You can continue to the next step.',
+        });
+        setVerificationCode('');
+        setVerificationCodeError('');
+        setResendAvailableAt(null);
+        setResendSeconds(0);
+        setCurrentStep(2);
+        return true;
+      }
+
+      if (updatePendingState) {
+        setEmailVerification((prev) => ({
+          status: prev.status === 'sending' || prev.status === 'idle' ? 'sent' : prev.status,
+          email: prev.email || normalizeEmail(formData?.email),
+          message: prev.message
+            || 'Your email is not verified yet. Use the 8-digit code or click the verification link in your inbox.',
+        }));
+      }
+      return false;
+    } catch (error) {
+      setEmailVerification({
+        status: 'error',
+        email: normalizeEmail(formData?.email),
+        message: friendlyRateLimitMessage(error.message) || 'Unable to confirm email verification. Please try again.',
+      });
+      return false;
+    } finally {
+      setIsCheckingVerification(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const cleanedCode = (verificationCode || '').replace(/\D/g, '');
+    if (cleanedCode.length !== 8) {
+      setVerificationCodeError('Enter the 8-digit code from your email.');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    setVerificationCodeError('');
+
+    try {
+      await ensureFirebaseSessionForVerification();
+      await apiClient.auth.verifyEmailCode(cleanedCode);
+      await checkEmailVerification({ updatePendingState: false });
+    } catch (error) {
+      setVerificationCodeError(
+        friendlyRateLimitMessage(error.message) || 'Unable to verify the code. Please try again.'
+      );
+    } finally {
+      setIsVerifyingCode(false);
+    }
+  };
+
   const validateStep = (step) => {
     const newErrors = {};
 
@@ -424,6 +685,9 @@ const Register = () => {
         if (!formData?.gender) {
           newErrors.gender = 'Please select your gender';
         }
+        if (!formData?.highestQualification) {
+          newErrors.highestQualification = 'Highest qualification is required';
+        }
         if (!formData?.profilePhoto) {
           newErrors.profilePhoto = 'Please upload a profile picture';
         }
@@ -438,6 +702,9 @@ const Register = () => {
       } else if (formData?.accountType === 'company') {
         if (!formData?.companyName?.trim()) {
           newErrors.companyName = 'Company name is required';
+        }
+        if (!formData?.companyType) {
+          newErrors.companyType = 'Company type is required';
         }
         if (!formData?.companySize) {
           newErrors.companySize = 'Company size is required';
@@ -517,6 +784,48 @@ const Register = () => {
       } finally {
         setIsCheckingEmail(false);
       }
+
+      try {
+        const pending = localStorage.getItem('pendingRegistration');
+        const pendingData = pending ? JSON.parse(pending) : {};
+        localStorage.setItem('pendingRegistration', JSON.stringify({
+          ...pendingData,
+          accountType: formData.accountType,
+          fullName: formData.fullName,
+          email: formData.email,
+        }));
+      } catch {
+        localStorage.setItem('pendingRegistration', JSON.stringify({
+          accountType: formData.accountType,
+          fullName: formData.fullName,
+          email: formData.email,
+        }));
+      }
+
+      try {
+        await ensureFirebaseSessionForVerification();
+      } catch (error) {
+        setEmailVerification({
+          status: 'error',
+          email: normalizeEmail(formData?.email),
+          message: friendlyRateLimitMessage(error.message) || 'Unable to start email verification. Please try again.',
+        });
+        return;
+      }
+
+      const shouldCheckVerification = emailVerification.status === 'sent';
+      if (shouldCheckVerification) {
+        await checkEmailVerification();
+        return;
+      }
+
+      const alreadyVerified = await checkEmailVerification({ updatePendingState: false });
+      if (alreadyVerified) {
+        return;
+      }
+
+      await sendVerificationEmail();
+      return;
     }
 
     setCurrentStep(prev => Math.min(prev + 1, 3));
@@ -610,6 +919,16 @@ const Register = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
 
+  useEffect(() => {
+    if (currentStep !== 1) {
+      return;
+    }
+    if (searchParams.get('verified') !== '1') {
+      return;
+    }
+    checkEmailVerification();
+  }, [currentStep, searchParams]);
+
   const validateSocialRegistrationRequirements = () => {
     const missingFields = {};
     const missingSections = new Set();
@@ -631,6 +950,10 @@ const Register = () => {
         missingFields.gender = 'Gender selection is required before using Google sign-up.';
         missingSections.add('professional details');
       }
+      if (!formData?.highestQualification) {
+        missingFields.highestQualification = 'Highest qualification is required before using Google sign-up.';
+        missingSections.add('educational background');
+      }
       if (!formData?.profilePhoto) {
         missingFields.profilePhoto = 'Profile picture is required before using Google sign-up.';
         missingSections.add('professional details');
@@ -650,6 +973,10 @@ const Register = () => {
     } else if (formData?.accountType === 'company') {
       if (!formData?.companyName?.trim()) {
         missingFields.companyName = 'Company name is required before using Google sign-up.';
+        missingSections.add('company information');
+      }
+      if (!formData?.companyType) {
+        missingFields.companyType = 'Company type is required before using Google sign-up.';
         missingSections.add('company information');
       }
       if (!formData?.companySize) {
@@ -774,20 +1101,43 @@ const Register = () => {
         accountType: accountTypeUpper,
         email: data.user.email || undefined,
         fullName: formData.fullName || data.user.user_metadata?.fullName || data.user.email?.split('@')[0] || 'New User',
+        // Candidate fields
         experienceLevel: formData.accountType === 'candidate' ? formData.experienceLevel || undefined : undefined,
         gender: formData.accountType === 'candidate' ? formData.gender || undefined : undefined,
         targetRole: formData.accountType === 'candidate' ? formData.targetRole || undefined : undefined,
         careerGoals: formData.accountType === 'candidate' ? formData.careerGoals || undefined : undefined,
         location: formData.accountType === 'candidate' ? formData.location || undefined : undefined,
         preferredLanguage: formData.accountType === 'candidate' ? formData.preferredLanguage || undefined : undefined,
+        phoneNumber: formData.accountType === 'candidate' ? formData.phoneNumber || undefined : formData.accountType === 'company' ? formData.companyPhoneNumber || undefined : undefined,
+        highestQualification: formData.accountType === 'candidate' ? formData.highestQualification || undefined : undefined,
+        fieldOfStudy: formData.accountType === 'candidate' ? formData.fieldOfStudy || undefined : undefined,
+        institutionName: formData.accountType === 'candidate' ? formData.institutionName || undefined : undefined,
+        graduationYear: formData.accountType === 'candidate' ? formData.graduationYear || undefined : undefined,
+        skills: formData.accountType === 'candidate' ? formData.skills || [] : undefined,
+        certifications: formData.accountType === 'candidate' ? formData.certifications || [] : undefined,
+        linkedinUrl: formData.accountType === 'candidate' ? formData.linkedinUrl || undefined : undefined,
+        githubUrl: formData.accountType === 'candidate' ? formData.githubUrl || undefined : undefined,
+        portfolioUrl: formData.accountType === 'candidate' ? formData.portfolioUrl || undefined : undefined,
+        availability: formData.accountType === 'candidate' ? formData.availability || undefined : undefined,
+        preferredWorkType: formData.accountType === 'candidate' ? formData.preferredWorkType || undefined : undefined,
+        preferredEmploymentType: formData.accountType === 'candidate' ? formData.preferredEmploymentType || undefined : undefined,
+        expectedSalary: formData.accountType === 'candidate' ? formData.expectedSalary || undefined : undefined,
+        // Company fields
         companyName: formData.accountType === 'company' ? formData.companyName || undefined : undefined,
+        companyType: formData.accountType === 'company' ? formData.companyType || undefined : undefined,
         companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
         jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
         department: formData.accountType === 'company' ? formData.department || undefined : undefined,
         hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
         companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
         companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
-        phoneNumber: formData.accountType === 'company' ? formData.phoneNumber || undefined : undefined,
+        companyAddress: formData.accountType === 'company' ? formData.companyAddress || undefined : undefined,
+        companyDescription: formData.accountType === 'company' ? formData.companyDescription || undefined : undefined,
+        facebookUrl: formData.accountType === 'company' ? formData.facebookUrl || undefined : undefined,
+        companyLinkedinUrl: formData.accountType === 'company' ? formData.companyLinkedinUrl || undefined : undefined,
+        businessRegistrationNumber: formData.accountType === 'company' ? formData.businessRegistrationNumber || undefined : undefined,
+        companyEmail: formData.accountType === 'company' ? formData.companyEmail || undefined : undefined,
+        establishedYear: formData.accountType === 'company' ? formData.establishedYear || undefined : undefined,
         industry: formData.industry || undefined,
       };
 
@@ -839,6 +1189,18 @@ const Register = () => {
     setMessage('');
     
     try {
+      const { data: verifiedSnapshot, error: verifiedError } = await authHelpers.reloadUser();
+      if (verifiedError) {
+        throw verifiedError;
+      }
+      if (!verifiedSnapshot?.user?.email_confirmed_at) {
+        setErrors({ submit: 'Please verify your email before completing registration.' });
+        setStatus('info');
+        setMessage('Check your inbox for the verification email, then return to complete registration.');
+        return;
+      }
+      await authHelpers.refreshAccessToken();
+
       // Mark this as a registration attempt
       localStorage.setItem('socialAuthIntent', 'register');
       
@@ -861,6 +1223,11 @@ const Register = () => {
         companyWebsite: formData.companyWebsite,
         companyLocation: formData.companyLocation,
         phoneNumber: formData.phoneNumber,
+        companyAddress: formData.companyAddress,
+        companyDescription: formData.companyDescription,
+        facebookUrl: formData.facebookUrl,
+        linkedinUrl: formData.linkedinUrl,
+        youtubeUrl: formData.youtubeUrl,
       };
       localStorage.setItem('pendingRegistration', JSON.stringify(registrationData));
       localStorage.setItem('pendingAccountType', formData.accountType);
@@ -928,20 +1295,43 @@ const Register = () => {
             accountType: accountTypeUpper,
             email: formData.email || undefined,
             fullName: formData.fullName,
+            // Candidate fields
             experienceLevel: formData.experienceLevel || undefined,
             gender: formData.accountType === 'candidate' ? formData.gender || undefined : undefined,
             targetRole: formData.accountType === 'candidate' ? formData.targetRole || undefined : undefined,
             careerGoals: formData.accountType === 'candidate' ? formData.careerGoals || undefined : undefined,
             location: formData.accountType === 'candidate' ? formData.location || undefined : undefined,
             preferredLanguage: formData.accountType === 'candidate' ? formData.preferredLanguage || undefined : undefined,
+            phoneNumber: formData.accountType === 'candidate' ? formData.phoneNumber || undefined : formData.accountType === 'company' ? formData.companyPhoneNumber || undefined : undefined,
+            highestQualification: formData.accountType === 'candidate' ? formData.highestQualification || undefined : undefined,
+            fieldOfStudy: formData.accountType === 'candidate' ? formData.fieldOfStudy || undefined : undefined,
+            institutionName: formData.accountType === 'candidate' ? formData.institutionName || undefined : undefined,
+            graduationYear: formData.accountType === 'candidate' ? formData.graduationYear || undefined : undefined,
+            skills: formData.accountType === 'candidate' ? formData.skills || [] : undefined,
+            certifications: formData.accountType === 'candidate' ? formData.certifications || [] : undefined,
+            linkedinUrl: formData.accountType === 'candidate' ? formData.linkedinUrl || undefined : undefined,
+            githubUrl: formData.accountType === 'candidate' ? formData.githubUrl || undefined : undefined,
+            portfolioUrl: formData.accountType === 'candidate' ? formData.portfolioUrl || undefined : undefined,
+            availability: formData.accountType === 'candidate' ? formData.availability || undefined : undefined,
+            preferredWorkType: formData.accountType === 'candidate' ? formData.preferredWorkType || undefined : undefined,
+            preferredEmploymentType: formData.accountType === 'candidate' ? formData.preferredEmploymentType || undefined : undefined,
+            expectedSalary: formData.accountType === 'candidate' ? formData.expectedSalary || undefined : undefined,
+            // Company fields
             companyName: formData.companyName || undefined,
+            companyType: formData.accountType === 'company' ? formData.companyType || undefined : undefined,
             companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
             jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
             department: formData.accountType === 'company' ? formData.department || undefined : undefined,
             hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
             companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
             companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
-            phoneNumber: formData.accountType === 'company' ? formData.phoneNumber || undefined : undefined,
+            companyAddress: formData.accountType === 'company' ? formData.companyAddress || undefined : undefined,
+            companyDescription: formData.accountType === 'company' ? formData.companyDescription || undefined : undefined,
+            facebookUrl: formData.accountType === 'company' ? formData.facebookUrl || undefined : undefined,
+            companyLinkedinUrl: formData.accountType === 'company' ? formData.companyLinkedinUrl || undefined : undefined,
+            businessRegistrationNumber: formData.accountType === 'company' ? formData.businessRegistrationNumber || undefined : undefined,
+            companyEmail: formData.accountType === 'company' ? formData.companyEmail || undefined : undefined,
+            establishedYear: formData.accountType === 'company' ? formData.establishedYear || undefined : undefined,
             industry: formData.industry || undefined,
             })
           );
@@ -1044,7 +1434,9 @@ const Register = () => {
 
   const getStepTitle = () => {
     switch (currentStep) {
-      case 1: return 'Create Your Account';
+      case 1: return emailVerification.status !== 'idle' && emailVerification.status !== 'verified'
+        ? 'Verify Your Email'
+        : 'Create Your Account';
       case 2: return `${formData?.accountType === 'candidate' ? 'Professional' : 'Company'} Information`;
       case 3: return 'Terms & Privacy';
       default: return 'Create Your Account';
@@ -1053,7 +1445,9 @@ const Register = () => {
 
   const getStepDescription = () => {
     switch (currentStep) {
-      case 1: return 'Start your AI interview journey with basic account setup';
+      case 1: return emailVerification.status !== 'idle' && emailVerification.status !== 'verified'
+        ? 'Confirm your email before continuing to professional details'
+        : 'Start your AI interview journey with basic account setup';
       case 2: return formData?.accountType === 'candidate' ?'Help us personalize your interview experience' :'Tell us about your company and hiring needs';
       case 3: return 'Review and accept our terms to complete registration';
       default: return 'Start your AI interview journey';
@@ -1068,6 +1462,50 @@ const Register = () => {
         || uploadModeration?.companyProof?.status !== 'approved'
       )
   );
+  const isStep1Busy = currentStep === 1 && (
+    isCheckingEmail || isSendingVerification || isCheckingVerification || isVerifyingCode
+  );
+  const step1ActionLabel = emailVerification.status === 'verified'
+    ? 'Next'
+    : emailVerification.status === 'sent'
+      ? 'I\'ve verified'
+      : emailVerification.status === 'error'
+        ? 'Resend verification'
+        : 'Send verification';
+  const nextButtonLabel = currentStep === 1 ? step1ActionLabel : 'Next';
+  const nextButtonIcon = currentStep === 1
+    ? (emailVerification.status === 'verified'
+      ? 'ChevronRight'
+      : emailVerification.status === 'sent'
+        ? 'CheckCircle'
+        : 'Mail')
+    : 'ChevronRight';
+  const showEmailVerificationCard = currentStep === 1 && emailVerification.status !== 'idle';
+  const emailVerificationTone = emailVerification.status === 'verified'
+    ? 'border-emerald-200/70 bg-emerald-50/70 dark:border-emerald-500/50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+    : emailVerification.status === 'error'
+      ? 'border-rose-200/70 bg-rose-50/70 dark:border-rose-500/50 dark:bg-rose-900/30 text-rose-600 dark:text-rose-300'
+      : 'border-sky-200/70 bg-sky-50/70 dark:border-sky-500/50 dark:bg-sky-900/30 text-sky-700 dark:text-sky-300';
+  const emailVerificationIcon = emailVerification.status === 'verified'
+    ? 'CheckCircle'
+    : emailVerification.status === 'error'
+      ? 'AlertCircle'
+      : 'Mail';
+  const emailVerificationTitle = emailVerification.status === 'verified'
+    ? 'Email verified'
+    : 'Verify your email';
+  const emailVerificationMessage = emailVerification.message || (
+    emailVerification.status === 'sending'
+      ? `Sending a verification email to ${formData?.email || 'your email'}...`
+      : `We sent a verification email to ${emailVerification.email || formData?.email || 'your email'}. Use the 8-digit code or click the link to continue.`
+  );
+  const resendLabel = resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend email';
+  const resendDisabled = isSendingVerification || isCheckingVerification || isVerifyingCode || resendSeconds > 0;
+  const verifyCodeDisabled =
+    isVerifyingCode
+    || isSendingVerification
+    || isCheckingVerification
+    || (verificationCode || '').replace(/\D/g, '').length !== 8;
 
   return (
     <>
@@ -1251,6 +1689,80 @@ const Register = () => {
                               />
                             </div>
                           </div>
+                          {showEmailVerificationCard && (
+                            <div className={`rounded-2xl border p-4 ${emailVerificationTone}`}>
+                              <div className="flex items-start gap-3">
+                                <div className="w-9 h-9 rounded-xl bg-white/80 dark:bg-slate-900/70 flex items-center justify-center shadow-inner">
+                                  <Icon name={emailVerificationIcon} size={16} className="text-current" />
+                                </div>
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-semibold">{emailVerificationTitle}</p>
+                                  <p className="text-xs mt-1 text-current/80">
+                                    {emailVerificationMessage}
+                                  </p>
+                                </div>
+                              </div>
+                              {emailVerification.status !== 'verified' && (
+                                <div className="mt-3 space-y-3">
+                                  <Input
+                                    label="Verification code"
+                                    type="text"
+                                    placeholder="Enter the 8-digit code"
+                                    value={verificationCode}
+                                    onChange={(e) => {
+                                      const nextValue = (e?.target?.value || '').replace(/\D/g, '').slice(0, 8);
+                                      setVerificationCode(nextValue);
+                                      if (verificationCodeError) {
+                                        setVerificationCodeError('');
+                                      }
+                                    }}
+                                    inputMode="numeric"
+                                    maxLength={8}
+                                    autoComplete="one-time-code"
+                                    error={verificationCodeError}
+                                  />
+                                  <div className="flex flex-wrap gap-2">
+                                    <Button
+                                      type="button"
+                                      variant="default"
+                                      size="sm"
+                                      iconName="CheckCircle"
+                                      className="rounded-full bg-white/90 text-slate-900 hover:bg-white"
+                                      onClick={handleVerifyCode}
+                                      loading={isVerifyingCode}
+                                      disabled={verifyCodeDisabled}
+                                    >
+                                      Verify code
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      iconName="Mail"
+                                      className="rounded-full"
+                                      onClick={sendVerificationEmail}
+                                      loading={isSendingVerification}
+                                      disabled={resendDisabled}
+                                    >
+                                      {resendLabel}
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      variant="outline"
+                                      size="sm"
+                                      iconName="Link"
+                                      className="rounded-full"
+                                      onClick={() => checkEmailVerification()}
+                                      loading={isCheckingVerification}
+                                      disabled={isCheckingVerification || isSendingVerification || isVerifyingCode}
+                                    >
+                                      I&apos;ve clicked the link
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
                         </div>
                       )}
 
@@ -1347,13 +1859,13 @@ const Register = () => {
                             type="button"
                             variant="default"
                             onClick={handleNextStep}
-                            iconName="ChevronRight"
+                            iconName={nextButtonIcon}
                             iconPosition="right"
                             className="h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6"
-                            loading={currentStep === 1 && isCheckingEmail}
-                            disabled={(currentStep === 1 && isCheckingEmail) || (currentStep === 2 && isStep2ModerationBlocking)}
+                            loading={currentStep === 1 ? isStep1Busy : false}
+                            disabled={(currentStep === 1 && isStep1Busy) || (currentStep === 2 && isStep2ModerationBlocking)}
                           >
-                            Next
+                            {nextButtonLabel}
                           </Button>
                         ) : (
                           <div className="flex flex-col sm:flex-row gap-3">
@@ -1396,7 +1908,7 @@ const Register = () => {
                 © {new Date()?.getFullYear()} InterviewAI Pro ·
                   <a href="/privacy" className="text-blue-600 hover:underline mx-1">Privacy</a>·
                   <a href="/terms" className="text-blue-600 hover:underline mx-1">Terms</a>·
-                  <a href="/support" className="text-blue-600 hover:underline mx-1">Support</a>
+                  <a href="/help-center" className="text-blue-600 hover:underline mx-1">Help Center</a>
                 </p>
               </div>
             </div>

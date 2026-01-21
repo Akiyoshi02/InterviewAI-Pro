@@ -328,20 +328,14 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
                       variant="default"
                       size="sm"
                       onClick={handleUpdateResume}
+                      loading={isUpdatingResume}
                       disabled={isUpdatingResume || submitting}
                       className="text-xs bg-blue-600 hover:bg-blue-700 text-white"
                     >
-                      {isUpdatingResume ? (
-                        <div className="flex items-center gap-1.5">
-                          <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                          <span>Updating...</span>
-                        </div>
-                      ) : (
-                        <div className="flex items-center gap-1.5">
-                          <Icon name="Check" className="w-3.5 h-3.5" />
-                          <span>Save & Update Resume</span>
-                        </div>
-                      )}
+                      <div className="flex items-center gap-1.5">
+                        {!isUpdatingResume && <Icon name="Check" className="w-3.5 h-3.5" />}
+                        <span>{isUpdatingResume ? 'Updating...' : 'Save & Update Resume'}</span>
+                      </div>
                     </Button>
                     <Button
                       type="button"
@@ -467,19 +461,13 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
               <Button
                 type="submit"
                 disabled={submitting || !user?.resumeUrl}
+                loading={submitting}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 text-white"
               >
-                {submitting ? (
-                  <div className="flex items-center gap-2">
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                    <span>Submitting...</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <Icon name="Send" className="w-4 h-4" />
-                    <span>Submit Application</span>
-                  </div>
-                )}
+                <div className="flex items-center gap-2">
+                  {!submitting && <Icon name="Send" className="w-4 h-4" />}
+                  <span>{submitting ? 'Submitting...' : 'Submit Application'}</span>
+                </div>
               </Button>
             </div>
 

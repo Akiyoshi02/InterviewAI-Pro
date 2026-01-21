@@ -48,7 +48,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           companyLogoAlt: `${companyName} logo`,
           position: interview?.jobRole || interview?.position || 'Interview',
           date: scheduledDate ? scheduledDate.toLocaleDateString() : 'TBD',
-          time: scheduledDate ? scheduledDate.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' }) : 'TBD',
+          time: scheduledDate ? scheduledDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'TBD',
           duration: interview?.duration || '45 min',
           type: interview?.interviewType || interview?.type || 'Interview',
           interviewer: interview?.interviewer?.name || interview?.interviewerName || null,

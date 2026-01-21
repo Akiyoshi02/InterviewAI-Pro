@@ -1,4 +1,4 @@
-import { activityLogStore, jobStore, organizationStore } from '../services/firebaseData.service.js';
+import { activityLogStore, jobStore, organizationStore, jobApplicationStore } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const sanitizeJob = (job) => {
@@ -20,8 +20,12 @@ const sanitizeJob = (job) => {
     stages: job.stages || [],
     templateConfig: job.templateConfig || {},
     publishedAt: job.publishedAt,
+    postingDuration: job.postingDuration || 30,
+    scheduledPublishAt: job.scheduledPublishAt || null,
+    expiresAt: job.expiresAt || null,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
+    applicationsCount: job.applicationsCount || 0, // Include applications count if present
   };
 };
 
@@ -93,7 +97,14 @@ export class JobController {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      res.json({ success: true, job: sanitizeJob(job) });
+      // Get applications count for this job
+      const applicationsCount = await jobApplicationStore.countByJob(jobId);
+      const jobWithCount = {
+        ...sanitizeJob(job),
+        applicationsCount,
+      };
+
+      res.json({ success: true, job: jobWithCount });
     } catch (error) {
       logger.error('Get job error:', error);
       next(error);
@@ -104,7 +115,19 @@ export class JobController {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
       const jobs = await jobStore.listByOrganization(organizationId);
-      res.json({ success: true, jobs: jobs.map(sanitizeJob) });
+      
+      // Enrich jobs with application counts
+      const jobsWithCounts = await Promise.all(
+        jobs.map(async (job) => {
+          const applicationsCount = await jobApplicationStore.countByJob(job.id);
+          return {
+            ...sanitizeJob(job),
+            applicationsCount,
+          };
+        })
+      );
+      
+      res.json({ success: true, jobs: jobsWithCounts });
     } catch (error) {
       logger.error('List jobs error:', error);
       next(error);
@@ -138,13 +161,24 @@ export class JobController {
             requirements: job.requirements || [],
             responsibilities: job.responsibilities || [],
             skills: job.skills || [],
+            compensationRange: job.compensationRange || null,
+            salaryCurrency: job.salaryCurrency || null,
+            benefits: job.benefits || null,
             publishedAt: job.publishedAt,
+            postingDuration: job.postingDuration || 30,
+            expiresAt: job.expiresAt || null,
             organizationId: job.organizationId,
             organization: organization ? {
               id: organization.id,
               name: organization.name,
               logo: organization.logo,
               website: organization.website,
+              address: organization.address || null,
+              description: organization.description || null,
+              companySize: organization.companySize || null,
+              facebookUrl: organization.facebookUrl || null,
+              linkedinUrl: organization.linkedinUrl || null,
+              youtubeUrl: organization.youtubeUrl || null,
             } : null,
           };
         })
@@ -187,13 +221,24 @@ export class JobController {
           requirements: job.requirements || [],
           responsibilities: job.responsibilities || [],
           skills: job.skills || [],
+          compensationRange: job.compensationRange || null,
+          salaryCurrency: job.salaryCurrency || null,
+          benefits: job.benefits || null,
           publishedAt: job.publishedAt,
+          postingDuration: job.postingDuration || 30,
+          expiresAt: job.expiresAt || null,
           organizationId: job.organizationId,
           organization: organization ? {
             id: organization.id,
             name: organization.name,
             logo: organization.logo,
             website: organization.website,
+            address: organization.address || null,
+            description: organization.description || null,
+            companySize: organization.companySize || null,
+            facebookUrl: organization.facebookUrl || null,
+            linkedinUrl: organization.linkedinUrl || null,
+            youtubeUrl: organization.youtubeUrl || null,
           } : null,
         },
       });

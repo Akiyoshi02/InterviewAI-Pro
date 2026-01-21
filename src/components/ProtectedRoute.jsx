@@ -1,22 +1,21 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
-
-const FullscreenLoader = ({ message = 'Checking your session...' }) => (
-  <div className="min-h-screen flex items-center justify-center bg-background p-6">
-    <div className="text-center space-y-3">
-      <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto" />
-      <p className="text-sm text-muted-foreground">{message}</p>
-    </div>
-  </div>
-);
+import LoadingState from './ui/LoadingState';
 
 const ProtectedRoute = ({ children, roles = [] }) => {
   const location = useLocation();
   const { status, user } = useAuth();
 
   if (status === 'loading') {
-    return <FullscreenLoader />;
+    return (
+      <LoadingState
+        title="Checking your session"
+        message="Verifying your secure access before continuing."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
   }
 
   if (status === 'unauthenticated' || !user) {

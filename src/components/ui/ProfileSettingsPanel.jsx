@@ -4,10 +4,10 @@ import Button from './Button';
 import Input from './Input';
 import Select from './Select';
 import Icon from '../AppIcon';
+import LoadingIndicator from './LoadingIndicator';
 import OrganizationSettings from './OrganizationSettings';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
-import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
@@ -20,11 +20,140 @@ const experienceOptions = [
   { value: 'executive', label: 'Executive/C-Level' },
 ];
 
+const jobRoleOptions = [
+  { value: 'software-engineer', label: 'Software Engineer' },
+  { value: 'frontend-developer', label: 'Frontend Engineer' },
+  { value: 'backend-developer', label: 'Backend Engineer' },
+  { value: 'fullstack-developer', label: 'Full Stack Engineer' },
+  { value: 'devops-engineer', label: 'DevOps Engineer' },
+  { value: 'qa-engineer', label: 'QA Engineer' },
+];
+
+const industryOptions = [
+  { value: 'technology', label: 'Technology & Software' },
+];
+
 const languageOptions = [
   { value: 'english', label: 'English' },
-  { value: 'spanish', label: 'Spanish' },
-  { value: 'french', label: 'French' },
 ];
+
+const qualificationOptions = [
+  { value: 'ol', label: 'O/L (Ordinary Level)' },
+  { value: 'al', label: 'A/L (Advanced Level)' },
+  { value: 'diploma', label: 'Diploma / Certificate' },
+  { value: 'hnd', label: 'HND (Higher National Diploma)' },
+  { value: 'bachelors', label: "Bachelor's Degree" },
+  { value: 'masters', label: "Master's Degree" },
+  { value: 'phd', label: 'PhD / Doctorate' },
+];
+
+const fieldOfStudyOptions = [
+  'Computer Science',
+  'Software Engineering',
+  'Information Technology',
+  'Information Systems',
+  'Data Science',
+  'Artificial Intelligence',
+  'Cyber Security',
+  'Computer Engineering',
+  'Electrical Engineering',
+  'Electronics Engineering',
+  'Mechanical Engineering',
+  'Civil Engineering',
+  'Industrial Engineering',
+  'Business Administration',
+  'Management',
+  'Marketing',
+  'Finance',
+  'Accounting',
+  'Economics',
+  'Statistics',
+  'Mathematics',
+  'Physics',
+  'Chemistry',
+  'Biology',
+  'Biotechnology',
+  'Psychology',
+  'Human Resources',
+  'Project Management',
+  'Graphic Design',
+  'UX/UI Design',
+  'Communication',
+  'English',
+  'Education',
+  'Agriculture',
+  'Medicine',
+  'Nursing',
+  'Public Health',
+  'Hospitality',
+  'Tourism',
+].map((option) => ({ value: option, label: option }));
+
+const institutionOptions = [
+  'University of Colombo',
+  'University of Moratuwa',
+  'University of Sri Jayewardenepura',
+  'University of Kelaniya',
+  'University of Peradeniya',
+  'University of Ruhuna',
+  'University of Jaffna',
+  'Eastern University, Sri Lanka',
+  'Rajarata University of Sri Lanka',
+  'Sabaragamuwa University of Sri Lanka',
+  'Wayamba University of Sri Lanka',
+  'Uva Wellassa University',
+  'Open University of Sri Lanka',
+  'Sri Lanka Institute of Information Technology (SLIIT)',
+  'Informatics Institute of Technology (IIT)',
+  'National School of Business Management (NSBM)',
+  'Sri Lanka Institute of Advanced Technological Education (SLIATE)',
+  'National Institute of Business Management (NIBM)',
+  'Academy of Design (AOD)',
+  'APIIT Sri Lanka',
+  'CINEC Campus',
+  'University of the Visual and Performing Arts',
+].map((option) => ({ value: option, label: option }));
+
+const availabilityOptions = [
+  { value: 'immediately', label: 'Immediately Available' },
+  { value: '1-week', label: '1 Week Notice' },
+  { value: '2-weeks', label: '2 Weeks Notice' },
+  { value: '1-month', label: '1 Month Notice' },
+  { value: '2-months', label: '2 Months Notice' },
+  { value: '3-months', label: '3+ Months Notice' },
+];
+
+const workTypeOptions = [
+  { value: 'remote', label: 'Remote' },
+  { value: 'onsite', label: 'On-site' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'flexible', label: 'Flexible / No Preference' },
+];
+
+const employmentTypeOptions = [
+  { value: 'full-time', label: 'Full-time' },
+  { value: 'part-time', label: 'Part-time' },
+  { value: 'contract', label: 'Contract' },
+  { value: 'internship', label: 'Internship' },
+  { value: 'freelance', label: 'Freelance' },
+];
+
+const salaryRangeOptions = [
+  { value: 'below-50k', label: 'Below Rs. 50,000' },
+  { value: '50k-100k', label: 'Rs. 50,000 - 100,000' },
+  { value: '100k-150k', label: 'Rs. 100,000 - 150,000' },
+  { value: '150k-200k', label: 'Rs. 150,000 - 200,000' },
+  { value: '200k-300k', label: 'Rs. 200,000 - 300,000' },
+  { value: '300k-500k', label: 'Rs. 300,000 - 500,000' },
+  { value: 'above-500k', label: 'Above Rs. 500,000' },
+  { value: 'negotiable', label: 'Negotiable' },
+];
+
+const currentYear = new Date().getFullYear();
+const graduationYearOptions = Array.from({ length: 40 }, (_, i) => {
+  const year = currentYear - i;
+  return { value: year.toString(), label: year.toString() };
+});
 
 const companySizeOptions = [
   { value: '1-10', label: '1-10 employees' },
@@ -191,6 +320,59 @@ const buildAssetSources = (value) => {
   return sources;
 };
 
+const normalizeOptionValue = (value) => (value ?? '').toString().toLowerCase().trim();
+
+const resolveOptionValue = (options, value) => {
+  const normalized = normalizeOptionValue(value);
+  if (!normalized) return '';
+  const match = options.find((option) => (
+    normalizeOptionValue(option.value) === normalized
+    || normalizeOptionValue(option.label) === normalized
+  ));
+  return match ? match.value : value;
+};
+
+const appendCurrentOption = (options, value) => {
+  const normalized = normalizeOptionValue(value);
+  if (!normalized) return options;
+  const hasMatch = options.some((option) => (
+    normalizeOptionValue(option.value) === normalized
+    || normalizeOptionValue(option.label) === normalized
+  ));
+  if (hasMatch) return options;
+  return [...options, { value, label: value }];
+};
+
+const formatDetectedLocation = (data, coords) => {
+  if (!data && !coords) {
+    return '';
+  }
+
+  const administrative = data?.localityInfo?.administrative || [];
+  const locality = data?.city
+    || data?.locality
+    || data?.principalSubdivision
+    || administrative.find((item) => (item.order ?? 0) >= 4)?.name;
+
+  const region = data?.principalSubdivision
+    || administrative.find((item) => (item.order ?? 0) <= 3)?.name;
+
+  const country = data?.countryName || data?.countryCode;
+
+  const parts = [locality, region, country].filter(Boolean);
+
+  if (parts.length > 0) {
+    return parts.join(', ');
+  }
+
+  if (coords) {
+    const { latitude, longitude } = coords;
+    return `Lat ${latitude.toFixed(3)}, Long ${longitude.toFixed(3)}`;
+  }
+
+  return '';
+};
+
 const StatusMessage = ({ status }) => {
   if (!status?.message) return null;
   const colorClass = status.type === 'success'
@@ -229,16 +411,30 @@ const buildProfileDefaults = (user, isCompany) => ({
   email: user?.email || '',
   targetRole: isCompany
     ? user?.targetRole || ''
-    : formatCandidateFieldValue('targetRole', user?.targetRole || ''),
+    : resolveOptionValue(jobRoleOptions, user?.targetRole || ''),
   experienceLevel: user?.experienceLevel || '',
   location: user?.location || '',
   preferredLanguage: user?.preferredLanguage || (isCompany ? '' : 'english'),
   industry: isCompany
     ? user?.industry || ''
-    : formatCandidateFieldValue('industry', user?.industry || ''),
+    : resolveOptionValue(industryOptions, user?.industry || ''),
   jobTitle: user?.jobTitle || '',
   department: user?.department || '',
   phoneNumber: user?.phoneNumber || '',
+  // Candidate education fields
+  highestQualification: user?.highestQualification || '',
+  fieldOfStudy: user?.fieldOfStudy || '',
+  institutionName: user?.institutionName || '',
+  graduationYear: user?.graduationYear || '',
+  // Candidate professional links
+  linkedinUrl: user?.linkedinUrl || '',
+  githubUrl: user?.githubUrl || '',
+  portfolioUrl: user?.portfolioUrl || '',
+  // Candidate job preferences
+  availability: user?.availability || '',
+  preferredWorkType: user?.preferredWorkType || '',
+  preferredEmploymentType: user?.preferredEmploymentType || '',
+  expectedSalary: user?.expectedSalary || '',
 });
 
 const ProfileSettingsPanel = ({
@@ -288,6 +484,8 @@ const ProfileSettingsPanel = ({
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isSavingPhoto, setIsSavingPhoto] = useState(false);
   const [isSavingResume, setIsSavingResume] = useState(false);
+  const [isDetectingLocation, setIsDetectingLocation] = useState(false);
+  const [locationFeedback, setLocationFeedback] = useState({ status: 'idle', message: '' });
   const [profileStatus, setProfileStatus] = useState(null);
   const [photoStatus, setPhotoStatus] = useState(null);
   const [resumeStatus, setResumeStatus] = useState(null);
@@ -369,11 +567,30 @@ const ProfileSettingsPanel = ({
   const photoUploadMethod = isCompany ? apiClient.auth.updateCompanyLogo : apiClient.auth.updateProfilePhoto;
   const preferenceToggles = isCompany ? companyPreferenceToggles : candidatePreferenceToggles;
   const cadenceOptions = notificationCadenceOptions[isCompany ? 'company' : 'candidate'];
+  const resolvedJobRoleOptions = useMemo(
+    () => appendCurrentOption(jobRoleOptions, profileForm.targetRole),
+    [profileForm.targetRole]
+  );
+  const resolvedIndustryOptions = useMemo(
+    () => appendCurrentOption(industryOptions, profileForm.industry),
+    [profileForm.industry]
+  );
+  const resolvedFieldOfStudyOptions = useMemo(
+    () => appendCurrentOption(fieldOfStudyOptions, profileForm.fieldOfStudy),
+    [profileForm.fieldOfStudy]
+  );
+  const resolvedInstitutionOptions = useMemo(
+    () => appendCurrentOption(institutionOptions, profileForm.institutionName),
+    [profileForm.institutionName]
+  );
 
   const handleProfileFieldChange = (field, value) => {
     setProfileForm((prev) => ({ ...prev, [field]: value }));
     if (profileStatus) {
       setProfileStatus(null);
+    }
+    if (field === 'location' && locationFeedback?.status !== 'idle') {
+      setLocationFeedback({ status: 'idle', message: '' });
     }
   };
 
@@ -454,6 +671,21 @@ const ProfileSettingsPanel = ({
             location: profileForm.location,
             preferredLanguage: profileForm.preferredLanguage,
             industry: profileForm.industry,
+            phoneNumber: profileForm.phoneNumber,
+            // Education fields
+            highestQualification: profileForm.highestQualification,
+            fieldOfStudy: profileForm.fieldOfStudy,
+            institutionName: profileForm.institutionName,
+            graduationYear: profileForm.graduationYear,
+            // Professional links
+            linkedinUrl: profileForm.linkedinUrl,
+            githubUrl: profileForm.githubUrl,
+            portfolioUrl: profileForm.portfolioUrl,
+            // Job preferences
+            availability: profileForm.availability,
+            preferredWorkType: profileForm.preferredWorkType,
+            preferredEmploymentType: profileForm.preferredEmploymentType,
+            expectedSalary: profileForm.expectedSalary,
           };
 
       const response = await apiClient.auth.updateProfile(payload);
@@ -469,6 +701,84 @@ const ProfileSettingsPanel = ({
       });
     } finally {
       setIsSavingProfile(false);
+    }
+  };
+
+  const handleDetectLocation = async () => {
+    if (isDetectingLocation) {
+      return;
+    }
+
+    if (typeof window === 'undefined' || !navigator?.geolocation) {
+      setLocationFeedback({
+        status: 'error',
+        message: 'Your browser does not support location detection. Please enter it manually.',
+      });
+      return;
+    }
+
+    setIsDetectingLocation(true);
+    setLocationFeedback({
+      status: 'info',
+      message: 'Requesting location permission...',
+    });
+
+    try {
+      const position = await new Promise((resolve, reject) => {
+        navigator.geolocation.getCurrentPosition(resolve, reject, {
+          enableHighAccuracy: true,
+          timeout: 10000,
+          maximumAge: 0,
+        });
+      });
+
+      setLocationFeedback({
+        status: 'info',
+        message: 'Detecting your city...',
+      });
+
+      const { latitude, longitude } = position.coords || {};
+
+      if (latitude == null || longitude == null) {
+        throw new Error('We could not read your coordinates. Please enter your location manually.');
+      }
+
+      const response = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+      );
+
+      if (!response.ok) {
+        throw new Error('Unable to determine your location automatically.');
+      }
+
+      const data = await response.json();
+      const formattedLocation = formatDetectedLocation(data, { latitude, longitude });
+
+      if (!formattedLocation) {
+        throw new Error('We could not convert your coordinates into a city. Please enter it manually.');
+      }
+
+      handleProfileFieldChange('location', formattedLocation);
+      setLocationFeedback({ status: 'success', message: '' });
+    } catch (error) {
+      console.error('Location detection error:', error);
+
+      let friendlyMessage = error?.message || 'Unable to detect your location. Please enter it manually.';
+
+      if (error?.code === 1 || error?.message?.toLowerCase().includes('permission')) {
+        friendlyMessage = 'Location permission was denied. You can enable it in your browser or enter it manually.';
+      } else if (error?.code === 2) {
+        friendlyMessage = 'We could not determine your position. Please try again or enter it manually.';
+      } else if (error?.code === 3) {
+        friendlyMessage = 'Location request timed out. Please try again or enter it manually.';
+      }
+
+      setLocationFeedback({
+        status: 'error',
+        message: friendlyMessage,
+      });
+    } finally {
+      setIsDetectingLocation(false);
     }
   };
 
@@ -719,15 +1029,62 @@ const ProfileSettingsPanel = ({
                     onChange={(value) => handleProfileFieldChange('experienceLevel', value)}
                     placeholder="Select experience"
                   />
-                  <Input
+                  <Select
                     label="Target role"
+                    options={resolvedJobRoleOptions}
                     value={profileForm.targetRole}
-                    onChange={(event) => handleProfileFieldChange('targetRole', event.target.value)}
+                    onChange={(value) => handleProfileFieldChange('targetRole', value)}
+                    placeholder="Select target role"
+                    searchable
                   />
+                  <div className="space-y-1.5 sm:space-y-2">
+                    <label
+                      htmlFor="profile-location"
+                      className="text-sm sm:text-sm font-medium leading-none text-foreground"
+                    >
+                      Location
+                    </label>
+                    <div className="relative">
+                      <input
+                        id="profile-location"
+                        type="text"
+                        value={isDetectingLocation && locationFeedback?.message ? locationFeedback.message : profileForm.location}
+                        onChange={(event) => handleProfileFieldChange('location', event.target.value)}
+                        disabled={isDetectingLocation}
+                        className="flex h-11 sm:h-12 w-full rounded-xl border border-input bg-background px-3 sm:px-4 pr-[90px] sm:pr-[100px] py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleDetectLocation}
+                        disabled={isDetectingLocation}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {isDetectingLocation ? (
+                          <>
+                            <LoadingIndicator size={14} tone="current" />
+                            <span className="hidden sm:inline">Detecting</span>
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="MapPin" size={14} />
+                            <span className="hidden sm:inline">Detect</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                    {locationFeedback?.status === 'error' && locationFeedback?.message && (
+                      <p className="text-xs sm:text-sm text-destructive flex items-start gap-1.5">
+                        <Icon name="AlertCircle" size={12} className="mt-0.5 flex-shrink-0" />
+                        {locationFeedback.message}
+                      </p>
+                    )}
+                  </div>
                   <Input
-                    label="Location"
-                    value={profileForm.location}
-                    onChange={(event) => handleProfileFieldChange('location', event.target.value)}
+                    label="Phone number"
+                    type="tel"
+                    placeholder="+94 XX XXX XXXX"
+                    value={profileForm.phoneNumber}
+                    onChange={(event) => handleProfileFieldChange('phoneNumber', event.target.value)}
                   />
                   <Select
                     label="Preferred language"
@@ -736,16 +1093,158 @@ const ProfileSettingsPanel = ({
                     onChange={(value) => handleProfileFieldChange('preferredLanguage', value)}
                     placeholder="Select language"
                   />
-                  <Input
+                  <Select
                     label="Industry focus"
+                    options={resolvedIndustryOptions}
                     value={profileForm.industry}
-                    onChange={(event) => handleProfileFieldChange('industry', event.target.value)}
+                    onChange={(value) => handleProfileFieldChange('industry', value)}
+                    placeholder="Select industry"
+                    searchable
                   />
                 </>
               )}
             </div>
             <StatusMessage status={profileStatus} />
           </div>
+
+          {/* Educational Background Section - Only for Candidates */}
+          {!isCompany && (
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+              <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-purple-50 dark:bg-purple-900/30 flex items-center justify-center">
+                    <Icon name="GraduationCap" size={18} className="text-purple-600 dark:text-purple-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Educational Background</h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">Your academic qualifications</p>
+                  </div>
+                </div>
+              </div>
+              <div className={formGrid}>
+                <Select
+                  label="Highest Qualification"
+                  options={qualificationOptions}
+                  value={profileForm.highestQualification}
+                  onChange={(value) => handleProfileFieldChange('highestQualification', value)}
+                  placeholder="Select qualification"
+                />
+                <Select
+                  label="Field of Study"
+                  options={resolvedFieldOfStudyOptions}
+                  value={profileForm.fieldOfStudy}
+                  onChange={(value) => handleProfileFieldChange('fieldOfStudy', value)}
+                  placeholder="Select field of study"
+                  searchable
+                  clearable
+                />
+                <Select
+                  label="Institution Name"
+                  options={resolvedInstitutionOptions}
+                  value={profileForm.institutionName}
+                  onChange={(value) => handleProfileFieldChange('institutionName', value)}
+                  placeholder="Select institution"
+                  searchable
+                  clearable
+                />
+                <Select
+                  label="Graduation Year"
+                  options={graduationYearOptions}
+                  value={profileForm.graduationYear}
+                  onChange={(value) => handleProfileFieldChange('graduationYear', value)}
+                  placeholder="Select year"
+                  searchable
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Professional Links Section - Only for Candidates */}
+          {!isCompany && (
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+              <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-sky-50 dark:bg-sky-900/30 flex items-center justify-center">
+                    <Icon name="Link" size={18} className="text-sky-600 dark:text-sky-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Professional Links</h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">Share your online presence</p>
+                  </div>
+                </div>
+              </div>
+              <div className={`grid gap-4 md:grid-cols-3`}>
+                <Input
+                  label="LinkedIn Profile"
+                  type="url"
+                  placeholder="https://linkedin.com/in/..."
+                  value={profileForm.linkedinUrl}
+                  onChange={(event) => handleProfileFieldChange('linkedinUrl', event.target.value)}
+                />
+                <Input
+                  label="GitHub Profile"
+                  type="url"
+                  placeholder="https://github.com/..."
+                  value={profileForm.githubUrl}
+                  onChange={(event) => handleProfileFieldChange('githubUrl', event.target.value)}
+                />
+                <Input
+                  label="Portfolio Website"
+                  type="url"
+                  placeholder="https://yourportfolio.com"
+                  value={profileForm.portfolioUrl}
+                  onChange={(event) => handleProfileFieldChange('portfolioUrl', event.target.value)}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Job Preferences Section - Only for Candidates */}
+          {!isCompany && (
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+              <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 flex items-center justify-center">
+                    <Icon name="Briefcase" size={18} className="text-indigo-600 dark:text-indigo-400" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Job Preferences</h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">Your availability and expectations</p>
+                  </div>
+                </div>
+              </div>
+              <div className={formGrid}>
+                <Select
+                  label="Availability / Notice Period"
+                  options={availabilityOptions}
+                  value={profileForm.availability}
+                  onChange={(value) => handleProfileFieldChange('availability', value)}
+                  placeholder="Select availability"
+                />
+                <Select
+                  label="Preferred Work Type"
+                  options={workTypeOptions}
+                  value={profileForm.preferredWorkType}
+                  onChange={(value) => handleProfileFieldChange('preferredWorkType', value)}
+                  placeholder="Select work type"
+                />
+                <Select
+                  label="Preferred Employment Type"
+                  options={employmentTypeOptions}
+                  value={profileForm.preferredEmploymentType}
+                  onChange={(value) => handleProfileFieldChange('preferredEmploymentType', value)}
+                  placeholder="Select employment type"
+                />
+                <Select
+                  label="Expected Salary (Monthly)"
+                  options={salaryRangeOptions}
+                  value={profileForm.expectedSalary}
+                  onChange={(value) => handleProfileFieldChange('expectedSalary', value)}
+                  placeholder="Select salary range"
+                />
+              </div>
+            </div>
+          )}
         </div>
 
          <div className={columnSpacing}>

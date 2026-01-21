@@ -3,6 +3,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { cn } from '../../../utils/cn';
 import usePoseDetection from '../../../hooks/usePoseDetection';
+import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 
 const CandidateVideoFeed = ({ 
   isVideoEnabled = true,
@@ -139,7 +140,7 @@ const CandidateVideoFeed = ({
         {isLoading ? (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="text-center space-y-2">
-              <div className="w-6 h-6 sm:w-8 sm:h-8 border-2 border-primary border-t-transparent rounded-full animate-spin mx-auto" />
+              <LoadingIndicator size={28} tone="primary" className="mx-auto" />
               <p className="text-xs sm:text-sm text-muted-foreground">Connecting camera...</p>
             </div>
           </div>

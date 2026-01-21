@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Button from './Button';
 import Icon from '../AppIcon';
+import LoadingIndicator from './LoadingIndicator';
 
 const ConfirmDialog = ({
   open = false,
@@ -139,7 +140,7 @@ const ConfirmDialog = ({
                   >
                     {isLoading ? (
                       <div className="flex items-center gap-2">
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                        <LoadingIndicator size={16} tone="current" />
                         <span>Processing...</span>
                       </div>
                     ) : (

@@ -7,6 +7,7 @@ import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
+import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
@@ -99,12 +100,12 @@ const CompanyInterviews = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-          <p className="text-sm sm:text-base text-muted-foreground">Loading...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading interviews"
+        message="Pulling the latest interview activity."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 
@@ -207,10 +208,12 @@ const CompanyInterviews = () => {
 
               {/* Interviews List */}
               {loading ? (
-                <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-8 text-center">
-                  <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto mb-3"></div>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">Loading interviews...</p>
-                </div>
+                <LoadingState
+                  title="Loading interviews"
+                  message="Updating interview schedules and status."
+                  variant="card"
+                  tone="primary"
+                />
               ) : filteredInterviews.length === 0 ? (
                 <motion.div
                   initial={{ opacity: 0, y: 20 }}

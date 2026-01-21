@@ -1,9 +1,11 @@
-import { deleteFirebaseUser } from '../config/firebase.js';
-import { organizationMemberStore, organizationStore, userStore, teamInvitationStore } from '../services/firebaseData.service.js';
+import admin, { deleteFirebaseUser } from '../config/firebase.js';
+import { organizationMemberStore, organizationStore, userStore, teamInvitationStore, emailVerificationStore } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
+import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { validateCandidateProfilePhoto, validateCompanyLogo } from '../services/imageModeration.service.js';
 import { validateBusinessVerificationDocument, validateResumeDocument } from '../services/documentModeration.service.js';
+import { emailService } from '../services/email.service.js';
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -15,6 +17,7 @@ const sanitizeUser = (user) => {
     experienceLevel: user.experienceLevel || null,
     skills: user.skills || [],
     companyName: user.companyName || null,
+    companyType: user.companyType || null,
     companySize: user.companySize || null,
     industry: user.industry || null,
     gender: user.gender || null,
@@ -28,6 +31,26 @@ const sanitizeUser = (user) => {
     companyWebsite: user.companyWebsite || null,
     companyLocation: user.companyLocation || null,
     phoneNumber: user.phoneNumber || null,
+    // Candidate education fields
+    highestQualification: user.highestQualification || null,
+    fieldOfStudy: user.fieldOfStudy || null,
+    institutionName: user.institutionName || null,
+    graduationYear: user.graduationYear || null,
+    // Candidate professional links
+    linkedinUrl: user.linkedinUrl || null,
+    githubUrl: user.githubUrl || null,
+    portfolioUrl: user.portfolioUrl || null,
+    // Candidate job preferences
+    certifications: user.certifications || [],
+    availability: user.availability || null,
+    preferredWorkType: user.preferredWorkType || null,
+    preferredEmploymentType: user.preferredEmploymentType || null,
+    expectedSalary: user.expectedSalary || null,
+    // Company additional fields
+    businessRegistrationNumber: user.businessRegistrationNumber || null,
+    companyEmail: user.companyEmail || null,
+    establishedYear: user.establishedYear || null,
+    companyLinkedinUrl: user.companyLinkedinUrl || null,
     profilePhotoUrl: user.profilePhotoUrl || null,
     resumeUrl: user.resumeUrl || null,
     resumeOriginalName: user.resumeOriginalName || null,
@@ -90,6 +113,39 @@ const RESUME_BASE_PATH = '/uploads/resumes';
 const COMPANY_LOGO_BASE_PATH = '/uploads/company-logos';
 const COMPANY_PROOF_BASE_PATH = '/uploads/company-verifications';
 
+const EMAIL_VERIFICATION_CODE_LENGTH = 8;
+const EMAIL_VERIFICATION_EXPIRY_MINUTES = 10;
+const EMAIL_VERIFICATION_RESEND_COOLDOWN_MS = 60 * 1000;
+const EMAIL_VERIFICATION_WINDOW_MS = 60 * 60 * 1000;
+const EMAIL_VERIFICATION_MAX_PER_HOUR = 5;
+const EMAIL_VERIFICATION_MAX_ATTEMPTS = 5;
+
+const toMillisSafe = (value) => {
+  if (!value) return 0;
+  if (typeof value === 'number') return value;
+  const parsed = Date.parse(value);
+  return Number.isNaN(parsed) ? 0 : parsed;
+};
+
+const getVerificationSecret = () =>
+  process.env.EMAIL_VERIFICATION_CODE_SECRET || process.env.JWT_SECRET || 'dev-email-verification-secret';
+
+const hashVerificationCode = (code) =>
+  createHmac('sha256', getVerificationSecret()).update(code).digest('hex');
+
+const generateVerificationCode = () =>
+  randomInt(0, 10 ** EMAIL_VERIFICATION_CODE_LENGTH)
+    .toString()
+    .padStart(EMAIL_VERIFICATION_CODE_LENGTH, '0');
+
+const safeHashEquals = (a, b) => {
+  if (!a || !b) return false;
+  const bufferA = Buffer.from(a, 'hex');
+  const bufferB = Buffer.from(b, 'hex');
+  if (bufferA.length !== bufferB.length) return false;
+  return timingSafeEqual(bufferA, bufferB);
+};
+
 const buildUploadUrl = (basePath, filename) => (filename ? `${basePath}/${filename}` : null);
 
 const cleanupUploadedFiles = async (filePaths = []) => {
@@ -107,6 +163,41 @@ const cleanupUploadedFiles = async (filePaths = []) => {
       }
     })
   );
+};
+
+const normalizeListField = (value) => {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => (typeof item === 'string' ? item.trim() : String(item)))
+      .filter(Boolean);
+  }
+
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed
+            .map((item) => (typeof item === 'string' ? item.trim() : String(item)))
+            .filter(Boolean);
+        }
+      } catch (parseError) {
+        // Fall through to simple parsing.
+      }
+    }
+    if (trimmed.includes(',')) {
+      return trimmed
+        .split(',')
+        .map((item) => item.trim())
+        .filter(Boolean);
+    }
+    return [trimmed];
+  }
+
+  if (value === undefined || value === null) return [];
+  return [String(value)];
 };
 
 export class AuthController {
@@ -130,6 +221,7 @@ export class AuthController {
         fullName,
         experienceLevel,
         companyName,
+        companyType,
         industry,
         companySize,
         skills,
@@ -144,10 +236,55 @@ export class AuthController {
         hiringVolume,
         companyWebsite,
         phoneNumber,
+        companyAddress,
+        companyDescription,
+        facebookUrl,
+        companyLinkedinUrl,
         teamInvitationToken,
+        // Candidate education fields
+        highestQualification,
+        fieldOfStudy,
+        institutionName,
+        graduationYear,
+        // Candidate professional links
+        linkedinUrl,
+        githubUrl,
+        portfolioUrl,
+        // Candidate job preferences
+        certifications,
+        availability,
+        preferredWorkType,
+        preferredEmploymentType,
+        expectedSalary,
+        // Company fields
+        businessRegistrationNumber,
+        companyEmail,
+        establishedYear,
       } = req.body;
+
+      const normalizedSkills = normalizeListField(skills);
+      const normalizedCertifications = normalizeListField(certifications);
       const firebaseUid = req.user.uid;
       const email = (req.user.email || '').toLowerCase();
+      let emailVerified = Boolean(req.user.emailVerified);
+      if (!emailVerified) {
+        try {
+          const userRecord = await admin.auth().getUser(firebaseUid);
+          emailVerified = Boolean(userRecord.emailVerified);
+        } catch (verificationError) {
+          logger.warn('Unable to confirm Firebase email verification', {
+            uid: firebaseUid,
+            error: verificationError.message,
+          });
+        }
+      }
+      if (!emailVerified) {
+        return res.status(403).json({
+          success: false,
+          error: 'Please verify your email address before completing registration.',
+          code: 'EMAIL_NOT_VERIFIED',
+        });
+      }
       let accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
 
       let invitedOrganizationId = null;
@@ -305,8 +442,13 @@ export class AuthController {
           displayName: companyName || `${fullName || 'New'} Organization`,
           industry: industry || null,
           companySize: companySize || null,
+          companyType: companyType || null,
           logo: logoUrl,
           website: companyWebsite || null,
+          address: companyAddress || null,
+          description: companyDescription || null,
+          facebookUrl: facebookUrl || null,
+          linkedinUrl: companyLinkedinUrl || null,
         });
 
         membership = await organizationMemberStore.addMember({
@@ -324,8 +466,9 @@ export class AuthController {
         accountType: accountTypeEnum,
         fullName,
         experienceLevel: accountTypeEnum === 'CANDIDATE' ? experienceLevel || null : null,
-        skills: accountTypeEnum === 'CANDIDATE' ? (skills || []) : [],
+        skills: accountTypeEnum === 'CANDIDATE' ? normalizedSkills : [],
         companyName: accountTypeEnum === 'COMPANY' ? companyName || null : null,
+        companyType: accountTypeEnum === 'COMPANY' ? companyType || null : null,
         companySize: accountTypeEnum === 'COMPANY' ? companySize || null : null,
         industry: industry || null,
         gender: accountTypeEnum === 'CANDIDATE' ? gender || null : null,
@@ -333,12 +476,33 @@ export class AuthController {
         careerGoals: accountTypeEnum === 'CANDIDATE' ? careerGoals || null : null,
         location: accountTypeEnum === 'CANDIDATE' ? location || null : null,
         preferredLanguage: accountTypeEnum === 'CANDIDATE' ? preferredLanguage || null : null,
+        // Candidate phone number (for interview notifications)
+        phoneNumber: phoneNumber || null,
+        // Candidate education fields
+        highestQualification: accountTypeEnum === 'CANDIDATE' ? highestQualification || null : null,
+        fieldOfStudy: accountTypeEnum === 'CANDIDATE' ? fieldOfStudy || null : null,
+        institutionName: accountTypeEnum === 'CANDIDATE' ? institutionName || null : null,
+        graduationYear: accountTypeEnum === 'CANDIDATE' ? graduationYear || null : null,
+        // Candidate professional links
+        linkedinUrl: accountTypeEnum === 'CANDIDATE' ? linkedinUrl || null : null,
+        githubUrl: accountTypeEnum === 'CANDIDATE' ? githubUrl || null : null,
+        portfolioUrl: accountTypeEnum === 'CANDIDATE' ? portfolioUrl || null : null,
+        // Candidate job preferences
+        certifications: accountTypeEnum === 'CANDIDATE' ? normalizedCertifications : [],
+        availability: accountTypeEnum === 'CANDIDATE' ? availability || null : null,
+        preferredWorkType: accountTypeEnum === 'CANDIDATE' ? preferredWorkType || null : null,
+        preferredEmploymentType: accountTypeEnum === 'CANDIDATE' ? preferredEmploymentType || null : null,
+        expectedSalary: accountTypeEnum === 'CANDIDATE' ? expectedSalary || null : null,
+        // Company fields
         jobTitle: accountTypeEnum === 'COMPANY' ? jobTitle || null : null,
         department: accountTypeEnum === 'COMPANY' ? department || null : null,
         hiringVolume: accountTypeEnum === 'COMPANY' ? hiringVolume || null : null,
         companyWebsite: accountTypeEnum === 'COMPANY' ? companyWebsite || null : null,
         companyLocation: accountTypeEnum === 'COMPANY' ? companyLocation || null : null,
-        phoneNumber: accountTypeEnum === 'COMPANY' ? phoneNumber || null : null,
+        businessRegistrationNumber: accountTypeEnum === 'COMPANY' ? businessRegistrationNumber || null : null,
+        companyEmail: accountTypeEnum === 'COMPANY' ? companyEmail || null : null,
+        establishedYear: accountTypeEnum === 'COMPANY' ? establishedYear || null : null,
+        companyLinkedinUrl: accountTypeEnum === 'COMPANY' ? companyLinkedinUrl || null : null,
         primaryOrganizationId,
         organizationRoles,
         profilePhotoUrl:
@@ -425,6 +589,7 @@ export class AuthController {
         'experienceLevel',
         'skills',
         'companyName',
+        'companyType',
         'companySize',
         'industry',
         'gender',
@@ -438,6 +603,26 @@ export class AuthController {
         'companyWebsite',
         'companyLocation',
         'phoneNumber',
+        // Candidate education fields
+        'highestQualification',
+        'fieldOfStudy',
+        'institutionName',
+        'graduationYear',
+        // Candidate professional links
+        'linkedinUrl',
+        'githubUrl',
+        'portfolioUrl',
+        // Candidate job preferences
+        'certifications',
+        'availability',
+        'preferredWorkType',
+        'preferredEmploymentType',
+        'expectedSalary',
+        // Company additional fields
+        'businessRegistrationNumber',
+        'companyEmail',
+        'establishedYear',
+        'companyLinkedinUrl',
       ];
 
       const data = {};
@@ -600,6 +785,201 @@ export class AuthController {
     } catch (error) {
       await cleanupUploadedFiles(uploadedPaths);
       logger.error('Update resume error:', error);
+      next(error);
+    }
+  }
+
+  static async startEmailVerification(req, res, next) {
+    try {
+      const requestedEmail = (req.body.email || req.user.email || '').trim().toLowerCase();
+      const tokenEmail = (req.user.email || '').trim().toLowerCase();
+
+      if (!requestedEmail) {
+        return res.status(400).json({ success: false, error: 'Email is required.' });
+      }
+
+      if (tokenEmail && requestedEmail !== tokenEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email does not match the signed-in account.',
+        });
+      }
+
+      const userRecord = await admin.auth().getUser(req.user.uid);
+      const firebaseEmail = (userRecord?.email || '').toLowerCase();
+
+      if (firebaseEmail && firebaseEmail !== requestedEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email does not match the Firebase account.',
+        });
+      }
+
+      if (userRecord?.emailVerified) {
+        return res.json({
+          success: true,
+          verified: true,
+          message: 'Email is already verified.',
+        });
+      }
+
+      const existing = await emailVerificationStore.getByUid(req.user.uid);
+      const nowMs = Date.now();
+      const lastSentMs = toMillisSafe(existing?.lastSentAt);
+
+      if (lastSentMs && nowMs - lastSentMs < EMAIL_VERIFICATION_RESEND_COOLDOWN_MS) {
+        const waitSeconds = Math.ceil(
+          (EMAIL_VERIFICATION_RESEND_COOLDOWN_MS - (nowMs - lastSentMs)) / 1000
+        );
+        return res.status(429).json({
+          success: false,
+          error: `Please wait ${waitSeconds} seconds before requesting another verification email.`,
+        });
+      }
+
+      let sendCount = existing?.sendCount || 0;
+      let windowStartedAt = existing?.windowStartedAt || new Date(nowMs).toISOString();
+      const windowStartMs = toMillisSafe(windowStartedAt);
+
+      if (!windowStartMs || nowMs - windowStartMs >= EMAIL_VERIFICATION_WINDOW_MS) {
+        sendCount = 0;
+        windowStartedAt = new Date(nowMs).toISOString();
+      }
+
+      if (sendCount >= EMAIL_VERIFICATION_MAX_PER_HOUR) {
+        return res.status(429).json({
+          success: false,
+          error: 'You have reached the maximum number of verification emails. Please wait an hour and try again.',
+        });
+      }
+
+      const verificationCode = generateVerificationCode();
+      const verificationLink = await admin.auth().generateEmailVerificationLink(requestedEmail, {
+        url: `${process.env.FRONTEND_URL || 'http://localhost:4028'}/register?verified=1`,
+        handleCodeInApp: false,
+      });
+
+      await emailService.sendEmailVerification({
+        email: requestedEmail,
+        fullName: req.body.fullName || userRecord?.displayName || req.user.metadata?.fullName || null,
+        verificationCode,
+        verificationLink,
+        expiresInMinutes: EMAIL_VERIFICATION_EXPIRY_MINUTES,
+      });
+
+      await emailVerificationStore.upsert(req.user.uid, {
+        email: requestedEmail,
+        codeHash: hashVerificationCode(verificationCode),
+        codeLastFour: verificationCode.slice(-4),
+        expiresAt: new Date(nowMs + EMAIL_VERIFICATION_EXPIRY_MINUTES * 60 * 1000).toISOString(),
+        lastSentAt: new Date(nowMs).toISOString(),
+        sendCount: sendCount + 1,
+        windowStartedAt,
+        attempts: 0,
+        usedAt: null,
+      });
+
+      return res.json({
+        success: true,
+        verified: false,
+        email: requestedEmail,
+        expiresInMinutes: EMAIL_VERIFICATION_EXPIRY_MINUTES,
+        message: `Verification email sent to ${requestedEmail}.`,
+      });
+    } catch (error) {
+      logger.error('Start email verification error:', error);
+      next(error);
+    }
+  }
+
+  static async verifyEmailCode(req, res, next) {
+    try {
+      const code = (req.body.code || '').trim();
+
+      if (!code) {
+        return res.status(400).json({ success: false, error: 'Verification code is required.' });
+      }
+
+      if (!/^\d{8}$/.test(code)) {
+        return res.status(400).json({
+          success: false,
+          error: 'Verification code must be 8 digits.',
+        });
+      }
+
+      const userRecord = await admin.auth().getUser(req.user.uid);
+      const firebaseEmail = (userRecord?.email || req.user.email || '').toLowerCase();
+
+      if (!firebaseEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email is missing from the Firebase account.',
+        });
+      }
+
+      if (userRecord?.emailVerified) {
+        await emailVerificationStore.delete(req.user.uid);
+        return res.json({
+          success: true,
+          verified: true,
+          message: 'Email is already verified.',
+        });
+      }
+
+      const record = await emailVerificationStore.getByUid(req.user.uid);
+
+      if (!record || !record.codeHash) {
+        return res.status(400).json({
+          success: false,
+          error: 'No active verification request found. Please request a new code.',
+        });
+      }
+
+      if (record.email && record.email.toLowerCase() !== firebaseEmail) {
+        return res.status(400).json({
+          success: false,
+          error: 'Email mismatch. Please request a new verification code.',
+        });
+      }
+
+      const expiresAtMs = toMillisSafe(record.expiresAt);
+      if (expiresAtMs && Date.now() > expiresAtMs) {
+        return res.status(400).json({
+          success: false,
+          error: 'Verification code has expired. Please request a new code.',
+        });
+      }
+
+      const attempts = record.attempts || 0;
+      if (attempts >= EMAIL_VERIFICATION_MAX_ATTEMPTS) {
+        return res.status(429).json({
+          success: false,
+          error: 'Too many incorrect attempts. Please request a new verification code.',
+        });
+      }
+
+      const candidateHash = hashVerificationCode(code);
+      if (!safeHashEquals(candidateHash, record.codeHash)) {
+        await emailVerificationStore.upsert(req.user.uid, {
+          attempts: attempts + 1,
+          lastAttemptAt: now(),
+        });
+        return res.status(400).json({
+          success: false,
+          error: 'Invalid verification code. Please try again.',
+        });
+      }
+
+      await admin.auth().updateUser(req.user.uid, { emailVerified: true });
+      await emailVerificationStore.delete(req.user.uid);
+
+      return res.json({
+        success: true,
+        verified: true,
+        message: 'Email verified successfully.',
+      });
+    } catch (error) {
+      logger.error('Verify email code error:', error);
       next(error);
     }
   }

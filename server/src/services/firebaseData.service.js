@@ -16,6 +16,7 @@ const jobApplicationsCollection = firestore.collection('jobApplications');
 const platformAuditLogsCollection = firestore.collection('platformAuditLogs');
 const systemSettingsCollection = firestore.collection('systemSettings');
 const analyticsSnapshotsCollection = firestore.collection('analyticsSnapshots'); // For historical metrics tracking
+const emailVerificationsCollection = firestore.collection('emailVerifications');
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
@@ -137,16 +138,53 @@ export const userStore = {
       fullName: data.fullName || null,
       experienceLevel: data.experienceLevel || null,
       skills: data.skills || [],
+      gender: data.gender || null,
+      targetRole: data.targetRole || null,
+      careerGoals: data.careerGoals || null,
+      location: data.location || null,
+      preferredLanguage: data.preferredLanguage || null,
+      phoneNumber: data.phoneNumber || null,
+      // Candidate education fields
+      highestQualification: data.highestQualification || null,
+      fieldOfStudy: data.fieldOfStudy || null,
+      institutionName: data.institutionName || null,
+      graduationYear: data.graduationYear || null,
+      // Candidate professional links
+      linkedinUrl: data.linkedinUrl || null,
+      githubUrl: data.githubUrl || null,
+      portfolioUrl: data.portfolioUrl || null,
+      // Candidate job preferences
+      certifications: data.certifications || [],
+      availability: data.availability || null,
+      preferredWorkType: data.preferredWorkType || null,
+      preferredEmploymentType: data.preferredEmploymentType || null,
+      expectedSalary: data.expectedSalary || null,
+      // Company fields
       companyName: data.companyName || null,
+      companyType: data.companyType || null,
       companySize: data.companySize || null,
       industry: data.industry || null,
+      jobTitle: data.jobTitle || null,
+      department: data.department || null,
+      hiringVolume: data.hiringVolume || null,
+      companyWebsite: data.companyWebsite || null,
+      companyLocation: data.companyLocation || null,
+      businessRegistrationNumber: data.businessRegistrationNumber || null,
+      companyEmail: data.companyEmail || null,
+      establishedYear: data.establishedYear || null,
+      companyLinkedinUrl: data.companyLinkedinUrl || null,
+      // Upload fields
       profilePhotoUrl: data.profilePhotoUrl || null,
       resumeUrl: data.resumeUrl || null,
       resumeOriginalName: data.resumeOriginalName || null,
       resumeHash: data.resumeHash || null,
+      resumeInsights: data.resumeInsights || null,
       companyLogoUrl: data.companyLogoUrl || null,
       companyVerificationUrl: data.companyVerificationUrl || null,
       companyVerificationOriginalName: data.companyVerificationOriginalName || null,
+      companyVerificationHash: data.companyVerificationHash || null,
+      companyVerificationInsights: data.companyVerificationInsights || null,
+      // Organization
       primaryOrganizationId: data.primaryOrganizationId || null,
       organizationRoles: ensureArray(data.organizationRoles),
       authProvider: 'firebase',
@@ -1059,6 +1097,11 @@ export const organizationStore = {
       companySize: data.companySize || null,
       logo: data.logo || null,
       website: data.website || null,
+      address: data.address || null,
+      description: data.description || null,
+      facebookUrl: data.facebookUrl || null,
+      linkedinUrl: data.linkedinUrl || null,
+      youtubeUrl: data.youtubeUrl || null,
       status: data.status || 'PENDING', // Default to PENDING - requires admin approval
       branding: data.branding || { theme: 'default' },
       settings: data.settings || {
@@ -1288,6 +1331,10 @@ export const jobStore = {
       employmentType: data.employmentType || 'FULL_TIME',
       experienceLevel: data.experienceLevel || 'MID',
       compensationRange: data.compensationRange || null,
+      salaryCurrency: data.salaryCurrency || null,
+      salaryMin: data.salaryMin || null,
+      salaryMax: data.salaryMax || null,
+      benefits: data.benefits || null,
       description: data.description || '',
       requirements: ensureArray(data.requirements),
       responsibilities: ensureArray(data.responsibilities),
@@ -1301,10 +1348,38 @@ export const jobStore = {
       },
       reviewerIds: ensureArray(data.reviewerIds),
       hiringManagerId: data.hiringManagerId || null,
-      publishedAt: data.status === 'PUBLISHED' ? data.publishedAt || now() : null,
+      postingDuration: data.postingDuration || 30,
+      scheduledPublishAt: data.scheduledPublishAt || null,
+      publishedAt: null,
+      expiresAt: null,
       createdAt: now(),
       updatedAt: now(),
     };
+    
+    // Handle publishing logic on creation
+    if (payload.status === 'PUBLISHED') {
+      if (data.scheduledPublishAt) {
+        const scheduledDate = new Date(data.scheduledPublishAt);
+        const nowDate = new Date();
+        if (scheduledDate > nowDate) {
+          // Scheduled for future - don't set publishedAt yet, keep status as PUBLISHED
+          payload.publishedAt = null;
+          payload.expiresAt = null;
+        } else {
+          // Scheduled time has passed or is now - publish immediately
+          payload.publishedAt = data.publishedAt || now();
+          const publishDate = new Date(payload.publishedAt);
+          publishDate.setDate(publishDate.getDate() + payload.postingDuration);
+          payload.expiresAt = publishDate.toISOString();
+        }
+      } else {
+        // Publish immediately
+        payload.publishedAt = data.publishedAt || now();
+        const publishDate = new Date(payload.publishedAt);
+        publishDate.setDate(publishDate.getDate() + payload.postingDuration);
+        payload.expiresAt = publishDate.toISOString();
+      }
+    }
 
     await docRef.set(payload);
     return payload;
@@ -1312,12 +1387,54 @@ export const jobStore = {
 
   async update(id, data = {}) {
     const docRef = jobsCollection.doc(id);
+    
+    // Get existing job to check current status and postingDuration
+    const existing = await this.getById(id);
+    const postingDuration = data.postingDuration || existing?.postingDuration || 30;
+    
     const payload = {
       ...data,
       ...(data.status ? { status: sanitizeJobStatus(data.status) } : {}),
-      ...(data.status === 'PUBLISHED' ? { publishedAt: data.publishedAt || now() } : {}),
       updatedAt: now(),
     };
+    
+    // Handle publishing logic
+    if (data.status === 'PUBLISHED') {
+      // If scheduledPublishAt is set and in the future, don't publish yet
+      if (data.scheduledPublishAt) {
+        const scheduledDate = new Date(data.scheduledPublishAt);
+        const nowDate = new Date();
+        if (scheduledDate > nowDate) {
+          // Scheduled for future - don't set publishedAt yet
+          payload.publishedAt = null;
+          payload.expiresAt = null;
+        } else {
+          // Scheduled time has passed - publish now
+          payload.publishedAt = data.publishedAt || now();
+          const publishDate = new Date(payload.publishedAt);
+          publishDate.setDate(publishDate.getDate() + postingDuration);
+          payload.expiresAt = publishDate.toISOString();
+        }
+      } else {
+        // Publish immediately
+        payload.publishedAt = data.publishedAt || now();
+        const publishDate = new Date(payload.publishedAt);
+        publishDate.setDate(publishDate.getDate() + postingDuration);
+        payload.expiresAt = publishDate.toISOString();
+      }
+    } else if (existing?.status === 'PUBLISHED' && data.status !== 'PUBLISHED') {
+      // If changing from PUBLISHED to another status, clear publishedAt and expiresAt
+      payload.publishedAt = null;
+      payload.expiresAt = null;
+    } else if (existing?.status === 'PUBLISHED' && !data.status) {
+      // Updating published job - recalculate expiresAt if postingDuration changed
+      if (data.postingDuration && existing.publishedAt) {
+        const publishDate = new Date(existing.publishedAt);
+        publishDate.setDate(publishDate.getDate() + postingDuration);
+        payload.expiresAt = publishDate.toISOString();
+      }
+    }
+    
     await docRef.set(payload, { merge: true });
     const updated = await docRef.get();
     return docToData(updated);
@@ -1331,13 +1448,113 @@ export const jobStore = {
 
   async listByOrganization(organizationId) {
     if (!organizationId) return [];
+    // Auto-publish any scheduled jobs before listing
+    await this.autoPublishScheduledJobs();
     const snapshot = await jobsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
     return snapshot.docs.map((doc) => docToData(doc));
   },
 
   async listPublished(limit = 20) {
-    const snapshot = await jobsCollection.where('status', '==', 'PUBLISHED').orderBy('publishedAt', 'desc').limit(limit).get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    // First, check and auto-publish any scheduled jobs whose time has come
+    await this.autoPublishScheduledJobs();
+    
+    const snapshot = await jobsCollection.where('status', '==', 'PUBLISHED').orderBy('publishedAt', 'desc').limit(limit * 2).get();
+    const jobs = snapshot.docs.map((doc) => docToData(doc));
+    
+    // Filter out expired jobs and jobs that haven't been published yet (scheduled for future)
+    const nowDate = new Date();
+    const activeJobs = jobs.filter(job => {
+      // Exclude jobs scheduled for future (no publishedAt yet)
+      if (!job.publishedAt) return false;
+      
+      // Exclude expired jobs
+      if (job.expiresAt) {
+        const expiresDate = new Date(job.expiresAt);
+        if (expiresDate < nowDate) return false;
+      } else {
+        // Fallback: check using publishedAt + postingDuration
+        const publishedDate = new Date(job.publishedAt);
+        const postingDuration = job.postingDuration || 30;
+        const expiresDate = new Date(publishedDate);
+        expiresDate.setDate(expiresDate.getDate() + postingDuration);
+        if (expiresDate < nowDate) return false;
+      }
+      
+      return true;
+    });
+    
+    // Return limited results
+    return activeJobs.slice(0, limit);
+  },
+
+  async autoPublishScheduledJobs() {
+    try {
+      const nowDate = new Date();
+      const nowISO = nowDate.toISOString();
+      
+      // Query for jobs with scheduledPublishAt <= now (jobs ready to publish)
+      // Note: This requires a Firestore index on scheduledPublishAt
+      // If index doesn't exist, we'll catch the error and use fallback
+      let scheduledJobsSnapshot;
+      try {
+        scheduledJobsSnapshot = await jobsCollection
+          .where('scheduledPublishAt', '<=', nowISO)
+          .limit(50)
+          .get();
+      } catch (indexError) {
+        // If index doesn't exist, use fallback: get recent jobs and filter
+        if (isIndexBuildingError(indexError)) {
+          logger.warn('Scheduled jobs index not available, using fallback method');
+          console.error('Firestore index error - click the link below to create the index:');
+          console.error(indexError.message || indexError);
+        }
+        // Get recent jobs and filter in memory
+        const allJobsSnapshot = await jobsCollection
+          .orderBy('createdAt', 'desc')
+          .limit(100)
+          .get();
+        scheduledJobsSnapshot = {
+          docs: allJobsSnapshot.docs.filter(doc => {
+            const job = docToData(doc);
+            return job.scheduledPublishAt && 
+                   new Date(job.scheduledPublishAt) <= nowDate;
+          })
+        };
+      }
+      
+      // Filter for jobs that haven't been published yet
+      const jobsToPublish = scheduledJobsSnapshot.docs
+        .map(docToData)
+        .filter(job => {
+          if (!job.scheduledPublishAt) return false;
+          const scheduledDate = new Date(job.scheduledPublishAt);
+          // Include jobs whose scheduled time has passed and haven't been published yet
+          return scheduledDate <= nowDate && !job.publishedAt;
+        });
+
+      // Auto-publish each scheduled job
+      for (const job of jobsToPublish) {
+        const postingDuration = job.postingDuration || 30;
+        const publishDate = now();
+        const publishDateObj = new Date(publishDate);
+        publishDateObj.setDate(publishDateObj.getDate() + postingDuration);
+        const expiresAt = publishDateObj.toISOString();
+
+        await jobsCollection.doc(job.id).set({
+          status: 'PUBLISHED', // Ensure status is PUBLISHED
+          publishedAt: publishDate,
+          expiresAt,
+          updatedAt: now(),
+        }, { merge: true });
+        
+        logger.info(`Auto-published scheduled job ${job.id} (${job.title})`);
+      }
+
+      return jobsToPublish.length;
+    } catch (error) {
+      logger.error('Error auto-publishing scheduled jobs:', error);
+      return 0;
+    }
   },
 
   async delete(id) {
@@ -1617,6 +1834,19 @@ export const jobApplicationStore = {
     }
   },
 
+  async countByJob(jobId) {
+    if (!jobId) return 0;
+    try {
+      const snapshot = await jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .get();
+      return snapshot.size;
+    } catch (error) {
+      logger.error('Failed to count applications by job:', error);
+      return 0;
+    }
+  },
+
   async update(id, updates) {
     if (!id) throw new Error('Application ID is required');
     const updateData = {
@@ -1741,6 +1971,38 @@ export const systemSettingsStore = {
     };
     await systemSettingsCollection.doc('main').set(merged, { merge: true });
     return merged;
+  },
+};
+
+export const emailVerificationStore = {
+  async getByUid(uid) {
+    if (!uid) return null;
+    const doc = await emailVerificationsCollection.doc(uid).get();
+    return docToData(doc);
+  },
+
+  async upsert(uid, data = {}) {
+    if (!uid) {
+      throw new Error('uid is required for email verification records');
+    }
+    const existingDoc = await emailVerificationsCollection.doc(uid).get();
+    const existing = existingDoc.exists ? existingDoc.data() : null;
+    const payload = {
+      id: uid,
+      uid,
+      ...data,
+      updatedAt: now(),
+      createdAt: data.createdAt || existing?.createdAt || now(),
+    };
+    await emailVerificationsCollection.doc(uid).set(payload, { merge: true });
+    const doc = await emailVerificationsCollection.doc(uid).get();
+    return docToData(doc);
+  },
+
+  async delete(uid) {
+    if (!uid) return false;
+    await emailVerificationsCollection.doc(uid).delete();
+    return true;
   },
 };
 
@@ -1889,4 +2151,3 @@ export const teamInvitationStore = {
     return { success: true };
   },
 };
-

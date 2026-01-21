@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
@@ -64,8 +65,13 @@ const InterviewLobby = () => {
           onLogout={handleLogout}
         />
         <div className="h-14 xs:h-16" />
-        <div className="flex items-center justify-center py-20">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-purple-600"></div>
+        <div className="flex items-center justify-center py-20 px-4">
+          <LoadingState
+            title="Loading interview details"
+            message="Confirming the session setup."
+            variant="card"
+            tone="secondary"
+          />
         </div>
       </div>
     );
@@ -219,20 +225,12 @@ const InterviewLobby = () => {
               </Button>
               <Button
                 onClick={handleStartInterview}
+                loading={starting}
                 disabled={starting}
                 className="flex-1 bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-700 hover:to-blue-700 text-white"
               >
-                {starting ? (
-                  <>
-                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                    Starting...
-                  </>
-                ) : (
-                  <>
-                    <Icon name="Video" className="w-4 h-4 mr-2" />
-                    Start Interview
-                  </>
-                )}
+                {!starting && <Icon name="Video" className="w-4 h-4 mr-2" />}
+                {starting ? 'Starting...' : 'Start Interview'}
               </Button>
             </div>
           </div>

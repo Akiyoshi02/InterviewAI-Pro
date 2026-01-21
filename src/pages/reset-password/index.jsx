@@ -187,7 +187,7 @@ const ResetPassword = () => {
                   <button
                     type="button"
                     className="text-blue-600 dark:text-blue-400 hover:underline font-semibold"
-                    onClick={() => navigate('/support')}
+                    onClick={() => navigate('/help-center')}
                   >
                     Contact Support
                   </button>

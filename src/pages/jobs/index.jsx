@@ -34,7 +34,7 @@ const JobsPage = () => {
   const [applicationSuccess, setApplicationSuccess] = useState(false);
   const [applicationsByJobId, setApplicationsByJobId] = useState(new Map()); // Map<jobId, {status, withdrawnBy}>
   const [currentPage, setCurrentPage] = useState(1);
-  const [jobsPerPage] = useState(3);
+  const [jobsPerPage] = useState(12);
   
   // Check localStorage for cached auth state to prevent flash during initial load
   const cachedIsAuthenticated = useMemo(() => {
@@ -211,6 +211,115 @@ const JobsPage = () => {
     return mapping[level] || level.charAt(0) + level.slice(1).toLowerCase();
   };
 
+  // Format employment type for display
+  const formatEmploymentType = (type) => {
+    if (!type) return null;
+    const mapping = {
+      'FULL_TIME': 'Full-time',
+      'PART_TIME': 'Part-time',
+      'CONTRACT': 'Contract',
+      'INTERNSHIP': 'Internship',
+    };
+    return mapping[type] || type.replace('_', '-').replace(/\b\w/g, l => l.toUpperCase());
+  };
+
+  // Check if location should be shown as Remote (only when no location was provided)
+  const shouldShowRemote = (location) => {
+    // If location is null, undefined, or empty string, show Remote
+    if (!location) return true;
+    // If location is not a string, show Remote
+    if (typeof location !== 'string') return true;
+    // If location is empty after trimming or equals "Remote", show Remote
+    const trimmed = location.trim();
+    return trimmed === '' || trimmed === 'Remote';
+  };
+
+  // Get the actual location value to display
+  const getDisplayLocation = (location) => {
+    if (shouldShowRemote(location)) return 'Remote';
+    return location.trim();
+  };
+
+  // Calculate days left for application based on expiresAt or publishedAt + postingDuration
+  const getDaysLeft = (job) => {
+    if (!job) return null;
+    
+    // If expiresAt is available, use it directly
+    if (job.expiresAt) {
+      const expires = new Date(job.expiresAt);
+      const now = new Date();
+      const daysLeft = Math.ceil((expires - now) / (1000 * 60 * 60 * 24));
+      if (daysLeft <= 0) return null;
+      return daysLeft;
+    }
+    
+    // Fallback: calculate from publishedAt + postingDuration
+    if (job.publishedAt) {
+      const published = new Date(job.publishedAt);
+      const now = new Date();
+      const postingDuration = job.postingDuration || 30;
+      const daysSincePublished = Math.floor((now - published) / (1000 * 60 * 60 * 24));
+      const daysLeft = postingDuration - daysSincePublished;
+      if (daysLeft <= 0) return null;
+      return daysLeft;
+    }
+    
+    return null;
+  };
+
+  // Handle bookmark toggle
+  const handleBookmark = (jobId, e) => {
+    e.stopPropagation();
+    // TODO: Implement bookmark functionality
+    console.log('Bookmark job:', jobId);
+  };
+
+  // Handle share
+  const handleShare = (job, platform, e) => {
+    e.stopPropagation();
+    const jobUrl = `${window.location.origin}/jobs/${job.id}`;
+    const shareText = `Check out this job: ${job.title} at ${job.organization?.name || 'Company'}`;
+    
+    let shareUrl = '';
+    switch (platform) {
+      case 'whatsapp':
+        shareUrl = `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + jobUrl)}`;
+        break;
+      case 'facebook':
+        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(jobUrl)}`;
+        break;
+      case 'twitter':
+        shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(jobUrl)}`;
+        break;
+      case 'linkedin':
+        shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}`;
+        break;
+      case 'instagram':
+        // Instagram doesn't support direct sharing via URL
+        navigator.clipboard.writeText(jobUrl);
+        alert('Job URL copied to clipboard!');
+        return;
+      default:
+        // Native share or copy
+        if (navigator.share) {
+          navigator.share({
+            title: job.title,
+            text: shareText,
+            url: jobUrl,
+          });
+          return;
+        } else {
+          navigator.clipboard.writeText(jobUrl);
+          alert('Job URL copied to clipboard!');
+          return;
+        }
+    }
+    
+    if (shareUrl) {
+      window.open(shareUrl, '_blank', 'width=600,height=400');
+    }
+  };
+
   // Pagination calculations
   const totalPages = Math.ceil(jobs.length / jobsPerPage);
   const startIndex = (currentPage - 1) * jobsPerPage;
@@ -330,7 +439,7 @@ const JobsPage = () => {
     
             {!loading && !error && (
               <motion.div
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 xs:gap-5 sm:gap-6"
+                className="flex flex-col gap-4 xs:gap-5 sm:gap-6"
                 initial="hidden"
                 animate="visible"
                 variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
@@ -363,199 +472,170 @@ const JobsPage = () => {
                     const showWithdrawnBadge = isWithdrawn;
                     const showRejectedBadge = isRejected;
                     
+                    const daysLeft = getDaysLeft(job);
+                    
                     return (
                     <motion.div
                       key={job.id}
                       variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } }}
-                      className="card-base p-4 xs:p-5 sm:p-6 space-y-3 xs:space-y-4 h-full flex flex-col relative"
+                      className="group card-base p-4 xs:p-5 sm:p-6 flex flex-col sm:flex-row gap-4 xs:gap-5 sm:gap-6 relative hover:shadow-lg transition-shadow cursor-pointer"
+                      onClick={() => navigate(`/jobs/${job.id}`)}
                     >
-                      {/* Status Badge */}
-                      {showAppliedBadge && (
-                        <div className="absolute top-3 right-3 z-10">
-                          <div className="px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 flex items-center gap-1.5 shadow-sm">
-                            <Icon name="CheckCircle" size={14} className="text-green-600 dark:text-green-400" />
-                            <span className="text-xs font-medium text-green-700 dark:text-green-300">Applied</span>
+                      {/* Left Section - Company Logo */}
+                      <div className="flex-shrink-0">
+                        <div className="w-20 h-20 xs:w-24 xs:h-24 sm:w-28 sm:h-28 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center p-2">
+                          {job.organization?.logo && getLogoUrl(job.organization.logo) ? (
+                            <img
+                              src={getLogoUrl(job.organization.logo)}
+                              alt={job.organization.name || 'Company logo'}
+                              className="w-full h-full object-contain"
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'flex';
+                              }}
+                            />
+                          ) : null}
+                          <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-slate-500" style={{ display: job.organization?.logo && getLogoUrl(job.organization.logo) ? 'none' : 'flex' }}>
+                            <Icon name="Building2" size={32} />
                           </div>
                         </div>
-                      )}
-                      {showWithdrawnBadge && (
-                        <div className="absolute top-3 right-3 z-10">
-                          <div className="px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 flex items-center gap-1.5 shadow-sm">
-                            <Icon name="XCircle" size={14} className="text-orange-600 dark:text-orange-400" />
-                            <span className="text-xs font-medium text-orange-700 dark:text-orange-300">Withdrew</span>
-                          </div>
-                        </div>
-                      )}
-                      {showRejectedBadge && (
-                        <div className="absolute top-3 right-3 z-10">
-                          <div className="px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-900/30 border border-gray-200 dark:border-gray-800 flex items-center gap-1.5 shadow-sm">
-                            <Icon name="XCircle" size={14} className="text-gray-600 dark:text-gray-400" />
-                            <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Not Selected</span>
-                          </div>
-                        </div>
-                      )}
+                      </div>
                       
-                      <div>
-                        {/* Company Branding */}
-                        {job.organization && (
-                          <div className="flex items-center gap-3 mb-3 pb-3 border-b border-gray-200 dark:border-slate-700">
-                            {job.organization.logo && getLogoUrl(job.organization.logo) && (
-                              <img
-                                src={getLogoUrl(job.organization.logo)}
-                                alt={job.organization.name || 'Company logo'}
-                                className="w-14 h-14 xs:w-16 xs:h-16 sm:w-20 sm:h-20 rounded-full object-contain p-1 border border-gray-200 dark:border-slate-700 flex-shrink-0 bg-white dark:bg-slate-800"
-                                onError={(e) => {
-                                  e.target.style.display = 'none';
-                                }}
-                              />
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-[10px] xs:text-xs uppercase tracking-[0.3em] xs:tracking-[0.4em] text-blue-600 dark:text-blue-400">Company</p>
-                              <h3 className="text-sm xs:text-base font-semibold text-gray-900 dark:text-slate-100 truncate">
-                                {job.organization.name || 'Company'}
-                              </h3>
-                              {job.organization.website && (
-                                <a
-                                  href={job.organization.website}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="text-[10px] xs:text-xs text-blue-600 dark:text-blue-400 hover:underline flex items-center gap-1 mt-0.5"
-                                >
-                                  <Icon name="ExternalLink" size={10} />
-                                  Visit website
-                                </a>
-                              )}
-                            </div>
-                          </div>
-                        )}
-                        <p className="text-[10px] xs:text-xs uppercase tracking-[0.3em] xs:tracking-[0.4em] text-blue-600 dark:text-blue-400">Role Spotlight</p>
-                        <h2 className="text-xl xs:text-2xl font-bold text-gray-900 dark:text-slate-100">{job.title}</h2>
-                        <div className="flex flex-wrap items-center gap-2 mt-1">
-                          <p className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">{job.department || 'General team'}</p>
-                          {job.experienceLevel && (
-                            <>
-                              <span className="text-gray-300 dark:text-slate-600">•</span>
-                              <span className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">{formatExperienceLevel(job.experienceLevel)}</span>
-                            </>
-                          )}
-                          {job.location && (
-                            <>
-                              <span className="text-gray-300 dark:text-slate-600">•</span>
-                              <span className="text-xs xs:text-sm text-gray-500 dark:text-slate-400 flex items-center gap-1">
-                                <Icon name="MapPin" size={12} />
-                                {job.location}
-                              </span>
-                            </>
-                          )}
+                      {/* Middle Section - Job Details */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h2 className="text-lg xs:text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">
+                            {job.title}
+                          </h2>
+                          <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleBookmark(job.id, e);
+                            }}
+                            className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
+                            aria-label="Bookmark job"
+                          >
+                            <Icon name="Bookmark" size={18} className="text-gray-400 dark:text-slate-500" />
+                          </button>
                         </div>
                         
-                        {/* Updated time */}
-                        <div className="flex items-center text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 mt-2">
-                          <Icon name="Clock" size={12} className="mr-1" />
-                          Updated {job.publishedAt ? new Date(job.publishedAt).toLocaleDateString() : 'recently'}
-                        </div>
-                      </div>
-                      
-                      <p className="text-xs xs:text-sm text-gray-600 dark:text-slate-300 whitespace-pre-line">{job.description}</p>
-                      
-                      {/* Requirements */}
-                      {job.requirements?.length > 0 && (
-                        <div>
-                          <h3 className="text-xs xs:text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Requirements</h3>
-                          <ul className="space-y-1.5">
-                            {job.requirements.slice(0, 5).map((req, idx) => (
-                              <li key={idx} className="flex items-start gap-2 text-xs xs:text-sm text-gray-600 dark:text-slate-300">
-                                <Icon name="Check" size={14} className="text-emerald-500 mt-0.5 flex-shrink-0" />
-                                <span>{req}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {/* Responsibilities */}
-                      {job.responsibilities?.length > 0 && (
-                        <div>
-                          <h3 className="text-xs xs:text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">What you'll do</h3>
-                          <ul className="space-y-1.5">
-                            {job.responsibilities.slice(0, 4).map((resp, idx) => (
-                              <li key={idx} className="flex items-start gap-2 text-xs xs:text-sm text-gray-600 dark:text-slate-300">
-                                <Icon name="ArrowRight" size={14} className="text-blue-500 mt-0.5 flex-shrink-0" />
-                                <span>{resp}</span>
-                              </li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-                      
-                      {/* Key Skills - Highlighted like in left section */}
-                      {job.skills && job.skills.length > 0 && (
-                        <div>
-                          <h3 className="text-xs xs:text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Key skills</h3>
-                          <div className="flex flex-wrap gap-1.5 xs:gap-2">
-                            {job.skills.map((skill) => (
-                              <span
-                                key={skill}
-                                className="px-2 xs:px-3 py-0.5 xs:py-1 rounded-full border border-blue-100 text-[10px] xs:text-xs text-blue-600 dark:border-blue-500/30 dark:text-blue-300"
-                              >
-                                {skill}
-                              </span>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                      
-                      {/* Practice CTA */}
-                      <div className="rounded-xl border border-blue-100 dark:border-blue-500/30 bg-blue-50/70 dark:bg-blue-500/10 p-3 xs:p-4">
-                        <div className="flex items-center gap-2 mb-2">
-                          <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center">
-                            <Icon name="Sparkles" size={14} className="text-white" />
-                          </div>
-                          <p className="text-xs xs:text-sm font-semibold text-gray-900 dark:text-slate-100">AI-Powered Practice</p>
-                        </div>
-                        <p className="text-xs text-blue-900 dark:text-blue-100">
-                          Get tailored interview questions based on this role's requirements and skills. Practice with our AI interviewer before the real thing.
-                        </p>
-                      </div>
-                      
-                      <div className="flex flex-col xs:flex-row gap-2 xs:gap-3 mt-auto">
-                        <Button className="flex-1 rounded-full text-sm" onClick={() => handlePractice(job)}>
-                          <Icon name="Play" size={16} className="mr-1.5" />
-                          Practice for this role
-                        </Button>
-                        <Button
-                          variant={hasApplied && !canReapply ? 'success' : 'outline'}
-                          className={`flex-1 rounded-full text-sm ${
-                            hasApplied && !canReapply 
-                              ? 'bg-emerald-500 hover:bg-emerald-600 text-white' 
-                              : canReapply
-                              ? 'bg-orange-50 dark:bg-orange-900/20 border-orange-200 dark:border-orange-800 text-orange-700 dark:text-orange-300 hover:bg-orange-100 dark:hover:bg-orange-900/30'
-                              : ''
-                          }`}
-                          onClick={() => handleApply(job)}
-                          disabled={(hasApplied && !canReapply) || !isAuthenticated || userType !== 'candidate'}
-                        >
-                          {hasApplied && !canReapply ? (
-                            <div className="flex items-center gap-2">
-                              <Icon name="Check" size={16} className="mr-1.5" />
-                              Applied
+                        {job.organization?.name && (
+                          <p className="text-sm text-gray-700 dark:text-slate-300 mb-3">
+                            {job.organization.name}
+                          </p>
+                        )}
+                        
+                        <div className="flex flex-wrap items-center gap-4 mb-2">
+                          {/* Location */}
+                          {!shouldShowRemote(job.location) && (
+                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                              <Icon name="MapPin" size={16} className="text-gray-500 dark:text-slate-500" />
+                              <span>{job.location}</span>
                             </div>
-                          ) : canReapply ? (
-                            <div className="flex items-center gap-2">
-                              <Icon name="RefreshCw" size={16} className="mr-1.5" />
-                              Apply Again
-                            </div>
-                          ) : isRejected ? (
-                            <div className="flex items-center gap-2">
-                              <Icon name="XCircle" size={16} className="mr-1.5" />
-                              Not Selected
-                            </div>
-                          ) : isAuthenticated ? (
-                            'Apply'
-                          ) : (
-                            'Sign in to apply'
                           )}
-                        </Button>
+                          {shouldShowRemote(job.location) && (
+                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                              <Icon name="MapPin" size={16} className="text-gray-500 dark:text-slate-500" />
+                              <span>Remote</span>
+                            </div>
+                          )}
+                          
+                          {/* Employment Type */}
+                          {job.employmentType && (
+                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                              <Icon name="Briefcase" size={16} className="text-gray-500 dark:text-slate-500" />
+                              <span>{formatEmploymentType(job.employmentType)}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Right Section - Status Badges and Days Left */}
+                      <div className="flex flex-col items-end flex-shrink-0">
+                        {/* Status Badges and Days Left - In one line */}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                          {/* Application Status Badges */}
+                          {showAppliedBadge && (
+                            <div className="px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 flex items-center gap-1.5 shadow-sm">
+                              <Icon name="CheckCircle" size={14} className="text-green-600 dark:text-green-400" />
+                              <span className="text-xs font-medium text-green-700 dark:text-green-300">Applied</span>
+                            </div>
+                          )}
+                          {showWithdrawnBadge && (
+                            <div className="px-2.5 py-1 rounded-full bg-orange-100 dark:bg-orange-900/30 border border-orange-200 dark:border-orange-800 flex items-center gap-1.5 shadow-sm">
+                              <Icon name="XCircle" size={14} className="text-orange-600 dark:text-orange-400" />
+                              <span className="text-xs font-medium text-orange-700 dark:text-orange-300">Withdrew</span>
+                            </div>
+                          )}
+                          {showRejectedBadge && (
+                            <div className="px-2.5 py-1 rounded-full bg-gray-100 dark:bg-gray-900/30 border border-gray-200 dark:border-gray-800 flex items-center gap-1.5 shadow-sm">
+                              <Icon name="XCircle" size={14} className="text-gray-600 dark:text-gray-400" />
+                              <span className="text-xs font-medium text-gray-700 dark:text-gray-300">Not Selected</span>
+                            </div>
+                          )}
+                          
+                          {/* Days Left */}
+                          {daysLeft && (
+                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                              <Icon name="Clock" size={16} className="text-gray-500 dark:text-slate-500" />
+                              <span>{daysLeft} days left</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      
+                      {/* Share Icons - Positioned at bottom right corner, only show on hover */}
+                      <div className="absolute bottom-4 right-4 sm:bottom-5 sm:right-6 flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-200 z-10" onClick={(e) => e.stopPropagation()}>
+                        <button
+                          onClick={(e) => handleShare(job, 'share', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share"
+                        >
+                          <Icon name="Share2" size={16} className="text-gray-600 dark:text-slate-400" />
+                        </button>
+                        <button
+                          onClick={(e) => handleShare(job, 'whatsapp', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share on WhatsApp"
+                        >
+                          <Icon name="MessageCircle" size={16} className="text-gray-600 dark:text-slate-400" />
+                        </button>
+                        <button
+                          onClick={(e) => handleShare(job, 'facebook', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share on Facebook"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-gray-600 dark:text-slate-400">
+                            <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleShare(job, 'instagram', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share on Instagram"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-gray-600 dark:text-slate-400">
+                            <path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zm0-2.163c-3.259 0-3.667.014-4.947.072-4.358.2-6.78 2.618-6.98 6.98-.059 1.281-.073 1.689-.073 4.948 0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98 1.281.058 1.689.072 4.948.072 3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98-1.281-.059-1.69-.073-4.949-.073zm0 5.838c-3.403 0-6.162 2.759-6.162 6.162s2.759 6.163 6.162 6.163 6.162-2.759 6.162-6.163c0-3.403-2.759-6.162-6.162-6.162zm0 10.162c-2.209 0-4-1.79-4-4 0-2.209 1.791-4 4-4s4 1.791 4 4c0 2.21-1.791 4-4 4zm6.406-11.845c-.796 0-1.441.645-1.441 1.44s.645 1.44 1.441 1.44c.795 0 1.439-.645 1.439-1.44s-.644-1.44-1.439-1.44z"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleShare(job, 'twitter', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share on Twitter"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-gray-600 dark:text-slate-400">
+                            <path d="M23.953 4.57a10 10 0 01-2.825.775 4.958 4.958 0 002.163-2.723c-.951.555-2.005.959-3.127 1.184a4.92 4.92 0 00-8.384 4.482C7.69 8.095 4.067 6.13 1.64 3.162a4.822 4.822 0 00-.666 2.475c0 1.71.87 3.213 2.188 4.096a4.904 4.904 0 01-2.228-.616v.06a4.923 4.923 0 003.946 4.827 4.996 4.996 0 01-2.212.085 4.936 4.936 0 004.604 3.417 9.867 9.867 0 01-6.102 2.105c-.39 0-.779-.023-1.17-.067a13.995 13.995 0 007.557 2.209c9.053 0 13.998-7.496 13.998-13.985 0-.21 0-.42-.015-.63A9.935 9.935 0 0024 4.59z"/>
+                          </svg>
+                        </button>
+                        <button
+                          onClick={(e) => handleShare(job, 'linkedin', e)}
+                          className="w-8 h-8 rounded-full bg-gray-100 dark:bg-slate-700 flex items-center justify-center hover:bg-gray-200 dark:hover:bg-slate-600 transition-colors"
+                          aria-label="Share on LinkedIn"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" className="text-gray-600 dark:text-slate-400">
+                            <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433c-1.144 0-2.063-.926-2.063-2.065 0-1.138.92-2.063 2.063-2.063 1.14 0 2.064.925 2.064 2.063 0 1.139-.925 2.065-2.064 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/>
+                          </svg>
+                        </button>
                       </div>
                     </motion.div>
                     );
@@ -563,7 +643,7 @@ const JobsPage = () => {
 
                   {/* Pagination Controls */}
                   {totalPages > 1 && (
-                    <div className="col-span-full flex items-center justify-between gap-4 mt-6">
+                    <div className="flex items-center justify-between gap-4 mt-6">
                       <div className="text-sm text-gray-600 dark:text-slate-400">
                         Showing {startIndex + 1} to {Math.min(endIndex, jobs.length)} of {jobs.length} jobs
                       </div>
