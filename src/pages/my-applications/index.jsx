@@ -7,6 +7,7 @@ import MyApplicationsList from '../candidate-dashboard/components/MyApplications
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import LoadingState from '../../components/ui/LoadingState';
 
 const MyApplicationsPage = () => {
   const navigate = useNavigate();
@@ -20,12 +21,12 @@ const MyApplicationsPage = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-          <p className="text-sm sm:text-base text-muted-foreground">Loading...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading applications"
+        message="Fetching your latest submissions."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 

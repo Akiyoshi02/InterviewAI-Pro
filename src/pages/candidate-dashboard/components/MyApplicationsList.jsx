@@ -5,6 +5,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -106,6 +107,11 @@ const MyApplicationsList = () => {
   useEffect(() => {
     loadApplications();
   }, []);
+
+  // Reset to page 1 when filters change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [statusFilter, searchQuery]);
 
   const loadApplications = async () => {
     try {
@@ -238,11 +244,12 @@ const MyApplicationsList = () => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading applications"
+        message="Refreshing your application status updates."
+        variant="card"
+        tone="primary"
+      />
     );
   }
 
@@ -289,11 +296,6 @@ const MyApplicationsList = () => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedJobs = jobsArray.slice(startIndex, endIndex);
-
-  // Reset to page 1 when filters change
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">

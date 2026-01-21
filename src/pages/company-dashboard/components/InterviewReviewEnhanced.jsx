@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
@@ -111,9 +112,12 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-      </div>
+      <LoadingState
+        title="Loading interview review"
+        message="Pulling interview details and AI evaluation."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 
@@ -563,20 +567,12 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 </Button>
                 <Button
                   onClick={handleSubmitReview}
+                  loading={submitting}
                   disabled={submitting || !review.notes.trim()}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
                 >
-                  {submitting ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin mr-2"></div>
-                      Submitting...
-                    </>
-                  ) : (
-                    <>
-                      <Icon name="CheckCircle" className="w-4 h-4 mr-2" />
-                      Submit Review
-                    </>
-                  )}
+                  {!submitting && <Icon name="CheckCircle" className="w-4 h-4 mr-2" />}
+                  {submitting ? 'Submitting...' : 'Submit Review'}
                 </Button>
               </div>
             </div>

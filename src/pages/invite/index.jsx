@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
+import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
@@ -115,7 +116,11 @@ const InvitePage = () => {
 
           {loading && (
             <div className="flex justify-center py-10">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary" />
+              <LoadingState
+                variant="inline"
+                title="Loading invitation..."
+                tone="primary"
+              />
             </div>
           )}
 

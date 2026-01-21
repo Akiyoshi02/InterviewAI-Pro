@@ -4,6 +4,7 @@ import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import LoadingIndicator from '../../components/ui/LoadingIndicator';
 
 const VerifyEmail = () => {
   const navigate = useNavigate();
@@ -432,8 +433,6 @@ const VerifyEmail = () => {
 
   const getStatusIcon = () => {
     switch (status) {
-      case 'verifying':
-        return 'Loader2';
       case 'success':
         return 'CheckCircle';
       case 'error':
@@ -467,7 +466,7 @@ const VerifyEmail = () => {
               'bg-error/10'
             }`}>
               {status === 'verifying' ? (
-                <Icon name="Loader2" size={28} className="text-primary animate-spin sm:w-8 sm:h-8" />
+                <LoadingIndicator size={28} tone="primary" />
               ) : (
                 <Icon 
                   name={getStatusIcon()} 
@@ -521,7 +520,7 @@ const VerifyEmail = () => {
 
             {status === 'verifying' && (
               <div className="flex items-center justify-center space-x-2 text-xs sm:text-sm text-muted-foreground">
-                <Icon name="Loader2" size={14} className="animate-spin sm:w-4 sm:h-4" />
+                <LoadingIndicator size={14} tone="primary" />
                 <span>Processing verification...</span>
               </div>
             )}

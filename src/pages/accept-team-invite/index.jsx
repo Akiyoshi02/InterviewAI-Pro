@@ -232,7 +232,7 @@ const AcceptTeamInvitePage = () => {
               <Input
                 label="Phone Number"
                 type="tel"
-                placeholder="+1 (555) 123-4567"
+                placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
                 value={phoneNumber}
                 onChange={(e) => setPhoneNumber(e.target.value)}
               />

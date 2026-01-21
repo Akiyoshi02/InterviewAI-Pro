@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import Icon from '../../components/AppIcon';
 import BrandMark from '../../components/BrandMark';
 import Button from '../../components/ui/Button';
+import LoadingState from '../../components/ui/LoadingState';
 import CandidateFields from '../register/components/CandidateFields';
 import CompanyFields from '../register/components/CompanyFields';
 import TermsAndPrivacy from '../register/components/TermsAndPrivacy';
@@ -209,12 +210,12 @@ const Onboarding = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary mx-auto mb-4"></div>
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Preparing onboarding"
+        message="Loading your profile details and setup steps."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 
@@ -384,17 +385,11 @@ const Onboarding = () => {
                       <Button
                         type="submit"
                         variant="default"
+                        loading={isLoading}
                         disabled={isLoading}
                         className="h-10 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6"
                       >
-                        {isLoading ? (
-                          <span className="flex items-center">
-                            <Icon name="Loader2" className="w-4 h-4 mr-2 animate-spin" />
-                            Completing...
-                          </span>
-                        ) : (
-                          'Complete Profile'
-                        )}
+                        {isLoading ? 'Completing...' : 'Complete Profile'}
                       </Button>
                     )}
                   </div>

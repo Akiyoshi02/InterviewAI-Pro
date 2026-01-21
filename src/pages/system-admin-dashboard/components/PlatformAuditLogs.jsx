@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const PlatformAuditLogs = () => {
@@ -75,11 +76,12 @@ const PlatformAuditLogs = () => {
 
   if (loading && logs.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading audit logs"
+        message="Fetching recent administrative activity."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 
@@ -101,9 +103,10 @@ const PlatformAuditLogs = () => {
             onClick={loadAuditLogs}
             disabled={loading}
             className="flex items-center gap-2"
+            loading={loading}
           >
-            <Icon name="RefreshCw" className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Refresh
+            {!loading && <Icon name="RefreshCw" className="w-4 h-4" />}
+            {loading ? 'Refreshing...' : 'Refresh'}
           </Button>
         </div>
 

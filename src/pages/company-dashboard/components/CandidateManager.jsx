@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -84,11 +85,12 @@ const CandidateManager = ({ canStartReview = true }) => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading candidates"
+        message="Gathering pipeline and candidate details."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 
@@ -370,6 +372,17 @@ const CandidateManager = ({ canStartReview = true }) => {
                     </div>
                   )}
 
+                  {selectedCandidate.candidate?.location && (
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                        Location
+                      </h3>
+                      <p className="text-base text-gray-900 dark:text-slate-100">
+                        {selectedCandidate.candidate.location}
+                      </p>
+                    </div>
+                  )}
+
                   {selectedCandidate.submittedAt && (
                     <div>
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
@@ -381,6 +394,148 @@ const CandidateManager = ({ canStartReview = true }) => {
                     </div>
                   )}
                 </div>
+
+                {/* Educational Background */}
+                {(selectedCandidate.candidate?.highestQualification || selectedCandidate.candidate?.fieldOfStudy || selectedCandidate.candidate?.institutionName) && (
+                  <div className="rounded-lg border border-purple-100 dark:border-purple-900/30 bg-purple-50/50 dark:bg-purple-900/10 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Icon name="GraduationCap" className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                        Educational Background
+                      </h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      {selectedCandidate.candidate?.highestQualification && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Qualification: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.highestQualification}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.fieldOfStudy && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Field: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.fieldOfStudy}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.institutionName && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Institution: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.institutionName}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.graduationYear && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Graduation: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.graduationYear}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Job Preferences */}
+                {(selectedCandidate.candidate?.availability || selectedCandidate.candidate?.preferredWorkType || selectedCandidate.candidate?.expectedSalary) && (
+                  <div className="rounded-lg border border-indigo-100 dark:border-indigo-900/30 bg-indigo-50/50 dark:bg-indigo-900/10 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Icon name="Briefcase" className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                        Job Preferences
+                      </h3>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
+                      {selectedCandidate.candidate?.availability && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Availability: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.availability}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.preferredWorkType && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Work Type: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.preferredWorkType}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.preferredEmploymentType && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Employment: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.preferredEmploymentType}</span>
+                        </div>
+                      )}
+                      {selectedCandidate.candidate?.expectedSalary && (
+                        <div>
+                          <span className="text-gray-500 dark:text-slate-400">Expected Salary: </span>
+                          <span className="text-gray-900 dark:text-slate-100">{selectedCandidate.candidate.expectedSalary}</span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Professional Links */}
+                {(selectedCandidate.candidate?.linkedinUrl || selectedCandidate.candidate?.githubUrl || selectedCandidate.candidate?.portfolioUrl) && (
+                  <div className="rounded-lg border border-sky-100 dark:border-sky-900/30 bg-sky-50/50 dark:bg-sky-900/10 p-4">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Icon name="Link" className="w-4 h-4 text-sky-600 dark:text-sky-400" />
+                      <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300">
+                        Professional Links
+                      </h3>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCandidate.candidate?.linkedinUrl && (
+                        <a
+                          href={selectedCandidate.candidate.linkedinUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-medium hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors"
+                        >
+                          <Icon name="Linkedin" className="w-3.5 h-3.5" />
+                          LinkedIn
+                        </a>
+                      )}
+                      {selectedCandidate.candidate?.githubUrl && (
+                        <a
+                          href={selectedCandidate.candidate.githubUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 text-xs font-medium hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors"
+                        >
+                          <Icon name="Github" className="w-3.5 h-3.5" />
+                          GitHub
+                        </a>
+                      )}
+                      {selectedCandidate.candidate?.portfolioUrl && (
+                        <a
+                          href={selectedCandidate.candidate.portfolioUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-xs font-medium hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-colors"
+                        >
+                          <Icon name="Globe" className="w-3.5 h-3.5" />
+                          Portfolio
+                        </a>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Certifications */}
+                {selectedCandidate.candidate?.certifications && selectedCandidate.candidate.certifications.length > 0 && (
+                  <div>
+                    <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
+                      Certifications
+                    </h3>
+                    <div className="flex flex-wrap gap-2">
+                      {selectedCandidate.candidate.certifications.map((cert, idx) => (
+                        <div
+                          key={idx}
+                          className="px-3 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-sm text-amber-700 dark:text-amber-300"
+                        >
+                          {cert}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 {/* Key Skills */}
                 {selectedCandidate.job?.skills && selectedCandidate.job.skills.length > 0 && (

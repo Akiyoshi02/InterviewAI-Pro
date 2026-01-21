@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const AllOrganizationsList = () => {
@@ -56,11 +57,12 @@ const AllOrganizationsList = () => {
 
   if (loading && organizations.length === 0) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading organizations"
+        message="Retrieving organization directory."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 

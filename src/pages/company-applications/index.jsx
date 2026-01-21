@@ -4,6 +4,7 @@ import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import ApplicationsManager from '../company-dashboard/components/ApplicationsManager';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { hasPermission } from '../../utils/rolePermissions';
@@ -28,12 +29,12 @@ const CompanyApplicationsPage = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-          <p className="text-sm sm:text-base text-muted-foreground">Loading applications...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading applications"
+        message="Collecting candidate submissions and statuses."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 

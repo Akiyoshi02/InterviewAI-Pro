@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import OrganizationApprovalQueue from './components/OrganizationApprovalQueue.jsx';
 import SystemStats from './components/SystemStats.jsx';
 import PlatformAuditLogs from './components/PlatformAuditLogs.jsx';
@@ -90,11 +91,13 @@ const SystemAdminDashboard = () => {
 
         {/* Stats Overview */}
         {loading ? (
-          <div className="mb-8 rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-            </div>
-          </div>
+          <LoadingState
+            title="Loading platform stats"
+            message="Aggregating system-wide metrics."
+            variant="card"
+            tone="secondary"
+            className="mb-8"
+          />
         ) : stats ? (
           <SystemStats stats={stats} onRefresh={loadStats} />
         ) : null}
@@ -135,11 +138,12 @@ const SystemAdminDashboard = () => {
           {activeTab === 'overview' && (
             <div className="space-y-6">
               {loading ? (
-                <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-                  <div className="flex items-center justify-center py-12">
-                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-                  </div>
-                </div>
+                <LoadingState
+                  title="Refreshing overview"
+                  message="Syncing administrative dashboards."
+                  variant="card"
+                  tone="secondary"
+                />
               ) : stats ? (
                 <>
                   <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">

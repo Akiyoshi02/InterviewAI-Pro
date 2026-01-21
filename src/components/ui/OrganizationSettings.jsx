@@ -102,10 +102,27 @@ const companySizeOptions = [
   { value: '1000+', label: '1000+ employees' },
 ];
 
+const companyTypeOptions = [
+  { value: 'private-limited', label: 'Private Limited Company (Pvt Ltd)' },
+  { value: 'public-limited', label: 'Public Limited Company (PLC)' },
+  { value: 'partnership', label: 'Partnership' },
+  { value: 'sole-proprietorship', label: 'Sole Proprietorship' },
+  { value: 'startup', label: 'Startup' },
+  { value: 'ngo', label: 'NGO / Non-Profit Organization' },
+  { value: 'government', label: 'Government / Semi-Government' },
+  { value: 'multinational', label: 'Multinational Corporation (MNC)' },
+];
+
 const hqLocationOptions = [
-  { value: 'americas', label: 'Americas' },
-  { value: 'emea', label: 'Europe, Middle East & Africa' },
-  { value: 'apac', label: 'Asia-Pacific (APAC)' },
+  { value: 'western', label: 'Western Province' },
+  { value: 'central', label: 'Central Province' },
+  { value: 'southern', label: 'Southern Province' },
+  { value: 'northern', label: 'Northern Province' },
+  { value: 'eastern', label: 'Eastern Province' },
+  { value: 'north-western', label: 'North Western Province' },
+  { value: 'north-central', label: 'North Central Province' },
+  { value: 'uva', label: 'Uva Province' },
+  { value: 'sabaragamuwa', label: 'Sabaragamuwa Province' },
 ];
 
 const OrganizationSettings = ({ className = '' }) => {
@@ -117,6 +134,7 @@ const OrganizationSettings = ({ className = '' }) => {
     displayName: organization?.displayName || '',
     tagline: organization?.tagline || '',
     industry: organization?.industry || '',
+    companyType: organization?.companyType || '',
     companySize: organization?.companySize || '',
     website: organization?.website || '',
     headquartersLocation: organization?.headquartersLocation || '',
@@ -140,6 +158,7 @@ const OrganizationSettings = ({ className = '' }) => {
       displayName: organization?.displayName || '',
       tagline: organization?.tagline || '',
       industry: organization?.industry || '',
+      companyType: organization?.companyType || '',
       companySize: organization?.companySize || '',
       website: organization?.website || '',
       headquartersLocation: organization?.headquartersLocation || '',
@@ -355,6 +374,14 @@ const OrganizationSettings = ({ className = '' }) => {
               disabled={!isOrgAdmin}
             />
             <Select
+              label="Company Type"
+              options={companyTypeOptions}
+              value={orgDetails.companyType}
+              onChange={(value) => setOrgDetails((prev) => ({ ...prev, companyType: value }))}
+              placeholder="Select company type"
+              disabled={!isOrgAdmin}
+            />
+            <Select
               label="Company Size"
               options={companySizeOptions}
               value={orgDetails.companySize}
@@ -390,7 +417,7 @@ const OrganizationSettings = ({ className = '' }) => {
             <Input
               label="Primary contact phone"
               type="tel"
-              placeholder="+1 555 123 4567"
+              placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
               value={orgDetails.contactPhone}
               onChange={(e) => setOrgDetails((prev) => ({ ...prev, contactPhone: e.target.value }))}
               disabled={!isOrgAdmin}

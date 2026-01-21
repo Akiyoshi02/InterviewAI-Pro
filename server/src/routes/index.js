@@ -16,6 +16,7 @@ import adminRoutes from './admin.routes.js';
 import applicationRoutes from './application.routes.js';
 import templateRoutes from './template.routes.js';
 import billingRoutes from './billing.routes.js';
+import newsletterRoutes from './newsletter.routes.js';
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
 
 const router = express.Router();
@@ -38,6 +39,7 @@ export function setupRoutes(app) {
   app.use('/api/admin', adminRoutes);
   app.use('/api/templates', templateRoutes);
   app.use('/api/billing', billingRoutes);
+  app.use('/api/newsletter', newsletterRoutes);
   app.use('/api', applicationRoutes);
 
   // Add maintenance header to all API responses

@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
+import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
 const OrganizationApprovalQueue = ({ onApprovalChange }) => {
@@ -114,11 +115,12 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
 
   if (loading) {
     return (
-      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-purple-600"></div>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading approvals"
+        message="Fetching pending organization requests."
+        variant="card"
+        tone="secondary"
+      />
     );
   }
 
@@ -216,20 +218,14 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                   <Button
                     size="sm"
                     onClick={() => handleApprove(org)}
+                    loading={actionLoading === org.id}
                     disabled={actionLoading === org.id}
                     className="bg-green-600 hover:bg-green-700 text-white min-w-[100px]"
                   >
-                    {actionLoading === org.id ? (
-                      <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                        <span>Processing...</span>
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-2">
-                        <Icon name="CheckCircle" className="w-4 h-4" />
-                        <span>Approve</span>
-                      </div>
-                    )}
+                    <div className="flex items-center gap-2">
+                      {actionLoading !== org.id && <Icon name="CheckCircle" className="w-4 h-4" />}
+                      <span>{actionLoading === org.id ? 'Processing...' : 'Approve'}</span>
+                    </div>
                   </Button>
 
                   <Button
@@ -319,16 +315,10 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                 <Button
                   onClick={confirmReject}
                   disabled={actionLoading || !rejectReason.trim()}
+                  loading={actionLoading}
                   className="flex-1 bg-red-600 hover:bg-red-700 text-white"
                 >
-                  {actionLoading ? (
-                    <div className="flex items-center gap-2">
-                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-                      <span>Rejecting...</span>
-                    </div>
-                  ) : (
-                    'Confirm Rejection'
-                  )}
+                  {actionLoading ? 'Rejecting...' : 'Confirm Rejection'}
                 </Button>
               </div>
             </motion.div>

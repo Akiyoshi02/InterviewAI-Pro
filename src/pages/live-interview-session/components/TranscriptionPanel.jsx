@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { cn } from '../../../utils/cn';
+import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 
 const TranscriptionPanel = ({ 
   isListening = false,
@@ -30,7 +31,7 @@ const TranscriptionPanel = ({
   const formatTime = (timestamp) => {
     if (!timestamp) return '';
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { 
+    return date.toLocaleTimeString('en-GB', { 
       hour12: false, 
       hour: '2-digit', 
       minute: '2-digit',
@@ -112,7 +113,7 @@ const TranscriptionPanel = ({
           )}
           {isTranscribing && (
             <Button disabled variant="outline" size="sm" className="h-8 sm:h-9 opacity-70">
-              <Icon name="Loader2" size={14} className="sm:w-4 sm:h-4 mr-1.5 animate-spin" />
+              <LoadingIndicator size={14} tone="warning" className="mr-1.5" />
               <span className="text-xs sm:text-sm">Processing</span>
             </Button>
           )}
@@ -222,7 +223,7 @@ const TranscriptionPanel = ({
               <div className="rounded-2xl p-3 bg-amber-50 border border-amber-200/70">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium text-amber-600">Converting speech...</span>
-                  <Icon name="Loader2" size={14} className="animate-spin" />
+                  <LoadingIndicator size={14} tone="warning" />
                 </div>
                 <p className="text-xs text-amber-600">Audio captured. Waiting for Whisper transcription.</p>
               </div>

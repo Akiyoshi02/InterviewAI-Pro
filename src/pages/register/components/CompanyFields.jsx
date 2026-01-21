@@ -3,6 +3,7 @@ import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
+import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 
 const CompanyFields = ({
   formData,
@@ -22,6 +23,17 @@ const CompanyFields = ({
     { value: '51-200', label: '51-200 employees (Medium)' },
     { value: '201-1000', label: '201-1000 employees (Large)' },
     { value: '1000+', label: '1000+ employees (Enterprise)' }
+  ];
+
+  const companyTypes = [
+    { value: 'private-limited', label: 'Private Limited Company (Pvt Ltd)' },
+    { value: 'public-limited', label: 'Public Limited Company (PLC)' },
+    { value: 'partnership', label: 'Partnership' },
+    { value: 'sole-proprietorship', label: 'Sole Proprietorship' },
+    { value: 'startup', label: 'Startup' },
+    { value: 'ngo', label: 'NGO / Non-Profit Organization' },
+    { value: 'government', label: 'Government / Semi-Government' },
+    { value: 'multinational', label: 'Multinational Corporation (MNC)' },
   ];
 
   const industries = [
@@ -44,6 +56,12 @@ const CompanyFields = ({
     { value: 'executive', label: 'Executive Leadership' },
     { value: 'other', label: 'Other' }
   ];
+
+  const currentYear = new Date().getFullYear();
+  const establishedYears = Array.from({ length: 100 }, (_, i) => {
+    const year = currentYear - i;
+    return { value: year.toString(), label: year.toString() };
+  });
 
   const locationFeedback = locationHelper?.targetField === 'companyLocation' ? locationHelper : null;
   const locationStatusClass = locationFeedback?.status === 'success'
@@ -127,8 +145,6 @@ const CompanyFields = ({
 
     const [previewUrl, setPreviewUrl] = React.useState(null);
     const [isUploading, setIsUploading] = React.useState(false);
-    const [inputKey, setInputKey] = React.useState(0);
-    const [shouldOpenDialog, setShouldOpenDialog] = React.useState(false);
     const isImagePreviewable = previewMode === 'image'
       && fileValue instanceof File
       && fileValue.type?.startsWith('image/');
@@ -150,61 +166,30 @@ const CompanyFields = ({
       return () => URL.revokeObjectURL(url);
     }, [fileValue, isImagePreviewable, isPdfPreviewable]);
 
-    // Handle opening dialog after input is recreated
-    React.useEffect(() => {
-      if (shouldOpenDialog) {
-        // Wait for React to render the new input element
-        let retryTimer;
-        const timer = setTimeout(() => {
-          if (inputRef?.current) {
-            inputRef.current.click();
-            setShouldOpenDialog(false);
-          } else {
-            // If ref not ready, try again after a short delay
-            retryTimer = setTimeout(() => {
-              if (inputRef?.current) {
-                inputRef.current.click();
-                setShouldOpenDialog(false);
-              }
-            }, 50);
-          }
-        }, 10);
-        return () => {
-          clearTimeout(timer);
-          if (retryTimer) clearTimeout(retryTimer);
-        };
-      }
-    }, [shouldOpenDialog, inputKey]);
-
     const handleFileChange = async (event) => {
       const file = event?.target?.files?.[0];
       if (!file) return;
 
       setIsUploading(true);
+      onFieldChange(fieldKey, file);
       try {
         if (onValidateFile) {
           await onValidateFile(file);
         }
-        onFieldChange(fieldKey, file);
-        // Reset input value after successful upload to ensure onChange fires on next selection
-        if (inputRef?.current) {
-          inputRef.current.value = '';
-        }
       } catch (validationError) {
-        if (inputRef?.current) {
-          inputRef.current.value = '';
-        }
         onFieldChange(fieldKey, null);
       } finally {
+        if (inputRef?.current) {
+          inputRef.current.value = '';
+        }
         setIsUploading(false);
       }
     };
 
     const handleFileInputClick = () => {
-      // Force input recreation by updating key to ensure a fresh input element
-      // This fixes the issue where onChange doesn't fire on first file selection
-      setInputKey(prev => prev + 1);
-      setShouldOpenDialog(true);
+      if (!inputRef?.current) return;
+      inputRef.current.value = '';
+      inputRef.current.click();
     };
 
     const handleRemoveFile = () => {
@@ -329,7 +314,6 @@ const CompanyFields = ({
         )}
 
         <input
-          key={inputKey}
           ref={inputRef}
           type="file"
           accept={accept}
@@ -342,16 +326,36 @@ const CompanyFields = ({
 
   return (
     <div className={`space-y-4 ${className}`}>
-      <Input
-        label="Company Name"
-        type="text"
-        placeholder="Enter your company name"
-        value={formData?.companyName}
-        onChange={(e) => onFieldChange('companyName', e?.target?.value)}
-        error={errors?.companyName}
-        required
-      />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Input
+          label="Company Name"
+          type="text"
+          placeholder="Enter your company name"
+          value={formData?.companyName}
+          onChange={(e) => onFieldChange('companyName', e?.target?.value)}
+          error={errors?.companyName}
+          required
+        />
+        <Input
+          label="Business Registration Number"
+          type="text"
+          placeholder="e.g., PV 12345"
+          description="BR number for verification (optional)"
+          value={formData?.businessRegistrationNumber}
+          onChange={(e) => onFieldChange('businessRegistrationNumber', e?.target?.value)}
+          error={errors?.businessRegistrationNumber}
+        />
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <Select
+          label="Company Type"
+          placeholder="Select company type"
+          options={companyTypes}
+          value={formData?.companyType}
+          onChange={(value) => onFieldChange('companyType', value)}
+          error={errors?.companyType}
+          required
+        />
         <Select
           label="Company Size"
           placeholder="Select company size"
@@ -361,7 +365,8 @@ const CompanyFields = ({
           error={errors?.companySize}
           required
         />
-
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Select
           label="Industry"
           placeholder="Select your industry"
@@ -371,6 +376,15 @@ const CompanyFields = ({
           error={errors?.industry}
           searchable
           required
+        />
+        <Select
+          label="Established Year"
+          placeholder="Select year founded"
+          options={establishedYears}
+          value={formData?.establishedYear}
+          onChange={(value) => onFieldChange('establishedYear', value)}
+          error={errors?.establishedYear}
+          searchable
         />
       </div>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -404,15 +418,6 @@ const CompanyFields = ({
         error={errors?.hiringVolume}
         required
       />
-      <Input
-        label="Company Website"
-        type="url"
-        placeholder="https://www.yourcompany.com"
-        description="Optional - helps us verify your company"
-        value={formData?.companyWebsite}
-        onChange={(e) => onFieldChange('companyWebsite', e?.target?.value)}
-        error={errors?.companyWebsite}
-      />
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div className="space-y-1.5 sm:space-y-2">
           <label className="text-sm font-medium leading-none text-foreground">
@@ -423,7 +428,7 @@ const CompanyFields = ({
               type="text"
               value={detectingForCompany && locationFeedback?.message ? locationFeedback.message : formData?.companyLocation || ''}
               onChange={(e) => onFieldChange('companyLocation', e?.target?.value)}
-              placeholder="e.g., San Francisco, CA"
+              placeholder="e.g., Colombo, Sri Lanka"
               disabled={isDetectingLocation}
               className={`flex h-11 sm:h-12 w-full rounded-xl border bg-background px-3 sm:px-4 pr-[90px] sm:pr-[100px] py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px] ${
                 errors?.companyLocation ? 'border-destructive focus-visible:ring-destructive' : 'border-input'
@@ -437,7 +442,7 @@ const CompanyFields = ({
             >
               {detectingForCompany ? (
                 <>
-                  <Icon name="Loader2" size={14} className="animate-spin" />
+                  <LoadingIndicator size={14} tone="current" />
                   <span className="hidden sm:inline">Detecting</span>
                 </>
               ) : (
@@ -465,13 +470,119 @@ const CompanyFields = ({
         <Input
           label="Phone Number"
           type="tel"
-          placeholder="+1 (555) 123-4567"
+          placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
           description="For account verification"
-          value={formData?.phoneNumber}
-          onChange={(e) => onFieldChange('phoneNumber', e?.target?.value)}
-          error={errors?.phoneNumber}
+          value={formData?.companyPhoneNumber}
+          onChange={(e) => onFieldChange('companyPhoneNumber', e?.target?.value)}
+          error={errors?.companyPhoneNumber}
         />
       </div>
+      
+      <Input
+        label="Official Company Email"
+        type="email"
+        placeholder="info@yourcompany.com"
+        description="Company's official contact email (optional)"
+        value={formData?.companyEmail}
+        onChange={(e) => onFieldChange('companyEmail', e?.target?.value)}
+        error={errors?.companyEmail}
+      />
+      
+      {/* Company Address */}
+      <div className="space-y-1.5 sm:space-y-2">
+        <label className="text-sm font-medium leading-none text-foreground">
+          Physical Address
+        </label>
+        <textarea
+          value={formData?.companyAddress || ''}
+          onChange={(e) => onFieldChange('companyAddress', e?.target?.value)}
+          placeholder="No.215, Nawala Road, Narahenpita, Colombo 05, Sri Lanka"
+          rows={3}
+          className={`flex w-full rounded-xl border bg-background px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 resize-none ${
+            errors?.companyAddress ? 'border-destructive focus-visible:ring-destructive' : 'border-input'
+          }`}
+        />
+        {errors?.companyAddress && (
+          <p className="text-xs sm:text-sm text-destructive flex items-start gap-1.5">
+            <Icon name="AlertCircle" size={12} className="mt-0.5 flex-shrink-0" />
+            {errors.companyAddress}
+          </p>
+        )}
+        <p className="text-xs text-muted-foreground">Complete physical address of your company headquarters</p>
+      </div>
+
+      {/* Company Description */}
+      <div className="space-y-1.5 sm:space-y-2">
+        <label className="text-sm font-medium leading-none text-foreground">
+          Company Description
+        </label>
+        <textarea
+          value={formData?.companyDescription || ''}
+          onChange={(e) => onFieldChange('companyDescription', e?.target?.value)}
+          placeholder="Tell candidates about your company, its history, mission, products/services, and values..."
+          rows={6}
+          maxLength={2000}
+          className={`flex w-full rounded-xl border bg-background px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 resize-none ${
+            errors?.companyDescription ? 'border-destructive focus-visible:ring-destructive' : 'border-input'
+          }`}
+        />
+        <div className="flex items-center justify-between">
+          {errors?.companyDescription && (
+            <p className="text-xs sm:text-sm text-destructive flex items-start gap-1.5">
+              <Icon name="AlertCircle" size={12} className="mt-0.5 flex-shrink-0" />
+              {errors.companyDescription}
+            </p>
+          )}
+          <p className="text-xs text-muted-foreground ml-auto">
+            {(formData?.companyDescription || '').length}/2000 characters
+          </p>
+        </div>
+        <p className="text-xs text-muted-foreground">This will be displayed on your company profile and job listings</p>
+      </div>
+
+      {/* Social Media Links */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
+              Social Media
+            </p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              Optional - Help candidates learn more about your company
+            </p>
+          </div>
+          <div className="hidden md:flex w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 items-center justify-center text-blue-600 dark:text-blue-300">
+            <Icon name="Share2" size={18} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <Input
+            label="Company Website"
+            type="url"
+            placeholder="https://www.yourcompany.com"
+            value={formData?.companyWebsite || ''}
+            onChange={(e) => onFieldChange('companyWebsite', e?.target?.value)}
+            error={errors?.companyWebsite}
+          />
+          <Input
+            label="Facebook Page URL"
+            type="url"
+            placeholder="https://www.facebook.com/yourcompany"
+            value={formData?.facebookUrl || ''}
+            onChange={(e) => onFieldChange('facebookUrl', e?.target?.value)}
+            error={errors?.facebookUrl}
+          />
+          <Input
+            label="LinkedIn Company Page"
+            type="url"
+            placeholder="https://www.linkedin.com/company/yourcompany"
+            value={formData?.companyLinkedinUrl || ''}
+            onChange={(e) => onFieldChange('companyLinkedinUrl', e?.target?.value)}
+            error={errors?.companyLinkedinUrl}
+          />
+        </div>
+      </div>
+
       <div className="space-y-3 pt-2">
         <div className="flex items-center justify-between">
           <div>

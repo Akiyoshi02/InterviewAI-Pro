@@ -1,9 +1,13 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
+import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 import useLLM from '../../../hooks/useLLM';
 import audioRecorderService from '../../../services/audioRecorderService';
 import { transcribeWithFallback } from '../../../services/localWhisperService';
+import { isLoadingScreenActive, subscribeLoadingScreen } from '../../../utils/loadingScreenState';
+import { FLOATING_BUTTON_MOTION } from '../../../utils/floatingButtonMotion';
 
 const CHAT_SIZE_PRESETS = {
   compact: {
@@ -66,6 +70,11 @@ const AIChatAssistant = ({
   const [chatSize, setChatSize] = useState('cozy');
   const [voiceStatus, setVoiceStatus] = useState('idle');
   const messagesEndRef = useRef(null);
+  const loadingScreenActive = useSyncExternalStore(
+    subscribeLoadingScreen,
+    isLoadingScreenActive,
+    isLoadingScreenActive
+  );
   
   // OpenAI integration
   const { 
@@ -466,7 +475,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
   };
 
   const formatTime = (timestamp) => {
-    return timestamp?.toLocaleTimeString('en-US', { 
+    return timestamp?.toLocaleTimeString('en-GB', { 
       hour: '2-digit', 
       minute: '2-digit' 
     });
@@ -658,20 +667,28 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
     transcribing: 'Transcribing with Whisper...',
     processing: 'Sending your question to the assistant...'
   }[voiceStatus] || null;
+  const { initial, animate, transition } = FLOATING_BUTTON_MOTION;
+
+  if (loadingScreenActive) {
+    return null;
+  }
 
   if (!isOpen) {
     return (
-      <button
+      <motion.button
         onClick={onToggle}
-        className="fixed bottom-20 lg:bottom-6 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-200 flex items-center justify-center z-50"
+        className="fixed bottom-20 lg:bottom-8 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-200 flex items-center justify-center z-50"
+        initial={initial}
+        animate={animate}
+        transition={transition}
       >
         <Icon name="MessageCircle" size={24} />
-      </button>
+      </motion.button>
     );
   }
 
   return (
-    <div className={`fixed bottom-20 lg:bottom-6 right-4 lg:right-6 ${sizeSettings.container} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] lg:max-h-[700px] rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] z-50 flex flex-col overflow-hidden`}>
+    <div className={`fixed bottom-20 lg:bottom-8 right-4 lg:right-6 ${sizeSettings.container} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] lg:max-h-[700px] rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] z-50 flex flex-col overflow-hidden`}>
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b border-white/30 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
         <div className="flex items-center space-x-2">
@@ -817,7 +834,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
             }`}
           >
             {isTranscribing ? (
-              <Icon name="Loader2" size={18} className="animate-spin" />
+              <LoadingIndicator size={18} tone="current" />
             ) : (
               <Icon name={isRecording ? 'Square' : 'Mic'} size={18} />
             )}
@@ -851,4 +868,3 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
 };
 
 export default AIChatAssistant;
-

@@ -241,6 +241,24 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async startEmailVerification({ email, fullName } = {}) {
+      const response = await fetch(`${API_URL}/api/auth/email-verification/start`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ email, fullName }),
+      });
+      return handleResponse(response);
+    },
+
+    async verifyEmailCode(code) {
+      const response = await fetch(`${API_URL}/api/auth/email-verification/verify-code`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ code }),
+      });
+      return handleResponse(response);
+    },
+
     async getMe() {
       const headers = await getHeaders();
       console.log('getMe API call:', {
@@ -1112,6 +1130,29 @@ export const apiClient = {
       const response = await fetch(`${API_URL}/api/organizations/me/team-invitations/${id}/resend`, {
         method: 'POST',
         headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Newsletter APIs
+   */
+  newsletter: {
+    async subscribe(email) {
+      const response = await fetch(`${API_URL}/api/newsletter/subscribe`, {
+        method: 'POST',
+        headers: await getHeaders(false), // Public endpoint, no auth required
+        body: JSON.stringify({ email }),
+      });
+      return handleResponse(response);
+    },
+
+    async unsubscribe(email) {
+      const response = await fetch(`${API_URL}/api/newsletter/unsubscribe`, {
+        method: 'POST',
+        headers: await getHeaders(false), // Public endpoint, no auth required
+        body: JSON.stringify({ email }),
       });
       return handleResponse(response);
     },

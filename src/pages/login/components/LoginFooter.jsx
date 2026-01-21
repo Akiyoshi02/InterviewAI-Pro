@@ -20,7 +20,7 @@ const LoginFooter = ({ onNavigateToRegister }) => {
           © {new Date()?.getFullYear()} InterviewAI Pro ·
           <a href="/privacy" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">Privacy</a>·
           <a href="/terms" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">Terms</a>·
-          <a href="/support" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">Support</a>
+          <a href="/help-center" className="text-blue-600 dark:text-blue-400 hover:underline mx-1">Help Center</a>
         </p>
       </div>
     </div>

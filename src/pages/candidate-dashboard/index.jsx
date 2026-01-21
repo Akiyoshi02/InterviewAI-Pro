@@ -10,10 +10,10 @@ import RecentActivityFeed from './components/RecentActivityFeed';
 import RecommendedTopics from './components/RecommendedTopics';
 import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
-import AIChatAssistant from './components/AIChatAssistant';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -23,16 +23,12 @@ const CandidateDashboard = () => {
   const { user, logout, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
-  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [interviews, setInterviews] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  const handleToggleAIChat = () => {
-    setIsAIChatOpen(!isAIChatOpen);
-  };
 
   const handleLogout = async () => {
     await logout();
@@ -136,12 +132,12 @@ const CandidateDashboard = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-          <p className="text-sm sm:text-base text-muted-foreground">Loading dashboard...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading your dashboard"
+        message="Pulling your latest interview insights and progress."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 
@@ -256,12 +252,13 @@ const CandidateDashboard = () => {
               className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
             >
               {showInitialLoader && (
-                <motion.div
-                  variants={fadeUpChild}
-                  className="card-base p-4 sm:p-6 text-center"
-                >
-                  <div className="animate-spin rounded-full h-8 w-8 sm:h-10 sm:w-10 border-b-2 border-primary mx-auto mb-3 sm:mb-4" />
-                  <p className="text-xs sm:text-sm text-muted-foreground">Syncing your interview data...</p>
+                <motion.div variants={fadeUpChild}>
+                  <LoadingState
+                    title="Syncing your interview data"
+                    message="Updating your analytics and recent sessions."
+                    variant="card"
+                    tone="primary"
+                  />
                 </motion.div>
               )}
               
@@ -429,11 +426,6 @@ const CandidateDashboard = () => {
           </main>
         </div>
       </div>
-      {/* AI Chat Assistant */}
-      <AIChatAssistant 
-        isOpen={isAIChatOpen}
-        onToggle={handleToggleAIChat}
-      />
     </div>
   );
 };

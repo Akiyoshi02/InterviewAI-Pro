@@ -150,7 +150,6 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
 
   const getDeviceTestIcon = (status) => {
     switch (status) {
-      case 'testing': return 'Loader2';
       case 'success': return 'CheckCircle';
       case 'error': return 'XCircle';
       default: return 'Play';
@@ -198,7 +197,8 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
             <Button
               variant="outline"
               size="sm"
-              iconName={anyDeviceTesting ? 'Loader2' : allDevicesTested ? 'RotateCcw' : 'Play'}
+              loading={anyDeviceTesting}
+              iconName={anyDeviceTesting ? null : allDevicesTested ? 'RotateCcw' : 'Play'}
               iconPosition="left"
               onClick={testAllDevices}
               disabled={anyDeviceTesting}
@@ -217,7 +217,8 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
               <Button
                 variant="outline"
                 size="sm"
-                iconName={getDeviceTestIcon(deviceTests?.camera)}
+                loading={deviceTests?.camera === 'testing'}
+                iconName={deviceTests?.camera === 'testing' ? null : getDeviceTestIcon(deviceTests?.camera)}
                 iconPosition="left"
                 onClick={() => testDevice('camera')}
                 disabled={deviceTests?.camera === 'testing'}
@@ -237,7 +238,8 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
               <Button
                 variant="outline"
                 size="sm"
-                iconName={getDeviceTestIcon(deviceTests?.microphone)}
+                loading={deviceTests?.microphone === 'testing'}
+                iconName={deviceTests?.microphone === 'testing' ? null : getDeviceTestIcon(deviceTests?.microphone)}
                 iconPosition="left"
                 onClick={() => testDevice('microphone')}
                 disabled={deviceTests?.microphone === 'testing'}
@@ -257,7 +259,8 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
               <Button
                 variant="outline"
                 size="sm"
-                iconName={getDeviceTestIcon(deviceTests?.speakers)}
+                loading={deviceTests?.speakers === 'testing'}
+                iconName={deviceTests?.speakers === 'testing' ? null : getDeviceTestIcon(deviceTests?.speakers)}
                 iconPosition="left"
                 onClick={() => testDevice('speakers')}
                 disabled={deviceTests?.speakers === 'testing'}

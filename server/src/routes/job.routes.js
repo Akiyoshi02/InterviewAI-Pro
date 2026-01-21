@@ -18,6 +18,10 @@ const jobValidations = [
   body('employmentType').optional().isString(),
   body('experienceLevel').optional().isString(),
   body('compensationRange').optional().isString(),
+  body('salaryCurrency').optional().isString(),
+  body('salaryMin').optional().isNumeric(),
+  body('salaryMax').optional().isNumeric(),
+  body('benefits').optional().isString(),
   body('description').optional().isString(),
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
@@ -25,6 +29,8 @@ const jobValidations = [
   body('status').optional().isIn(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
   body('applicationQuestions').optional().isArray(),
   body('acceptingApplications').optional().isBoolean(),
+  body('postingDuration').optional().isInt({ min: 1, max: 365 }).withMessage('Posting duration must be between 1 and 365 days'),
+  body('scheduledPublishAt').optional().isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
 ];
 
 // Validation for updates - title is optional since we may only update specific fields
@@ -35,6 +41,10 @@ const jobUpdateValidations = [
   body('employmentType').optional().isString(),
   body('experienceLevel').optional().isString(),
   body('compensationRange').optional().isString(),
+  body('salaryCurrency').optional().isString(),
+  body('salaryMin').optional().isNumeric(),
+  body('salaryMax').optional().isNumeric(),
+  body('benefits').optional().isString(),
   body('description').optional().isString(),
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
@@ -42,6 +52,8 @@ const jobUpdateValidations = [
   body('status').optional().isIn(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
   body('applicationQuestions').optional().isArray(),
   body('acceptingApplications').optional().isBoolean(),
+  body('postingDuration').optional().isInt({ min: 1, max: 365 }).withMessage('Posting duration must be between 1 and 365 days'),
+  body('scheduledPublishAt').optional().isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
 ];
 
 router.post(

@@ -8,6 +8,8 @@ import NavigationMenu from './NavigationMenu';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
 import { filterNavByRole } from '../../utils/rolePermissions';
+import CandidateAIChatAssistant from '../../pages/candidate-dashboard/components/AIChatAssistant';
+import CompanyAIChatAssistant from '../../pages/company-dashboard/components/AIChatAssistant';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
@@ -99,13 +101,15 @@ const UserContextNavigation = ({
   userType = 'candidate', 
   isCollapsed = false, 
   onToggleCollapse,
-  className = '' 
+  className = '',
+  assistantProps = {}
 }) => {
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [activeItem, setActiveItem] = useState(location.pathname);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
+  const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [profileImageIndex, setProfileImageIndex] = useState(0);
   const [profileImageFailed, setProfileImageFailed] = useState(false);
 
@@ -204,6 +208,10 @@ const UserContextNavigation = ({
 
   const handleProfileClick = () => {
     setIsProfileOpen(true);
+  };
+
+  const handleToggleAIChat = () => {
+    setIsAIChatOpen((prev) => !prev);
   };
 
   const storedUser = useMemo(() => {
@@ -360,12 +368,14 @@ const UserContextNavigation = ({
       {/* Mobile Bottom Navigation */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding">
         <div className="flex items-center justify-around h-16 xs:h-18 px-2">
-          {navigationItems?.slice(0, 4).map((item) => {
+          {navigationItems?.slice(0, 4).map((item, index) => {
             const isActive = activeItem === item?.path;
+            // Use key property if available, otherwise use path, otherwise use index
+            const uniqueKey = item?.key || item?.path || `nav-item-${index}`;
             
             return (
               <button
-                key={item?.path}
+                key={uniqueKey}
                 onClick={() => handleNavigation(item?.path)}
                 className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-w-[60px] ${
                   isActive
@@ -422,6 +432,19 @@ const UserContextNavigation = ({
         onClose={() => setIsProfileOpen(false)}
         userType={userType}
       />
+
+      {userType === 'company' ? (
+        <CompanyAIChatAssistant
+          isOpen={isAIChatOpen}
+          onToggle={handleToggleAIChat}
+          {...assistantProps}
+        />
+      ) : (
+        <CandidateAIChatAssistant
+          isOpen={isAIChatOpen}
+          onToggle={handleToggleAIChat}
+        />
+      )}
     </>
   );
 };

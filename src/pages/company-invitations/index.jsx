@@ -5,6 +5,7 @@ import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import InvitationManager from '../company-dashboard/components/InvitationManager';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
+import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import { hasPermission } from '../../utils/rolePermissions';
@@ -37,12 +38,12 @@ const CompanyInvitationsPage = () => {
 
   if (status === 'loading' || !user) {
     return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-10 w-10 sm:h-12 sm:w-12 border-b-2 border-primary mx-auto mb-3 sm:mb-4"></div>
-          <p className="text-sm sm:text-base text-muted-foreground">Loading invitations...</p>
-        </div>
-      </div>
+      <LoadingState
+        title="Loading invitations"
+        message="Syncing your outgoing candidate invites."
+        variant="fullscreen"
+        tone="primary"
+      />
     );
   }
 
