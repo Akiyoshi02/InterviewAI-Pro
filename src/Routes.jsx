@@ -6,6 +6,7 @@ import ErrorBoundary from "components/ErrorBoundary";
 import OAuthRedirectHandler from "components/OAuthRedirectHandler";
 import ThemeToggleButton from "components/ThemeToggleButton";
 import ProtectedRoute from "components/ProtectedRoute";
+import LiveChatWidget from "./components/live-chat/LiveChatWidget";
 import NotFound from "pages/NotFound";
 import HomePage from './pages/home';
 import LiveInterviewSession from './pages/live-interview-session';
@@ -53,6 +54,7 @@ const Routes = () => {
       <PageTitleManager />
       <OAuthRedirectHandler />
       <ThemeToggleButton />
+      <LiveChatWidget />
       <RouterRoutes>
         {/* Define your route here */}
         <Route path="/" element={<HomePage />} />

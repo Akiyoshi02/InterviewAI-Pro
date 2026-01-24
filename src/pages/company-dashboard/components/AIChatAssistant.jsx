@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useSyncExternalStore } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
+import DashboardLiveChatTab from '../../../components/live-chat/DashboardLiveChatTab';
 import Button from '../../../components/ui/Button';
 import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 import useLLM from '../../../hooks/useLLM';
@@ -68,6 +69,7 @@ const AIChatAssistant = ({
   const [isTranscribing, setIsTranscribing] = useState(false);
   const [recordingError, setRecordingError] = useState(null);
   const [chatSize, setChatSize] = useState('cozy');
+  const [activeTab, setActiveTab] = useState('assistant');
   const [voiceStatus, setVoiceStatus] = useState('idle');
   const messagesEndRef = useRef(null);
   const loadingScreenActive = useSyncExternalStore(
@@ -86,6 +88,7 @@ const AIChatAssistant = ({
 
   const sizeSettings = CHAT_SIZE_PRESETS[chatSize] || CHAT_SIZE_PRESETS.cozy;
   const sizeOptions = Object.entries(CHAT_SIZE_PRESETS);
+  const isAssistantTab = activeTab === 'assistant';
 
   useEffect(() => {
     return () => {
@@ -95,6 +98,14 @@ const AIChatAssistant = ({
       setVoiceStatus('idle');
     };
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.dispatchEvent(new CustomEvent('ai-assistant-toggle', { detail: { open: isOpen } }));
+    return () => {
+      window.dispatchEvent(new CustomEvent('ai-assistant-toggle', { detail: { open: false } }));
+    };
+  }, [isOpen]);
 
   // Initialize with welcome message
   useEffect(() => {
@@ -112,7 +123,10 @@ const AIChatAssistant = ({
     messagesEndRef?.current?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(scrollToBottom, [messages]);
+  useEffect(() => {
+    if (!isOpen || !isAssistantTab) return;
+    scrollToBottom();
+  }, [messages, isOpen, isAssistantTab]);
 
   const buildConversationHistory = (history = []) => {
     return history
@@ -677,10 +691,12 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
     return (
       <motion.button
         onClick={onToggle}
-        className="fixed bottom-20 lg:bottom-8 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-200 flex items-center justify-center z-50"
+        className="fixed bottom-20 lg:bottom-8 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-110 active:scale-95 transition-all duration-300 flex items-center justify-center z-50"
         initial={initial}
         animate={animate}
         transition={transition}
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
       >
         <Icon name="MessageCircle" size={24} />
       </motion.button>
@@ -693,12 +709,14 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
       <div className="flex items-center justify-between p-4 border-b border-white/30 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
-            <Icon name="Bot" size={16} className="text-white" />
+            <Icon name={isAssistantTab ? 'Bot' : 'MessageCircle'} size={16} className="text-white" />
           </div>
           <div>
-            <h3 className="font-semibold text-white">AI Hiring Assistant</h3>
+            <h3 className="font-semibold text-white">
+              {isAssistantTab ? 'AI Hiring Assistant' : 'Live Chat'}
+            </h3>
             <p className="text-xs text-white/80">
-              {isTyping ? 'Typing...' : 'Online'}
+              {isAssistantTab ? (isTyping ? 'Typing...' : 'Online') : 'We typically reply fast'}
             </p>
           </div>
         </div>
@@ -728,141 +746,177 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         </Button>
         </div>
       </div>
-      {/* Messages */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white/60 dark:bg-slate-900/60">
-        {messages?.map((message) => (
-          <div
-            key={message?.id}
-            className={`flex ${message?.type === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
-            <div className={`max-w-[80%] rounded-lg p-3 ${
-              message?.type === 'user'
-                ?'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
-                :'bg-white dark:bg-slate-800 border border-white/40 dark:border-slate-700/50 text-gray-800 dark:text-slate-200 shadow-sm'
-            }`}>
-              <div className={sizeSettings.messageSpacing}>
-                {renderMessageContent(message?.content || '', message?.type, sizeSettings)}
-              </div>
-              <div className={`text-xs mt-2 ${
-                message?.type === 'user' ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'
-              }`}>
-                {formatTime(message?.timestamp)}
-              </div>
-            </div>
+      <div className="px-4 py-2 border-b border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/70">
+        <div className="flex items-center justify-center">
+          <div className="flex items-center space-x-1 rounded-full bg-white/80 dark:bg-slate-800/80 border border-white/40 dark:border-slate-700/60 p-1">
+            <button
+              type="button"
+              onClick={() => setActiveTab('assistant')}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition ${
+                isAssistantTab
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/80'
+              }`}
+              aria-pressed={isAssistantTab}
+            >
+              AI Assistant
+            </button>
+            <button
+              type="button"
+              onClick={() => setActiveTab('chat')}
+              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition ${
+                !isAssistantTab
+                  ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/80'
+              }`}
+              aria-pressed={!isAssistantTab}
+            >
+              Live Chat
+            </button>
           </div>
-        ))}
-        
-        {isTyping && (
-          <div className="flex justify-start">
-            <div className="bg-muted text-foreground rounded-lg p-3">
-              <div className="flex space-x-1">
-                {[...Array(3)]?.map((_, i) => (
-                  <div
-                    key={i}
-                    className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
-                    style={{ animationDelay: `${i * 0.2}s` }}
-                  />
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </div>
-      {/* Quick Actions */}
-      <div className="p-4 border-t border-border dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80">
-        <div className="grid grid-cols-1 gap-2 mb-4">
-          <Button
-            variant="outline"
-            size="sm"
-            iconName="UserCheck"
-            iconPosition="left"
-            onClick={() => handleQuickAction('evaluate_candidate')}
-            disabled={isTyping || aiLoading}
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            Evaluate Candidate
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            iconName="TrendingUp"
-            iconPosition="left"
-            onClick={() => handleQuickAction('hiring_insights')}
-            disabled={isTyping || aiLoading}
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            Hiring Insights
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            iconName="Lightbulb"
-            iconPosition="left"
-            onClick={() => handleQuickAction('interview_best_practices')}
-            disabled={isTyping || aiLoading}
-            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            Interview Best Practices
-          </Button>
         </div>
-
-        {/* Message Input */}
-        <div className="flex items-center space-x-2">
-          <input
-            type="text"
-            value={inputValue}
-            onChange={(e) => setInputValue(e?.target?.value)}
-            onKeyPress={(e) => e?.key === 'Enter' && handleSendMessage()}
-            placeholder="Ask about hiring, candidates, or interviews..."
-            className={`flex-1 px-3 py-2 border border-white/40 dark:border-slate-700/60 rounded-full ${sizeSettings.inputText} bg-white/80 dark:bg-slate-800/80 text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500`}
-            disabled={isTyping || aiLoading || isTranscribing}
-          />
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            onClick={handleMicClick}
-            disabled={micButtonDisabled}
-            aria-pressed={isRecording}
-            aria-label={isRecording ? 'Stop recording' : 'Record a question'}
-            className={`rounded-full border border-white/40 dark:border-slate-700/60 backdrop-blur text-blue-600 dark:text-blue-300 hover:text-purple-500 dark:hover:text-purple-300 transition ${
-              isRecording
-                ? 'bg-red-600 text-white shadow-lg shadow-red-500/40 animate-pulse'
-                : ''
-            }`}
-          >
-            {isTranscribing ? (
-              <LoadingIndicator size={18} tone="current" />
-            ) : (
-              <Icon name={isRecording ? 'Square' : 'Mic'} size={18} />
+      </div>
+      {isAssistantTab ? (
+        <>
+          {/* Messages */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white/60 dark:bg-slate-900/60">
+            {messages?.map((message) => (
+              <div
+                key={message?.id}
+                className={`flex ${message?.type === 'user' ? 'justify-end' : 'justify-start'}`}
+              >
+                <div className={`max-w-[80%] rounded-lg p-3 ${
+                  message?.type === 'user'
+                    ?'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
+                    :'bg-white dark:bg-slate-800 border border-white/40 dark:border-slate-700/50 text-gray-800 dark:text-slate-200 shadow-sm'
+                }`}>
+                  <div className={sizeSettings.messageSpacing}>
+                    {renderMessageContent(message?.content || '', message?.type, sizeSettings)}
+                  </div>
+                  <div className={`text-xs mt-2 ${
+                    message?.type === 'user' ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'
+                  }`}>
+                    {formatTime(message?.timestamp)}
+                  </div>
+                </div>
+              </div>
+            ))}
+            
+            {isTyping && (
+              <div className="flex justify-start">
+                <div className="bg-muted text-foreground rounded-lg p-3">
+                  <div className="flex space-x-1">
+                    {[...Array(3)]?.map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-2 h-2 bg-muted-foreground rounded-full animate-bounce"
+                        style={{ animationDelay: `${i * 0.2}s` }}
+                      />
+                    ))}
+                  </div>
+                </div>
+              </div>
             )}
-          </Button>
-          <Button
-            size="sm"
-            iconName="Send"
-            onClick={handleSendMessage}
-            disabled={!inputValue?.trim() || isTyping || aiLoading || isTranscribing}
-            className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
-          />
-        </div>
-        {micStatusMessage && (
-          <p className={`mt-2 ${sizeSettings.statusText} text-blue-600 dark:text-blue-300`}>
-            {micStatusMessage}
-          </p>
-        )}
-        {recordingError && (
-          <p className={`mt-2 ${sizeSettings.statusText} text-amber-500 dark:text-amber-400`}>
-            {recordingError}
-          </p>
-        )}
-        {aiError && (
-          <p className={`mt-2 ${sizeSettings.statusText} text-red-500`}>
-            {aiError}
-          </p>
-        )}
-      </div>
+            
+            <div ref={messagesEndRef} />
+          </div>
+          {/* Quick Actions */}
+          <div className="p-4 border-t border-border dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80">
+            <div className="grid grid-cols-1 gap-2 mb-4">
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="UserCheck"
+                iconPosition="left"
+                onClick={() => handleQuickAction('evaluate_candidate')}
+                disabled={isTyping || aiLoading}
+                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+              >
+                Evaluate Candidate
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="TrendingUp"
+                iconPosition="left"
+                onClick={() => handleQuickAction('hiring_insights')}
+                disabled={isTyping || aiLoading}
+                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+              >
+                Hiring Insights
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="Lightbulb"
+                iconPosition="left"
+                onClick={() => handleQuickAction('interview_best_practices')}
+                disabled={isTyping || aiLoading}
+                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+              >
+                Interview Best Practices
+              </Button>
+            </div>
+
+            {/* Message Input */}
+            <div className="flex items-center space-x-2">
+              <input
+                type="text"
+                value={inputValue}
+                onChange={(e) => setInputValue(e?.target?.value)}
+                onKeyPress={(e) => e?.key === 'Enter' && handleSendMessage()}
+                placeholder="Ask about hiring, candidates, or interviews..."
+                className={`flex-1 px-3 py-2 border border-white/40 dark:border-slate-700/60 rounded-full ${sizeSettings.inputText} bg-white/80 dark:bg-slate-800/80 text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500`}
+                disabled={isTyping || aiLoading || isTranscribing}
+              />
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleMicClick}
+                disabled={micButtonDisabled}
+                aria-pressed={isRecording}
+                aria-label={isRecording ? 'Stop recording' : 'Record a question'}
+                className={`rounded-full border border-white/40 dark:border-slate-700/60 backdrop-blur text-blue-600 dark:text-blue-300 hover:text-purple-500 dark:hover:text-purple-300 transition ${
+                  isRecording
+                    ? 'bg-red-600 text-white shadow-lg shadow-red-500/40 animate-pulse'
+                    : ''
+                }`}
+              >
+                {isTranscribing ? (
+                  <LoadingIndicator size={18} tone="current" />
+                ) : (
+                  <Icon name={isRecording ? 'Square' : 'Mic'} size={18} />
+                )}
+              </Button>
+              <Button
+                size="sm"
+                iconName="Send"
+                onClick={handleSendMessage}
+                disabled={!inputValue?.trim() || isTyping || aiLoading || isTranscribing}
+                className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+              />
+            </div>
+            {micStatusMessage && (
+              <p className={`mt-2 ${sizeSettings.statusText} text-blue-600 dark:text-blue-300`}>
+                {micStatusMessage}
+              </p>
+            )}
+            {recordingError && (
+              <p className={`mt-2 ${sizeSettings.statusText} text-amber-500 dark:text-amber-400`}>
+                {recordingError}
+              </p>
+            )}
+            {aiError && (
+              <p className={`mt-2 ${sizeSettings.statusText} text-red-500`}>
+                {aiError}
+              </p>
+            )}
+          </div>
+        </>
+      ) : (
+        <DashboardLiveChatTab sizeSettings={sizeSettings} isActive={isOpen} />
+      )}
     </div>
   );
 };

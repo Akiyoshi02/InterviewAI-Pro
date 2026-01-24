@@ -5,8 +5,8 @@ import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
-import Icon from '../../components/AppIcon';
 import { Mail, PhoneCall, MapPin, Clock, MessageCircle } from 'lucide-react';
+import { apiClient } from '../../services/apiClient';
 
 const ContactPage = () => {
   const [contactForm, setContactForm] = useState({
@@ -16,6 +16,8 @@ const ContactPage = () => {
     message: ''
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [status, setStatus] = useState({ type: '', message: '' });
+  const [fieldErrors, setFieldErrors] = useState({});
 
   const contactOptions = [
     {
@@ -42,7 +44,11 @@ const ContactPage = () => {
       title: 'Live Chat',
       description: 'Chat with our team',
       actionLabel: 'Start Chat',
-      action: () => alert('Live chat coming soon!'),
+      action: () => {
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('open-live-chat'));
+        }
+      },
       color: 'from-emerald-600 to-emerald-500'
     }
   ];
@@ -79,6 +85,56 @@ const ContactPage = () => {
       opacity: 1,
       transform: 'translateY(0px)',
       transition: { duration: 0.5, ease: 'easeOut' }
+    }
+  };
+
+  const handleFieldChange = (field, value) => {
+    setContactForm((prev) => ({ ...prev, [field]: value }));
+    if (fieldErrors[field]) {
+      setFieldErrors((prev) => {
+        const next = { ...prev };
+        delete next[field];
+        return next;
+      });
+    }
+  };
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    setStatus({ type: '', message: '' });
+    setFieldErrors({});
+
+    try {
+      const payload = {
+        name: contactForm.name.trim(),
+        email: contactForm.email.trim(),
+        subject: contactForm.subject.trim(),
+        message: contactForm.message.trim(),
+      };
+      const result = await apiClient.contact.send(payload);
+      setStatus({
+        type: 'success',
+        message: result?.message || 'Message sent successfully. We will get back to you soon.',
+      });
+      setContactForm({ name: '', email: '', subject: '', message: '' });
+    } catch (error) {
+      if (error?.errors && Array.isArray(error.errors)) {
+        const nextErrors = error.errors.reduce((acc, item) => {
+          if (item?.param) {
+            acc[item.param] = item.msg || 'This field is required.';
+          }
+          return acc;
+        }, {});
+        setFieldErrors(nextErrors);
+      }
+      setStatus({
+        type: 'error',
+        message: error?.error || error?.message || 'Failed to send message. Please try again.',
+      });
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -216,25 +272,26 @@ const ContactPage = () => {
                     Can't find what you're looking for? Fill out the form below and we'll get back to you within 24 hours.
                   </p>
                 </div>
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault();
-                    setIsSubmitting(true);
-                    setTimeout(() => {
-                      alert('Thank you for your message! We\'ll get back to you soon.');
-                      setContactForm({ name: '', email: '', subject: '', message: '' });
-                      setIsSubmitting(false);
-                    }, 1000);
-                  }}
-                  className="space-y-4"
-                >
+                <form onSubmit={handleSubmit} className="space-y-4">
+                  {status.message && (
+                    <div
+                      className={`rounded-xl border px-4 py-3 text-sm ${
+                        status.type === 'success'
+                          ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/50 dark:bg-emerald-900/20 dark:text-emerald-200'
+                          : 'border-rose-200 bg-rose-50 text-rose-700 dark:border-rose-800/50 dark:bg-rose-900/20 dark:text-rose-200'
+                      }`}
+                    >
+                      {status.message}
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Input
                       label="Your Name"
                       type="text"
                       placeholder="Enter your name"
                       value={contactForm.name}
-                      onChange={(e) => setContactForm({ ...contactForm, name: e.target.value })}
+                      onChange={(e) => handleFieldChange('name', e.target.value)}
+                      error={fieldErrors.name}
                       required
                     />
                     <Input
@@ -242,7 +299,8 @@ const ContactPage = () => {
                       type="email"
                       placeholder="Enter your email"
                       value={contactForm.email}
-                      onChange={(e) => setContactForm({ ...contactForm, email: e.target.value })}
+                      onChange={(e) => handleFieldChange('email', e.target.value)}
+                      error={fieldErrors.email}
                       required
                     />
                   </div>
@@ -251,7 +309,8 @@ const ContactPage = () => {
                     type="text"
                     placeholder="What can we help you with?"
                     value={contactForm.subject}
-                    onChange={(e) => setContactForm({ ...contactForm, subject: e.target.value })}
+                    onChange={(e) => handleFieldChange('subject', e.target.value)}
+                    error={fieldErrors.subject}
                     required
                   />
                   <div>
@@ -261,16 +320,22 @@ const ContactPage = () => {
                     <textarea
                       placeholder="Tell us more about your question or issue..."
                       value={contactForm.message}
-                      onChange={(e) => setContactForm({ ...contactForm, message: e.target.value })}
+                      onChange={(e) => handleFieldChange('message', e.target.value)}
                       rows={5}
                       className="w-full rounded-md border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 text-sm text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
                       required
                     />
+                    {fieldErrors.message && (
+                      <p className="text-xs text-destructive mt-2">
+                        {fieldErrors.message}
+                      </p>
+                    )}
                   </div>
                   <div className="flex justify-center">
                     <Button
                       type="submit"
                       loading={isSubmitting}
+                      disabled={isSubmitting}
                       className="w-full sm:w-auto rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm lg:text-base font-semibold shadow-lg shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
                     >
                       Send Message

@@ -5,6 +5,13 @@
 
 import { callOllama, parseJSONResponse } from './llmClient';
 
+const CHAT_PROJECT_CONTEXT = `InterviewAI Pro is an AI-powered interview prep and hiring platform.
+Key areas:
+- Candidate experience: practice interviews, live interview sessions, interview feedback.
+- Company experience: organization setup/approval, job postings, invitations, candidate pipeline, interviews.
+- Account topics: login, registration, email verification, password reset.
+- Support topics: product usage, troubleshooting, access issues, dashboards, invitations.`;
+
 /**
  * Generate interview questions based on job role and context
  */
@@ -399,6 +406,153 @@ Response requirements:
   }
 }
 
+/**
+ * Conversational response for the public website assistant.
+ */
+export async function generateWebsiteAssistantResponse(options = {}) {
+  const {
+    conversation = [],
+    pageContext = ''
+  } = options;
+
+  const trimmedConversation = conversation
+    .filter((msg) => msg && typeof msg.content === 'string' && ['user', 'assistant'].includes(msg.role))
+    .slice(-12)
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content.trim()
+    }));
+
+  const pageHint = pageContext ? `Current page: ${pageContext}` : 'Current page: unknown';
+
+  const systemPrompt = `You are InterviewAI Pro's website assistant for visitors and prospects.
+Be helpful, professional, and product-aware. Answer questions about features, dashboards,
+onboarding, account access, and support. If you are unsure about exact pricing or policies,
+guide the user to the relevant page (Help Center, Contact, Terms, Privacy) instead of guessing.
+
+Product context:
+${CHAT_PROJECT_CONTEXT}
+
+${pageHint}
+
+Response guidelines:
+- Keep answers concise and structured when helpful (short paragraphs, bullets).
+- Offer a clear next step or link suggestion when the user needs action.
+- Do not fabricate company names, pricing, or policies that are not stated.
+- Ask one clarifying question if the request is ambiguous.`;
+
+  const messagePayload = [
+    { role: 'system', content: systemPrompt },
+    ...(trimmedConversation.length > 0
+      ? trimmedConversation
+      : [{ role: 'user', content: 'Introduce yourself and explain how you can help.' }])
+  ];
+
+  try {
+    const response = await callOllama(messagePayload, {
+      temperature: 0.55,
+      max_tokens: 700
+    });
+
+    return response.trim();
+  } catch (error) {
+    console.error('Error generating website assistant response:', error);
+    throw new Error('Failed to generate website assistant response');
+  }
+}
+
+/**
+ * Generate short reply suggestions for live chat conversations.
+ */
+export async function generateChatReplySuggestions(options = {}) {
+  const {
+    conversation = [],
+    role = 'visitor',
+    suggestionCount = 3,
+    audience = 'ANONYMOUS'
+  } = options;
+
+  const trimmedConversation = conversation
+    .filter((msg) => msg && typeof msg.content === 'string' && ['user', 'assistant'].includes(msg.role))
+    .slice(-10)
+    .map((msg) => ({
+      role: msg.role,
+      content: msg.content.trim()
+    }));
+
+  const conversationBlock = trimmedConversation.length > 0
+    ? trimmedConversation.map((msg) => `${msg.role === 'assistant' ? 'Support' : 'Visitor'}: ${msg.content}`).join('\n')
+    : 'No messages yet.';
+
+  const responderRole = role === 'admin' ? 'System admin support agent' : 'Website visitor';
+  const recipientRole = role === 'admin' ? 'Website visitor' : 'System admin support agent';
+  const lastSpeaker = trimmedConversation.length > 0
+    ? (trimmedConversation[trimmedConversation.length - 1].role === 'assistant' ? 'System admin support agent' : 'Website visitor')
+    : 'None';
+  const normalizedAudience = typeof audience === 'string' ? audience.toUpperCase() : 'ANONYMOUS';
+  const audienceDescriptor =
+    normalizedAudience === 'COMPANY'
+      ? 'Company user (recruiting or organization admin)'
+      : normalizedAudience === 'CANDIDATE'
+        ? 'Candidate user'
+        : 'General visitor';
+
+  const systemPrompt = `You are an AI assistant generating concise live-chat reply suggestions.
+
+You are writing as: ${responderRole}
+You are replying to: ${recipientRole}
+Last message from: ${lastSpeaker}
+Audience type: ${audienceDescriptor}
+
+Product context:
+${CHAT_PROJECT_CONTEXT}
+
+Conversation:
+${conversationBlock}
+
+Instructions:
+- Provide ${suggestionCount} suggestions for the next reply written by ${responderRole}.
+- Each suggestion should be 1-2 short sentences.
+- Keep each under 140 characters.
+- Be context-aware, helpful, and professional.
+- Tie suggestions to InterviewAI Pro features or support topics whenever relevant.
+- If there is no conversation yet, suggest how to start the chat as ${responderRole} in the InterviewAI Pro context.
+- If the last message is already from ${responderRole}, suggest a follow-up or clarification instead of repeating.
+- Do not include placeholders like [name] or [company].
+- Never write as ${recipientRole}.
+- Avoid unrelated topics (e.g., web hosting, generic promos).
+- Return ONLY valid JSON:
+{
+  "suggestions": ["text 1", "text 2", "text 3"]
+}`;
+
+  try {
+    const response = await callOllama([
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: 'Generate suggestions now.' }
+    ], {
+      temperature: 0.4,
+      max_tokens: 400
+    });
+
+    const parsed = parseJSONResponse(response);
+    const suggestions = Array.isArray(parsed?.suggestions)
+      ? parsed.suggestions.filter((text) => typeof text === 'string' && text.trim().length > 0)
+      : [];
+
+    if (suggestions.length === 0) {
+      throw new Error('No suggestions returned');
+    }
+
+    return {
+      suggestions: suggestions.slice(0, suggestionCount)
+    };
+  } catch (error) {
+    console.error('Error generating chat suggestions:', error);
+    throw new Error('Failed to generate chat suggestions');
+  }
+}
+
 export default {
   generateInterviewQuestions,
   evaluateAnswer,
@@ -408,5 +562,7 @@ export default {
   generateNextQuestion,
   analyzeSpeechPattern,
   generateStudyPlan,
-  generateCareerAssistantResponse
+  generateCareerAssistantResponse,
+  generateWebsiteAssistantResponse,
+  generateChatReplySuggestions
 };

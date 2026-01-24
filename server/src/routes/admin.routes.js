@@ -129,6 +129,9 @@ router.get(
 // Platform Statistics
 router.get('/stats', AdminController.getStats);
 
+// Live Chat
+router.post('/live-chat/register', AdminController.registerLiveChatAdmin);
+
 // User Management
 router.get(
   '/users',
