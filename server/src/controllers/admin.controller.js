@@ -9,7 +9,21 @@ import {
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import logger from '../utils/logger.js';
-import admin from '../config/firebase.js';
+import admin, { realtimeDb } from '../config/firebase.js';
+
+const ensureRealtimeAdmin = async ({ uid, email, fullName }) => {
+  if (!realtimeDb || !uid) return;
+  try {
+    await realtimeDb.ref(`admins/${uid}`).set({
+      uid,
+      email: email || null,
+      fullName: fullName || null,
+      updatedAt: admin.database.ServerValue.TIMESTAMP,
+    });
+  } catch (error) {
+    logger.error('Failed to register system admin in realtime database:', error);
+  }
+};
 
 const sanitizeOrganization = (org) => {
   if (!org) return null;
@@ -90,6 +104,11 @@ export class AdminController {
 
       if (user) {
         if (user.accountType === 'SYSTEM_ADMIN') {
+          await ensureRealtimeAdmin({
+            uid,
+            email: user.email || email,
+            fullName: user.fullName || fullName,
+          });
           return res.json({
             success: true,
             message: 'System admin already exists',
@@ -109,6 +128,12 @@ export class AdminController {
           fullName: fullName || 'System Administrator',
         });
       }
+
+      await ensureRealtimeAdmin({
+        uid,
+        email,
+        fullName: user?.fullName || fullName,
+      });
 
       // Initialize system settings if not exist
       await systemSettingsStore.initialize(uid);
@@ -159,6 +184,11 @@ export class AdminController {
 
       if (user) {
         if (user.accountType === 'SYSTEM_ADMIN') {
+          await ensureRealtimeAdmin({
+            uid,
+            email: user.email || email,
+            fullName: user.fullName || req.body.fullName,
+          });
           return res.json({
             success: true,
             message: 'System admin already exists',
@@ -178,6 +208,12 @@ export class AdminController {
           fullName: req.body.fullName || 'System Administrator',
         });
       }
+
+      await ensureRealtimeAdmin({
+        uid,
+        email,
+        fullName: user?.fullName || req.body.fullName,
+      });
 
       // Initialize system settings if not exist
       await systemSettingsStore.initialize(uid);
@@ -662,6 +698,26 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get stats error:', error);
+      next(error);
+    }
+  }
+
+  static async registerLiveChatAdmin(req, res, next) {
+    try {
+      const adminUser = req.user;
+      if (!adminUser) {
+        return res.status(401).json({ error: 'Authentication required' });
+      }
+
+      await ensureRealtimeAdmin({
+        uid: adminUser.id,
+        email: adminUser.email,
+        fullName: adminUser.fullName,
+      });
+
+      res.json({ success: true });
+    } catch (error) {
+      logger.error('Register live chat admin error:', error);
       next(error);
     }
   }

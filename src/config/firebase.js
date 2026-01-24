@@ -9,15 +9,18 @@ import {
   GoogleAuthProvider,
   signInWithPopup,
   sendEmailVerification,
+  signInAnonymously as firebaseSignInAnonymously,
   sendPasswordResetEmail,
   verifyPasswordResetCode,
   confirmPasswordReset
 } from 'firebase/auth';
+import { getDatabase } from 'firebase/database';
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
   projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  databaseURL: import.meta.env.VITE_FIREBASE_DATABASE_URL,
   storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
   appId: import.meta.env.VITE_FIREBASE_APP_ID
@@ -30,6 +33,7 @@ if (!firebaseConfig.apiKey || !firebaseConfig.authDomain || !firebaseConfig.proj
 // Initialize Firebase
 const app = initializeApp(firebaseConfig);
 export const auth = getAuth(app);
+export const realtimeDb = getDatabase(app);
 
 // Auth helper functions (similar API to Supabase for easier migration)
 export const authHelpers = {
@@ -275,6 +279,34 @@ export const authHelpers = {
           session: {
             access_token: token,
             provider: 'google'
+          }
+        },
+        error: null
+      };
+    } catch (error) {
+      return { data: null, error };
+    }
+  },
+
+  async signInAnonymously() {
+    try {
+      const userCredential = await firebaseSignInAnonymously(auth);
+      const user = userCredential.user;
+      const token = await user.getIdToken();
+
+      return {
+        data: {
+          user: {
+            id: user.uid,
+            email: user.email || null,
+            email_confirmed_at: user.emailVerified ? new Date().toISOString() : null,
+            user_metadata: {
+              fullName: user.displayName || null,
+              isAnonymous: user.isAnonymous || false
+            }
+          },
+          session: {
+            access_token: token
           }
         },
         error: null

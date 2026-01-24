@@ -962,6 +962,14 @@ export const apiClient = {
       });
       return handleResponse(response);
     },
+
+    async registerLiveChatAdmin() {
+      const response = await fetch(`${API_URL}/api/admin/live-chat/register`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
   },
 
   /**
@@ -1153,6 +1161,20 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(false), // Public endpoint, no auth required
         body: JSON.stringify({ email }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Contact APIs
+   */
+  contact: {
+    async send(payload) {
+      const response = await fetch(`${API_URL}/api/public/contact`, {
+        method: 'POST',
+        headers: await getHeaders(false), // Public endpoint, no auth required
+        body: JSON.stringify(payload),
       });
       return handleResponse(response);
     },

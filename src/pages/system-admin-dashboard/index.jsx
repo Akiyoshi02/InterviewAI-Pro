@@ -11,6 +11,7 @@ import SystemStats from './components/SystemStats.jsx';
 import PlatformAuditLogs from './components/PlatformAuditLogs.jsx';
 import SystemSettings from './components/SystemSettings.jsx';
 import AllOrganizationsList from './components/AllOrganizationsList.jsx';
+import LiveChatManager from './components/LiveChatManager.jsx';
 import apiClient from '../../services/apiClient.js';
 
 const SystemAdminDashboard = () => {
@@ -47,6 +48,7 @@ const SystemAdminDashboard = () => {
     { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
     { id: 'approvals', label: 'Pending Approvals', icon: 'CheckCircle' },
     { id: 'organizations', label: 'All Organizations', icon: 'Building' },
+    { id: 'live-chat', label: 'Live Chat', icon: 'MessageSquare' },
     { id: 'settings', label: 'System Settings', icon: 'Settings' },
     { id: 'audit', label: 'Audit Logs', icon: 'FileText' },
   ];
@@ -243,6 +245,10 @@ const SystemAdminDashboard = () => {
 
           {activeTab === 'settings' && (
             <SystemSettings />
+          )}
+
+          {activeTab === 'live-chat' && (
+            <LiveChatManager />
           )}
 
           {activeTab === 'audit' && (

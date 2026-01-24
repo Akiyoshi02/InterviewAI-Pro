@@ -10,7 +10,9 @@ import {
   analyzeAnswer,
   generateInterviewSummary,
   generateStudyPlan,
-  generateCareerAssistantResponse
+  generateCareerAssistantResponse,
+  generateWebsiteAssistantResponse,
+  generateChatReplySuggestions
 } from '../services/llmServices.js';
 import { checkOllamaHealth } from '../services/llmClient.js';
 
@@ -62,6 +64,14 @@ export const useLLM = () => {
     return handleLLMCall(generateCareerAssistantResponse, conversationPayload);
   }, [handleLLMCall]);
 
+  const getWebsiteAssistantResponse = useCallback(async (conversationPayload) => {
+    return handleLLMCall(generateWebsiteAssistantResponse, conversationPayload);
+  }, [handleLLMCall]);
+
+  const getChatSuggestions = useCallback(async (conversationPayload) => {
+    return handleLLMCall(generateChatReplySuggestions, conversationPayload);
+  }, [handleLLMCall]);
+
   const checkHealth = useCallback(async () => {
     return handleLLMCall(checkOllamaHealth);
   }, [handleLLMCall]);
@@ -80,6 +90,8 @@ export const useLLM = () => {
     generateSummary,
     createStudyPlan,
     getCareerAssistantResponse,
+    getWebsiteAssistantResponse,
+    getChatSuggestions,
     checkHealth
   };
 };

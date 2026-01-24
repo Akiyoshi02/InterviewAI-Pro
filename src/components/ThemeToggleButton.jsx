@@ -15,6 +15,8 @@ const ThemeToggleButton = () => {
     isLoadingScreenActive
   );
   const [showBackToTop, setShowBackToTop] = useState(false);
+  const [isAssistantOpen, setIsAssistantOpen] = useState(false);
+  const [isLiveChatOpen, setIsLiveChatOpen] = useState(false);
   const currentIndex = THEME_OPTIONS.indexOf(theme);
   const nextTheme =
     currentIndex === -1 ? THEME_OPTIONS[0] : THEME_OPTIONS[(currentIndex + 1) % THEME_OPTIONS.length];
@@ -41,10 +43,10 @@ const ThemeToggleButton = () => {
     || pathname === '/practice-interview-setup';
   const themePositionClass = isDashboardView
     ? 'bottom-36 lg:bottom-24'
-    : 'bottom-36 lg:bottom-24';
+    : 'bottom-20 lg:bottom-24';
   const backToTopPositionClass = isDashboardView
     ? 'bottom-52 lg:bottom-40'
-    : 'bottom-20 lg:bottom-8';
+    : 'bottom-36 lg:bottom-40';
   const shouldShowBackToTop = showBackToTop;
   const { initial, animate, exit, transition } = FLOATING_BUTTON_MOTION;
 
@@ -64,20 +66,42 @@ const ThemeToggleButton = () => {
     return () => window.removeEventListener('scroll', handleScroll);
   }, [loadingScreenActive]);
 
+  useEffect(() => {
+    const handleAssistantToggle = (event) => {
+      setIsAssistantOpen(Boolean(event?.detail?.open));
+    };
+
+    window.addEventListener('ai-assistant-toggle', handleAssistantToggle);
+    return () => window.removeEventListener('ai-assistant-toggle', handleAssistantToggle);
+  }, []);
+
+  useEffect(() => {
+    const handleLiveChatToggle = (event) => {
+      setIsLiveChatOpen(Boolean(event?.detail?.open));
+    };
+
+    window.addEventListener('live-chat-toggle', handleLiveChatToggle);
+    return () => window.removeEventListener('live-chat-toggle', handleLiveChatToggle);
+  }, []);
+
   if (loadingScreenActive) {
+    return null;
+  }
+  if (isAssistantOpen || isLiveChatOpen) {
     return null;
   }
 
   const handleBackToTop = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
+  const overlayZIndexClass = (isAssistantOpen || isLiveChatOpen) ? 'z-0' : 'z-50';
 
   return (
     <>
       <motion.button
         type="button"
         onClick={toggleTheme}
-        className={`fixed ${themePositionClass} right-4 lg:right-6 z-50 flex items-center justify-center w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 active:scale-95`}
+        className={`fixed ${themePositionClass} right-4 lg:right-6 ${overlayZIndexClass} flex items-center justify-center w-14 h-14 rounded-full bg-white dark:bg-gray-800 border-2 border-gray-200 dark:border-gray-700 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 active:scale-95`}
         aria-label={buttonLabel}
         title={buttonLabel}
         whileHover={{ scale: 1.1 }}
@@ -104,7 +128,7 @@ const ThemeToggleButton = () => {
           <motion.button
             type="button"
             onClick={handleBackToTop}
-            className={`fixed ${backToTopPositionClass} right-4 lg:right-6 z-50 flex items-center justify-center w-14 h-14 rounded-full bg-slate-900/90 dark:bg-slate-100/90 border border-slate-800/40 dark:border-slate-200/60 text-white dark:text-slate-900 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 active:scale-95`}
+            className={`fixed ${backToTopPositionClass} right-4 lg:right-6 ${overlayZIndexClass} flex items-center justify-center w-14 h-14 rounded-full bg-slate-900/90 dark:bg-slate-100/90 border border-slate-800/40 dark:border-slate-200/60 text-white dark:text-slate-900 shadow-lg hover:shadow-xl transition-all duration-300 hover:scale-110 active:scale-95`}
             aria-label="Back to top"
             title="Back to top"
             whileHover={{ scale: 1.1 }}
