@@ -127,7 +127,7 @@ const HelpCenterPage = () => {
         },
         {
           q: 'How do I verify my email?',
-          a: 'After registration, check your email inbox for a verification link. Click on the link to verify your email address. If you don\'t see the email, check your spam folder.'
+          a: 'After registration, check your email inbox for the 8-digit verification code and enter it on the verification screen. If you don\'t see the email, check your spam folder.'
         },
         {
           q: 'Can I use InterviewAI Pro for free?',

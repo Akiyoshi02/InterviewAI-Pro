@@ -854,16 +854,11 @@ export class AuthController {
       }
 
       const verificationCode = generateVerificationCode();
-      const verificationLink = await admin.auth().generateEmailVerificationLink(requestedEmail, {
-        url: `${process.env.FRONTEND_URL || 'http://localhost:4028'}/register?verified=1`,
-        handleCodeInApp: false,
-      });
 
       await emailService.sendEmailVerification({
         email: requestedEmail,
         fullName: req.body.fullName || userRecord?.displayName || req.user.metadata?.fullName || null,
         verificationCode,
-        verificationLink,
         expiresInMinutes: EMAIL_VERIFICATION_EXPIRY_MINUTES,
       });
 
@@ -884,7 +879,7 @@ export class AuthController {
         verified: false,
         email: requestedEmail,
         expiresInMinutes: EMAIL_VERIFICATION_EXPIRY_MINUTES,
-        message: `Verification email sent to ${requestedEmail}.`,
+        message: `Verification code sent to ${requestedEmail}.`,
       });
     } catch (error) {
       logger.error('Start email verification error:', error);

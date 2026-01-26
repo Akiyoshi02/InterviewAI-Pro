@@ -627,7 +627,7 @@ const CandidateFields = ({
       />
 
       {/* Educational Background Section */}
-      <div className="space-y-3 pt-2">
+      <div className="space-y-3 pt-2 pb-4">
         <div className="flex items-center justify-between">
           <div>
             <p className="text-base font-semibold text-gray-900 dark:text-slate-100">

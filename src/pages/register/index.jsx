@@ -105,7 +105,6 @@ const Register = () => {
     email: '',
   });
   const [isSendingVerification, setIsSendingVerification] = useState(false);
-  const [isCheckingVerification, setIsCheckingVerification] = useState(false);
   const [verificationCode, setVerificationCode] = useState('');
   const [verificationCodeError, setVerificationCodeError] = useState('');
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
@@ -549,13 +548,12 @@ const Register = () => {
       setEmailVerification({
         status: 'sent',
         email: targetEmail,
-        message: result?.message
-          || `We sent a verification email to ${targetEmail}. Use the 8-digit code below or click the link to continue.`,
+        message: `We sent an 8-digit verification code to ${targetEmail}. Enter it below to continue.`,
       });
       setResendAvailableAt(Date.now() + 60 * 1000);
       return true;
     } catch (error) {
-      const message = friendlyRateLimitMessage(error.message) || 'Unable to send a verification email. Please try again.';
+      const message = friendlyRateLimitMessage(error.message) || 'Unable to send a verification code. Please try again.';
       setEmailVerification({
         status: 'error',
         email: targetEmail,
@@ -568,54 +566,6 @@ const Register = () => {
       return false;
     } finally {
       setIsSendingVerification(false);
-    }
-  };
-
-  const checkEmailVerification = async ({ updatePendingState = true } = {}) => {
-    setIsCheckingVerification(true);
-    try {
-      const { data, error } = await authHelpers.reloadUser();
-      if (error) {
-        throw error;
-      }
-      if (!data?.user) {
-        throw new Error('Please sign in again to confirm your email verification.');
-      }
-
-      const verified = Boolean(data?.user?.email_confirmed_at);
-      if (verified) {
-        await authHelpers.refreshAccessToken();
-        setEmailVerification({
-          status: 'verified',
-          email: normalizeEmail(data?.user?.email),
-          message: 'Email verified. You can continue to the next step.',
-        });
-        setVerificationCode('');
-        setVerificationCodeError('');
-        setResendAvailableAt(null);
-        setResendSeconds(0);
-        setCurrentStep(2);
-        return true;
-      }
-
-      if (updatePendingState) {
-        setEmailVerification((prev) => ({
-          status: prev.status === 'sending' || prev.status === 'idle' ? 'sent' : prev.status,
-          email: prev.email || normalizeEmail(formData?.email),
-          message: prev.message
-            || 'Your email is not verified yet. Use the 8-digit code or click the verification link in your inbox.',
-        }));
-      }
-      return false;
-    } catch (error) {
-      setEmailVerification({
-        status: 'error',
-        email: normalizeEmail(formData?.email),
-        message: friendlyRateLimitMessage(error.message) || 'Unable to confirm email verification. Please try again.',
-      });
-      return false;
-    } finally {
-      setIsCheckingVerification(false);
     }
   };
 
@@ -632,7 +582,22 @@ const Register = () => {
     try {
       await ensureFirebaseSessionForVerification();
       await apiClient.auth.verifyEmailCode(cleanedCode);
-      await checkEmailVerification({ updatePendingState: false });
+      const { data, error } = await authHelpers.reloadUser();
+      if (error || !data?.user?.email_confirmed_at) {
+        throw new Error(error?.message || 'Unable to confirm your email verification. Please try again.');
+      }
+
+      await authHelpers.refreshAccessToken();
+      setEmailVerification({
+        status: 'verified',
+        email: normalizeEmail(data?.user?.email || formData?.email),
+        message: 'Email verified. You can continue to the next step.',
+      });
+      setVerificationCode('');
+      setVerificationCodeError('');
+      setResendAvailableAt(null);
+      setResendSeconds(0);
+      setCurrentStep(2);
     } catch (error) {
       setVerificationCodeError(
         friendlyRateLimitMessage(error.message) || 'Unable to verify the code. Please try again.'
@@ -813,14 +778,9 @@ const Register = () => {
         return;
       }
 
-      const shouldCheckVerification = emailVerification.status === 'sent';
-      if (shouldCheckVerification) {
-        await checkEmailVerification();
-        return;
-      }
-
-      const alreadyVerified = await checkEmailVerification({ updatePendingState: false });
-      if (alreadyVerified) {
+      if (emailVerification.status === 'sent') {
+        setStatus('error');
+        setMessage('Please verify the 8-digit code before continuing.');
         return;
       }
 
@@ -918,16 +878,6 @@ const Register = () => {
   const handlePrevStep = () => {
     setCurrentStep(prev => Math.max(prev - 1, 1));
   };
-
-  useEffect(() => {
-    if (currentStep !== 1) {
-      return;
-    }
-    if (searchParams.get('verified') !== '1') {
-      return;
-    }
-    checkEmailVerification();
-  }, [currentStep, searchParams]);
 
   const validateSocialRegistrationRequirements = () => {
     const missingFields = {};
@@ -1196,7 +1146,7 @@ const Register = () => {
       if (!verifiedSnapshot?.user?.email_confirmed_at) {
         setErrors({ submit: 'Please verify your email before completing registration.' });
         setStatus('info');
-        setMessage('Check your inbox for the verification email, then return to complete registration.');
+        setMessage('Check your email for the 8-digit verification code, then return to complete registration.');
         return;
       }
       await authHelpers.refreshAccessToken();
@@ -1360,8 +1310,8 @@ const Register = () => {
       } else {
         // Email confirmation is required
         setStatus('success');
-        setMessage('Registration successful! Please check your email to verify your account.');
-        // User will complete registration when they verify email
+        setMessage('Registration successful! Check your email for the 8-digit verification code to finish verifying your account.');
+        // User will complete registration after they verify the code
         setTimeout(() => {
           navigate(loginHref);
         }, 3000);
@@ -1385,52 +1335,6 @@ const Register = () => {
       localStorage.setItem('pendingAccountType', formData.accountType);
     }
   }, [formData?.accountType]);
-
-  // Listen for verification completion from verify-email tab
-  useEffect(() => {
-    const checkVerification = () => {
-      if (localStorage.getItem('socialAuthVerified') === 'true') {
-        // User has been verified in another tab
-        const verifiedData = localStorage.getItem('socialAuthData');
-        if (verifiedData) {
-          try {
-            const userData = JSON.parse(verifiedData);
-            localStorage.setItem('user', JSON.stringify(userData.user));
-            localStorage.setItem('isAuthenticated', 'true');
-            localStorage.removeItem('socialAuthVerified');
-            localStorage.removeItem('socialAuthData');
-            localStorage.removeItem('pendingAccountType');
-            
-            // Redirect to dashboard
-            const accountType = userData.user.accountType?.toLowerCase();
-            const dashboardRoute = accountType === 'candidate' 
-              ? '/candidate-dashboard' 
-              : '/company-dashboard';
-            navigate(redirectAfterAuth || dashboardRoute);
-          } catch (error) {
-            console.error('Failed to process verification data:', error);
-          }
-        }
-      }
-    };
-
-    // Listen for storage events (from other tabs)
-    const handleStorageChange = (e) => {
-      if (e.key === 'socialAuthVerified' && e.newValue === 'true') {
-        checkVerification();
-      }
-    };
-
-    window.addEventListener('storage', handleStorageChange);
-    
-    // Also check periodically for localStorage changes (works for same-tab too)
-    const interval = setInterval(checkVerification, 500);
-
-    return () => {
-      window.removeEventListener('storage', handleStorageChange);
-      clearInterval(interval);
-    };
-  }, [navigate, redirectAfterAuth]);
 
   const getStepTitle = () => {
     switch (currentStep) {
@@ -1463,7 +1367,7 @@ const Register = () => {
       )
   );
   const isStep1Busy = currentStep === 1 && (
-    isCheckingEmail || isSendingVerification || isCheckingVerification || isVerifyingCode
+    isCheckingEmail || isSendingVerification || isVerifyingCode
   );
   const step1ActionLabel = emailVerification.status === 'verified'
     ? 'Next'
@@ -1496,15 +1400,14 @@ const Register = () => {
     : 'Verify your email';
   const emailVerificationMessage = emailVerification.message || (
     emailVerification.status === 'sending'
-      ? `Sending a verification email to ${formData?.email || 'your email'}...`
-      : `We sent a verification email to ${emailVerification.email || formData?.email || 'your email'}. Use the 8-digit code or click the link to continue.`
+      ? `Sending a verification code to ${formData?.email || 'your email'}...`
+      : `We sent an 8-digit verification code to ${emailVerification.email || formData?.email || 'your email'}. Use it to continue.`
   );
   const resendLabel = resendSeconds > 0 ? `Resend in ${resendSeconds}s` : 'Resend email';
-  const resendDisabled = isSendingVerification || isCheckingVerification || isVerifyingCode || resendSeconds > 0;
+  const resendDisabled = isSendingVerification || isVerifyingCode || resendSeconds > 0;
   const verifyCodeDisabled =
     isVerifyingCode
     || isSendingVerification
-    || isCheckingVerification
     || (verificationCode || '').replace(/\D/g, '').length !== 8;
 
   return (
@@ -1745,18 +1648,6 @@ const Register = () => {
                                       disabled={resendDisabled}
                                     >
                                       {resendLabel}
-                                    </Button>
-                                    <Button
-                                      type="button"
-                                      variant="outline"
-                                      size="sm"
-                                      iconName="Link"
-                                      className="rounded-full"
-                                      onClick={() => checkEmailVerification()}
-                                      loading={isCheckingVerification}
-                                      disabled={isCheckingVerification || isSendingVerification || isVerifyingCode}
-                                    >
-                                      I&apos;ve clicked the link
                                     </Button>
                                   </div>
                                 </div>
