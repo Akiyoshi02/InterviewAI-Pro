@@ -60,10 +60,7 @@ const VerifyEmail = () => {
           return;
         }
 
-        // Firebase email verification: The link will contain action code
-        // For now, check if user is already authenticated (email verification in Firebase works by signing in)
-        // Firebase sends verification links that work differently - user needs to sign in after clicking
-        // For OAuth flows, Firebase uses different redirect mechanisms
+        // Handle OAuth callbacks and complete registration when possible.
         
         // Check if we have a session (user may have verified and signed in)
         const { data: sessionData } = await authHelpers.getSession();
@@ -389,12 +386,10 @@ const VerifyEmail = () => {
             // Don't auto-redirect - let user see the error and manually go to login
           }
         } else if (token && type === 'email') {
-          // Firebase email verification link may contain action code
-          // User should sign in after clicking verification link
           setStatus('info');
-          setMessage('Email verified! Please sign in with your email and password to continue.');
+          setMessage('Email verification is completed with the 8-digit code. Please return to registration to enter your code.');
           setTimeout(() => {
-            navigate('/login');
+            navigate('/register');
           }, 3000);
         } else {
           // No tokens found - check if user is already signed in
@@ -413,7 +408,7 @@ const VerifyEmail = () => {
           }
           
           setStatus('error');
-          setMessage('Invalid verification link. Please request a new verification email or try signing in.');
+          setMessage('Invalid verification request. Please request a new verification code or try signing in.');
           setTimeout(() => {
             navigate('/login');
           }, 3000);

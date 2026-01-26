@@ -429,9 +429,6 @@ ${data.verificationCode}
 
 This code expires in ${data.expiresInMinutes} minutes.
 
-Or verify with this link:
-${data.verificationLink}
-
 If you did not request this, you can ignore this email.
 
 The InterviewAI Pro Team
@@ -443,10 +440,6 @@ The InterviewAI Pro Team
         <p>Use this 8-digit code to verify your email:</p>
         <div class="code-box">${data.verificationCode}</div>
         <p>This code expires in ${data.expiresInMinutes} minutes.</p>
-        <p>Or verify instantly with the link below:</p>
-        <div style="text-align: center;">
-          <a href="${data.verificationLink}" class="button">Verify Email</a>
-        </div>
         <p class="note">If you did not request this, you can ignore this email.</p>
       `,
     }),
@@ -912,12 +905,11 @@ export async function sendTemplatedEmail(templateName, data) {
  * Email notification helpers
  */
 export const emailNotifications = {
-  async sendEmailVerification({ email, fullName, verificationCode, verificationLink, expiresInMinutes = 10 }) {
+  async sendEmailVerification({ email, fullName, verificationCode, expiresInMinutes = 10 }) {
     return await sendTemplatedEmail('EMAIL_VERIFICATION', {
       email,
       fullName: fullName || 'there',
       verificationCode,
-      verificationLink,
       expiresInMinutes,
     });
   },
