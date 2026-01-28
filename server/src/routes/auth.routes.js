@@ -1,10 +1,28 @@
+/**
+ * Authentication Routes
+ * 
+ * Implements secure authentication endpoints with:
+ * - Schema-based validation
+ * - Input sanitization
+ * - Field whitelisting
+ * - Rate limiting (applied in security middleware)
+ * 
+ * @see OWASP Authentication Cheat Sheet
+ */
+
 import express from 'express';
-import { body } from 'express-validator';
 import { authenticate, requireCandidate, requireCompany, verifyFirebaseAuth } from '../middleware/auth.middleware.js';
-import { validateRequest } from '../middleware/validation.middleware.js';
+import { 
+  validateRequest, 
+  stripUnexpectedFields,
+  validationSchemas,
+} from '../middleware/inputValidation.middleware.js';
 import { AuthController } from '../controllers/auth.controller.js';
 import { registrationUpload } from '../middleware/upload.middleware.js';
 
+const router = express.Router();
+
+// File upload handler for registration
 const registrationUploadHandler = registrationUpload.fields([
   { name: 'profilePhoto', maxCount: 1 },
   { name: 'resumeFile', maxCount: 1 },
@@ -12,115 +30,108 @@ const registrationUploadHandler = registrationUpload.fields([
   { name: 'companyProof', maxCount: 1 },
 ]);
 
-const isArrayOrString = (value) => Array.isArray(value) || typeof value === 'string';
+// =============================================================================
+// REGISTRATION ENDPOINTS
+// =============================================================================
 
-const router = express.Router();
-
-// Register user (sync with Firebase Auth)
-// User must sign up with Firebase Auth first, then sync with our database
-// NOTE: We only use verifyFirebaseAuth (not authenticate) because the user doesn't exist in our DB yet
+/**
+ * POST /api/auth/register
+ * Register a new user (sync with Firebase Auth)
+ * User must sign up with Firebase Auth first, then sync with our database
+ * 
+ * Rate limited: 5 registrations per hour per IP
+ * Validates: All registration fields with type checking and length limits
+ */
 router.post(
   '/register',
-  verifyFirebaseAuth, // Only verify token - user doesn't exist in DB yet, so don't use loadUser
+  verifyFirebaseAuth, // Only verify token - user doesn't exist in DB yet
   registrationUploadHandler,
-  [
-    body('accountType')
-      .customSanitizer((value) => value?.toString()?.toUpperCase?.() || value)
-      .isIn(['CANDIDATE', 'COMPANY'])
-      .withMessage('Invalid account type'),
-    body('fullName').optional().isString(),
-    body('experienceLevel').optional().isString(),
-    body('gender').optional().isString(),
-    body('targetRole').optional().isString(),
-    body('careerGoals').optional().isString(),
-    body('location').optional().isString(),
-    body('preferredLanguage').optional().isString(),
-    body('phoneNumber').optional().isString(),
-    // Candidate education fields
-    body('highestQualification').optional().isString(),
-    body('fieldOfStudy').optional().isString(),
-    body('institutionName').optional().isString(),
-    body('graduationYear').optional().isString(),
-    body('skills').optional().custom(isArrayOrString).withMessage('Skills must be an array'),
-    // Candidate professional links
-    body('linkedinUrl').optional().isURL().withMessage('LinkedIn URL must be a valid URL'),
-    body('githubUrl').optional().isURL().withMessage('GitHub URL must be a valid URL'),
-    body('portfolioUrl').optional().isURL().withMessage('Portfolio URL must be a valid URL'),
-    // Candidate job preferences
-    body('certifications').optional().custom(isArrayOrString).withMessage('Certifications must be an array'),
-    body('availability').optional().isString(),
-    body('preferredWorkType').optional().isString(),
-    body('preferredEmploymentType').optional().isString(),
-    body('expectedSalary').optional().isString(),
-    // Company fields
-    body('companyName').optional().isString(),
-    body('companyType').optional().isString(),
-    body('industry').optional().isString(),
-    body('companySize').optional().isString(),
-    body('jobTitle').optional().isString(),
-    body('department').optional().isString(),
-    body('hiringVolume').optional().isString(),
-    body('companyWebsite').optional().isURL().withMessage('Company website must be a valid URL'),
-    body('companyLocation').optional().isString(),
-    body('companyAddress').optional().isString(),
-    body('companyDescription').optional().isString().isLength({ max: 2000 }).withMessage('Company description must be 2000 characters or less'),
-    body('businessRegistrationNumber').optional().isString(),
-    body('companyEmail').optional().isEmail().withMessage('Company email must be a valid email'),
-    body('establishedYear').optional().isString(),
-    body('facebookUrl').optional().isURL().withMessage('Facebook URL must be a valid URL'),
-    body('companyLinkedinUrl').optional().isURL().withMessage('Company LinkedIn URL must be a valid URL'),
-  ],
+  stripUnexpectedFields(validationSchemas.auth.register.allowedFields),
+  validationSchemas.auth.register.validators,
   validateRequest,
   AuthController.register
 );
 
-// Check email availability before registration
+/**
+ * POST /api/auth/check-email
+ * Check email availability before registration
+ * 
+ * Rate limited: 10 checks per minute per IP
+ * Prevents email enumeration through rate limiting
+ */
 router.post(
   '/check-email',
-  [
-    body('email').trim().isEmail().withMessage('Valid email is required'),
-  ],
+  stripUnexpectedFields(validationSchemas.auth.checkEmail.allowedFields),
+  validationSchemas.auth.checkEmail.validators,
   validateRequest,
   AuthController.checkEmailAvailability
 );
 
-// Start email verification (send link + code)
+// =============================================================================
+// EMAIL VERIFICATION ENDPOINTS
+// =============================================================================
+
+/**
+ * POST /api/auth/email-verification/start
+ * Start email verification process (send verification code)
+ * 
+ * Rate limited: 5 verification emails per hour
+ * Controller has additional rate limiting to prevent abuse
+ */
 router.post(
   '/email-verification/start',
   verifyFirebaseAuth,
-  [
-    body('email').optional().trim().isEmail().withMessage('Valid email is required'),
-    body('fullName').optional().isString(),
-  ],
+  stripUnexpectedFields(validationSchemas.auth.emailVerificationStart.allowedFields),
+  validationSchemas.auth.emailVerificationStart.validators,
   validateRequest,
   AuthController.startEmailVerification
 );
 
-// Verify email using code
+/**
+ * POST /api/auth/email-verification/verify-code
+ * Verify email using 8-digit code
+ * 
+ * Validates: Code must be exactly 8 digits
+ * Controller has additional attempt limiting
+ */
 router.post(
   '/email-verification/verify-code',
   verifyFirebaseAuth,
-  [
-    body('code')
-      .trim()
-      .matches(/^\d{8}$/)
-      .withMessage('Verification code must be 8 digits'),
-  ],
+  stripUnexpectedFields(validationSchemas.auth.verifyEmailCode.allowedFields),
+  validationSchemas.auth.verifyEmailCode.validators,
   validateRequest,
   AuthController.verifyEmailCode
 );
 
-// Get current user
+// =============================================================================
+// USER PROFILE ENDPOINTS
+// =============================================================================
+
+/**
+ * GET /api/auth/me
+ * Get current authenticated user profile
+ */
 router.get('/me', authenticate, AuthController.getMe);
 
-// Update current user profile
+/**
+ * PATCH /api/auth/me
+ * Update current user profile
+ * 
+ * Note: Field validation is handled in controller for flexible partial updates
+ */
 router.patch(
   '/me',
   authenticate,
-  // Basic validation could be added here as needed
   AuthController.updateMe
 );
 
+/**
+ * PATCH /api/auth/me/profile-photo
+ * Update candidate profile photo
+ * 
+ * Rate limited: Through upload limiter (20 uploads per 15 minutes)
+ * Validates: Image moderation in controller
+ */
 router.patch(
   '/me/profile-photo',
   authenticate,
@@ -129,6 +140,13 @@ router.patch(
   AuthController.updateProfilePhoto
 );
 
+/**
+ * PATCH /api/auth/me/company-logo
+ * Update company logo
+ * 
+ * Rate limited: Through upload limiter
+ * Validates: Image moderation in controller
+ */
 router.patch(
   '/me/company-logo',
   authenticate,
@@ -137,6 +155,13 @@ router.patch(
   AuthController.updateCompanyLogo
 );
 
+/**
+ * PATCH /api/auth/me/resume
+ * Update candidate resume
+ * 
+ * Rate limited: Through upload limiter
+ * Validates: Document moderation in controller
+ */
 router.patch(
   '/me/resume',
   authenticate,
@@ -145,14 +170,22 @@ router.patch(
   AuthController.updateResume
 );
 
-// Delete unregistered auth user
-// This endpoint requires Firebase auth; the caller must be the same Firebase user being deleted
+// =============================================================================
+// CLEANUP ENDPOINTS
+// =============================================================================
+
+/**
+ * POST /api/auth/delete-unregistered-auth-user
+ * Delete Firebase Auth user that never completed registration
+ * 
+ * Security: Caller must be the same Firebase user being deleted
+ * This is a cleanup operation for abandoned registrations
+ */
 router.post(
   '/delete-unregistered-auth-user',
   verifyFirebaseAuth,
-  [
-    body('userId').notEmpty().withMessage('userId is required'),
-  ],
+  stripUnexpectedFields(validationSchemas.auth.deleteUnregisteredUser.allowedFields),
+  validationSchemas.auth.deleteUnregisteredUser.validators,
   validateRequest,
   AuthController.deleteUnregisteredAuthUser
 );

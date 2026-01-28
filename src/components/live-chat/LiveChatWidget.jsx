@@ -899,12 +899,27 @@ const LiveChatWidget = () => {
     return null;
   }
 
-  const containerClassName = `fixed right-4 lg:right-6 z-[120] flex flex-col items-end ${
-    isOpen ? 'bottom-5 xs:bottom-6' : 'bottom-4 xs:bottom-5 lg:bottom-8'
-  }`;
+  if (!isOpen) {
+    return (
+      <motion.button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        initial={initial}
+        animate={animate}
+        transition={transition}
+        className="fixed bottom-20 lg:bottom-8 right-4 lg:right-6 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-110 active:scale-95 transition-all duration-300 flex items-center justify-center z-[120]"
+        whileHover={{ scale: 1.1 }}
+        whileTap={{ scale: 0.95 }}
+        aria-label="Open live chat"
+        title="Live Chat"
+      >
+        <Icon name="MessageCircle" size={24} />
+      </motion.button>
+    );
+  }
 
   return (
-    <div className={containerClassName}>
+    <>
       <AnimatePresence>
         {isOpen && (
           <motion.div
@@ -913,7 +928,7 @@ const LiveChatWidget = () => {
             animate={animate}
             exit={exit}
             transition={transition}
-            className={`${sizeSettings.container} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] lg:max-h-[700px] rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col`}
+            className={`fixed bottom-20 lg:bottom-8 right-4 lg:right-6 ${sizeSettings.container} max-w-[calc(100vw-2rem)] max-h-[calc(100vh-8rem)] lg:max-h-[700px] rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 backdrop-blur shadow-[0_30px_80px_rgba(15,23,42,0.3)] dark:shadow-[0_30px_80px_rgba(0,0,0,0.6)] overflow-hidden flex flex-col z-[120]`}
           >
             <div className="flex items-center justify-between p-4 border-b border-white/30 bg-gradient-to-r from-blue-600 to-purple-600 text-white">
               <div className="flex items-center space-x-2">
@@ -1260,7 +1275,7 @@ const LiveChatWidget = () => {
                             )}
                           </div>
                         )}
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+                        <div className="flex items-center gap-2">
                           <textarea
                             ref={messageInputRef}
                             rows={1}
@@ -1268,18 +1283,19 @@ const LiveChatWidget = () => {
                             onChange={(event) => setMessageDraft(event.target.value)}
                             onKeyDown={handleMessageKeyDown}
                             placeholder="Write a message..."
-                            className={`min-w-0 w-full resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-2 ${sizeSettings.inputText} text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 min-h-[44px]`}
+                            className={`flex-1 min-w-0 resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-3 ${sizeSettings.inputText} text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 h-14`}
+                            style={{ lineHeight: '1.5' }}
                           />
                           <Button
                             onClick={handleSendMessage}
                             loading={isLoading}
                             iconName="Send"
-                              size="icon"
-                              disabled={isLoading || !messageDraft.trim()}
-                              className="shrink-0 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
-                              aria-label="Send message"
-                            />
-                          </div>
+                            size="icon"
+                            disabled={isLoading || !messageDraft.trim()}
+                            className="shrink-0 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+                            aria-label="Send message"
+                          />
+                        </div>
                         </div>
                       )}
                     </>
@@ -1290,23 +1306,7 @@ const LiveChatWidget = () => {
           </motion.div>
         )}
       </AnimatePresence>
-      <motion.button
-        type="button"
-        onClick={() => setIsOpen(true)}
-        initial={initial}
-        animate={isOpen ? exit : animate}
-        transition={transition}
-        className={`flex items-center justify-center w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-xl shadow-blue-500/40 hover:scale-105 transition-all duration-300 ${isOpen ? 'pointer-events-none' : ''}`}
-        aria-label="Open live chat"
-        title="Live Chat"
-        aria-hidden={isOpen}
-        tabIndex={isOpen ? -1 : 0}
-        whileHover={{ scale: 1.08 }}
-        whileTap={{ scale: 0.95 }}
-      >
-        <Icon name="MessageCircle" size={20} />
-      </motion.button>
-    </div>
+    </>
   );
 };
 

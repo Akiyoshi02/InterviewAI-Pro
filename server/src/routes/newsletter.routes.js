@@ -1,50 +1,73 @@
+/**
+ * Newsletter Routes
+ * 
+ * Public newsletter subscription endpoints with:
+ * - Rate limiting (3 requests per hour per IP)
+ * - Email validation and normalization
+ * - Admin-only statistics endpoint
+ * 
+ * Security considerations:
+ * - Rate limiting prevents subscription spam
+ * - Email normalization prevents duplicate entries
+ */
+
 import express from 'express';
-import { body } from 'express-validator';
-import { validateRequest } from '../middleware/validation.middleware.js';
+import { 
+  validateRequest, 
+  stripUnexpectedFields,
+  validationSchemas,
+} from '../middleware/inputValidation.middleware.js';
 import { NewsletterController } from '../controllers/newsletter.controller.js';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireSystemAdmin } from '../middleware/admin.middleware.js';
 
 const router = express.Router();
 
+// =============================================================================
+// PUBLIC SUBSCRIPTION ENDPOINTS
+// =============================================================================
+
 /**
- * @route   POST /api/newsletter/subscribe
- * @desc    Subscribe to newsletter
- * @access  Public
+ * POST /api/newsletter/subscribe
+ * Subscribe to newsletter
+ * 
+ * Rate limited: 3 requests per hour per IP (applied in security middleware)
+ * Validates: Email format and length
+ * Normalizes: Email to lowercase
  */
 router.post(
   '/subscribe',
-  [
-    body('email')
-      .isEmail()
-      .normalizeEmail()
-      .withMessage('Valid email is required'),
-    validateRequest
-  ],
+  stripUnexpectedFields(validationSchemas.newsletter.subscribe.allowedFields),
+  validationSchemas.newsletter.subscribe.validators,
+  validateRequest,
   NewsletterController.subscribe
 );
 
 /**
- * @route   POST /api/newsletter/unsubscribe
- * @desc    Unsubscribe from newsletter
- * @access  Public
+ * POST /api/newsletter/unsubscribe
+ * Unsubscribe from newsletter
+ * 
+ * Rate limited: 3 requests per hour per IP
+ * Validates: Email format and length
  */
 router.post(
   '/unsubscribe',
-  [
-    body('email')
-      .isEmail()
-      .normalizeEmail()
-      .withMessage('Valid email is required'),
-    validateRequest
-  ],
+  stripUnexpectedFields(validationSchemas.newsletter.unsubscribe.allowedFields),
+  validationSchemas.newsletter.unsubscribe.validators,
+  validateRequest,
   NewsletterController.unsubscribe
 );
 
+// =============================================================================
+// ADMIN ENDPOINTS
+// =============================================================================
+
 /**
- * @route   GET /api/newsletter/stats
- * @desc    Get newsletter statistics
- * @access  Admin only
+ * GET /api/newsletter/stats
+ * Get newsletter subscription statistics
+ * 
+ * Access: System admin only
+ * Returns: Active, total, and unsubscribed counts
  */
 router.get(
   '/stats',

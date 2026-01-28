@@ -1,143 +1,270 @@
+/**
+ * Admin Routes
+ * 
+ * System administration endpoints with:
+ * - Very strict rate limiting for bootstrap endpoints
+ * - System admin authentication required for most routes
+ * - Comprehensive input validation
+ * 
+ * Security considerations:
+ * - Bootstrap endpoints limited to 3 attempts per day
+ * - All admin actions are logged for audit
+ * - Sensitive operations require explicit reasons
+ */
+
 import express from 'express';
-import { body, param, query } from 'express-validator';
+import { param, query } from 'express-validator';
 import { authenticate } from '../middleware/auth.middleware.js';
 import { requireSystemAdmin } from '../middleware/admin.middleware.js';
-import { validateRequest } from '../middleware/validation.middleware.js';
+import { 
+  validateRequest, 
+  stripUnexpectedFields,
+  validationSchemas,
+  commonValidators,
+  LENGTH_LIMITS,
+  ALLOWED_VALUES,
+} from '../middleware/inputValidation.middleware.js';
 import { AdminController } from '../controllers/admin.controller.js';
 
 const router = express.Router();
 
-// Bootstrap admin (creates Firebase user + Firestore profile in one go)
-// Use this for initial setup when no admin exists
+// =============================================================================
+// ADMIN BOOTSTRAP ENDPOINTS (Rate limited: 3 per day)
+// =============================================================================
+
+/**
+ * POST /api/admin/auth/bootstrap-admin
+ * Create initial system admin (one-time setup)
+ * 
+ * Rate limited: 3 attempts per 24 hours (very strict)
+ * Should only be used once during initial setup
+ */
 router.post(
   '/auth/bootstrap-admin',
-  [
-    body('email').isEmail().withMessage('Valid email is required'),
-    body('password')
-      .isString()
-      .isLength({ min: 6 })
-      .withMessage('Password must be at least 6 characters'),
-    body('fullName').optional().isString(),
-  ],
+  stripUnexpectedFields(validationSchemas.admin.bootstrapAdmin.allowedFields),
+  validationSchemas.admin.bootstrapAdmin.validators,
   validateRequest,
   AdminController.bootstrapAdmin,
 );
 
-// Seed admin (promotes existing Firebase user to system admin)
-// Use this when you already have a user and want to make them an admin
+/**
+ * POST /api/admin/auth/seed-admin
+ * Promote existing Firebase user to system admin
+ * 
+ * Rate limited: 3 attempts per 24 hours
+ * Use when you have an existing user to promote
+ */
 router.post(
   '/auth/seed-admin',
-  [
-    body('email').isEmail().withMessage('Valid email is required'),
-    body('uid').isString().notEmpty().withMessage('Firebase UID is required'),
-    body('fullName').optional().isString(),
-  ],
+  stripUnexpectedFields(validationSchemas.admin.seedAdmin.allowedFields),
+  validationSchemas.admin.seedAdmin.validators,
   validateRequest,
   AdminController.seedAdmin,
 );
 
+// =============================================================================
+// AUTHENTICATED ADMIN ROUTES
 // All routes below require system admin authentication
+// =============================================================================
+
 router.use(authenticate);
 router.use(requireSystemAdmin);
 
-// Organizations
+// =============================================================================
+// ORGANIZATION MANAGEMENT
+// =============================================================================
+
+/**
+ * GET /api/admin/organizations
+ * List all organizations with optional filtering
+ */
 router.get(
   '/organizations',
   [
-    query('status').optional().isIn(['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED']),
-    query('limit').optional().isInt({ min: 1, max: 500 }),
-    query('offset').optional().isInt({ min: 0 }),
+    commonValidators.queryParam.status(ALLOWED_VALUES.ORGANIZATION_STATUS),
+    commonValidators.queryParam.limit(100, 500),
+    commonValidators.queryParam.offset(),
   ],
   validateRequest,
   AdminController.listOrganizations,
 );
 
+/**
+ * GET /api/admin/organizations/pending
+ * List organizations pending approval
+ */
 router.get(
   '/organizations/pending',
-  [query('limit').optional().isInt({ min: 1, max: 100 })],
+  [commonValidators.queryParam.limit(50, 100)],
   validateRequest,
   AdminController.listPendingOrganizations,
 );
 
+/**
+ * GET /api/admin/organizations/:id
+ * Get specific organization details
+ */
 router.get(
   '/organizations/:id',
-  [param('id').isString().notEmpty()],
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Organization ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
   validateRequest,
   AdminController.getOrganization,
 );
 
+/**
+ * POST /api/admin/organizations/:id/approve
+ * Approve an organization
+ */
 router.post(
   '/organizations/:id/approve',
-  [param('id').isString().notEmpty()],
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Organization ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
   validateRequest,
   AdminController.approveOrganization,
 );
 
+/**
+ * POST /api/admin/organizations/:id/reject
+ * Reject an organization application
+ * 
+ * Requires: Rejection reason (for audit trail)
+ */
 router.post(
   '/organizations/:id/reject',
   [
-    param('id').isString().notEmpty(),
-    body('reason').isString().notEmpty().withMessage('Rejection reason is required'),
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Organization ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
   ],
+  stripUnexpectedFields(validationSchemas.admin.rejectOrganization.allowedFields),
+  validationSchemas.admin.rejectOrganization.validators,
   validateRequest,
   AdminController.rejectOrganization,
 );
 
+/**
+ * POST /api/admin/organizations/:id/suspend
+ * Suspend an organization
+ * 
+ * Requires: Suspension reason (for audit trail)
+ */
 router.post(
   '/organizations/:id/suspend',
   [
-    param('id').isString().notEmpty(),
-    body('reason').isString().notEmpty().withMessage('Suspension reason is required'),
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Organization ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
   ],
+  stripUnexpectedFields(validationSchemas.admin.suspendOrganization.allowedFields),
+  validationSchemas.admin.suspendOrganization.validators,
   validateRequest,
   AdminController.suspendOrganization,
 );
 
+/**
+ * POST /api/admin/organizations/:id/activate
+ * Reactivate a suspended organization
+ */
 router.post(
   '/organizations/:id/activate',
-  [param('id').isString().notEmpty()],
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Organization ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
   validateRequest,
   AdminController.activateOrganization,
 );
 
-// System Settings
+// =============================================================================
+// SYSTEM SETTINGS
+// =============================================================================
+
+/**
+ * GET /api/admin/settings
+ * Get current system settings
+ */
 router.get('/settings', AdminController.getSettings);
 
+/**
+ * PATCH /api/admin/settings
+ * Update system settings
+ */
 router.patch(
   '/settings',
-  [
-    body('featureFlags').optional().isObject(),
-    body('maintenanceMode').optional().isBoolean(),
-    body('defaultAIConfig').optional().isObject(),
-    body('dataRetention').optional().isObject(),
-  ],
+  stripUnexpectedFields(validationSchemas.admin.updateSettings.allowedFields),
+  validationSchemas.admin.updateSettings.validators,
   validateRequest,
   AdminController.updateSettings,
 );
 
-// Audit Logs
+// =============================================================================
+// AUDIT AND MONITORING
+// =============================================================================
+
+/**
+ * GET /api/admin/audit-logs
+ * Get system audit logs
+ */
 router.get(
   '/audit-logs',
   [
-    query('limit').optional().isInt({ min: 1, max: 500 }),
-    query('offset').optional().isInt({ min: 0 }),
+    commonValidators.queryParam.limit(100, 500),
+    commonValidators.queryParam.offset(),
   ],
   validateRequest,
   AdminController.getAuditLogs,
 );
 
-// Platform Statistics
+/**
+ * GET /api/admin/stats
+ * Get platform statistics
+ */
 router.get('/stats', AdminController.getStats);
 
-// Live Chat
+// =============================================================================
+// INTEGRATIONS
+// =============================================================================
+
+/**
+ * POST /api/admin/live-chat/register
+ * Register admin for live chat support
+ */
 router.post('/live-chat/register', AdminController.registerLiveChatAdmin);
 
-// User Management
+// =============================================================================
+// USER MANAGEMENT
+// =============================================================================
+
+/**
+ * GET /api/admin/users
+ * List all users with optional filtering
+ */
 router.get(
   '/users',
   [
-    query('accountType').optional().isIn(['CANDIDATE', 'COMPANY', 'SYSTEM_ADMIN']),
-    query('limit').optional().isInt({ min: 1, max: 500 }),
+    query('accountType')
+      .optional()
+      .isIn(['CANDIDATE', 'COMPANY', 'SYSTEM_ADMIN'])
+      .withMessage('Invalid account type'),
+    commonValidators.queryParam.limit(100, 500),
   ],
   validateRequest,
   AdminController.listUsers,

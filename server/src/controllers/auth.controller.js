@@ -127,8 +127,25 @@ const toMillisSafe = (value) => {
   return Number.isNaN(parsed) ? 0 : parsed;
 };
 
-const getVerificationSecret = () =>
-  process.env.EMAIL_VERIFICATION_CODE_SECRET || process.env.JWT_SECRET || 'dev-email-verification-secret';
+/**
+ * Get verification code secret for HMAC signing
+ * SECURITY: In production, this should always be a strong, unique secret
+ * The default value is only for development - it will log a warning
+ */
+const getVerificationSecret = () => {
+  const secret = process.env.EMAIL_VERIFICATION_CODE_SECRET || process.env.JWT_SECRET;
+  
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('EMAIL_VERIFICATION_CODE_SECRET or JWT_SECRET must be set in production');
+    }
+    // Only use default in development, and log a warning
+    logger.warn('⚠️  Using default verification secret - this is insecure for production!');
+    return 'dev-only-verification-secret-change-in-production';
+  }
+  
+  return secret;
+};
 
 const hashVerificationCode = (code) =>
   createHmac('sha256', getVerificationSecret()).update(code).digest('hex');
