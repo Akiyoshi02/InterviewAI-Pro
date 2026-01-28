@@ -1,5 +1,20 @@
+/**
+ * Server Entry Point
+ * 
+ * Initializes the Express application with:
+ * - Secure configuration validation
+ * - Security middleware (Helmet, CORS, rate limiting)
+ * - Route handling with input validation
+ * - Error handling
+ * - WebSocket support
+ */
+
 // Load environment variables FIRST (this file loads .env)
 import './config/env.js';
+
+// Validate environment configuration
+import { initializeSecureConfig } from './config/secureConfig.js';
+initializeSecureConfig();
 
 import express from 'express';
 import { createServer } from 'http';

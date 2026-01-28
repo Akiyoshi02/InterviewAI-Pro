@@ -1,62 +1,70 @@
+/**
+ * Interview Routes
+ * 
+ * Interview management endpoints with:
+ * - Rate limiting on creation (10 per hour)
+ * - Authentication required for all endpoints
+ * - Comprehensive input validation
+ * 
+ * Security considerations:
+ * - Interview creation is rate limited to prevent resource abuse
+ * - All inputs are validated and sanitized
+ * - User authorization checked in controllers
+ */
+
 import express from 'express';
-import { body, param } from 'express-validator';
+import { param, body } from 'express-validator';
 import { authenticate, requireCandidate, requireCompany } from '../middleware/auth.middleware.js';
-import { validateRequest } from '../middleware/validation.middleware.js';
+import { 
+  validateRequest, 
+  stripUnexpectedFields,
+  validationSchemas,
+  LENGTH_LIMITS,
+} from '../middleware/inputValidation.middleware.js';
 import { InterviewController } from '../controllers/interview.controller.js';
 
 const router = express.Router();
 
-// Create interview (Practice or Hiring)
+// =============================================================================
+// INTERVIEW CREATION (Rate limited: 10 per hour)
+// =============================================================================
+
+/**
+ * POST /api/interviews/create
+ * Create a new interview session (Practice or Hiring)
+ * 
+ * Rate limited: 10 interviews per hour per user
+ * Validates: Mode, duration, configuration options
+ */
 router.post(
   '/create',
   authenticate,
-  [
-    body('mode').isIn(['PRACTICE', 'HIRING']).withMessage('Invalid interview mode'),
-    body('jobRole').optional().isString(),
-    body('experienceLevel').optional().isString(),
-    body('industry').optional().isString(),
-    body('interviewTypes').optional().isArray(),
-    body('duration').optional().isInt({ min: 15, max: 120 }),
-  ],
+  stripUnexpectedFields(validationSchemas.interview.create.allowedFields),
+  validationSchemas.interview.create.validators,
   validateRequest,
   InterviewController.createInterview
 );
 
-// Get interview by ID
-router.get(
-  '/:id',
-  authenticate,
-  param('id').isString(),
-  validateRequest,
-  InterviewController.getInterview
-);
+// =============================================================================
+// INTERVIEW RETRIEVAL
+// =============================================================================
 
-// Start interview session
-router.post(
-  '/:id/start',
-  authenticate,
-  param('id').isString(),
-  validateRequest,
-  InterviewController.startInterview
-);
-
-// End interview session
-router.post(
-  '/:id/end',
-  authenticate,
-  param('id').isString(),
-  validateRequest,
-  InterviewController.endInterview
-);
-
-// Get user's interviews
+/**
+ * GET /api/interviews/user/my-interviews
+ * Get current user's interviews
+ * 
+ * Note: This route must be defined BEFORE /:id to avoid conflicts
+ */
 router.get(
   '/user/my-interviews',
   authenticate,
   InterviewController.getMyInterviews
 );
 
-// Get company's interviews (company only)
+/**
+ * GET /api/interviews/company/all
+ * Get all interviews for the company (company users only)
+ */
 router.get(
   '/company/all',
   authenticate,
@@ -64,37 +72,125 @@ router.get(
   InterviewController.getCompanyInterviews
 );
 
-// Get interview evaluation
+/**
+ * GET /api/interviews/:id
+ * Get interview by ID
+ */
+router.get(
+  '/:id',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.getInterview
+);
+
+/**
+ * GET /api/interviews/:id/evaluation
+ * Get interview evaluation/feedback
+ */
 router.get(
   '/:id/evaluation',
   authenticate,
-  param('id').isString(),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
   validateRequest,
   InterviewController.getEvaluation
 );
 
-// Mark question as asked
+// =============================================================================
+// INTERVIEW SESSION MANAGEMENT
+// =============================================================================
+
+/**
+ * POST /api/interviews/:id/start
+ * Start an interview session
+ */
+router.post(
+  '/:id/start',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.startInterview
+);
+
+/**
+ * POST /api/interviews/:id/end
+ * End an interview session
+ */
+router.post(
+  '/:id/end',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.endInterview
+);
+
+// =============================================================================
+// QUESTION/ANSWER MANAGEMENT
+// =============================================================================
+
+/**
+ * POST /api/interviews/:id/question/asked
+ * Mark a question as asked
+ */
 router.post(
   '/:id/question/asked',
   authenticate,
-  param('id').isString(),
   [
-    body('questionId').isString().withMessage('Question ID is required'),
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    body('questionId')
+      .trim()
+      .notEmpty()
+      .withMessage('Question ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
   ],
   validateRequest,
   InterviewController.markQuestionAsked
 );
 
-// Submit answer for a question
+/**
+ * POST /api/interviews/:id/question/answer
+ * Submit an answer for a question
+ */
 router.post(
   '/:id/question/answer',
   authenticate,
-  param('id').isString(),
   [
-    body('questionId').isString().withMessage('Question ID is required'),
-    body('answer').isString().withMessage('Answer is required'),
-    body('audioUrl').optional().isString(),
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
   ],
+  stripUnexpectedFields(validationSchemas.interview.submitAnswer.allowedFields),
+  validationSchemas.interview.submitAnswer.validators,
   validateRequest,
   InterviewController.submitAnswer
 );

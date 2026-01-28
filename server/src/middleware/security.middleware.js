@@ -1,80 +1,291 @@
+/**
+ * Security Middleware
+ * 
+ * Implements comprehensive security measures following OWASP guidelines:
+ * - HTTP Security Headers (Helmet)
+ * - CORS Configuration
+ * - Rate Limiting (imported from rateLimiter.middleware.js)
+ * - Request Logging
+ * - Security Event Monitoring
+ * 
+ * @see https://cheatsheetseries.owasp.org/cheatsheets/REST_Security_Cheat_Sheet.html
+ */
+
 import helmet from 'helmet';
 import cors from 'cors';
-import rateLimit from 'express-rate-limit';
+import logger from '../utils/logger.js';
 
-// Note: CSRF protection is not needed for JWT-based APIs
-// JWT tokens in Authorization headers are already protected from CSRF attacks
-// If you need CSRF protection for cookie-based auth, consider using a custom implementation
+// Import comprehensive rate limiters from dedicated module
+import {
+  apiLimiter,
+  authLimiter,
+  registrationLimiter,
+  emailCheckLimiter,
+  emailVerificationLimiter,
+  interviewLimiter,
+  publicLimiter,
+  newsletterLimiter,
+  contactLimiter,
+  uploadLimiter,
+  adminBootstrapLimiter,
+  teamInvitationLimiter,
+  jobApplicationLimiter,
+} from './rateLimiter.middleware.js';
 
-// Rate limiting configurations
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Limit each IP to 100 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-});
+// =============================================================================
+// SECURITY CONFIGURATION
+// =============================================================================
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10, // Allow a few more retries before blocking
-  message: 'Too many authentication attempts. Please wait 15 minutes and try again.',
-  skipSuccessfulRequests: true,
-  skip: (req) => {
-    // Skip rate limiting for delete-unregistered-auth-user endpoint
-    // This is a cleanup operation that may need to be called multiple times
-    return req.path === '/delete-unregistered-auth-user';
+/**
+ * Content Security Policy directives
+ * Configured to allow necessary resources while blocking malicious content
+ */
+const cspDirectives = {
+  defaultSrc: ["'self'"],
+  styleSrc: ["'self'", "'unsafe-inline'"], // Required for some UI frameworks
+  scriptSrc: ["'self'"],
+  imgSrc: ["'self'", "data:", "https:", "blob:"],
+  connectSrc: [
+    "'self'",
+    "https://api.openai.com",
+    "https://firestore.googleapis.com",
+    "https://firebase.googleapis.com",
+    "https://identitytoolkit.googleapis.com",
+    "wss:", // WebSocket connections
+  ],
+  fontSrc: ["'self'", "https:", "data:"],
+  objectSrc: ["'none'"],
+  mediaSrc: ["'self'", "blob:"],
+  frameSrc: ["'none'"],
+  baseUri: ["'self'"],
+  formAction: ["'self'"],
+  frameAncestors: ["'none'"], // Prevents clickjacking
+  upgradeInsecureRequests: [], // Upgrade HTTP to HTTPS
+};
+
+/**
+ * CORS configuration
+ * Restricts cross-origin requests to trusted domains
+ */
+const corsOptions = {
+  origin: (origin, callback) => {
+    // Allow requests with no origin (mobile apps, curl, etc.)
+    if (!origin) {
+      callback(null, true);
+      return;
+    }
+    
+    const allowedOrigins = [
+      process.env.FRONTEND_URL || 'http://localhost:4028',
+      'http://localhost:4028',
+      'http://localhost:5173', // Vite dev server
+    ];
+    
+    // Allow configured origins
+    if (allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed))) {
+      callback(null, true);
+    } else {
+      logger.warn('CORS blocked request from origin:', { origin });
+      callback(new Error('Not allowed by CORS'));
+    }
   },
-});
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'X-CSRF-Token',
+    'X-Requested-With',
+    'Accept',
+    'Accept-Version',
+    'Content-Length',
+    'Content-MD5',
+    'Date',
+    'X-Api-Version',
+  ],
+  exposedHeaders: [
+    'RateLimit-Limit',
+    'RateLimit-Remaining',
+    'RateLimit-Reset',
+    'Retry-After',
+  ],
+  maxAge: 86400, // 24 hours
+  optionsSuccessStatus: 204,
+};
 
-const interviewLimiter = rateLimit({
-  windowMs: 60 * 60 * 1000, // 1 hour
-  max: 10, // Limit interview creation to 10 per hour
-  message: 'Too many interview sessions created, please try again later.',
-});
+// =============================================================================
+// MAIN SECURITY SETUP
+// =============================================================================
 
+/**
+ * Configure all security middleware for the Express application
+ * 
+ * @param {Express} app - Express application instance
+ */
 export function setupSecurity(app) {
-  // Helmet for security headers
+  // Trust proxy (required for rate limiting behind reverse proxy)
+  // Set to 1 if behind a single proxy (like nginx), adjust if behind multiple
+  app.set('trust proxy', 1);
+
+  // ===========================================================================
+  // HTTP Security Headers (Helmet)
+  // ===========================================================================
   app.use(helmet({
     contentSecurityPolicy: {
-      directives: {
-        defaultSrc: ["'self'"],
-        styleSrc: ["'self'", "'unsafe-inline'"],
-        scriptSrc: ["'self'"],
-        imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'", "https://api.openai.com"],
-      },
+      directives: cspDirectives,
     },
     crossOriginResourcePolicy: { policy: 'cross-origin' },
     crossOriginEmbedderPolicy: false, // Required for WebRTC
+    crossOriginOpenerPolicy: { policy: 'same-origin' },
+    dnsPrefetchControl: { allow: false },
+    frameguard: { action: 'deny' }, // Prevents clickjacking
+    hidePoweredBy: true, // Hide X-Powered-By header
+    hsts: {
+      maxAge: 31536000, // 1 year
+      includeSubDomains: true,
+      preload: true,
+    },
+    ieNoOpen: true,
+    noSniff: true,
+    originAgentCluster: true,
+    permittedCrossDomainPolicies: { permittedPolicies: 'none' },
+    referrerPolicy: { policy: 'strict-origin-when-cross-origin' },
+    xssFilter: true,
   }));
 
-  // CORS configuration
-  app.use(cors({
-    origin: process.env.FRONTEND_URL || "http://localhost:4028",
-    credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token'],
-  }));
+  // ===========================================================================
+  // CORS Configuration
+  // ===========================================================================
+  app.use(cors(corsOptions));
 
-  // Apply rate limiting
+  // ===========================================================================
+  // Rate Limiting
+  // ===========================================================================
+  
+  // General API rate limiting (baseline)
   app.use('/api/', apiLimiter);
+  
+  // Authentication endpoints - stricter limits
+  app.use('/api/auth/register', registrationLimiter);
+  app.use('/api/auth/check-email', emailCheckLimiter);
+  app.use('/api/auth/email-verification', emailVerificationLimiter);
   app.use('/api/auth/', authLimiter);
+  
+  // Interview creation - prevent resource abuse
   app.use('/api/interviews/create', interviewLimiter);
+  
+  // Public endpoints
+  app.use('/api/public/jobs', publicLimiter);
+  app.use('/api/public/invitations', publicLimiter);
+  app.use('/api/public/team-invitations', publicLimiter);
+  app.use('/api/public/contact', contactLimiter);
+  app.use('/api/public/maintenance-status', publicLimiter);
+  
+  // Newsletter endpoints
+  app.use('/api/newsletter/subscribe', newsletterLimiter);
+  app.use('/api/newsletter/unsubscribe', newsletterLimiter);
+  
+  // File upload endpoints
+  app.use('/api/uploads', uploadLimiter);
+  
+  // Admin bootstrap (very strict)
+  app.use('/api/admin/auth/bootstrap-admin', adminBootstrapLimiter);
+  app.use('/api/admin/auth/seed-admin', adminBootstrapLimiter);
+  
+  // Team invitations
+  app.use('/api/organizations/me/team-invitations', teamInvitationLimiter);
+  
+  // Job applications
+  app.use('/api/jobs/:jobId/apply', jobApplicationLimiter);
 
-  // CSRF protection note:
+  // ===========================================================================
+  // Additional Security Headers
+  // ===========================================================================
+  app.use((req, res, next) => {
+    // Cache control for API responses
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    res.setHeader('Expires', '0');
+    res.setHeader('Surrogate-Control', 'no-store');
+    
+    // Additional security headers not covered by Helmet
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('X-Download-Options', 'noopen');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
+    
+    next();
+  });
+
+  // ===========================================================================
+  // Request Logging and Security Monitoring
+  // ===========================================================================
+  app.use((req, res, next) => {
+    // Log request for security monitoring
+    if (process.env.NODE_ENV === 'development') {
+      console.log(`${req.method} ${req.path}`);
+    }
+    
+    // Log suspicious activity patterns
+    const suspiciousPatterns = [
+      /\.\.\//,           // Path traversal
+      /<script/i,         // XSS attempt
+      /javascript:/i,     // XSS attempt
+      /on\w+=/i,          // Event handler injection
+      /union.*select/i,   // SQL injection
+      /;.*--/,            // SQL comment
+      /'.*or.*'/i,        // SQL injection
+    ];
+    
+    const requestData = JSON.stringify({
+      body: req.body,
+      query: req.query,
+      params: req.params,
+    });
+    
+    for (const pattern of suspiciousPatterns) {
+      if (pattern.test(requestData) || pattern.test(req.path)) {
+        logger.warn('Suspicious request detected', {
+          ip: req.ip,
+          path: req.path,
+          method: req.method,
+          userAgent: req.headers['user-agent'],
+          pattern: pattern.toString(),
+        });
+        break;
+      }
+    }
+    
+    next();
+  });
+
+  // ===========================================================================
+  // CSRF Protection Note
+  // ===========================================================================
   // For JWT-based authentication (tokens in Authorization header), CSRF protection
   // is not typically required as the token is not stored in cookies.
   // CORS + rate limiting + Helmet provides sufficient protection for REST APIs.
   // If you need CSRF protection later, implement a custom solution compatible with ES modules.
-
-  // Request logging
-  app.use((req, res, next) => {
-    if (process.env.NODE_ENV === 'development') {
-      console.log(`${req.method} ${req.path}`);
-    }
-    next();
-  });
 }
 
-export { apiLimiter, authLimiter, interviewLimiter };
+// =============================================================================
+// EXPORTS
+// =============================================================================
+
+// Re-export rate limiters for use in specific routes
+export {
+  apiLimiter,
+  authLimiter,
+  registrationLimiter,
+  emailCheckLimiter,
+  emailVerificationLimiter,
+  interviewLimiter,
+  publicLimiter,
+  newsletterLimiter,
+  contactLimiter,
+  uploadLimiter,
+  adminBootstrapLimiter,
+  teamInvitationLimiter,
+  jobApplicationLimiter,
+};

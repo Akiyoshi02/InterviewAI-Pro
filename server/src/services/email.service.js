@@ -1,3 +1,7 @@
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+import { dirname } from 'path';
 import logger from '../utils/logger.js';
 import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
@@ -17,12 +21,150 @@ import nodemailer from 'nodemailer';
  * 1. SendGrid: https://sendgrid.com (100 emails/day free forever)
  * 2. Gmail SMTP: Use your Gmail account with app password
  * 3. Outlook SMTP: Use your Outlook account
+ * 
+ * IMPORTANT FOR DELIVERABILITY (Avoiding Spam):
+ * =============================================
+ * 1. Use a custom domain for FROM_EMAIL (e.g., noreply@yourdomain.com)
+ *    - Using Gmail addresses with SendGrid causes authentication failures
+ *    - Gmail's strict SPF/DKIM policies make emails look like spoofing
+ * 
+ * 2. Set up domain authentication in SendGrid:
+ *    - Go to Settings > Sender Authentication
+ *    - Authenticate your domain (adds SPF, DKIM, DMARC records)
+ *    - This significantly improves deliverability
+ * 
+ * 3. Verify your sender identity in SendGrid:
+ *    - Go to Settings > Sender Authentication > Single Sender Verification
+ *    - Or use domain authentication (preferred)
+ * 
+ * 4. Warm up your sending reputation gradually:
+ *    - Start with small volumes
+ *    - Maintain good engagement rates
  */
 
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+
 const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || 'console';
-const FROM_EMAIL = process.env.FROM_EMAIL || 'akiyoshiyapa@gmail.com';
+// SECURITY: Default email should be a placeholder, not a real email
+const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@localhost';
 const FROM_NAME = process.env.FROM_NAME || 'InterviewAI Pro';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+// Use a simple content_id that email clients can easily match
+const EMAIL_LOGO_CONTENT_ID = 'logo';
+
+// Resolve logo path: go up from server/src/services to project root, then to public/assets/images/logo-text.png
+const getDefaultLogoPath = () => {
+  // From server/src/services/email.service.js, go up 3 levels to project root
+  const projectRoot = path.resolve(__dirname, '..', '..', '..');
+  return path.resolve(projectRoot, 'public', 'assets', 'images', 'logo-text.png');
+};
+
+const EMAIL_LOGO_PATH = process.env.EMAIL_LOGO_PATH
+  ? path.resolve(process.env.EMAIL_LOGO_PATH)
+  : getDefaultLogoPath();
+
+// Log the resolved logo path on module load
+const logoExists = fs.existsSync(EMAIL_LOGO_PATH);
+logger.info('📧 Email service initialized', {
+  logoPath: EMAIL_LOGO_PATH,
+  logoExists,
+  resolvedPath: path.resolve(EMAIL_LOGO_PATH),
+  cwd: process.cwd(),
+  __dirname,
+});
+
+let cachedLogoBase64 = undefined;
+const getLogoBase64 = () => {
+  if (cachedLogoBase64 !== undefined) {
+    return cachedLogoBase64;
+  }
+  try {
+    // Check if file exists first
+    if (!fs.existsSync(EMAIL_LOGO_PATH)) {
+      logger.warn('❌ Email logo image not found. Using fallback text logo.', {
+        path: EMAIL_LOGO_PATH,
+        resolvedPath: path.resolve(EMAIL_LOGO_PATH),
+        cwd: process.cwd(),
+      });
+      cachedLogoBase64 = null;
+      return cachedLogoBase64;
+    }
+    const fileBuffer = fs.readFileSync(EMAIL_LOGO_PATH);
+    cachedLogoBase64 = fileBuffer.toString('base64');
+    logger.info('✅ Email logo loaded successfully', {
+      path: EMAIL_LOGO_PATH,
+      size: fileBuffer.length,
+      base64Length: cachedLogoBase64.length,
+    });
+    return cachedLogoBase64;
+  } catch (error) {
+    logger.error('❌ Email logo image not found or unreadable. Using fallback text logo.', {
+      path: EMAIL_LOGO_PATH,
+      resolvedPath: path.resolve(EMAIL_LOGO_PATH),
+      cwd: process.cwd(),
+      error: error.message,
+      stack: error.stack,
+    });
+    cachedLogoBase64 = null;
+    return cachedLogoBase64;
+  }
+};
+
+// Pre-load logo on module initialization to catch errors early
+try {
+  getLogoBase64();
+} catch (error) {
+  logger.error('Failed to pre-load email logo:', error);
+}
+
+const getLogoMimeType = () => {
+  if (!EMAIL_LOGO_PATH) return 'image/png';
+  const ext = path.extname(EMAIL_LOGO_PATH).toLowerCase();
+  if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg';
+  if (ext === '.svg') return 'image/svg+xml';
+  if (ext === '.webp') return 'image/webp';
+  return 'image/png';
+};
+
+const getSendGridLogoAttachment = () => {
+  const base64 = getLogoBase64();
+  if (!base64 || !EMAIL_LOGO_PATH) {
+    logger.warn('⚠️  Cannot create SendGrid logo attachment - logo not available');
+    return null;
+  }
+  // SendGrid API: content_id should be without brackets in the API call
+  // But the actual email Content-ID header will have brackets: <logo>
+  // HTML should reference it as: cid:<logo> to match the email header
+  const attachment = {
+    content: base64,
+    filename: path.basename(EMAIL_LOGO_PATH) || 'logo.png',
+    type: getLogoMimeType(),
+    disposition: 'inline',
+    content_id: EMAIL_LOGO_CONTENT_ID, // SendGrid API expects without brackets
+  };
+  logger.info('📎 SendGrid logo attachment created', {
+    contentId: attachment.content_id,
+    htmlReference: `cid:<${attachment.content_id}>`,
+    expectedEmailHeader: `<${attachment.content_id}>`,
+    filename: attachment.filename,
+    type: attachment.type,
+    contentLength: base64.length,
+  });
+  return attachment;
+};
+
+const getSmtpLogoAttachment = () => {
+  const base64 = getLogoBase64();
+  if (!base64 || !EMAIL_LOGO_PATH) return null;
+  return {
+    filename: path.basename(EMAIL_LOGO_PATH) || 'logo.png',
+    content: Buffer.from(base64, 'base64'),
+    contentType: getLogoMimeType(),
+    cid: EMAIL_LOGO_CONTENT_ID,
+    contentDisposition: 'inline',
+  };
+};
 
 // Helper function to format dates safely
 const formatEmailDate = (dateValue) => {
@@ -114,16 +256,27 @@ const BASE_EMAIL_STYLES = `
     padding: 28px 32px 8px;
     text-align: center;
   }
-  .logo-badge {
+  .logo-img {
+    width: 52px;
+    height: 52px;
+    margin: 0 auto 14px;
+    border-radius: 999px;
+    display: block;
+    object-fit: cover;
+    background: #ffffff;
+    box-shadow: 0 14px 22px rgba(37, 99, 235, 0.28);
+    animation: popIn 0.7s ease both;
+  }
+  .logo-fallback {
     width: 52px;
     height: 52px;
     margin: 0 auto 14px;
     border-radius: 999px;
     background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
     color: #ffffff;
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    display: block;
+    text-align: center;
+    line-height: 52px;
     font-weight: 700;
     font-size: 16px;
     letter-spacing: 0.08em;
@@ -302,12 +455,44 @@ const BASE_EMAIL_STYLES = `
   }
 `.trim();
 
-const renderEmailLayout = ({ title, bodyHtml, footerHtml = DEFAULT_FOOTER_HTML, extraCss = '' }) => {
+/**
+ * Render email HTML layout
+ * @param {Object} options
+ * @param {string} options.title - Email title
+ * @param {string} options.bodyHtml - Main content HTML
+ * @param {string} [options.footerHtml] - Footer HTML
+ * @param {string} [options.extraCss] - Additional CSS
+ * @param {string} [options.logoUrl] - Logo URL (can be cid:logo for inline attachment)
+ * @param {boolean} [options.useLogo=true] - Whether to show logo
+ */
+const renderEmailLayout = ({
+  title,
+  bodyHtml,
+  footerHtml = DEFAULT_FOOTER_HTML,
+  extraCss = '',
+  logoUrl = null,
+  useLogo = true,
+} = {}) => {
   const styles = [BASE_EMAIL_STYLES, extraCss].filter(Boolean).join('\n');
   const content = (bodyHtml || '').trim();
   const footer = (footerHtml || DEFAULT_FOOTER_HTML).trim();
   const headerTitle = title || 'InterviewAI Pro';
   const preheaderText = `${headerTitle} | InterviewAI Pro`;
+  
+  // Determine logo HTML based on what's provided
+  let logoHtml;
+  if (!useLogo) {
+    logoHtml = '';
+  } else if (logoUrl) {
+    // Use provided logo URL (CID reference or external URL)
+    // Logo with text - larger size for better visibility
+    logoHtml = `<img src="${logoUrl}" alt="InterviewAI Pro" width="280" height="auto" style="max-width:280px;width:280px;height:auto;margin:24px auto 24px;display:block;object-fit:contain;" />`;
+  } else {
+    // Fallback to CSS-based logo
+    logoHtml = `<div class="logo-icon" style="width:52px;height:52px;margin:0 auto 14px;border-radius:999px;background:linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px rgba(37, 99, 235, 0.25);">
+      <span style="color:#ffffff;font-size:20px;font-weight:700;letter-spacing:0.5px;">IP</span>
+    </div>`;
+  }
 
   return `
 <!DOCTYPE html>
@@ -325,7 +510,7 @@ ${styles}
     <div class="container">
       <div class="accent-bar"></div>
       <div class="header">
-        <div class="logo-badge">IP</div>
+        ${logoHtml}
         <h1>${headerTitle}</h1>
       </div>
       <div class="content">
@@ -476,7 +661,7 @@ The InterviewAI Pro Team
           <div class="detail-item"><strong>Company:</strong> ${data.companyName}</div>
           <div class="detail-item"><strong>Interview Stage:</strong> ${data.stage}</div>
           <div class="detail-item"><strong>Duration:</strong> ${data.duration} minutes</div>
-          <div class="detail-item"><strong>Expires:</strong> ${new Date(data.expiresAt).toLocaleDateString()}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Expires:</strong> ${new Date(data.expiresAt).toLocaleDateString()}</div>
         </div>
 
         <div style="text-align: center;">
@@ -638,10 +823,10 @@ Submitted: ${data.submittedAtText}
         <div class="details">
           <div class="detail-item"><strong>Name:</strong> ${data.safeName}</div>
           <div class="detail-item"><strong>Email:</strong> ${data.safeEmail}</div>
-          <div class="detail-item"><strong>Subject:</strong> ${data.safeSubject}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Subject:</strong> ${data.safeSubject}</div>
         </div>
         <div class="message-box">${data.safeMessageHtml}</div>
-        <p class="note" style="margin: 12px 0 0;">Submitted: ${data.submittedAtText}</p>
+        <p class="note" style="margin: 24px 0 24px;">Submitted: ${data.submittedAtText}</p>
       `,
     }),
   },
@@ -675,8 +860,15 @@ If you need to add more details, just reply to this email.
 
 /**
  * Send email using the configured provider
+ * @param {Object} options - Email options
+ * @param {string} options.to - Recipient email
+ * @param {string} options.subject - Email subject
+ * @param {string} options.text - Plain text content (IMPORTANT for deliverability)
+ * @param {string} options.html - HTML content
+ * @param {string} [options.replyTo] - Reply-to email
+ * @param {string} [options.category] - Email category for tracking (e.g., 'contact', 'notification')
  */
-async function sendEmail({ to, subject, text, html, replyTo }) {
+async function sendEmail({ to, subject, text, html, replyTo, category }) {
   if (!to || !to.trim()) {
     throw new Error('Email recipient (to) is required');
   }
@@ -684,12 +876,17 @@ async function sendEmail({ to, subject, text, html, replyTo }) {
     throw new Error('Email subject is required');
   }
   
+  // Warn if no plain text version (critical for deliverability)
+  if (!text || !text.trim()) {
+    logger.warn('⚠️  Email missing plain text version. This can hurt deliverability.');
+  }
+  
   try {
     logger.info(`📧 Sending email to ${to}: ${subject}`);
 
     switch (EMAIL_PROVIDER) {
       case 'sendgrid':
-        return await sendWithSendGrid({ to, subject, text, html, replyTo });
+        return await sendWithSendGrid({ to, subject, text, html, replyTo, category });
       
       case 'ses':
         return await sendWithSES({ to, subject, text, html, replyTo });
@@ -732,9 +929,20 @@ async function sendEmail({ to, subject, text, html, replyTo }) {
  * 2. Create API key in Settings > API Keys
  * 3. Set SENDGRID_API_KEY in .env
  */
-async function sendWithSendGrid({ to, subject, text, html, replyTo }) {
+async function sendWithSendGrid({ to, subject, text, html, replyTo, category }) {
   if (!process.env.SENDGRID_API_KEY) {
     throw new Error('SENDGRID_API_KEY is not configured. Please set it in your .env file.');
+  }
+
+  // Warn if using a free email provider as FROM_EMAIL (causes deliverability issues)
+  const freeEmailDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'];
+  const fromDomain = FROM_EMAIL.split('@')[1]?.toLowerCase();
+  if (freeEmailDomains.includes(fromDomain)) {
+    logger.warn(`⚠️  DELIVERABILITY WARNING: Using ${fromDomain} as sender domain.
+    This significantly increases spam likelihood. For better deliverability:
+    1. Use a custom domain (e.g., noreply@yourdomain.com)
+    2. Set up domain authentication in SendGrid
+    3. Verify sender identity in SendGrid dashboard`);
   }
 
   try {
@@ -745,14 +953,58 @@ async function sendWithSendGrid({ to, subject, text, html, replyTo }) {
         name: FROM_NAME,
       },
       subject,
-      text,
+      text, // Plain text version is CRITICAL for deliverability
       html,
+      // SendGrid-specific settings to improve deliverability
+      categories: category ? [category] : ['transactional'],
+      // Mail settings
+      mailSettings: {
+        // Disable click tracking (can trigger spam filters)
+        clickTracking: {
+          enable: false,
+        },
+        // Disable open tracking (can trigger spam filters)
+        openTracking: {
+          enable: false,
+        },
+        // Enable subscription tracking with unsubscribe link
+        subscriptionTracking: {
+          enable: false, // Disable for transactional emails
+        },
+      },
+      // Tracking settings
+      trackingSettings: {
+        clickTracking: {
+          enable: false,
+          enableText: false,
+        },
+        openTracking: {
+          enable: false,
+        },
+      },
+      // Custom headers for better deliverability
+      headers: {
+        'X-Priority': '3', // Normal priority (1=high, 3=normal, 5=low)
+        'X-Mailer': 'InterviewAI-Pro-Mailer',
+        'Precedence': 'bulk', // Indicates bulk/transactional email
+      },
     };
+
+    // Add Reply-To header
     if (replyTo) {
       msg.replyTo = replyTo;
     }
 
-    logger.info(`📤 SendGrid: Preparing to send email from ${FROM_EMAIL} to ${to}`);
+    // Add List-Unsubscribe header for transactional emails (helps with spam filters)
+    const unsubscribeUrl = `${FRONTEND_URL}/unsubscribe`;
+    msg.headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`;
+    msg.headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
+
+    logger.info(`📤 SendGrid: Preparing to send email from ${FROM_EMAIL} to ${to}`, {
+      category: msg.categories,
+      hasText: !!text,
+      hasHtml: !!html,
+    });
     const result = await sgMail.send(msg);
     
     const statusCode = result[0]?.statusCode;
@@ -850,6 +1102,38 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
     // Verify connection
     await transporter.verify();
 
+    // Get logo attachment for inline embedding
+    const logoAttachment = getSmtpLogoAttachment();
+    
+    // Replace CSS logo placeholder with CID reference if logo is available
+    let processedHtml = html;
+    if (logoAttachment) {
+      // The CID reference format for Nodemailer: cid:contentId
+      const cidReference = `cid:${logoAttachment.cid}`;
+      
+      // Replace the CSS-based logo div with an img tag using CID
+      // This regex matches the CSS logo div we generate
+      const cssLogoPattern = /<div class="logo-icon"[^>]*>[\s\S]*?<\/div>/gi;
+      // Logo with text - larger size for better visibility with spacing above and below
+      const imgTag = `<img src="${cidReference}" alt="InterviewAI Pro" width="280" height="auto" style="max-width:280px;width:280px;height:auto;margin:24px auto 24px;display:block;object-fit:contain;" />`;
+      
+      const beforeReplace = processedHtml.includes('logo-icon');
+      processedHtml = html.replace(cssLogoPattern, imgTag);
+      const afterReplace = processedHtml.includes('logo-icon');
+      
+      logger.info('📎 Logo attachment prepared for SMTP', {
+        cid: logoAttachment.cid,
+        cidReference,
+        filename: logoAttachment.filename,
+        contentType: logoAttachment.contentType,
+        contentSize: logoAttachment.content.length,
+        hadCssLogo: beforeReplace,
+        cssLogoReplaced: beforeReplace && !afterReplace,
+      });
+    } else {
+      logger.warn('⚠️ No logo attachment available for SMTP email');
+    }
+
     const mailOptions = {
       from: {
         name: FROM_NAME,
@@ -858,10 +1142,16 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
       to,
       subject,
       text,
-      html,
+      html: processedHtml,
     };
+    
     if (replyTo) {
       mailOptions.replyTo = replyTo;
+    }
+    
+    // Add logo as inline attachment
+    if (logoAttachment) {
+      mailOptions.attachments = [logoAttachment];
     }
 
     const result = await transporter.sendMail(mailOptions);
@@ -876,6 +1166,25 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
 /**
  * Send templated email
  */
+/**
+ * Map template names to email categories for better tracking and deliverability
+ */
+const TEMPLATE_CATEGORIES = {
+  ORGANIZATION_APPROVED: 'organization',
+  ORGANIZATION_REJECTED: 'organization',
+  EMAIL_VERIFICATION: 'verification',
+  INVITATION_RECEIVED: 'invitation',
+  TEAM_INVITATION: 'invitation',
+  INTERVIEW_INVITATION: 'interview',
+  INTERVIEW_REMINDER: 'interview',
+  APPLICATION_RECEIVED: 'application',
+  APPLICATION_STATUS_UPDATE: 'application',
+  PASSWORD_RESET: 'security',
+  NEWSLETTER_WELCOME: 'newsletter',
+  CONTACT_RECEIVED: 'contact',
+  CONTACT_CONFIRMATION: 'contact',
+};
+
 export async function sendTemplatedEmail(templateName, data) {
   const template = TEMPLATES[templateName];
   
@@ -891,6 +1200,9 @@ export async function sendTemplatedEmail(templateName, data) {
   const html = template.getHtml(data);
 
   const recipient = data.to || data.email;
+  
+  // Get category for this template type
+  const category = TEMPLATE_CATEGORIES[templateName] || 'transactional';
 
   return await sendEmail({
     to: recipient,
@@ -898,6 +1210,7 @@ export async function sendTemplatedEmail(templateName, data) {
     text,
     html,
     replyTo: data.replyTo,
+    category,
   });
 }
 
