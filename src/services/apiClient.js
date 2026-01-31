@@ -1179,6 +1179,97 @@ export const apiClient = {
       return handleResponse(response);
     },
   },
+
+  /**
+   * Training Dataset APIs
+   * For collecting and exporting LLM and analytics training data
+   */
+  datasets: {
+    /**
+     * Save interview training dataset (conversation Q&A pairs)
+     */
+    async saveInterview(payload) {
+      const response = await fetch(`${API_URL}/api/datasets/interview`, {
+        method: 'POST',
+        headers: await getHeaders(), // Optional auth
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Save analytics training dataset (posture/face-mesh data)
+     */
+    async saveAnalytics(payload) {
+      const response = await fetch(`${API_URL}/api/datasets/analytics`, {
+        method: 'POST',
+        headers: await getHeaders(), // Optional auth
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * List all datasets (admin only)
+     * @param {string} type - 'all', 'interview', or 'analytics'
+     * @param {number} limit - Number of results
+     * @param {number} offset - Pagination offset
+     */
+    async list(type = 'all', limit = 50, offset = 0) {
+      const params = new URLSearchParams({ type, limit, offset });
+      const response = await fetch(`${API_URL}/api/datasets?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Get dataset statistics (admin only)
+     */
+    async getStatistics() {
+      const response = await fetch(`${API_URL}/api/datasets/statistics`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    /**
+     * Export datasets in training format (admin only)
+     * @param {string} type - 'interview' or 'analytics'
+     * @param {string} format - 'jsonl' or 'json'
+     * @param {number} minQuality - Minimum quality score filter
+     */
+    async export(type, format = 'jsonl', minQuality = 0) {
+      const params = new URLSearchParams({ format, minQuality });
+      const response = await fetch(`${API_URL}/api/datasets/export/${type}?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      
+      // For JSONL format, return text content for download
+      if (format === 'jsonl') {
+        const text = await response.text();
+        return { success: true, content: text, format: 'jsonl' };
+      }
+      
+      return handleResponse(response);
+    },
+
+    /**
+     * Delete a dataset (admin only)
+     * @param {string} id - Dataset ID
+     * @param {string} type - 'interview' or 'analytics'
+     */
+    async delete(id, type) {
+      const response = await fetch(`${API_URL}/api/datasets/${id}?type=${type}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
 };
 
 export default apiClient;

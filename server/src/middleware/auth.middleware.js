@@ -165,3 +165,58 @@ export const authenticate = [
   loadOrganizationContext,
   checkMaintenanceMode, // Check maintenance mode after user is loaded
 ];
+
+/**
+ * Optional auth middleware - doesn't fail if no token provided
+ * Useful for endpoints that work with or without authentication
+ */
+export async function optionalAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization;
+    
+    // If no token, continue without user context
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      req.user = null;
+      return next();
+    }
+
+    const token = authHeader.split('Bearer ')[1];
+    const userData = await verifyFirebaseToken(token);
+    
+    // If token is invalid, continue without user context (don't fail)
+    if (!userData) {
+      req.user = null;
+      return next();
+    }
+
+    // Try to load full user data
+    const user = await userStore.getByUid(userData.uid);
+    
+    if (user) {
+      req.user = {
+        uid: userData.uid,
+        email: userData.email,
+        emailVerified: userData.emailVerified,
+        metadata: userData.metadata,
+        id: user.id,
+        accountType: user.accountType,
+        fullName: user.fullName,
+        profile: user,
+      };
+    } else {
+      req.user = {
+        uid: userData.uid,
+        email: userData.email,
+        emailVerified: userData.emailVerified,
+        metadata: userData.metadata,
+      };
+    }
+
+    next();
+  } catch (error) {
+    // On error, continue without user context
+    logger.warn('Optional auth error (continuing without auth):', error.message);
+    req.user = null;
+    next();
+  }
+}

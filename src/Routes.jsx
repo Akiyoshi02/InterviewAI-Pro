@@ -45,6 +45,7 @@ import CompanyInvitationsPage from './pages/company-invitations';
 import CompanyCandidatesPage from './pages/company-candidates';
 import CompanyAnalyticsPage from './pages/company-analytics';
 import CompanyTeamMembersPage from './pages/company-team-members';
+import ResearchToolsPage from './pages/research-tools';
 
 const Routes = () => {
   return (
@@ -196,6 +197,14 @@ const Routes = () => {
           element={(
             <ProtectedRoute roles={['SYSTEM_ADMIN']}>
               <SystemAdminDashboard />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/research-tools"
+          element={(
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <ResearchToolsPage />
             </ProtectedRoute>
           )}
         />
