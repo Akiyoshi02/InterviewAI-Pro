@@ -11,6 +11,7 @@ import RealTimeFeedbackPanel from './components/RealTimeFeedbackPanel';
 import QuestionProgressIndicator from './components/QuestionProgressIndicator';
 import ScreenSharingPanel from './components/ScreenSharingPanel';
 import PoseAnalysisPanel from '../../components/ui/PoseAnalysisPanel';
+import InterviewAnalyticsPanel from '../../components/ui/InterviewAnalyticsPanel';
 import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { 
@@ -108,6 +109,9 @@ const LiveInterviewSession = () => {
     fidgeting: false,
     lastUpdated: null,
   });
+
+  // Full analytics metrics (including face-mesh data)
+  const [analyticsMetrics, setAnalyticsMetrics] = useState(null);
 
   // Initialize AI Interviewer when component mounts
   useEffect(() => {
@@ -302,13 +306,19 @@ const LiveInterviewSession = () => {
     }));
   };
 
-  const handlePoseMetricsUpdate = (metrics) => {
+  const handlePoseMetricsUpdate = (metrics, fullMetrics = null) => {
     setPoseMetrics(metrics);
+    
+    // Update full analytics metrics if provided
+    if (fullMetrics) {
+      setAnalyticsMetrics(fullMetrics);
+    }
     
     // Save to session storage for current session tracking
     saveSessionPoseData({
       interviewId: interviewId.current,
       currentMetrics: metrics,
+      fullMetrics: fullMetrics,
       lastUpdated: Date.now(),
     });
   };

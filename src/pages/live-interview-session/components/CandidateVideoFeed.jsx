@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { cn } from '../../../utils/cn';
-import usePoseDetection from '../../../hooks/usePoseDetection';
+import useInterviewAnalytics from '../../../hooks/useInterviewAnalytics';
 import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 
 const CandidateVideoFeed = ({ 
@@ -18,13 +18,21 @@ const CandidateVideoFeed = ({
   const [stream, setStream] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize pose detection
+  // Initialize comprehensive interview analytics (pose + face-mesh)
   const { 
     isInitialized: isPoseInitialized,
     error: poseError,
     poseMetrics,
-    enabled: poseEnabled 
-  } = usePoseDetection(videoRef.current, enablePoseDetection && isVideoEnabled);
+    metrics: fullMetrics,
+    isPoseReady,
+    isFaceReady,
+  } = useInterviewAnalytics(videoRef.current, {
+    enablePose: enablePoseDetection && isVideoEnabled,
+    enableFace: enablePoseDetection && isVideoEnabled,
+    collectData: false, // Set to true to collect training data
+  });
+  
+  const poseEnabled = isPoseReady || isFaceReady;
 
   // Initialize camera once on mount
   useEffect(() => {
@@ -100,12 +108,13 @@ const CandidateVideoFeed = ({
     }
   }, [stream, isVideoEnabled]);
 
-  // Update parent component with pose metrics
+  // Update parent component with pose metrics and full analytics
   useEffect(() => {
     if (poseMetrics && onPoseMetricsUpdate) {
-      onPoseMetricsUpdate(poseMetrics);
+      // Pass both simplified pose metrics and full metrics
+      onPoseMetricsUpdate(poseMetrics, fullMetrics);
     }
-  }, [poseMetrics, onPoseMetricsUpdate]);
+  }, [poseMetrics, fullMetrics, onPoseMetricsUpdate]);
 
   const handleToggleVideo = () => {
     if (stream) {
