@@ -1,45 +1,15 @@
 import React from 'react';
+import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import { 
   Briefcase, MapPin, Clock, DollarSign, Users, Heart, 
-  Zap, Trophy, Coffee, Laptop, Send, Award
+  Zap, Trophy, Coffee, Laptop, Send
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 
 const CareersPage = () => {
-  const viewportConfig = { once: true, amount: 0.15 };
-
-  // Use transform instead of y to avoid layout recalculation
-  const sectionReveal = {
-    hidden: { opacity: 0, transform: 'translateY(32px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.6, ease: 'easeOut' }
-    }
-  };
-
-  const staggeredChildren = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.05
-      }
-    }
-  };
-
-  const fadeUpChild = {
-    hidden: { opacity: 0, transform: 'translateY(20px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.5, ease: 'easeOut' }
-    }
-  };
-
   const openings = [
     {
       title: 'Senior Full-Stack Developer',
@@ -142,8 +112,13 @@ const CareersPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
-      <PublicHeader />
+    <>
+      <Helmet>
+        <title>Careers - InterviewAI Pro</title>
+        <meta name="description" content="Join the InterviewAI Pro team. Explore open positions and help shape the future of AI-powered interviews." />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
+        <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -359,8 +334,9 @@ const CareersPage = () => {
         </div>
       </section>
 
-      <PublicFooter />
-    </div>
+        <PublicFooter />
+      </div>
+    </>
   );
 };
 

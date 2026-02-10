@@ -113,6 +113,27 @@ router.get(
 // =============================================================================
 
 /**
+ * PATCH /api/interviews/:id/recording-consent
+ * Record explicit consent for recording (audio/video) before starting session.
+ * FR2: Consent and user controls for recorded text/audio/video.
+ */
+router.patch(
+  '/:id/recording-consent',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.recordingConsent.allowedFields),
+  validationSchemas.interview.recordingConsent.validators,
+  validateRequest,
+  InterviewController.recordRecordingConsent
+);
+
+/**
  * POST /api/interviews/:id/start
  * Start an interview session
  */

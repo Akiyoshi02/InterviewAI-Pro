@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -25,7 +25,7 @@ const getLogoUrl = (logoPath) => {
 const JobDetailPage = () => {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { user, logout, isAuthenticated, status } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [job, setJob] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -35,13 +35,6 @@ const JobDetailPage = () => {
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState(null);
 
-  // Check localStorage for cached auth state
-  const cachedIsAuthenticated = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('isAuthenticated') === 'true';
-  }, []);
-
-  const showSidebar = isAuthenticated || (status === 'loading' && cachedIsAuthenticated);
   const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
 
   const handleLogout = async () => {
@@ -75,7 +68,7 @@ const JobDetailPage = () => {
   // Check if user has applied
   useEffect(() => {
     const checkApplication = async () => {
-      if (!isAuthenticated || user?.accountType?.toUpperCase() !== 'CANDIDATE') return;
+      if (user?.accountType?.toUpperCase() !== 'CANDIDATE') return;
       try {
         const result = await apiClient.applications.getMyApplications();
         if (result.success && result.applications) {
@@ -90,7 +83,7 @@ const JobDetailPage = () => {
       }
     };
     checkApplication();
-  }, [isAuthenticated, user, id]);
+  }, [user, id]);
 
   // Format helpers
   const formatExperienceLevel = (level) => {
@@ -164,10 +157,6 @@ const JobDetailPage = () => {
   };
 
   const handleApply = () => {
-    if (!isAuthenticated) {
-      navigate(`/login?redirect=/jobs/${id}`);
-      return;
-    }
     if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
       alert('Only candidates can apply to jobs.');
       return;
@@ -246,25 +235,19 @@ const JobDetailPage = () => {
         <div className="absolute bottom-0 left-[-10%] h-[300px] w-[300px] sm:h-[420px] sm:w-[420px] bg-gradient-to-tr from-indigo-300/25 via-blue-200/20 to-transparent blur-[120px]" />
       </div>
 
-      <Header userType={userType} isAuthenticated={showSidebar} onLogout={handleLogout} />
+      <Header userType={userType} isAuthenticated={isAuthenticated} onLogout={handleLogout} />
       
       <div className="h-14 xs:h-16" />
       
       <div className="relative z-10">
         <div className="flex flex-col lg:flex-row">
-          {showSidebar && (
-            <UserContextNavigation
-              userType={userType}
-              isCollapsed={isNavCollapsed}
-              onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
-            />
-          )}
+          <UserContextNavigation
+            userType={userType}
+            isCollapsed={isNavCollapsed}
+            onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
+          />
           
-          <main className={`flex-1 transition-all duration-300 ${
-            showSidebar
-              ? `pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`
-              : ''
-          }`}>
+          <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
             <div className="container-responsive py-6 xs:py-8 sm:py-10">
               {/* Back Button */}
               <button
@@ -701,11 +684,6 @@ const JobDetailPage = () => {
                             <>
                               <Icon name="Check" size={20} className="mr-2" />
                               Applied
-                            </>
-                          ) : !isAuthenticated ? (
-                            <>
-                              <Icon name="LogIn" size={20} className="mr-2" />
-                              Sign in to Apply
                             </>
                           ) : (
                             <>

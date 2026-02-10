@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { Helmet } from 'react-helmet';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
@@ -8,43 +10,13 @@ import {
 import Button from '../../components/ui/Button';
 
 const APIDocsPage = () => {
+  const navigate = useNavigate();
   const [copied, setCopied] = useState('');
 
   const copyToClipboard = (text, id) => {
     navigator.clipboard.writeText(text);
     setCopied(id);
     setTimeout(() => setCopied(''), 2000);
-  };
-
-  const viewportConfig = { once: true, amount: 0.15 };
-
-  // Use transform instead of y to avoid layout recalculation
-  const sectionReveal = {
-    hidden: { opacity: 0, transform: 'translateY(32px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.6, ease: 'easeOut' }
-    }
-  };
-
-  const staggeredChildren = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.05
-      }
-    }
-  };
-
-  const fadeUpChild = {
-    hidden: { opacity: 0, transform: 'translateY(20px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.5, ease: 'easeOut' }
-    }
   };
 
   const features = [
@@ -173,8 +145,13 @@ const APIDocsPage = () => {
 }`;
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
-      <PublicHeader />
+    <>
+      <Helmet>
+        <title>API Documentation - InterviewAI Pro</title>
+        <meta name="description" content="Explore InterviewAI Pro's REST API documentation. Integrate AI-powered interview capabilities into your applications." />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
+        <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -209,6 +186,7 @@ const APIDocsPage = () => {
               </Button>
               <Button
                 variant="outline"
+                onClick={() => document.getElementById('quick-start')?.scrollIntoView({ behavior: 'smooth' })}
                 className="border-2 border-gray-300 dark:border-slate-600 px-8 py-4 rounded-full font-semibold flex items-center gap-2 justify-center min-h-touch"
               >
                 <ExternalLink className="h-5 w-5" />
@@ -252,7 +230,7 @@ const APIDocsPage = () => {
       </section>
 
       {/* Quick Start */}
-      <section className="py-12 xs:py-16 sm:py-20">
+      <section id="quick-start" className="py-12 xs:py-16 sm:py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -398,8 +376,9 @@ const APIDocsPage = () => {
         </div>
       </section>
 
-      <PublicFooter />
-    </div>
+        <PublicFooter />
+      </div>
+    </>
   );
 };
 

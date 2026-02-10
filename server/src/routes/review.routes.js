@@ -11,6 +11,16 @@ import { validateRequest } from '../middleware/validation.middleware.js';
 const router = express.Router();
 
 router.get(
+  '/:interviewId/me',
+  authenticate,
+  requireOrganizationContext,
+  requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
+  [param('interviewId').isString()],
+  validateRequest,
+  ReviewController.getMyReview,
+);
+
+router.get(
   '/:interviewId',
   authenticate,
   requireOrganizationContext,
@@ -32,6 +42,13 @@ router.post(
     body('strengths').optional().isArray(),
     body('weaknesses').optional().isArray(),
     body('notes').optional().isString(),
+    body('rating').optional().isNumeric(),
+    body('technicalScore').optional().isNumeric(),
+    body('communicationScore').optional().isNumeric(),
+    body('problemSolvingScore').optional().isNumeric(),
+    body('culturalFitScore').optional().isNumeric(),
+    body('recommendation').optional().isString(),
+    body('overrideOverall').optional().isBoolean(),
   ],
   validateRequest,
   ReviewController.submitReview,

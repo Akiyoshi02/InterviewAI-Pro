@@ -10,6 +10,7 @@ import Icon from '../../components/AppIcon';
 import { authHelpers } from '../../config/firebase.js';
 import PasswordStrengthIndicator from '../register/components/PasswordStrengthIndicator';
 import PasswordMatchIndicator from '../register/components/PasswordMatchIndicator';
+import { passwordMeetsAllRequirements, PASSWORD_REQUIREMENT_MESSAGE } from '../../utils/passwordValidation';
 
 const ResetPassword = () => {
   const navigate = useNavigate();
@@ -79,8 +80,8 @@ const ResetPassword = () => {
 
     if (!password) {
       errors.password = 'Please enter a new password';
-    } else if (password.length < 8) {
-      errors.password = 'Password must be at least 8 characters';
+    } else if (!passwordMeetsAllRequirements(password)) {
+      errors.password = PASSWORD_REQUIREMENT_MESSAGE;
     }
 
     if (!confirmPassword) {

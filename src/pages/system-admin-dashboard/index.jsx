@@ -13,6 +13,7 @@ import SystemSettings from './components/SystemSettings.jsx';
 import AllOrganizationsList from './components/AllOrganizationsList.jsx';
 import LiveChatManager from './components/LiveChatManager.jsx';
 import TrainingDataManager from './components/TrainingDataManager.jsx';
+import FairnessCalibrationPanel from './components/FairnessCalibrationPanel.jsx';
 import apiClient from '../../services/apiClient.js';
 
 // Research Tools Components (lazy loaded for performance)
@@ -56,6 +57,7 @@ const SystemAdminDashboard = () => {
     { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
     { id: 'approvals', label: 'Pending Approvals', icon: 'CheckCircle' },
     { id: 'organizations', label: 'All Organizations', icon: 'Building' },
+    { id: 'fairness', label: 'Fairness & Calibration', icon: 'Scale' },
     { id: 'training-data', label: 'Training Data', icon: 'Database' },
     { id: 'research-tools', label: 'Research Tools', icon: 'FlaskConical' },
     { id: 'live-chat', label: 'Live Chat', icon: 'MessageSquare' },
@@ -267,6 +269,10 @@ const SystemAdminDashboard = () => {
 
           {activeTab === 'organizations' && (
             <AllOrganizationsList />
+          )}
+
+          {activeTab === 'fairness' && (
+            <FairnessCalibrationPanel />
           )}
 
           {activeTab === 'settings' && (

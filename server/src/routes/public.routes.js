@@ -41,6 +41,12 @@ const router = express.Router();
  */
 router.get('/maintenance-status', AdminController.getMaintenanceStatus);
 
+/**
+ * GET /api/public/config
+ * Public config for app (e.g. nonverbal feedback enabled). No auth required.
+ */
+router.get('/config', AdminController.getPublicConfig);
+
 // =============================================================================
 // PUBLIC JOB LISTINGS
 // =============================================================================

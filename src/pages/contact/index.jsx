@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import Button from '../../components/ui/Button';
@@ -9,6 +10,7 @@ import { Mail, PhoneCall, MapPin, Clock, MessageCircle } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
 
 const ContactPage = () => {
+  const navigate = useNavigate();
   const [contactForm, setContactForm] = useState({
     name: '',
     email: '',
@@ -357,7 +359,7 @@ const ContactPage = () => {
                   Check out our Help Center for detailed guides, FAQs, and tutorials. You might find the answer you're looking for!
                 </p>
                 <Button
-                  onClick={() => window.location.href = '/help-center'}
+                  onClick={() => navigate('/help-center')}
                   className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm lg:text-base font-semibold shadow-lg shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
                 >
                   Visit Help Center

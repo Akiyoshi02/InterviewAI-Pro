@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
@@ -24,7 +24,7 @@ const getLogoUrl = (logoPath) => {
 
 const JobsPage = () => {
   const navigate = useNavigate();
-  const { user, logout, isAuthenticated, status } = useAuth();
+  const { user, logout, isAuthenticated } = useAuth();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -35,15 +35,6 @@ const JobsPage = () => {
   const [applicationsByJobId, setApplicationsByJobId] = useState(new Map()); // Map<jobId, {status, withdrawnBy}>
   const [currentPage, setCurrentPage] = useState(1);
   const [jobsPerPage] = useState(12);
-  
-  // Check localStorage for cached auth state to prevent flash during initial load
-  const cachedIsAuthenticated = useMemo(() => {
-    if (typeof window === 'undefined') return false;
-    return window.localStorage.getItem('isAuthenticated') === 'true';
-  }, []);
-  
-  // Show sidebar if authenticated OR if auth is loading but user was previously authenticated
-  const showSidebar = isAuthenticated || (status === 'loading' && cachedIsAuthenticated);
   
   const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
 
@@ -76,7 +67,7 @@ const JobsPage = () => {
   // Load user's applications to check which jobs have been applied to and their status
   useEffect(() => {
     const loadApplications = async () => {
-      if (!isAuthenticated || user?.accountType?.toUpperCase() !== 'CANDIDATE') {
+      if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
         setApplicationsByJobId(new Map());
         return;
       }
@@ -109,7 +100,7 @@ const JobsPage = () => {
       }
     };
     loadApplications();
-  }, [isAuthenticated, user]);
+  }, [user]);
 
   const handlePractice = (job) => {
     if (job) {
@@ -132,10 +123,6 @@ const JobsPage = () => {
 
   const handleApply = (job) => {
     if (!job) return;
-    if (!isAuthenticated) {
-      navigate(`/login?redirect=/jobs`);
-      return;
-    }
     
     // Only candidates can apply
     if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
@@ -163,7 +150,7 @@ const JobsPage = () => {
     }
     
     // Reload applications to ensure we have the latest status
-    if (isAuthenticated && user?.accountType?.toUpperCase() === 'CANDIDATE') {
+    if (user?.accountType?.toUpperCase() === 'CANDIDATE') {
       try {
         const result = await apiClient.applications.getMyApplications();
         if (result.success && result.applications) {
@@ -337,26 +324,20 @@ const JobsPage = () => {
         <div className="absolute inset-0 opacity-50 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
       </div>
 
-      <Header userType={userType} isAuthenticated={showSidebar} onLogout={handleLogout} />
+      <Header userType={userType} isAuthenticated={isAuthenticated} onLogout={handleLogout} />
       
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
       
       <div className="relative z-10">
         <div className="flex flex-col lg:flex-row">
-          {showSidebar && (
-            <UserContextNavigation
-              userType={userType}
-              isCollapsed={isNavCollapsed}
-              onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
-            />
-          )}
+          <UserContextNavigation
+            userType={userType}
+            isCollapsed={isNavCollapsed}
+            onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
+          />
           <main
-            className={`flex-1 transition-all duration-300 ${
-              showSidebar
-                ? `pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`
-                : ''
-            }`}
+            className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}
           >
           <section className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6">
             <div className="relative overflow-hidden card-base p-4 xs:p-5 sm:p-6 shadow-glass dark:shadow-glass-dark">
@@ -461,7 +442,7 @@ const JobsPage = () => {
                 ) : (
                   <>
                   {paginatedJobs.map((job) => {
-                    const applicationInfo = isAuthenticated && user?.accountType?.toUpperCase() === 'CANDIDATE' 
+                    const applicationInfo = user?.accountType?.toUpperCase() === 'CANDIDATE' 
                       ? applicationsByJobId.get(job.id) 
                       : null;
                     const hasApplied = !!applicationInfo;

@@ -13,6 +13,7 @@ import LiveInterviewSession from './pages/live-interview-session';
 import InterviewLobby from './pages/interview-lobby';
 import CompanyDashboard from './pages/company-dashboard';
 import Login from './pages/login';
+import AdminLogin from './pages/admin-login';
 import PracticeInterviewSetup from './pages/practice-interview-setup';
 import Register from './pages/register';
 import ResetPassword from './pages/reset-password';
@@ -140,6 +141,7 @@ const Routes = () => {
           )}
         />
         <Route path="/login" element={<Login />} />
+        <Route path="/admin" element={<AdminLogin />} />
         <Route
           path="/practice-interview-setup"
           element={(
@@ -189,9 +191,30 @@ const Routes = () => {
         <Route path="/press" element={<Press />} />
         <Route path="/api-docs" element={<APIDocsPage />} />
         <Route path="/status" element={<StatusPage />} />
-        <Route path="/jobs" element={<JobsPage />} />
-        <Route path="/jobs/:id" element={<JobDetailPage />} />
-        <Route path="/invite" element={<InvitePage />} />
+        <Route
+          path="/jobs"
+          element={(
+            <ProtectedRoute>
+              <JobsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/jobs/:id"
+          element={(
+            <ProtectedRoute>
+              <JobDetailPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/invite"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <InvitePage />
+            </ProtectedRoute>
+          )}
+        />
         <Route
           path="/system-admin-dashboard"
           element={(

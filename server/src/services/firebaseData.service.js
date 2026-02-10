@@ -361,6 +361,18 @@ export const interviewStore = {
     return snapshot.docs.map((doc) => docToData(doc));
   },
 
+  /**
+   * List recent interviews (for admin fairness/calibration aggregation).
+   * Uses updatedAt desc; filter in memory for status/criteria as needed.
+   */
+  async listRecent(limit = 500) {
+    const snapshot = await interviewsCollection
+      .orderBy('updatedAt', 'desc')
+      .limit(Math.min(limit, 500))
+      .get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
   async getQuestion(interviewId, questionId) {
     const doc = await interviewsCollection.doc(interviewId).collection('questions').doc(questionId).get();
     return docToData(doc);
@@ -1651,16 +1663,27 @@ export const reviewStore = {
       throw new Error('interviewId is required');
     }
     const docRef = interviewReviewsCollection.doc();
+    const score = data.score != null ? Number(data.score) : (data.rating != null ? Number(data.rating) * 10 : null);
+    const decision = data.decision || data.recommendation || null;
     const payload = {
       id: docRef.id,
       interviewId,
       reviewerId: data.reviewerId,
       reviewerRole: data.reviewerRole || null,
-      score: data.score || null,
-      decision: data.decision || null,
+      score: score != null ? Math.min(100, Math.max(0, score)) : null,
+      decision: decision || null,
       strengths: ensureArray(data.strengths),
       weaknesses: ensureArray(data.weaknesses),
-      notes: data.notes || '',
+      notes: (data.notes != null && data.notes !== '') ? String(data.notes) : '',
+      rating: data.rating != null ? Math.min(10, Math.max(0, Number(data.rating))) : null,
+      technicalScore: data.technicalScore != null ? Math.min(10, Math.max(0, Number(data.technicalScore))) : null,
+      communicationScore: data.communicationScore != null ? Math.min(10, Math.max(0, Number(data.communicationScore))) : null,
+      problemSolvingScore: data.problemSolvingScore != null ? Math.min(10, Math.max(0, Number(data.problemSolvingScore))) : null,
+      culturalFitScore: data.culturalFitScore != null ? Math.min(10, Math.max(0, Number(data.culturalFitScore))) : null,
+      recommendation: data.recommendation || data.decision || null,
+      aiOverallScoreAtReview: data.aiOverallScoreAtReview != null ? Number(data.aiOverallScoreAtReview) : null,
+      smeOverallScore: data.smeOverallScore != null ? Number(data.smeOverallScore) : null,
+      overrideOverall: Boolean(data.overrideOverall),
       createdAt: now(),
       updatedAt: now(),
     };
@@ -1668,11 +1691,28 @@ export const reviewStore = {
     return payload;
   },
 
+  async getByInterviewAndReviewer(interviewId, reviewerId) {
+    if (!interviewId || !reviewerId) return null;
+    const reviews = await this.listByInterview(interviewId);
+    return reviews.find((r) => r.reviewerId === reviewerId) || null;
+  },
+
   async listByInterview(interviewId) {
     if (!interviewId) return [];
     const snapshot = await interviewReviewsCollection
       .where('interviewId', '==', interviewId)
       .orderBy('createdAt', 'desc')
+      .get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
+  /**
+   * List recent reviews (for admin calibration aggregation).
+   */
+  async listRecent(limit = 500) {
+    const snapshot = await interviewReviewsCollection
+      .orderBy('createdAt', 'desc')
+      .limit(Math.min(limit, 500))
       .get();
     return snapshot.docs.map((doc) => docToData(doc));
   },
@@ -1916,6 +1956,7 @@ export const systemSettingsStore = {
         enableAnalytics: true,
       },
       maintenanceMode: false,
+      nonverbalFeedbackEnabled: true,
       defaultAIConfig: {
         model: 'llama3.2',
         temperature: 0.7,
@@ -1947,6 +1988,7 @@ export const systemSettingsStore = {
           enableAnalytics: true,
         },
         maintenanceMode: false,
+        nonverbalFeedbackEnabled: true,
         defaultAIConfig: {
           model: 'llama3.2',
           temperature: 0.7,
