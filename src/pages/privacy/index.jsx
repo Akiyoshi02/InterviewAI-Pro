@@ -5,34 +5,12 @@ import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 
 const Privacy = () => {
-  const viewportConfig = { once: true, amount: 0.15 };
-
-  // Use transform instead of y to avoid layout recalculation
   const sectionReveal = {
     hidden: { opacity: 0, transform: 'translateY(32px)' },
     visible: {
       opacity: 1,
       transform: 'translateY(0px)',
       transition: { duration: 0.6, ease: 'easeOut' }
-    }
-  };
-
-  const staggeredChildren = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.05
-      }
-    }
-  };
-
-  const fadeUpChild = {
-    hidden: { opacity: 0, transform: 'translateY(20px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.5, ease: 'easeOut' }
     }
   };
 
@@ -65,7 +43,7 @@ const Privacy = () => {
                 <span>Legal</span>
               </span>
               <h1 className="text-2xl xs:text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100">Privacy Policy</h1>
-              <p className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">Last updated: {new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">Last updated: 10 February 2026</p>
             </div>
 
             <div className="prose prose-sm max-w-none space-y-6 text-gray-800 dark:text-slate-200">
@@ -171,7 +149,7 @@ const Privacy = () => {
                   <li><strong>Objection:</strong> Object to certain processing of your data</li>
                 </ul>
                 <p className="text-muted-foreground leading-relaxed mt-3">
-                  To exercise these rights, please contact us at privacy@aiinterviewpro.com.
+                  To exercise these rights, please contact us at <a href="mailto:privacy@aiinterviewpro.com" className="text-blue-600 dark:text-blue-400 hover:underline">privacy@aiinterviewpro.com</a>.
                 </p>
               </section>
 
@@ -209,8 +187,8 @@ const Privacy = () => {
                   If you have questions about this Privacy Policy or our data practices, please contact us:
                 </p>
                 <div className="mt-4 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/50">
-                  <p className="text-muted-foreground">Email: privacy@aiinterviewpro.com</p>
-                  <p className="text-muted-foreground">Support: support@aiinterviewpro.com</p>
+                  <p className="text-muted-foreground">Email: <a href="mailto:privacy@aiinterviewpro.com" className="text-blue-600 dark:text-blue-400 hover:underline">privacy@aiinterviewpro.com</a></p>
+                  <p className="text-muted-foreground">Support: <a href="mailto:support@aiinterviewpro.com" className="text-blue-600 dark:text-blue-400 hover:underline">support@aiinterviewpro.com</a></p>
                 </div>
               </section>
             </div>

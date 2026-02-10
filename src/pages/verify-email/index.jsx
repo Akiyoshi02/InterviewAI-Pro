@@ -247,131 +247,6 @@ const VerifyEmail = () => {
               navigate('/register');
             }, 1500);
             return;
-            
-            try {
-              const registerData = await apiClient.auth.register({
-                accountType: accountTypeUpper,
-                fullName: registrationData.fullName || session.user.user_metadata?.fullName || session.user.email?.split('@')[0],
-                experienceLevel: registrationData.experienceLevel || undefined,
-                companyName: registrationData.companyName || undefined,
-                industry: registrationData.industry || undefined,
-              });
-              
-              console.log('Registration API response:', registerData);
-
-              // Handle both success (201) and already exists (409) cases
-              if (registerData.alreadyExists && registerData.user) {
-                // User already exists (409 response) - this is OK, use the returned user data
-                setStatus('success');
-                setMessage('Email verified successfully!');
-                localStorage.setItem('user', JSON.stringify(registerData.user));
-                localStorage.setItem('isAuthenticated', 'true');
-                localStorage.removeItem('pendingRegistration');
-                localStorage.removeItem('socialAuthIntent');
-                localStorage.removeItem('socialAuthProvider');
-                setUserData(registerData.user);
-                
-                // Check if user needs onboarding (missing required fields)
-                const isCandidate = registerData.user.accountType?.toUpperCase() === 'CANDIDATE';
-                const isCompany = registerData.user.accountType?.toUpperCase() === 'COMPANY';
-                const needsOnboarding = (isCandidate && !registerData.user.experienceLevel) || 
-                                       (isCompany && !registerData.user.companyName);
-                
-                if (needsOnboarding) {
-                  // Redirect to onboarding page
-                  localStorage.setItem('needsOnboarding', 'true');
-                  setTimeout(() => {
-                    navigate('/onboarding');
-                  }, 1500);
-                } else {
-                  // Complete profile, redirect to dashboard
-                  localStorage.setItem('socialAuthVerified', 'true');
-                  localStorage.setItem('socialAuthData', JSON.stringify({ user: registerData.user }));
-                  setTimeout(() => {
-                    closeOrRedirect(registerData.user);
-                  }, 2500);
-                }
-              } else if (registerData.success && registerData.user) {
-                // New user successfully created
-                setStatus('success');
-                setMessage('Email verified successfully!');
-                localStorage.setItem('user', JSON.stringify(registerData.user));
-                localStorage.setItem('isAuthenticated', 'true');
-                localStorage.removeItem('pendingRegistration');
-                localStorage.removeItem('socialAuthIntent');
-                localStorage.removeItem('socialAuthProvider');
-                setUserData(registerData.user);
-                
-                // Check if user needs onboarding (missing required fields)
-                const isCandidate = registerData.user.accountType?.toUpperCase() === 'CANDIDATE';
-                const isCompany = registerData.user.accountType?.toUpperCase() === 'COMPANY';
-                const needsOnboarding = (isCandidate && !registerData.user.experienceLevel) || 
-                                       (isCompany && !registerData.user.companyName);
-                
-                if (needsOnboarding) {
-                  // Redirect to onboarding page
-                  localStorage.setItem('needsOnboarding', 'true');
-                  setTimeout(() => {
-                    navigate('/onboarding');
-                  }, 1500);
-                } else {
-                  // Complete profile, redirect to dashboard
-                  localStorage.setItem('socialAuthVerified', 'true');
-                  localStorage.setItem('socialAuthData', JSON.stringify({ user: registerData.user }));
-                  setTimeout(() => {
-                    closeOrRedirect(registerData.user);
-                  }, 2500);
-                }
-              } else {
-                throw new Error('Registration failed: No user data returned');
-              }
-            } catch (registerError) {
-              // Check if it's a 409 (user already exists) - this is actually OK
-              if (registerError.message && (
-                registerError.message.includes('already registered') || 
-                registerError.message.includes('409')
-              )) {
-                // User already exists, try to get user data
-                try {
-                  const existingUser = await apiClient.auth.getMe();
-                  if (existingUser.success && existingUser.user) {
-                    setStatus('success');
-                    setMessage('Email verified successfully!');
-                    localStorage.setItem('user', JSON.stringify(existingUser.user));
-                    localStorage.setItem('isAuthenticated', 'true');
-                    localStorage.removeItem('pendingRegistration');
-                    localStorage.removeItem('socialAuthIntent');
-                    localStorage.removeItem('socialAuthProvider');
-                    setUserData(existingUser.user);
-                    
-                    // Check if user needs onboarding
-                    const isCandidate = existingUser.user.accountType?.toUpperCase() === 'CANDIDATE';
-                    const isCompany = existingUser.user.accountType?.toUpperCase() === 'COMPANY';
-                    const needsOnboarding = (isCandidate && !existingUser.user.experienceLevel) || 
-                                           (isCompany && !existingUser.user.companyName);
-                    
-                    if (needsOnboarding) {
-                      // Redirect to onboarding page
-                      localStorage.setItem('needsOnboarding', 'true');
-                      setTimeout(() => {
-                        navigate('/onboarding');
-                      }, 1500);
-                    } else {
-                      // Complete profile, redirect to dashboard
-                      localStorage.setItem('socialAuthVerified', 'true');
-                      localStorage.setItem('socialAuthData', JSON.stringify({ user: existingUser.user }));
-                      setTimeout(() => {
-                        closeOrRedirect(existingUser.user);
-                      }, 2500);
-                    }
-                    return;
-                  }
-                } catch (e) {
-                  console.error('Failed to get existing user:', e);
-                }
-              }
-              throw registerError;
-            }
           } catch (regError) {
             console.error('Registration sync error:', regError);
             console.error('Error details:', {
@@ -475,6 +350,7 @@ const VerifyEmail = () => {
               {status === 'verifying' && 'Verifying Email...'}
               {status === 'success' && 'Email Verified!'}
               {status === 'error' && 'Verification Failed'}
+              {status === 'info' && 'Email Verification'}
             </h1>
             
             <p className="text-sm sm:text-base text-muted-foreground mb-4 sm:mb-5 md:mb-6">
@@ -509,6 +385,18 @@ const VerifyEmail = () => {
                   className="w-full text-sm sm:text-base"
                 >
                   Register Again
+                </Button>
+              </div>
+            )}
+
+            {status === 'info' && (
+              <div className="space-y-2 sm:space-y-3">
+                <Button
+                  variant="default"
+                  onClick={() => navigate('/register')}
+                  className="w-full text-sm sm:text-base"
+                >
+                  Return to Registration
                 </Button>
               </div>
             )}

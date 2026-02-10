@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import InterviewSessionControls from '../../components/ui/InterviewSessionControls';
@@ -13,6 +13,7 @@ import ScreenSharingPanel from './components/ScreenSharingPanel';
 import PoseAnalysisPanel from '../../components/ui/PoseAnalysisPanel';
 import InterviewAnalyticsPanel from '../../components/ui/InterviewAnalyticsPanel';
 import LoadingState from '../../components/ui/LoadingState';
+import RecordingConsentScreen from './components/RecordingConsentScreen';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { 
   savePoseSnapshot, 
@@ -20,6 +21,7 @@ import {
   saveSessionPoseData 
 } from '../../services/poseAnalyticsStorage';
 import { useAIInterviewer } from '../../hooks/useAIInterviewer';
+import apiClient from '../../services/apiClient';
 
 const LiveInterviewSession = () => {
   const navigate = useNavigate();
@@ -42,9 +44,38 @@ const LiveInterviewSession = () => {
     }
   };
   const [searchParams] = useSearchParams();
-  const interviewId = useRef(searchParams.get('id') || `interview_${Date.now()}`);
+  // Support both ?interviewId= and ?id= (practice flow uses interviewId)
+  const interviewId = useRef(
+    searchParams.get('interviewId') || searchParams.get('id') || `interview_${Date.now()}`
+  );
   const snapshotIntervalRef = useRef(null);
-  
+
+  // Explicit recording consent (FR2). Restore from session so refresh doesn't re-prompt.
+  const [recordingConsentGiven, setRecordingConsentGiven] = useState(() => {
+    try {
+      const id = searchParams.get('interviewId') || searchParams.get('id') || '';
+      if (!id) return false;
+      const stored = sessionStorage.getItem(`recording_consent_${id}`);
+      if (!stored) return false;
+      const parsed = JSON.parse(stored);
+      return Boolean(parsed?.recordingConsentGivenAt);
+    } catch {
+      return false;
+    }
+  });
+
+  // Configurable multimodal: nonverbal (body language) feedback only when enabled (2.7.3 defensible feedback).
+  const [nonverbalFeedbackEnabled, setNonverbalFeedbackEnabled] = useState(true);
+  useEffect(() => {
+    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+    fetch(`${API_URL}/api/public/config`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.success && data.nonverbalFeedbackEnabled === false) setNonverbalFeedbackEnabled(false);
+      })
+      .catch(() => {});
+  }, []);
+
   // AI Interviewer Hook
   const {
     initializeInterview,
@@ -323,6 +354,27 @@ const LiveInterviewSession = () => {
     });
   };
 
+  const handleRecordingConsentGiven = async (data) => {
+    const key = `recording_consent_${interviewId.current}`;
+    sessionStorage.setItem(key, JSON.stringify({
+      recordingConsentGivenAt: data.recordingConsentGivenAt,
+      recordingConsentVersion: data.recordingConsentVersion,
+    }));
+    const id = interviewId.current;
+    const isBackendInterviewId = id && !/^interview_\d+$/.test(id);
+    if (isBackendInterviewId) {
+      try {
+        await apiClient.interviews.recordRecordingConsent(id, {
+          recordingConsentGivenAt: data.recordingConsentGivenAt,
+          recordingConsentVersion: data.recordingConsentVersion,
+        });
+      } catch (err) {
+        console.error('Failed to persist recording consent to server:', err);
+      }
+    }
+    setRecordingConsentGiven(true);
+  };
+
   // Save pose snapshots every 5 seconds to localStorage
   useEffect(() => {
     if (sessionState?.isActive && !sessionState?.isPaused && poseMetrics?.lastUpdated) {
@@ -371,7 +423,17 @@ const LiveInterviewSession = () => {
       />
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
-      
+
+      {/* Explicit recording consent (FR2) – must agree before interview UI and recording */}
+      <AnimatePresence mode="wait">
+        {!recordingConsentGiven && (
+          <RecordingConsentScreen onConsentGiven={handleRecordingConsentGiven} />
+        )}
+      </AnimatePresence>
+
+      {/* Interview UI only after consent */}
+      {recordingConsentGiven && (
+        <>
       {/* Responsive Interview Layout */}
       <motion.main
         variants={sectionReveal}
@@ -418,7 +480,7 @@ const LiveInterviewSession = () => {
               onToggleVideo={handleToggleVideo}
               onToggleAudio={handleToggleAudio}
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
-              enablePoseDetection={true}
+              enablePoseDetection={nonverbalFeedbackEnabled}
             />
             <div className="flex-1 min-h-[400px]">
               <TranscriptionPanel
@@ -447,7 +509,7 @@ const LiveInterviewSession = () => {
               estimatedTimeRemaining={15}
               questionType={sessionState?.questionType}
             />
-            <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />
+            {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
             <div className="flex-1 min-h-[300px]">
               <RealTimeFeedbackPanel
                 isActive={sessionState?.isActive}
@@ -519,7 +581,7 @@ const LiveInterviewSession = () => {
               onToggleVideo={handleToggleVideo}
               onToggleAudio={handleToggleAudio}
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
-              enablePoseDetection={true}
+              enablePoseDetection={nonverbalFeedbackEnabled}
             />
             <QuestionProgressIndicator
               currentQuestion={questionsAsked}
@@ -527,7 +589,7 @@ const LiveInterviewSession = () => {
               estimatedTimeRemaining={15}
               questionType={sessionState?.questionType}
             />
-            <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />
+            {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
             <div className="flex-1 min-h-[250px]">
               <RealTimeFeedbackPanel
                 isActive={sessionState?.isActive}
@@ -574,11 +636,11 @@ const LiveInterviewSession = () => {
             onToggleVideo={handleToggleVideo}
             onToggleAudio={handleToggleAudio}
             onPoseMetricsUpdate={handlePoseMetricsUpdate}
-            enablePoseDetection={true}
+            enablePoseDetection={nonverbalFeedbackEnabled}
           />
 
           {/* Pose Analysis Panel - Mobile */}
-          <PoseAnalysisPanel poseMetrics={poseMetrics} />
+          {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} />}
 
           {/* Transcription Panel */}
           <div className="min-h-[220px] xs:min-h-[280px]">
@@ -637,6 +699,8 @@ const LiveInterviewSession = () => {
           onEmergencyExit={handleEmergencyExit}
         />
       </div>
+        </>
+      )}
     </div>
   );
 };

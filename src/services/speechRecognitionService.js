@@ -10,7 +10,9 @@ class SpeechRecognitionService {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognition) {
-      console.warn('Speech Recognition not supported in this browser');
+      if (import.meta.env.DEV) {
+        console.info('Speech Recognition not supported in this browser');
+      }
       this.supported = false;
       return;
     }

@@ -45,8 +45,6 @@ const Login = () => {
     return message;
   };
 
-  const viewportConfig = { once: true, amount: 0.3 };
-
   const sectionReveal = {
     hidden: { opacity: 0, y: 48 },
     visible: {
@@ -91,10 +89,16 @@ const Login = () => {
           const userData = await apiClient.auth.getMe();
           if (userData.success && userData.user) {
             // User is legitimately authenticated, redirect to dashboard
-            console.log('User already authenticated, redirecting to dashboard');
             const accountType = userData.user.accountType?.toLowerCase();
-            const dashboardRoute = accountType === 'candidate' 
-              ? '/candidate-dashboard' 
+            
+            // Redirect non-public account types (no user-facing reference)
+            if (accountType === 'system_admin') {
+              navigate('/admin', { replace: true });
+              return;
+            }
+            
+            const dashboardRoute = accountType === 'candidate'
+              ? '/candidate-dashboard'
               : '/company-dashboard';
             navigate(redirectPath || dashboardRoute, { replace: true });
             return;
@@ -107,7 +111,6 @@ const Login = () => {
             message.includes('404');
 
           if (isMissingBackendUser) {
-            console.log('Firebase session found without backend user. Redirecting to Create Account.');
 
             localStorage.removeItem('user');
             localStorage.removeItem('isAuthenticated');
@@ -119,7 +122,6 @@ const Login = () => {
           }
 
           console.error('Auth session validation failed:', error);
-          console.log('Clearing Firebase session due to unexpected auth error');
           await authHelpers.signOut();
 
           localStorage.removeItem('user');
@@ -175,9 +177,16 @@ const Login = () => {
         const userData = await apiClient.auth.getMe();
         
         if (userData.success && userData.user) {
+          const actualAccountType = userData.user.accountType?.toLowerCase();
+          
+          // Block non-public account types from public login (no user-facing reference)
+          if (actualAccountType === 'system_admin') {
+            await authHelpers.signOut();
+            throw new Error('Invalid email or password.');
+          }
+          
           // Validate that the selected role matches the actual account type
           const selectedRole = formData.userType?.toLowerCase() || 'candidate';
-          const actualAccountType = userData.user.accountType?.toLowerCase();
           
           // Only validate if account type exists
           if (actualAccountType) {
@@ -204,10 +213,9 @@ const Login = () => {
           
           // Navigate based on account type
           const accountType = userData.user.accountType?.toLowerCase();
-          const dashboardRoute = accountType === 'candidate' 
-            ? '/candidate-dashboard' 
+          const dashboardRoute = accountType === 'candidate'
+            ? '/candidate-dashboard'
             : '/company-dashboard';
-          
           setAuthenticatedUser(userData.user);
           navigate(redirectPath || dashboardRoute);
         } else {
@@ -283,13 +291,20 @@ const Login = () => {
       const userData = await apiClient.auth.getMe();
 
       if (userData.success && userData.user) {
+        const accountType = userData.user.accountType?.toLowerCase();
+        
+        // Block non-public account types from public login (no user-facing reference)
+        if (accountType === 'system_admin') {
+          await authHelpers.signOut();
+          throw new Error('Invalid email or password.');
+        }
+        
         localStorage.setItem('user', JSON.stringify(userData.user));
         localStorage.setItem('isAuthenticated', 'true');
 
-        const dashboardRoute = userData.user.accountType?.toLowerCase() === 'candidate'
+        const dashboardRoute = accountType === 'candidate'
           ? '/candidate-dashboard'
           : '/company-dashboard';
-
         setAuthenticatedUser(userData.user);
         navigate(redirectPath || dashboardRoute);
         return;

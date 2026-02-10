@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import Button from '../../components/ui/Button';
@@ -9,6 +10,7 @@ import Icon from '../../components/AppIcon';
 import { Search, BookOpen, HelpCircle } from 'lucide-react';
 
 const HelpCenterPage = () => {
+  const navigate = useNavigate();
   const [selectedCategory, setSelectedCategory] = useState(null);
   const [searchQuery, setSearchQuery] = useState('');
 
@@ -18,52 +20,52 @@ const HelpCenterPage = () => {
       category: 'Getting Started',
       views: '12.5K',
       icon: 'Rocket',
-      href: '#'
+      href: '/learning-center'
     },
     {
       title: 'Understanding Performance Analytics',
       category: 'Features',
       views: '8.2K',
       icon: 'BarChart3',
-      href: '#'
+      href: '/help-articles'
     },
     {
       title: 'Troubleshooting Video Issues',
       category: 'Technical',
       views: '6.8K',
       icon: 'Video',
-      href: '#'
+      href: '/help-center'
     },
     {
       title: 'Best Practices for Interview Practice',
       category: 'Tips',
       views: '5.4K',
       icon: 'Lightbulb',
-      href: '#'
+      href: '/interview-guides'
     },
     {
       title: 'Setting Up Your Profile',
       category: 'Account',
       views: '4.9K',
       icon: 'User',
-      href: '#'
+      href: '/help-articles'
     },
     {
       title: 'Understanding Interview Feedback',
       category: 'Features',
       views: '4.2K',
       icon: 'MessageSquare',
-      href: '#'
+      href: '/help-articles'
     }
   ];
 
   const quickLinks = [
-    { title: 'Account Setup', icon: 'User', href: '#', colorClass: 'from-blue-600 to-blue-500' },
-    { title: 'Payment & Billing', icon: 'CreditCard', href: '#', colorClass: 'from-purple-600 to-purple-500' },
-    { title: 'Privacy & Security', icon: 'Shield', href: '#', colorClass: 'from-emerald-600 to-emerald-500' },
-    { title: 'API Documentation', icon: 'Code', href: '#', colorClass: 'from-cyan-600 to-cyan-500' },
-    { title: 'System Status', icon: 'Activity', href: '#', colorClass: 'from-orange-600 to-orange-500' },
-    { title: 'Release Notes', icon: 'FileText', href: '#', colorClass: 'from-pink-600 to-pink-500' }
+    { title: 'Account Setup', icon: 'User', href: '/help-center', colorClass: 'from-blue-600 to-blue-500' },
+    { title: 'Payment & Billing', icon: 'CreditCard', href: '/help-center', colorClass: 'from-purple-600 to-purple-500' },
+    { title: 'Privacy & Security', icon: 'Shield', href: '/privacy', colorClass: 'from-emerald-600 to-emerald-500' },
+    { title: 'API Documentation', icon: 'Code', href: '/api-docs', colorClass: 'from-cyan-600 to-cyan-500' },
+    { title: 'System Status', icon: 'Activity', href: '/status', colorClass: 'from-orange-600 to-orange-500' },
+    { title: 'Release Notes', icon: 'FileText', href: '/press', colorClass: 'from-pink-600 to-pink-500' }
   ];
 
   const knowledgeBaseCategories = [
@@ -306,9 +308,9 @@ const HelpCenterPage = () => {
               </h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 xs:gap-5 sm:gap-6">
                 {popularArticles.map((article, index) => (
-                  <motion.a
+                  <motion.div
                     key={index}
-                    href={article.href}
+                    onClick={() => navigate(article.href)}
                     whileHover={{ y: -4, scale: 1.01 }}
                     className="relative overflow-hidden rounded-2xl xs:rounded-3xl border border-gray-200/60 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 p-5 xs:p-6 shadow-lg dark:shadow-slate-900/50 transition cursor-pointer"
                   >
@@ -329,7 +331,7 @@ const HelpCenterPage = () => {
                         <Icon name="ArrowRight" size={16} className="text-blue-600 dark:text-blue-400" />
                       </div>
                     </div>
-                  </motion.a>
+                  </motion.div>
                 ))}
               </div>
             </motion.section>
@@ -382,9 +384,9 @@ const HelpCenterPage = () => {
               </h2>
               <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3 xs:gap-4">
                 {quickLinks.map((link, index) => (
-                  <motion.a
+                  <motion.div
                     key={index}
-                    href={link.href}
+                    onClick={() => navigate(link.href)}
                     whileHover={{ y: -2, scale: 1.02 }}
                     className="relative overflow-hidden rounded-xl xs:rounded-2xl border border-gray-200/60 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 p-4 text-center shadow-md dark:shadow-slate-900/50 transition cursor-pointer group"
                   >
@@ -392,7 +394,7 @@ const HelpCenterPage = () => {
                       <Icon name={link.icon} size={20} />
                     </div>
                     <p className="text-xs xs:text-sm font-medium text-gray-900 dark:text-slate-100">{link.title}</p>
-                  </motion.a>
+                  </motion.div>
                 ))}
               </div>
             </motion.section>
@@ -465,7 +467,7 @@ const HelpCenterPage = () => {
                 </h2>
                 <div className="flex items-center space-x-2 text-xs xs:text-sm text-gray-600 dark:text-slate-400">
                   <BookOpen className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                  <span>Guides • Tutorials • Updates</span>
+                  <span>Guides | Tutorials | Updates</span>
                 </div>
               </div>
 
@@ -475,14 +477,14 @@ const HelpCenterPage = () => {
                     title: 'Documentation',
                     icon: 'Book',
                     description: 'Comprehensive guides and tutorials to help you get the most out of InterviewAI Pro.',
-                    action: () => window.location.href = '/api-docs',
+                    action: () => navigate('/api-docs'),
                     label: 'View Docs'
                   },
                   {
                     title: 'Video Tutorials',
                     icon: 'Video',
                     description: 'Step-by-step video guides covering all features and best practices.',
-                    action: () => alert('Video tutorials coming soon!'),
+                    action: () => navigate('/learning-center'),
                     label: 'Watch Videos'
                   }
                 ].map((resource) => (
@@ -522,7 +524,7 @@ const HelpCenterPage = () => {
                   Can't find what you're looking for? Our support team is ready to assist you. Get in touch with us!
                 </p>
                 <Button
-                  onClick={() => window.location.href = '/contact'}
+                  onClick={() => navigate('/contact')}
                   className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white text-sm lg:text-base font-semibold shadow-lg shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
                 >
                   Contact Support

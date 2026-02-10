@@ -366,6 +366,34 @@ const CandidateDashboard = () => {
                   <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
                     <RecentActivityFeed activities={safeInterviews} />
                     <SchedulingWidget upcomingInterviews={safeInterviews} />
+                    {/* Managing interview anxiety (2.6.4 ii: feedback on performance problems related to anxiety) */}
+                    <div className="rounded-2xl border border-amber-200/60 dark:border-amber-800/50 bg-gradient-to-br from-amber-50/80 to-orange-50/60 dark:from-amber-900/20 dark:to-orange-900/20 p-4 sm:p-5 shadow-lg">
+                      <h3 className="text-base font-semibold text-amber-900 dark:text-amber-100 mb-2 flex items-center gap-2">
+                        <Icon name="Heart" className="w-4 h-4 text-amber-600 dark:text-amber-400" />
+                        Managing interview anxiety
+                      </h3>
+                      <p className="text-xs text-amber-800 dark:text-amber-200 mb-3">
+                        Many candidates find anxiety the biggest challenge. Use these evidence-based tips to stay calm and perform your best:
+                      </p>
+                      <ul className="space-y-2 text-sm text-amber-900 dark:text-amber-100">
+                        <li className="flex items-start gap-2">
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span><strong>Breathe before answering:</strong> Take a short pause and one deep breath to steady your voice and thoughts.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span><strong>Structure helps:</strong> Using STAR (Situation, Task, Action, Result) gives you a clear frame so you feel less on the spot.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span><strong>Practice out loud:</strong> Rehearsing answers aloud reduces nervousness and improves fluency on the day.</span>
+                        </li>
+                        <li className="flex items-start gap-2">
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span><strong>Focus on one question at a time:</strong> Avoid worrying about what’s next; answer the current question well.</span>
+                        </li>
+                      </ul>
+                    </div>
                   </motion.div>
                   <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
                     <QuickStartPanel />

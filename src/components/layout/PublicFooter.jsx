@@ -102,6 +102,11 @@ const PublicFooter = () => {
         if (!response.alreadySubscribed) {
           setNewsletterEmail('');
         }
+      } else {
+        setNewsletterStatus({
+          type: 'error',
+          message: response.message || 'Subscription failed. Please try again.'
+        });
       }
     } catch (error) {
       setNewsletterStatus({
@@ -172,6 +177,8 @@ const PublicFooter = () => {
                   <a
                     key={channel.label}
                     href={channel.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="group flex items-center gap-2.5 xs:gap-3 rounded-xl xs:rounded-2xl border border-gray-800 dark:border-slate-700 bg-gray-900/80 dark:bg-slate-800/80 px-3 xs:px-4 py-2.5 xs:py-3 text-xs xs:text-sm text-gray-300 dark:text-slate-400 shadow-sm transition hover:border-blue-500/40 dark:hover:border-blue-600/40 hover:bg-blue-950/30 dark:hover:bg-blue-900/30 hover:text-white dark:hover:text-slate-100 min-h-touch"
                   >
                     <span className="flex h-8 w-8 xs:h-9 xs:w-9 sm:h-10 sm:w-10 items-center justify-center rounded-lg xs:rounded-xl bg-blue-500/10 text-blue-300 flex-shrink-0">
@@ -200,6 +207,7 @@ const PublicFooter = () => {
               <div className="flex flex-col xs:flex-row rounded-xl xs:rounded-2xl border border-gray-800 bg-gray-900 p-1 gap-2 xs:gap-0">
                 <input
                   type="email"
+                  aria-label="Email address for newsletter"
                   placeholder="Work Email"
                   value={newsletterEmail}
                   onChange={(e) => setNewsletterEmail(e.target.value)}
@@ -255,6 +263,8 @@ const PublicFooter = () => {
                   <a
                     key={social.label}
                     href={social.href}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="flex items-center gap-1.5 xs:gap-2 rounded-full border border-gray-800 dark:border-slate-700 bg-gray-900/70 dark:bg-slate-800/70 px-3 xs:px-4 py-2 xs:py-2.5 text-xs xs:text-sm text-gray-300 dark:text-slate-400 transition hover:border-blue-500/40 dark:hover:border-blue-600/40 hover:text-white dark:hover:text-slate-100 min-h-touch"
                   >
                     <Icon className="h-3.5 w-3.5 xs:h-4 xs:w-4" />
@@ -296,7 +306,7 @@ const PublicFooter = () => {
           className="flex flex-col gap-3 xs:gap-4 border-t border-gray-800 dark:border-slate-800 pt-5 xs:pt-6 text-xs xs:text-sm text-gray-400 dark:text-slate-500 sm:flex-row sm:items-center sm:justify-between"
           variants={fadeUpChild}
         >
-          <p>© {new Date().getFullYear()} InterviewAI Pro. Crafted in Sri Lanka.</p>
+          <p>&copy; {new Date().getFullYear()} InterviewAI Pro. Crafted in Sri Lanka.</p>
           <div className="flex flex-wrap gap-3 xs:gap-4 text-gray-500 dark:text-slate-500">
             <a href="/terms" onClick={(e) => { e.preventDefault(); navigate('/terms'); }} className="hover:text-white dark:hover:text-slate-200 transition">
               Terms

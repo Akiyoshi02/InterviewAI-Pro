@@ -762,6 +762,23 @@ export const validationSchemas = {
         commonValidators.url('audioUrl'),
       ],
     },
+
+    recordingConsent: {
+      allowedFields: ['recordingConsentGivenAt', 'recordingConsentVersion'],
+      validators: [
+        body('recordingConsentGivenAt')
+          .trim()
+          .notEmpty()
+          .withMessage('Recording consent timestamp is required')
+          .isISO8601()
+          .withMessage('Must be a valid ISO 8601 date'),
+        body('recordingConsentVersion')
+          .optional()
+          .trim()
+          .isLength({ max: 32 })
+          .withMessage('Version must be at most 32 characters'),
+      ],
+    },
   },
 
   // Job schemas
@@ -916,10 +933,11 @@ export const validationSchemas = {
     },
     
     updateSettings: {
-      allowedFields: ['featureFlags', 'maintenanceMode', 'defaultAIConfig', 'dataRetention'],
+      allowedFields: ['featureFlags', 'maintenanceMode', 'nonverbalFeedbackEnabled', 'defaultAIConfig', 'dataRetention'],
       validators: [
         body('featureFlags').optional().isObject(),
         commonValidators.boolean('maintenanceMode'),
+        body('nonverbalFeedbackEnabled').optional().isBoolean(),
         body('defaultAIConfig').optional().isObject(),
         body('dataRetention').optional().isObject(),
       ],

@@ -115,7 +115,9 @@ const PublicHeader = () => {
         }
       }
     } catch (error) {
-      console.error('Instant sign-in check failed', error);
+      if (import.meta.env.DEV) {
+        console.error('Instant sign-in check failed', error);
+      }
     }
 
     navigate('/login');

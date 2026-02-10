@@ -458,6 +458,18 @@ export const apiClient = {
       return this.getById(interviewId);
     },
 
+    async recordRecordingConsent(interviewId, { recordingConsentGivenAt, recordingConsentVersion }) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-consent`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({
+          recordingConsentGivenAt: recordingConsentGivenAt || new Date().toISOString(),
+          recordingConsentVersion: recordingConsentVersion || null,
+        }),
+      });
+      return handleResponse(response);
+    },
+
     async start(interviewId) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/start`, {
         method: 'POST',
@@ -822,7 +834,7 @@ export const apiClient = {
   },
 
   /**
-   * Review APIs
+   * Review APIs (SME calibration: AI vs human comparison, override)
    */
   reviews: {
     async list(interviewId) {
@@ -833,7 +845,24 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async getReviewForInterview(interviewId) {
+      const response = await fetch(`${API_URL}/api/reviews/${interviewId}/me`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async submit(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/reviews/${interviewId}`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async submitReview({ interviewId, ...payload }) {
       const response = await fetch(`${API_URL}/api/reviews/${interviewId}`, {
         method: 'POST',
         headers: await getHeaders(),
@@ -871,6 +900,14 @@ export const apiClient = {
 
     async getStats() {
       const response = await fetch(`${API_URL}/api/admin/stats`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getFairnessCalibration(limit = 500) {
+      const response = await fetch(`${API_URL}/api/admin/fairness-calibration?limit=${limit}`, {
         method: 'GET',
         headers: await getHeaders(),
       });

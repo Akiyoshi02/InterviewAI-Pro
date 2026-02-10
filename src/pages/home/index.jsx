@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect } from 'react';
+import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
@@ -6,19 +7,13 @@ import PublicFooter from '../../components/layout/PublicFooter';
 import { 
   Star, 
   Sparkles, 
-  TrendingUp, 
   Clock, 
   Users, 
   MessageSquare, 
   BarChart3, 
   Scale, 
-  Eye, 
-  Target, 
   Award,
-  PlayCircle,
-  Calendar,
-  FileText,
-  Phone
+  FileText
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
@@ -31,7 +26,6 @@ const HomePage = () => {
     const hash = window.location.hash;
     if (hash && hash.includes('access_token')) {
       // This is an OAuth callback, redirect to verify-email
-      console.log('OAuth callback detected on home page, redirecting to verify-email');
       navigate(`/verify-email${hash}`);
     }
   }, [navigate]);
@@ -172,8 +166,13 @@ const HomePage = () => {
   const companies = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple'];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
-      <PublicHeader />
+    <>
+      <Helmet>
+        <title>InterviewAI Pro - AI-Powered Interview Preparation & Hiring Platform</title>
+        <meta name="description" content="Practice interviews with AI coaches, eliminate hiring bias, and streamline your recruitment process. The smart way to prepare and hire." />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950 transition-colors duration-300">
+        <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16 md:h-18" />
@@ -338,7 +337,7 @@ const HomePage = () => {
                   key={index}
                   variants={fadeUpChild}
                   whileHover={{ y: -6, scale: 1.02, boxShadow: '0 15px 30px rgba(15, 23, 42, 0.08)' }}
-                  className="text-center p-3 xs:p-4 sm:p-5 md:p-6 bg-gray-50 dark:bg-slate-800 rounded-xl xs:rounded-2xl transition will-change-transform"
+                  className="text-center p-3 xs:p-4 sm:p-5 md:p-6 bg-gray-50 dark:bg-slate-800 rounded-xl xs:rounded-2xl transition"
                 >
                   <div className="inline-flex items-center justify-center w-9 h-9 xs:w-10 xs:h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 bg-blue-100 dark:bg-blue-900/50 rounded-lg xs:rounded-xl mb-2 xs:mb-3 sm:mb-4">
                     <Icon className="h-4 w-4 xs:h-5 xs:w-5 sm:h-5 sm:w-5 md:h-6 md:w-6 text-blue-600 dark:text-blue-400" />
@@ -750,8 +749,9 @@ const HomePage = () => {
         </div>
       </motion.section>
 
-      <PublicFooter />
-    </div>
+        <PublicFooter />
+      </div>
+    </>
   );
 };
 

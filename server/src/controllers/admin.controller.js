@@ -6,6 +6,7 @@ import {
   platformAuditLogStore,
   interviewStore,
   jobStore,
+  reviewStore,
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import logger from '../utils/logger.js';
@@ -566,6 +567,23 @@ export class AdminController {
   }
 
   /**
+   * Get public config (safe for unauthenticated clients, e.g. interview page).
+   * Used for "configurable multimodal within limits of defensible feedback" (2.7.3).
+   */
+  static async getPublicConfig(req, res, next) {
+    try {
+      const settings = await systemSettingsStore.get();
+      res.json({
+        success: true,
+        nonverbalFeedbackEnabled: settings?.nonverbalFeedbackEnabled !== false,
+      });
+    } catch (error) {
+      logger.error('Get public config error:', error);
+      res.json({ success: true, nonverbalFeedbackEnabled: true });
+    }
+  }
+
+  /**
    * Get system settings
    */
   static async getMaintenanceStatus(req, res, next) {
@@ -698,6 +716,108 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get stats error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get fairness and calibration metrics (FR10).
+   * Aggregates score distribution and AI vs SME calibration from recent interviews and reviews.
+   */
+  static async getFairnessCalibration(req, res, next) {
+    try {
+      const limit = Math.min(parseInt(req.query.limit, 10) || 500, 1000);
+      const [interviews, reviews] = await Promise.all([
+        interviewStore.listRecent(limit),
+        reviewStore.listRecent(limit),
+      ]);
+
+      const completed = interviews.filter((i) => i.status === 'COMPLETED');
+      const withScore = completed.filter((i) => i.overallScore != null && !Number.isNaN(Number(i.overallScore)));
+
+      const scoreBuckets = { '0-20': 0, '21-40': 0, '41-60': 0, '61-80': 0, '81-100': 0 };
+      withScore.forEach((i) => {
+        const s = Number(i.overallScore);
+        if (s <= 20) scoreBuckets['0-20'] += 1;
+        else if (s <= 40) scoreBuckets['21-40'] += 1;
+        else if (s <= 60) scoreBuckets['41-60'] += 1;
+        else if (s <= 80) scoreBuckets['61-80'] += 1;
+        else scoreBuckets['81-100'] += 1;
+      });
+
+      const withFinalScore = completed.filter((i) => i.finalOverallScore != null || i.overallScore != null);
+      const finalScoreBuckets = { '0-20': 0, '21-40': 0, '41-60': 0, '61-80': 0, '81-100': 0 };
+      withFinalScore.forEach((i) => {
+        const s = Number(i.finalOverallScore ?? i.overallScore);
+        if (s <= 20) finalScoreBuckets['0-20'] += 1;
+        else if (s <= 40) finalScoreBuckets['21-40'] += 1;
+        else if (s <= 60) finalScoreBuckets['41-60'] += 1;
+        else if (s <= 80) finalScoreBuckets['61-80'] += 1;
+        else finalScoreBuckets['81-100'] += 1;
+      });
+
+      const calibrationPairs = reviews.filter(
+        (r) =>
+          r.aiOverallScoreAtReview != null &&
+          !Number.isNaN(Number(r.aiOverallScoreAtReview)) &&
+          r.smeOverallScore != null &&
+          !Number.isNaN(Number(r.smeOverallScore))
+      );
+      const overrideCount = reviews.filter((r) => r.overrideOverall === true).length;
+      const meanAbsDiff =
+        calibrationPairs.length > 0
+          ? calibrationPairs.reduce((sum, r) => sum + Math.abs(Number(r.aiOverallScoreAtReview) - Number(r.smeOverallScore)), 0) /
+            calibrationPairs.length
+          : null;
+      const agreementWithin10 =
+        calibrationPairs.length > 0
+          ? calibrationPairs.filter((r) => Math.abs(Number(r.aiOverallScoreAtReview) - Number(r.smeOverallScore)) <= 10).length
+          : 0;
+
+      // Inter-rater reliability: ICC(2,1) for AI vs SME (continuous scores, two-way random single measure)
+      let icc = null;
+      if (calibrationPairs.length >= 2) {
+        const n = calibrationPairs.length;
+        const aiScores = calibrationPairs.map((r) => Number(r.aiOverallScoreAtReview));
+        const smeScores = calibrationPairs.map((r) => Number(r.smeOverallScore));
+        const grandMean = (aiScores.reduce((a, b) => a + b, 0) + smeScores.reduce((a, b) => a + b, 0)) / (2 * n);
+        const subjectMeans = aiScores.map((ai, i) => (ai + smeScores[i]) / 2);
+        const ssSubjects = 2 * subjectMeans.reduce((sum, m) => sum + (m - grandMean) ** 2, 0);
+        const ssTotal =
+          aiScores.reduce((sum, x) => sum + (x - grandMean) ** 2, 0) +
+          smeScores.reduce((sum, x) => sum + (x - grandMean) ** 2, 0);
+        const ssError = ssTotal - ssSubjects;
+        const msSubjects = ssSubjects / (n - 1);
+        const msError = ssError / n;
+        const rawIcc = (msSubjects - msError) / (msSubjects + msError);
+        icc = Number.isFinite(rawIcc) ? Math.round(Math.max(0, Math.min(1, rawIcc)) * 1000) / 1000 : null;
+      }
+
+      res.json({
+        success: true,
+        fairness: {
+          completedInterviews: completed.length,
+          withScore: withScore.length,
+          scoreDistribution: scoreBuckets,
+          finalScoreDistribution: finalScoreBuckets,
+          smeOverrideCount: completed.filter((i) => i.finalScoreSource === 'SME').length,
+        },
+        calibration: {
+          reviewsWithBothScores: calibrationPairs.length,
+          meanAbsoluteDifference: meanAbsDiff != null ? Math.round(meanAbsDiff * 10) / 10 : null,
+          agreementWithin10Points: agreementWithin10,
+          agreementWithin10Percent:
+            calibrationPairs.length > 0
+              ? Math.round((agreementWithin10 / calibrationPairs.length) * 100)
+              : null,
+          interRaterReliabilityIcc: icc,
+          overrideCount,
+          totalReviews: reviews.length,
+        },
+        sampleSize: { interviews: interviews.length, reviews: reviews.length },
+      });
+    } catch (error) {
+      logger.error('Get fairness calibration error:', error);
       next(error);
     }
   }

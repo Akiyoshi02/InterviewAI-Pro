@@ -239,6 +239,12 @@ router.get(
  */
 router.get('/stats', AdminController.getStats);
 
+/**
+ * GET /api/admin/fairness-calibration
+ * Get fairness metrics and AI vs SME calibration (FR10)
+ */
+router.get('/fairness-calibration', AdminController.getFairnessCalibration);
+
 // =============================================================================
 // INTEGRATIONS
 // =============================================================================

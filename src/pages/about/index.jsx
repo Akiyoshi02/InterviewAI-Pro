@@ -1,46 +1,18 @@
 import React from 'react';
+import { Helmet } from 'react-helmet';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import { 
   Target, Heart, Users, Zap, Award, 
-  TrendingUp, Shield, Clock, MessageSquare,
+  TrendingUp, Shield, Clock,
   Twitter, Linkedin, Github, Globe
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 
 const AboutPage = () => {
-  const viewportConfig = { once: true, amount: 0.15 };
-
-  // Use transform instead of y to avoid layout recalculation
-  const sectionReveal = {
-    hidden: { opacity: 0, transform: 'translateY(32px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.6, ease: 'easeOut' }
-    }
-  };
-
-  const staggeredChildren = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.05
-      }
-    }
-  };
-
-  const fadeUpChild = {
-    hidden: { opacity: 0, transform: 'translateY(20px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.5, ease: 'easeOut' }
-    }
-  };
-
+  const navigate = useNavigate();
   const values = [
     {
       icon: Target,
@@ -93,8 +65,13 @@ const AboutPage = () => {
   ];
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
-      <PublicHeader />
+    <>
+      <Helmet>
+        <title>About Us - InterviewAI Pro</title>
+        <meta name="description" content="Learn about InterviewAI Pro's mission to democratize interview preparation and fair hiring through AI technology." />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
+        <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -366,8 +343,9 @@ const AboutPage = () => {
         </div>
       </section>
 
-      <PublicFooter />
-    </div>
+        <PublicFooter />
+      </div>
+    </>
   );
 };
 

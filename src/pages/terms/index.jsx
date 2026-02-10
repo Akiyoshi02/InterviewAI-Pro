@@ -44,7 +44,7 @@ const Terms = () => {
                 <span>Legal</span>
               </span>
               <h1 className="text-2xl xs:text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100">Terms of Service</h1>
-              <p className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">Last updated: {new Date().toLocaleDateString('en-GB', { year: 'numeric', month: 'long', day: 'numeric' })}</p>
+              <p className="text-xs xs:text-sm text-gray-500 dark:text-slate-400">Last updated: 10 February 2026</p>
             </div>
 
             <div className="prose prose-sm max-w-none space-y-6 text-gray-800 dark:text-slate-200">
@@ -187,8 +187,8 @@ const Terms = () => {
                 </p>
                 <div className="mt-4 p-4 rounded-lg bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-900/50">
                   <p className="text-foreground font-medium mb-2">InterviewAI Pro Legal Team</p>
-                  <p className="text-muted-foreground">Email: legal@aiinterviewpro.com</p>
-                  <p className="text-muted-foreground">Support: support@aiinterviewpro.com</p>
+                  <p className="text-muted-foreground">Email: <a href="mailto:legal@aiinterviewpro.com" className="text-blue-600 dark:text-blue-400 hover:underline">legal@aiinterviewpro.com</a></p>
+                  <p className="text-muted-foreground">Support: <a href="mailto:support@aiinterviewpro.com" className="text-blue-600 dark:text-blue-400 hover:underline">support@aiinterviewpro.com</a></p>
                 </div>
               </section>
             </div>

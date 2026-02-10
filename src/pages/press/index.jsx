@@ -1,46 +1,16 @@
 import React from 'react';
+import { Helmet } from 'react-helmet';
 import { motion } from 'framer-motion';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
 import { 
   Newspaper, Download, Image as ImageIcon, Calendar, 
-  TrendingUp, Users, Award, Clock, ExternalLink,
+  TrendingUp, Users, Award, ExternalLink,
   Mail, PhoneCall
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 
 const PressPage = () => {
-  const viewportConfig = { once: true, amount: 0.15 };
-
-  // Use transform instead of y to avoid layout recalculation
-  const sectionReveal = {
-    hidden: { opacity: 0, transform: 'translateY(32px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.6, ease: 'easeOut' }
-    }
-  };
-
-  const staggeredChildren = {
-    hidden: {},
-    visible: {
-      transition: {
-        staggerChildren: 0.1,
-        delayChildren: 0.05
-      }
-    }
-  };
-
-  const fadeUpChild = {
-    hidden: { opacity: 0, transform: 'translateY(20px)' },
-    visible: {
-      opacity: 1,
-      transform: 'translateY(0px)',
-      transition: { duration: 0.5, ease: 'easeOut' }
-    }
-  };
-
   const pressReleases = [
     {
       date: 'January 15, 2026',
@@ -99,8 +69,13 @@ const PressPage = () => {
 
 
   return (
-    <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
-      <PublicHeader />
+    <>
+      <Helmet>
+        <title>Press - InterviewAI Pro</title>
+        <meta name="description" content="Latest news, press releases, and media resources from InterviewAI Pro." />
+      </Helmet>
+      <div className="min-h-screen bg-gradient-to-b from-blue-50 to-white dark:from-slate-900 dark:to-slate-950">
+        <PublicHeader />
 
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
@@ -203,13 +178,10 @@ const PressPage = () => {
                       {release.excerpt}
                     </p>
                   </div>
-                  <Button
-                    variant="ghost"
-                    className="flex items-center gap-2 text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 min-h-touch whitespace-nowrap"
-                  >
-                    Read More
-                    <ExternalLink className="h-4 w-4" />
-                  </Button>
+                  <span className="inline-flex items-center gap-1.5 text-sm font-medium text-blue-600 dark:text-blue-400">
+                    <ExternalLink className="h-3.5 w-3.5" />
+                    {release.category}
+                  </span>
                 </div>
               </motion.div>
             ))}
@@ -311,10 +283,11 @@ const PressPage = () => {
                     {item.description}
                   </p>
                   <Button
+                    onClick={() => window.location.href = `mailto:akiyoshiyapa@gmail.com?subject=Media Kit Request: ${item.title}&body=Hi, I would like to request access to the ${item.title} media kit. Thank you.`}
                     className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-full font-semibold shadow-md hover:from-blue-700 hover:to-purple-700 flex items-center gap-2 mx-auto min-h-touch"
                   >
                     <Download className="h-4 w-4" />
-                    {item.action}
+                    Request {item.action.split(' ')[1]}
                   </Button>
                 </motion.div>
               );
@@ -359,8 +332,9 @@ const PressPage = () => {
         </div>
       </section>
 
-      <PublicFooter />
-    </div>
+        <PublicFooter />
+      </div>
+    </>
   );
 };
 

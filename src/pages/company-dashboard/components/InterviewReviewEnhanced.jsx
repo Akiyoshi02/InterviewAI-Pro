@@ -5,6 +5,22 @@ import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 
+/** Rubric criteria for AI evaluation (explainable output for recruiters/SMEs). */
+const EVALUATION_RUBRIC_CRITERIA = [
+  { key: 'technicalSkills', label: 'Technical Skills', icon: 'Code' },
+  { key: 'communicationSkills', label: 'Communication Skills', icon: 'MessageSquare' },
+  { key: 'problemSolving', label: 'Problem Solving', icon: 'Puzzle' },
+  { key: 'culturalFit', label: 'Cultural Fit', icon: 'Users' },
+];
+
+/** STAR component labels for per-answer scaffolding (NFR4: explain in terms consistent with STAR). */
+const STAR_COMPONENTS = [
+  { key: 'situation', label: 'Situation', icon: 'MapPin' },
+  { key: 'task', label: 'Task', icon: 'Target' },
+  { key: 'action', label: 'Action', icon: 'Zap' },
+  { key: 'result', label: 'Result', icon: 'Award' },
+];
+
 const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -17,6 +33,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     culturalFitScore: 0,
     notes: '',
     recommendation: 'UNDECIDED',
+    overrideOverall: false,
   });
   const [submitting, setSubmitting] = useState(false);
 
@@ -45,14 +62,16 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     try {
       const result = await apiClient.reviews.getReviewForInterview(interviewId);
       if (result.success && result.review) {
+        const r = result.review;
         setReview({
-          rating: result.review.rating || 0,
-          technicalScore: result.review.technicalScore || 0,
-          communicationScore: result.review.communicationScore || 0,
-          problemSolvingScore: result.review.problemSolvingScore || 0,
-          culturalFitScore: result.review.culturalFitScore || 0,
-          notes: result.review.notes || '',
-          recommendation: result.review.recommendation || 'UNDECIDED',
+          rating: r.rating ?? 0,
+          technicalScore: r.technicalScore ?? 0,
+          communicationScore: r.communicationScore ?? 0,
+          problemSolvingScore: r.problemSolvingScore ?? 0,
+          culturalFitScore: r.culturalFitScore ?? 0,
+          notes: r.notes || '',
+          recommendation: r.recommendation || r.decision || 'UNDECIDED',
+          overrideOverall: Boolean(r.overrideOverall),
         });
       }
     } catch (err) {
@@ -71,10 +90,15 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
       const result = await apiClient.reviews.submitReview({
         interviewId,
         ...review,
+        overrideOverall: review.overrideOverall,
       });
 
       if (result.success) {
         alert('Review submitted successfully!');
+        const interviewResult = await apiClient.interviews.getInterview(interviewId);
+        if (interviewResult.success && interviewResult.interview) {
+          setInterview(interviewResult.interview);
+        }
         if (onClose) onClose();
       }
     } catch (err) {
@@ -133,7 +157,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
             Interview Review
@@ -142,18 +166,91 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
             {interview.candidate?.fullName || 'Candidate'} • {interview.jobRole}
           </p>
         </div>
-        {onClose && (
-          <button
-            onClick={onClose}
-            className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              const report = {
+                schemaVersion: '1.0',
+                exportDate: new Date().toISOString(),
+                interviewId: interview.id,
+                candidate: {
+                  id: interview.candidateId,
+                  fullName: interview.candidate?.fullName,
+                  email: interview.candidate?.email,
+                },
+                jobRole: interview.jobRole,
+                startedAt: interview.startedAt,
+                endedAt: interview.endedAt,
+                status: interview.status,
+                overallScore: interview.overallScore,
+                finalOverallScore: interview.finalOverallScore ?? interview.overallScore,
+                finalScoreSource: interview.finalScoreSource || 'AI',
+                readinessLevel: interview.readinessLevel,
+                evaluation: interview.evaluation
+                  ? (typeof interview.evaluation === 'object'
+                    ? {
+                        technicalSkills: interview.evaluation.technicalSkills,
+                        communicationSkills: interview.evaluation.communicationSkills,
+                        problemSolving: interview.evaluation.problemSolving,
+                        culturalFit: interview.evaluation.culturalFit,
+                        strengths: interview.evaluation.strengths,
+                        weaknesses: interview.evaluation.weaknesses,
+                        recommendations: interview.evaluation.recommendations,
+                        detailedFeedback: interview.evaluation.detailedFeedback,
+                      }
+                    : null)
+                  : null,
+                perQuestionEvaluation: Array.isArray(interview.questions)
+                  ? interview.questions
+                      .filter((q) => q?.feedback)
+                      .map((q) => ({
+                        questionId: q.id,
+                        question: q.question,
+                        answer: q.answer,
+                        score: q.feedback?.score,
+                        starAnalysis: q.feedback?.starAnalysis,
+                        strengths: q.feedback?.strengths,
+                        weaknesses: q.feedback?.weaknesses,
+                      }))
+                  : [],
+                reviewSummary: {
+                  rating: review.rating,
+                  technicalScore: review.technicalScore,
+                  communicationScore: review.communicationScore,
+                  problemSolvingScore: review.problemSolvingScore,
+                  culturalFitScore: review.culturalFitScore,
+                  recommendation: review.recommendation,
+                  overrideOverall: review.overrideOverall,
+                  notesExcerpt: review.notes ? review.notes.slice(0, 200) : null,
+                },
+              };
+              const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement('a');
+              a.href = url;
+              a.download = `interview-evaluation-${interviewId}-${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
+            }}
           >
-            <Icon name="X" className="w-5 h-5" />
-          </button>
-        )}
+            <Icon name="Download" className="w-4 h-4 mr-2" />
+            Export report
+          </Button>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+            >
+              <Icon name="X" className="w-5 h-5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Interview Info Bar */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-800">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4 p-4 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-800">
         <div>
           <p className="text-xs text-gray-600 dark:text-slate-400">Duration</p>
           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
@@ -169,8 +266,21 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
         <div>
           <p className="text-xs text-gray-600 dark:text-slate-400">AI Score</p>
           <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
-            {interview.overallScore || 'N/A'}
+            {interview.overallScore != null ? interview.overallScore : 'N/A'}
           </p>
+        </div>
+        <div>
+          <p className="text-xs text-gray-600 dark:text-slate-400">Final Score</p>
+          <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+            {interview.finalOverallScore != null
+              ? interview.finalOverallScore
+              : interview.overallScore != null
+                ? interview.overallScore
+                : 'N/A'}
+          </p>
+          {interview.finalScoreSource === 'SME' && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">SME override</p>
+          )}
         </div>
         <div>
           <p className="text-xs text-gray-600 dark:text-slate-400">Date</p>
@@ -185,6 +295,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
         <div className="flex gap-4">
           {[
             { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
+            { id: 'calibration', label: 'AI vs SME', icon: 'Scale' },
             { id: 'transcript', label: 'Transcript', icon: 'FileText' },
             { id: 'video', label: 'Recording', icon: 'Video' },
             { id: 'evaluation', label: 'AI Evaluation', icon: 'Brain' },
@@ -331,6 +442,95 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
             </div>
           )}
 
+          {/* Calibration Tab: AI vs SME comparison */}
+          {activeTab === 'calibration' && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
+                AI vs SME Calibration
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-slate-400">
+                Compare AI-generated scores with your (SME) ratings. Use &quot;My Review&quot; to submit or update your scores, and optionally override the final score with your assessment.
+              </p>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-purple-200 dark:border-purple-800">
+                  <h4 className="text-base font-semibold text-purple-700 dark:text-purple-300 mb-4 flex items-center gap-2">
+                    <Icon name="Brain" className="w-5 h-5" />
+                    AI Evaluation
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Overall Score</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                        {interview.overallScore != null ? interview.overallScore : 'N/A'}
+                      </p>
+                    </div>
+                    {interview.evaluation && typeof interview.evaluation === 'object' && (
+                      <>
+                        {interview.evaluation.technicalSkills?.score != null && (
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-slate-500">Technical</p>
+                            <p className="text-lg font-medium">{interview.evaluation.technicalSkills.score}</p>
+                          </div>
+                        )}
+                        {interview.evaluation.communicationSkills?.score != null && (
+                          <div>
+                            <p className="text-xs text-gray-500 dark:text-slate-500">Communication</p>
+                            <p className="text-lg font-medium">{interview.evaluation.communicationSkills.score}</p>
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-amber-200 dark:border-amber-800">
+                  <h4 className="text-base font-semibold text-amber-700 dark:text-amber-300 mb-4 flex items-center gap-2">
+                    <Icon name="UserCheck" className="w-5 h-5" />
+                    SME (Your) Review
+                  </h4>
+                  <div className="space-y-3">
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Overall (0–10 → 0–100)</p>
+                      <p className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+                        {review.rating != null ? review.rating * 10 : '—'}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Technical</p>
+                      <p className="text-lg font-medium">{review.technicalScore}/10</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Communication</p>
+                      <p className="text-lg font-medium">{review.communicationScore}/10</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Problem Solving</p>
+                      <p className="text-lg font-medium">{review.problemSolvingScore}/10</p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Cultural Fit</p>
+                      <p className="text-lg font-medium">{review.culturalFitScore}/10</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {(interview.overallScore != null || review.rating > 0) && (
+                <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                  <p className="text-sm font-medium text-gray-700 dark:text-slate-300">
+                    Agreement: AI overall {interview.overallScore != null ? interview.overallScore : 'N/A'} vs SME overall {review.rating != null ? review.rating * 10 : '—'}
+                    {interview.overallScore != null && review.rating != null && (
+                      <span className="ml-2 text-gray-500 dark:text-slate-500">
+                        (diff: {Math.abs(interview.overallScore - review.rating * 10).toFixed(0)} pts)
+                      </span>
+                    )}
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Transcript Tab */}
           {activeTab === 'transcript' && (
             <div className="space-y-4">
@@ -405,7 +605,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
             </div>
           )}
 
-          {/* AI Evaluation Tab */}
+          {/* AI Evaluation Tab — rubric-tied explainability for recruiters/SMEs */}
           {activeTab === 'evaluation' && (
             <div className="space-y-6">
               <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
@@ -421,7 +621,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                         Overall Score
                       </p>
                       <div className="text-5xl font-bold text-purple-600 dark:text-purple-400">
-                        {interview.overallScore || 'N/A'}
+                        {interview.overallScore != null ? interview.overallScore : 'N/A'}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">
                         Readiness: {interview.readinessLevel || 'Not assessed'}
@@ -429,14 +629,202 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                     </div>
                   </div>
 
-                  {/* Evaluation Content */}
-                  <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
-                    <pre className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">
-                      {typeof interview.evaluation === 'string'
-                        ? interview.evaluation
-                        : JSON.stringify(interview.evaluation, null, 2)}
-                    </pre>
-                  </div>
+                  {/* Rubric-tied criteria: score + feedback per criterion */}
+                  {typeof interview.evaluation === 'object' && interview.evaluation !== null && (
+                    <>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {EVALUATION_RUBRIC_CRITERIA.map(({ key, label, icon }) => {
+                          const criterion = interview.evaluation[key];
+                          if (!criterion || (criterion.score == null && !criterion.feedback)) return null;
+                          const score = criterion.score != null ? criterion.score : null;
+                          const feedback = typeof criterion.feedback === 'string' ? criterion.feedback : null;
+                          return (
+                            <div
+                              key={key}
+                              className="p-5 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700"
+                            >
+                              <div className="flex items-center gap-2 mb-2">
+                                <Icon name={icon} className="w-4 h-4 text-purple-600 dark:text-purple-400" />
+                                <h4 className="font-semibold text-gray-900 dark:text-slate-100">{label}</h4>
+                              </div>
+                              {score != null && (
+                                <p className="text-sm text-gray-600 dark:text-slate-400 mb-1">
+                                  <span className="font-medium text-gray-900 dark:text-slate-100">Score: </span>
+                                  {score}/100
+                                </p>
+                              )}
+                              {feedback && (
+                                <p className="text-sm text-gray-700 dark:text-slate-300 mt-2 leading-relaxed">
+                                  {feedback}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+
+                      {/* Strengths */}
+                      {Array.isArray(interview.evaluation.strengths) && interview.evaluation.strengths.length > 0 && (
+                        <div className="p-5 rounded-xl bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800">
+                          <h4 className="font-semibold text-green-800 dark:text-green-200 mb-2 flex items-center gap-2">
+                            <Icon name="ThumbsUp" className="w-4 h-4" />
+                            Strengths
+                          </h4>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-green-800 dark:text-green-200">
+                            {interview.evaluation.strengths.map((s, i) => (
+                              <li key={i}>{typeof s === 'string' ? s : String(s)}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Weaknesses */}
+                      {Array.isArray(interview.evaluation.weaknesses) && interview.evaluation.weaknesses.length > 0 && (
+                        <div className="p-5 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                          <h4 className="font-semibold text-amber-800 dark:text-amber-200 mb-2 flex items-center gap-2">
+                            <Icon name="AlertCircle" className="w-4 h-4" />
+                            Areas for Improvement
+                          </h4>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-amber-800 dark:text-amber-200">
+                            {interview.evaluation.weaknesses.map((w, i) => (
+                              <li key={i}>{typeof w === 'string' ? w : String(w)}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Recommendations */}
+                      {Array.isArray(interview.evaluation.recommendations) && interview.evaluation.recommendations.length > 0 && (
+                        <div className="p-5 rounded-xl bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800">
+                          <h4 className="font-semibold text-blue-800 dark:text-blue-200 mb-2 flex items-center gap-2">
+                            <Icon name="Lightbulb" className="w-4 h-4" />
+                            Recommendations
+                          </h4>
+                          <ul className="list-disc list-inside space-y-1 text-sm text-blue-800 dark:text-blue-200">
+                            {interview.evaluation.recommendations.map((r, i) => (
+                              <li key={i}>{typeof r === 'string' ? r : String(r)}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Detailed feedback */}
+                      {interview.evaluation.detailedFeedback && (
+                        <div className="p-5 rounded-xl bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700">
+                          <h4 className="font-semibold text-gray-900 dark:text-slate-100 mb-2 flex items-center gap-2">
+                            <Icon name="FileText" className="w-4 h-4" />
+                            Detailed Feedback
+                          </h4>
+                          <p className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap leading-relaxed">
+                            {interview.evaluation.detailedFeedback}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Per-answer STAR component assessment (2.6.4 i, NFR4: explain in terms consistent with STAR) */}
+                      {Array.isArray(interview.questions) &&
+                        interview.questions.some((q) => q?.feedback?.starAnalysis && typeof q.feedback.starAnalysis === 'object') && (
+                        <div className="p-5 rounded-xl bg-indigo-50 dark:bg-indigo-900/20 border border-indigo-200 dark:border-indigo-800">
+                          <h4 className="font-semibold text-indigo-900 dark:text-indigo-100 mb-2 flex items-center gap-2">
+                            <Icon name="ListOrdered" className="w-4 h-4" />
+                            Per-answer STAR component assessment
+                          </h4>
+                          <p className="text-xs text-indigo-700 dark:text-indigo-300 mb-4">
+                            Explanations are aligned with the STAR method (Situation, Task, Action, Result) for each answered question.
+                          </p>
+                          <div className="space-y-4">
+                            {interview.questions
+                              .filter((q) => q?.feedback?.starAnalysis && typeof q.feedback.starAnalysis === 'object')
+                              .map((q, idx) => {
+                                const sa = q.feedback.starAnalysis;
+                                return (
+                                  <div
+                                    key={q.id || idx}
+                                    className="p-4 rounded-lg bg-white dark:bg-slate-800/50 border border-indigo-100 dark:border-indigo-800"
+                                  >
+                                    <p className="text-xs font-medium text-indigo-600 dark:text-indigo-400 mb-1">
+                                      Question {idx + 1}
+                                    </p>
+                                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-2 line-clamp-2">
+                                      {q.question}
+                                    </p>
+                                    {q.answer && (
+                                      <p className="text-xs text-gray-600 dark:text-slate-400 mb-3 line-clamp-2">
+                                        Answer: {q.answer}
+                                      </p>
+                                    )}
+                                    {q.feedback?.score != null && (
+                                      <p className="text-xs text-gray-500 dark:text-slate-500 mb-2">
+                                        Score: {q.feedback.score}/10
+                                      </p>
+                                    )}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                                      {STAR_COMPONENTS.map(({ key, label, icon }) => {
+                                        const comp = sa[key];
+                                        if (!comp || (comp.present == null && !comp.quality && !comp.feedback))
+                                          return null;
+                                        const present = comp.present;
+                                        const quality = comp.quality;
+                                        const feedback = typeof comp.feedback === 'string' ? comp.feedback : null;
+                                        return (
+                                          <div
+                                            key={key}
+                                            className="p-2 rounded bg-slate-50 dark:bg-slate-900/50 border border-slate-200 dark:border-slate-700"
+                                          >
+                                            <div className="flex items-center gap-1.5 mb-1">
+                                              <Icon name={icon} className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                              <span className="text-xs font-semibold text-gray-900 dark:text-slate-100">
+                                                {label}
+                                              </span>
+                                              {present != null && (
+                                                <span
+                                                  className={`text-xs ${present ? 'text-green-600 dark:text-green-400' : 'text-amber-600 dark:text-amber-400'}`}
+                                                >
+                                                  {present ? 'Present' : 'Missing'}
+                                                </span>
+                                              )}
+                                            </div>
+                                            {quality && (
+                                              <p className="text-xs text-gray-600 dark:text-slate-400">Quality: {quality}</p>
+                                            )}
+                                            {feedback && (
+                                              <p className="text-xs text-gray-700 dark:text-slate-300 mt-1 leading-relaxed">
+                                                {feedback}
+                                              </p>
+                                            )}
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Raw evaluation (collapsible for transparency) */}
+                      <details className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
+                        <summary className="cursor-pointer text-sm font-medium text-gray-700 dark:text-slate-300">
+                          Raw evaluation (JSON)
+                        </summary>
+                        <pre className="mt-3 text-xs text-gray-600 dark:text-slate-400 whitespace-pre-wrap font-mono overflow-x-auto">
+                          {JSON.stringify(interview.evaluation, null, 2)}
+                        </pre>
+                      </details>
+                    </>
+                  )}
+
+                  {/* Legacy: evaluation as string or unknown shape */}
+                  {(typeof interview.evaluation !== 'object' || interview.evaluation === null) && (
+                    <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
+                      <pre className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">
+                        {typeof interview.evaluation === 'string'
+                          ? interview.evaluation
+                          : JSON.stringify(interview.evaluation, null, 2)}
+                      </pre>
+                    </div>
+                  )}
                 </>
               ) : (
                 <div className="p-12 text-center rounded-xl bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
@@ -502,6 +890,21 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                   onChange={(val) => setReview({ ...review, culturalFitScore: val })}
                   color="pink"
                 />
+              </div>
+
+              {/* SME Override (calibration) */}
+              <div className="p-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                <label className="flex items-start gap-3 cursor-pointer group">
+                  <input
+                    type="checkbox"
+                    checked={review.overrideOverall}
+                    onChange={(e) => setReview({ ...review, overrideOverall: e.target.checked })}
+                    className="mt-1 h-5 w-5 rounded border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
+                  />
+                  <span className="text-sm text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-slate-100">
+                    <strong>Use my overall score as the final score (override AI).</strong> When checked, the interview&apos;s final score will be your overall rating (0–10 scaled to 0–100) instead of the AI score. This supports SME calibration and human oversight.
+                  </span>
+                </label>
               </div>
 
               {/* Recommendation */}

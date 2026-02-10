@@ -381,10 +381,14 @@ const Register = () => {
           const userData = await apiClient.auth.getMe();
           if (userData.success && userData.user) {
             // User is legitimately authenticated, redirect to dashboard
-            console.log('User already authenticated, redirecting to dashboard');
             const accountType = userData.user.accountType?.toLowerCase();
-            const dashboardRoute = accountType === 'candidate' 
-              ? '/candidate-dashboard' 
+            // Redirect non-public account types (no user-facing reference)
+            if (accountType === 'system_admin') {
+              navigate('/admin', { replace: true });
+              return;
+            }
+            const dashboardRoute = accountType === 'candidate'
+              ? '/candidate-dashboard'
               : '/company-dashboard';
             navigate(redirectAfterAuth || dashboardRoute, { replace: true });
             return;
@@ -1443,7 +1447,7 @@ const Register = () => {
                   <span className="hidden sm:block text-sm md:text-base text-gray-500 dark:text-slate-400">Already have an account?</span>
                   <Button
                     variant="ghost"
-                    onClick={() => window.location.href = '/login'}
+                    onClick={() => navigate(loginHref)}
                     className="rounded-full border border-white/40 dark:border-slate-700/50 text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Sign In

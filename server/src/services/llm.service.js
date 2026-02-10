@@ -211,7 +211,8 @@ Provide a detailed evaluation. Return ONLY valid JSON (no markdown):
   },
   "recommendations": ["recommendation1", "recommendation2"],
   "detailedFeedback": "Overall detailed feedback about the interview performance"
-}`;
+}
+When relevant (e.g. if the candidate seemed nervous or rushed), include in recommendations one brief, supportive tip for managing anxiety or building confidence (e.g. pausing before answering, using STAR structure, or practising aloud).`;
 
       const messages = [
         { role: 'system', content: systemPrompt },

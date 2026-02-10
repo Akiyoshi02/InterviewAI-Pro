@@ -25,8 +25,12 @@ const SystemSettings = () => {
       setLoading(true);
       const result = await apiClient.admin.getSettings();
       if (result.success) {
-        setSettings(result.settings);
-        setEditedSettings(JSON.parse(JSON.stringify(result.settings)));
+        const s = result.settings || {};
+        setSettings(s);
+        setEditedSettings({
+          ...JSON.parse(JSON.stringify(s)),
+          nonverbalFeedbackEnabled: s.nonverbalFeedbackEnabled !== false,
+        });
       }
     } catch (error) {
       console.error('Failed to load settings:', error);
@@ -50,6 +54,14 @@ const SystemSettings = () => {
     setEditedSettings(prev => ({
       ...prev,
       maintenanceMode: value,
+    }));
+    setHasChanges(true);
+  };
+
+  const handleNonverbalFeedbackChange = (value) => {
+    setEditedSettings(prev => ({
+      ...prev,
+      nonverbalFeedbackEnabled: value,
     }));
     setHasChanges(true);
   };
@@ -224,6 +236,42 @@ const SystemSettings = () => {
               type="checkbox"
               checked={editedSettings.maintenanceMode}
               onChange={(e) => handleMaintenanceModeChange(e.target.checked)}
+              className="sr-only peer"
+            />
+            <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>
+          </label>
+        </div>
+      </motion.div>
+
+      {/* Feedback & defensibility (2.7.3: configurable multimodal within limits of defensible feedback) */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.08 }}
+        className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex items-start gap-4 flex-1">
+            <div className={`p-2 rounded-lg ${editedSettings.nonverbalFeedbackEnabled !== false ? 'bg-blue-100 dark:bg-blue-900/30' : 'bg-amber-100 dark:bg-amber-900/30'}`}>
+              <Icon
+                name="Scan"
+                className={`w-5 h-5 ${editedSettings.nonverbalFeedbackEnabled !== false ? 'text-blue-600 dark:text-blue-400' : 'text-amber-600 dark:text-amber-400'}`}
+              />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-1">
+                Nonverbal (body language) feedback in interviews
+              </h3>
+              <p className="text-sm text-gray-600 dark:text-slate-400">
+                When enabled, candidates see body language and presence analysis during interviews. When disabled, only defensible feedback (transcript + rubric scoring) is used.
+              </p>
+            </div>
+          </div>
+          <label className="relative inline-flex items-center cursor-pointer flex-shrink-0">
+            <input
+              type="checkbox"
+              checked={editedSettings.nonverbalFeedbackEnabled !== false}
+              onChange={(e) => handleNonverbalFeedbackChange(e.target.checked)}
               className="sr-only peer"
             />
             <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-purple-300 dark:peer-focus:ring-purple-800 rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-purple-600"></div>

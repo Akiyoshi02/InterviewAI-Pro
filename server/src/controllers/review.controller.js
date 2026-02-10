@@ -11,6 +11,15 @@ const sanitizeReview = (review, reviewerSummary = null) => ({
   strengths: review.strengths || [],
   weaknesses: review.weaknesses || [],
   notes: review.notes || '',
+  rating: review.rating,
+  technicalScore: review.technicalScore,
+  communicationScore: review.communicationScore,
+  problemSolvingScore: review.problemSolvingScore,
+  culturalFitScore: review.culturalFitScore,
+  recommendation: review.recommendation,
+  aiOverallScoreAtReview: review.aiOverallScoreAtReview,
+  smeOverallScore: review.smeOverallScore,
+  overrideOverall: review.overrideOverall,
   createdAt: review.createdAt,
   updatedAt: review.updatedAt,
   reviewer: reviewerSummary
@@ -22,7 +31,51 @@ const sanitizeReview = (review, reviewerSummary = null) => ({
     : null,
 });
 
+function computeSmeOverallScore(body) {
+  const rating = body.rating != null ? Number(body.rating) : null;
+  if (rating != null && !Number.isNaN(rating)) {
+    return Math.min(100, Math.max(0, rating * 10));
+  }
+  const technical = body.technicalScore != null ? Number(body.technicalScore) : null;
+  const communication = body.communicationScore != null ? Number(body.communicationScore) : null;
+  const problemSolving = body.problemSolvingScore != null ? Number(body.problemSolvingScore) : null;
+  const culturalFit = body.culturalFitScore != null ? Number(body.culturalFitScore) : null;
+  const scores = [technical, communication, problemSolving, culturalFit].filter(
+    (s) => s != null && !Number.isNaN(s)
+  );
+  if (scores.length === 0) return null;
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  return Math.min(100, Math.max(0, avg * 10));
+}
+
 export class ReviewController {
+  static async getMyReview(req, res, next) {
+    try {
+      const { interviewId } = req.params;
+      const userId = req.user.id;
+      const interview = await interviewStore.getById(interviewId);
+      if (!interview) {
+        return res.status(404).json({ error: 'Interview not found' });
+      }
+      const organizationId = req.user.organizationContext?.organization?.id;
+      if (interview.organizationId !== organizationId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      const review = await reviewStore.getByInterviewAndReviewer(interviewId, userId);
+      if (!review) {
+        return res.json({ success: true, review: null });
+      }
+      const reviewerSummary = await userStore.getSummary(review.reviewerId);
+      res.json({
+        success: true,
+        review: sanitizeReview(review, reviewerSummary),
+      });
+    } catch (error) {
+      logger.error('Get my review error:', error);
+      next(error);
+    }
+  }
+
   static async listReviews(req, res, next) {
     try {
       const { interviewId } = req.params;
@@ -62,11 +115,26 @@ export class ReviewController {
         return res.status(403).json({ error: 'Access denied' });
       }
 
+      const aiOverallScoreAtReview =
+        interview.overallScore != null ? Number(interview.overallScore) : null;
+      const smeOverallScore = computeSmeOverallScore(req.body);
+      const overrideOverall = Boolean(req.body.overrideOverall);
+
       const review = await reviewStore.submit(interviewId, {
         reviewerId: req.user.id,
         reviewerRole: req.user.organizationContext?.membership?.role,
         ...req.body,
+        aiOverallScoreAtReview,
+        smeOverallScore,
+        overrideOverall,
       });
+
+      if (overrideOverall && smeOverallScore != null) {
+        await interviewStore.update(interviewId, {
+          finalOverallScore: smeOverallScore,
+          finalScoreSource: 'SME',
+        });
+      }
 
       const reviewerSummary = await userStore.getSummary(req.user.id);
 
@@ -78,8 +146,10 @@ export class ReviewController {
         targetType: 'INTERVIEW',
         targetId: interviewId,
         metadata: {
-          decision: req.body.decision || null,
-          score: req.body.score || null,
+          decision: req.body.decision || req.body.recommendation || null,
+          score: req.body.score ?? smeOverallScore ?? null,
+          overrideOverall,
+          aiOverallScoreAtReview,
         },
       });
 

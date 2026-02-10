@@ -98,6 +98,37 @@ export class InterviewController {
     }
   }
 
+  /**
+   * Record explicit consent for recording (audio/video) for this interview.
+   * FR2: Consent and user controls for recorded text/audio/video.
+   */
+  static async recordRecordingConsent(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { recordingConsentGivenAt, recordingConsentVersion } = req.body;
+      const userId = req.user.id;
+
+      const interview = await interviewStore.getById(id);
+      const access = ensureAccess(interview, userId);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      await interviewStore.update(id, {
+        recordingConsentGivenAt: recordingConsentGivenAt || new Date().toISOString(),
+        recordingConsentVersion: recordingConsentVersion || null,
+      });
+
+      res.json({
+        success: true,
+        message: 'Recording consent recorded',
+      });
+    } catch (error) {
+      logger.error('Record recording consent error:', error);
+      next(error);
+    }
+  }
+
   static async startInterview(req, res, next) {
     try {
       const { id } = req.params;
