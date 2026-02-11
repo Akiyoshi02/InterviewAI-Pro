@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -10,6 +10,7 @@ import Select from '../../components/ui/Select';
 import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
 
 const CompanyInterviews = () => {
   const navigate = useNavigate();
@@ -24,16 +25,14 @@ const CompanyInterviews = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadInterviewsRef = useRef(null);
 
   useEffect(() => {
     document.title = 'Interviews - InterviewAI Pro';
   }, []);
 
-  useEffect(() => {
-    loadInterviews();
-  }, []);
-
-  const loadInterviews = async () => {
+  const loadInterviews = useCallback(async () => {
     try {
       setLoading(true);
       setError('');
@@ -48,7 +47,35 @@ const CompanyInterviews = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    loadInterviewsRef.current = loadInterviews;
+  }, [loadInterviews]);
+
+  useInterviewRealtimeFeed({
+    userId: user?.id,
+    enabled: Boolean(user?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadInterviewsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(() => {
+    loadInterviews();
+  }, [loadInterviews]);
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimeoutRef.current) {
+      clearTimeout(realtimeRefreshTimeoutRef.current);
+    }
+  }, []);
 
   const handleLogout = async () => {
     await logout();

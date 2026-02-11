@@ -1,4 +1,4 @@
-import React, { useState, useEffect, lazy, Suspense } from 'react';
+import React, { useEffect, lazy, Suspense, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
@@ -15,6 +15,7 @@ import LiveChatManager from './components/LiveChatManager.jsx';
 import TrainingDataManager from './components/TrainingDataManager.jsx';
 import FairnessCalibrationPanel from './components/FairnessCalibrationPanel.jsx';
 import apiClient from '../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 
 // Research Tools Components (lazy loaded for performance)
 const VideoRecorder = lazy(() => import('../../pages/research-tools/components/VideoRecorder.jsx'));
@@ -29,6 +30,8 @@ const SystemAdminDashboard = () => {
   const [researchSubTab, setResearchSubTab] = useState('overview');
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadStatsRef = useRef(null);
 
   useEffect(() => {
     loadStats();
@@ -47,6 +50,33 @@ const SystemAdminDashboard = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadStatsRef.current = loadStats;
+  }, [loadStats]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadStatsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handleLogout = async () => {
     await logout();
@@ -545,4 +575,3 @@ const SystemAdminDashboard = () => {
 };
 
 export default SystemAdminDashboard;
-

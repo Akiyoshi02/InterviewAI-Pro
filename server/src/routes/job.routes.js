@@ -8,6 +8,7 @@ import {
 } from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization, allowPendingOrganization } from '../middleware/admin.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
+import { jobAdvertUpload } from '../middleware/upload.middleware.js';
 
 const router = express.Router();
 
@@ -26,11 +27,14 @@ const jobValidations = [
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
   body('skills').optional().isArray(),
+  body('advertImageUrl').optional({ nullable: true }).isString(),
+  body('advertImageAlt').optional({ nullable: true }).isString().isLength({ max: 160 }),
+  body('advertVideoUrl').optional({ nullable: true }).isString(),
   body('status').optional().isIn(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
   body('applicationQuestions').optional().isArray(),
   body('acceptingApplications').optional().isBoolean(),
   body('postingDuration').optional().isInt({ min: 1, max: 365 }).withMessage('Posting duration must be between 1 and 365 days'),
-  body('scheduledPublishAt').optional().isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
+  body('scheduledPublishAt').optional({ nullable: true }).isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
 ];
 
 // Validation for updates - title is optional since we may only update specific fields
@@ -49,11 +53,14 @@ const jobUpdateValidations = [
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
   body('skills').optional().isArray(),
+  body('advertImageUrl').optional({ nullable: true }).isString(),
+  body('advertImageAlt').optional({ nullable: true }).isString().isLength({ max: 160 }),
+  body('advertVideoUrl').optional({ nullable: true }).isString(),
   body('status').optional().isIn(['DRAFT', 'PUBLISHED', 'ARCHIVED']),
   body('applicationQuestions').optional().isArray(),
   body('acceptingApplications').optional().isBoolean(),
   body('postingDuration').optional().isInt({ min: 1, max: 365 }).withMessage('Posting duration must be between 1 and 365 days'),
-  body('scheduledPublishAt').optional().isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
+  body('scheduledPublishAt').optional({ nullable: true }).isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
 ];
 
 router.post(
@@ -92,6 +99,28 @@ router.patch(
   jobUpdateValidations,
   validateRequest,
   JobController.updateJob,
+);
+
+router.patch(
+  '/:id/advert-image',
+  authenticate,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  param('id').isString(),
+  validateRequest,
+  jobAdvertUpload.single('jobAdvertImage'),
+  JobController.uploadAdvertImage,
+);
+
+router.patch(
+  '/:id/advert-video',
+  authenticate,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  param('id').isString(),
+  validateRequest,
+  jobAdvertUpload.single('jobAdvertVideo'),
+  JobController.uploadAdvertVideo,
 );
 
 router.delete(

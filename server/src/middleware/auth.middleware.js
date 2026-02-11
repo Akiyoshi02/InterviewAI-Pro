@@ -1,5 +1,10 @@
 import { verifyFirebaseToken } from '../config/firebase.js';
-import { organizationMemberStore, organizationStore, userStore } from '../services/firebaseData.service.js';
+import {
+  organizationMemberStore,
+  organizationStore,
+  syncUserOrganizationRealtimeMembership,
+  userStore,
+} from '../services/firebaseData.service.js';
 import { checkMaintenanceMode } from './maintenance.middleware.js';
 import logger from '../utils/logger.js';
 
@@ -94,6 +99,18 @@ export async function loadOrganizationContext(req, res, next) {
             membership,
           }
         : null;
+
+    if (organization && membership) {
+      try {
+        await syncUserOrganizationRealtimeMembership({
+          userId: req.user.id,
+          organizationId: organization.id,
+          active: (membership.status || 'ACTIVE').toUpperCase() === 'ACTIVE',
+        });
+      } catch (membershipSyncError) {
+        logger.warn('Failed to sync realtime organization membership during auth context load:', membershipSyncError);
+      }
+    }
 
     next();
   } catch (error) {

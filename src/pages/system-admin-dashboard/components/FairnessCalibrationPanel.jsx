@@ -7,12 +7,13 @@
  * - Calibration: mean absolute difference, agreement within 10 pts, override count
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const BUCKET_LABELS = ['0-20', '21-40', '41-60', '61-80', '81-100'];
 
@@ -20,6 +21,8 @@ const FairnessCalibrationPanel = () => {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadRef = useRef(null);
 
   const load = useCallback(async () => {
     try {
@@ -37,6 +40,33 @@ const FairnessCalibrationPanel = () => {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    loadRef.current = load;
+  }, [load]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     load();

@@ -1,9 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const stageOptions = [
   { value: 'SCREENING', label: 'AI Screening' },
@@ -12,6 +14,7 @@ const stageOptions = [
 ];
 
 const InvitationManager = ({ onRefresh }) => {
+  const { organization } = useAuth();
   const [jobs, setJobs] = useState([]);
   const [invitations, setInvitations] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -25,6 +28,8 @@ const InvitationManager = ({ onRefresh }) => {
   const [statusMessage, setStatusMessage] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadDataRef = useRef(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -51,6 +56,33 @@ const InvitationManager = ({ onRefresh }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  }, [loadData]);
+
+  useRealtimePathFeed({
+    path: organization?.id ? `organizationFeeds/${organization.id}` : null,
+    enabled: Boolean(organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // Pagination calculations
   const totalPages = Math.ceil(invitations.length / itemsPerPage);

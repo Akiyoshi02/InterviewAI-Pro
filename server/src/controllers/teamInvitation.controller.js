@@ -2,6 +2,7 @@ import {
   teamInvitationStore,
   organizationStore,
   organizationMemberStore,
+  publishOrganizationRealtimeUpdate,
   userStore,
 } from '../services/firebaseData.service.js';
 import { emailService } from '../services/email.service.js';
@@ -66,6 +67,13 @@ export class TeamInvitationController {
         logger.error('Failed to send invitation email:', emailError);
         // Continue even if email fails - user can still be invited manually
       }
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'team-invitation-created', {
+        invitationId: invitation.id,
+        email: invitation.email || null,
+        role: invitation.role || null,
+        status: invitation.status || 'PENDING',
+      });
 
       res.status(201).json({
         success: true,
@@ -241,6 +249,10 @@ export class TeamInvitationController {
 
       await teamInvitationStore.revoke(id);
 
+      await publishOrganizationRealtimeUpdate(organizationId, 'team-invitation-revoked', {
+        invitationId: id,
+      });
+
       res.json({
         success: true,
         message: 'Invitation revoked successfully',
@@ -288,6 +300,11 @@ export class TeamInvitationController {
         role: invitation.role,
         inviteLink,
         expiresInDays: 7,
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'team-invitation-resent', {
+        invitationId: invitation.id,
+        email: invitation.email || null,
       });
 
       res.json({

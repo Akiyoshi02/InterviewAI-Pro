@@ -9,6 +9,8 @@ const profilePhotosDir = path.join(uploadsRoot, 'profile-photos');
 const resumesDir = path.join(uploadsRoot, 'resumes');
 const companyLogosDir = path.join(uploadsRoot, 'company-logos');
 const companyProofsDir = path.join(uploadsRoot, 'company-verifications');
+const jobAdvertImagesDir = path.join(uploadsRoot, 'job-advert-images');
+const jobAdvertVideosDir = path.join(uploadsRoot, 'job-advert-videos');
 
 const ensureDir = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
@@ -16,13 +18,23 @@ const ensureDir = (dirPath) => {
   }
 };
 
-[uploadsRoot, profilePhotosDir, resumesDir, companyLogosDir, companyProofsDir].forEach(ensureDir);
+[
+  uploadsRoot,
+  profilePhotosDir,
+  resumesDir,
+  companyLogosDir,
+  companyProofsDir,
+  jobAdvertImagesDir,
+  jobAdvertVideosDir,
+].forEach(ensureDir);
 
 const fileDestinationMap = {
   profilePhoto: profilePhotosDir,
   resumeFile: resumesDir,
   companyLogo: companyLogosDir,
   companyProof: companyProofsDir,
+  jobAdvertImage: jobAdvertImagesDir,
+  jobAdvertVideo: jobAdvertVideosDir,
 };
 
 const storage = multer.diskStorage({
@@ -41,6 +53,8 @@ const allowedMimeTypes = {
   profilePhoto: ['image/jpeg', 'image/png', 'image/webp'],
   companyLogo: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
   file: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+  jobAdvertImage: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
+  jobAdvertVideo: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/ogg'],
   resumeFile: [
     'application/pdf',
     'application/msword',
@@ -57,6 +71,8 @@ const errorMessages = {
   profilePhoto: 'Profile photo must be a JPG, PNG, or WEBP image.',
   companyLogo: 'Company logo must be a JPG, PNG, WEBP, or SVG image.',
   file: 'Image must be JPG, PNG, WEBP, or SVG.',
+  jobAdvertImage: 'Job advert image must be JPG, PNG, WEBP, or GIF.',
+  jobAdvertVideo: 'Job advert video must be MP4, WEBM, MOV, MKV, or OGG.',
   resumeFile: 'Résumé must be a PDF or Word document.',
   companyProof: 'Verification document must be a PDF or Word document.',
 };
@@ -87,11 +103,22 @@ export const registrationUpload = multer({
   },
 });
 
+export const jobAdvertUpload = multer({
+  storage,
+  fileFilter,
+  limits: {
+    fileSize: 50 * 1024 * 1024, // Max 50 MB for short advert videos
+    files: 1,
+  },
+});
+
 export const uploadsPaths = {
   root: uploadsRoot,
   profilePhotosDir,
   resumesDir,
   companyLogosDir,
   companyProofsDir,
+  jobAdvertImagesDir,
+  jobAdvertVideosDir,
 };
 

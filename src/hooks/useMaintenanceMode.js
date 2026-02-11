@@ -1,5 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
+import { onValue, ref as dbRef } from 'firebase/database';
 import { useAuth } from '../contexts/AuthContext';
+import { realtimeDb } from '../config/firebase.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -20,6 +22,9 @@ export const useMaintenanceMode = () => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    let unsubRealtime = null;
+    let isCancelled = false;
+
     // System admins bypass maintenance mode
     if (accountType === 'SYSTEM_ADMIN') {
       setMaintenanceMode(false);
@@ -27,32 +32,58 @@ export const useMaintenanceMode = () => {
       return;
     }
 
-    // Check maintenance mode from public endpoint
-    const checkMaintenanceMode = async () => {
+    const checkMaintenanceModeViaHttp = async () => {
       try {
         const response = await fetch(`${API_URL}/api/public/maintenance-status`);
         const data = await response.json();
-        
-        if (data.success && data.maintenanceMode) {
-          setMaintenanceMode(true);
-        } else {
-          setMaintenanceMode(false);
+        if (!isCancelled) {
+          setMaintenanceMode(Boolean(data.success && data.maintenanceMode));
+          setLoading(false);
         }
       } catch (error) {
         // If we can't check, assume no maintenance mode
-        setMaintenanceMode(false);
-      } finally {
-        setLoading(false);
+        if (!isCancelled) {
+          setMaintenanceMode(false);
+          setLoading(false);
+        }
       }
     };
 
-    // Initial check
-    checkMaintenanceMode();
+    try {
+      // Prefer realtime subscription for instant maintenance mode updates
+      if (realtimeDb) {
+        const settingsRef = dbRef(realtimeDb, 'public/systemSettings');
+        unsubRealtime = onValue(
+          settingsRef,
+          (snapshot) => {
+            const data = snapshot.val();
+            if (data && typeof data.maintenanceMode === 'boolean') {
+              setMaintenanceMode(Boolean(data.maintenanceMode));
+              setLoading(false);
+              return;
+            }
 
-    // Poll every 30 seconds to check for maintenance mode changes
-    const interval = setInterval(checkMaintenanceMode, 30000);
+            // Fallback if public settings are not available in RTDB
+            void checkMaintenanceModeViaHttp();
+          },
+          () => {
+            // Fallback to HTTP if realtime subscription fails
+            void checkMaintenanceModeViaHttp();
+          },
+        );
+      } else {
+        void checkMaintenanceModeViaHttp();
+      }
+    } catch {
+      void checkMaintenanceModeViaHttp();
+    }
 
-    return () => clearInterval(interval);
+    return () => {
+      isCancelled = true;
+      if (typeof unsubRealtime === 'function') {
+        unsubRealtime();
+      }
+    };
   }, [accountType]); // Only depend on accountType, not entire user object
 
   return { maintenanceMode, loading };

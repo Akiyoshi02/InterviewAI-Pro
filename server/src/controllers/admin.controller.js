@@ -1,6 +1,7 @@
 import {
   organizationStore,
   organizationMemberStore,
+  publishAdminRealtimeUpdate,
   userStore,
   systemSettingsStore,
   platformAuditLogStore,
@@ -946,6 +947,11 @@ export class AdminController {
 
       logger.info(`Organization approved: ${id} by admin ${adminId}`);
 
+      await publishAdminRealtimeUpdate('organization-status-updated', {
+        organizationId: id,
+        status: approved?.status || 'APPROVED',
+      });
+
       res.json({
         success: true,
         message: 'Organization approved successfully',
@@ -1041,6 +1047,11 @@ export class AdminController {
 
       logger.info(`Organization rejected: ${id} by admin ${adminId}, reason: ${reason}`);
 
+      await publishAdminRealtimeUpdate('organization-status-updated', {
+        organizationId: id,
+        status: rejected?.status || 'REJECTED',
+      });
+
       res.json({
         success: true,
         message: 'Organization rejected',
@@ -1121,6 +1132,11 @@ export class AdminController {
 
       logger.info(`Organization suspended: ${id} by admin ${adminId}, reason: ${reason}`);
 
+      await publishAdminRealtimeUpdate('organization-status-updated', {
+        organizationId: id,
+        status: suspended?.status || 'SUSPENDED',
+      });
+
       res.json({
         success: true,
         message: 'Organization suspended',
@@ -1198,6 +1214,11 @@ export class AdminController {
       }
 
       logger.info(`Organization activated: ${id} by admin ${adminId}`);
+
+      await publishAdminRealtimeUpdate('organization-status-updated', {
+        organizationId: id,
+        status: activated?.status || 'APPROVED',
+      });
 
       res.json({
         success: true,
@@ -1281,6 +1302,11 @@ export class AdminController {
       });
 
       logger.info(`System settings updated by admin ${adminId}`);
+
+      await publishAdminRealtimeUpdate('system-settings-updated', {
+        maintenanceMode: settings?.maintenanceMode || false,
+        nonverbalFeedbackEnabled: settings?.nonverbalFeedbackEnabled !== false,
+      });
 
       res.json({
         success: true,

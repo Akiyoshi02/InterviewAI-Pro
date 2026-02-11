@@ -766,6 +766,45 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async uploadAdvertImage(jobId, file, advertImageAlt = '') {
+      const formData = new FormData();
+      formData.append('jobAdvertImage', file);
+      if (advertImageAlt) {
+        formData.append('advertImageAlt', advertImageAlt);
+      }
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/advert-image`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async uploadAdvertVideo(jobId, file) {
+      const formData = new FormData();
+      formData.append('jobAdvertVideo', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/advert-video`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
     async listPublic(limit = 20) {
       const response = await fetch(`${API_URL}/api/public/jobs?limit=${limit}`, {
         method: 'GET',

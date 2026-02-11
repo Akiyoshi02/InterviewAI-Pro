@@ -12,7 +12,6 @@ import speechRecognitionService from '../services/speechRecognitionService';
 import audioRecorderService from '../services/audioRecorderService';
 import { transcribeWithFallback, checkLocalWhisperHealth } from '../services/localWhisperService';
 import InterviewBackendSync from '../services/interviewBackendSync';
-import { apiClient } from '../services/apiClient';
 
 export const useAIInterviewer = (config = {}) => {
   const [isInitialized, setIsInitialized] = useState(false);
@@ -32,6 +31,15 @@ export const useAIInterviewer = (config = {}) => {
   const interviewerRef = useRef(null);
   const backendSyncRef = useRef(null);
   const currentQuestionIdRef = useRef(null); // Track current question ID from backend
+
+  useEffect(() => {
+    return () => {
+      backendSyncRef.current?.destroy?.();
+      speechRecognitionService.stop();
+      audioRecorderService.abort?.();
+      speechService.cancel?.();
+    };
+  }, []);
 
   /**
    * Speak a message using TTS
@@ -164,6 +172,13 @@ export const useAIInterviewer = (config = {}) => {
             // Update config with backend question count
             interviewConfig.totalQuestions = backendQuestions.length;
           }
+
+          backendSyncRef.current.subscribeToRealtime((event) => {
+            if (event?.eventType === 'interview-ended') {
+              setPhase('completed');
+              setCanCandidateSpeak(false);
+            }
+          });
         } catch (syncError) {
           console.warn('Backend sync failed, continuing with local interview:', syncError);
           // Continue without backend sync
@@ -404,6 +419,26 @@ export const useAIInterviewer = (config = {}) => {
       setError(null);
 
       const response = await interviewerRef.current.concludeInterview();
+
+      let backendInterview = null;
+      if (backendSyncRef.current) {
+        try {
+          const backendResponse = await backendSyncRef.current.endInterview();
+          backendInterview = backendResponse?.interview || null;
+
+          if (backendInterview?.evaluation) {
+            response.backendEvaluation = backendInterview.evaluation;
+          }
+          if (typeof backendInterview?.overallScore === 'number') {
+            response.backendOverallScore = backendInterview.overallScore;
+          }
+          if (backendInterview?.readinessLevel) {
+            response.backendReadinessLevel = backendInterview.readinessLevel;
+          }
+        } catch (backendError) {
+          console.warn('Failed to end interview on backend:', backendError);
+        }
+      }
       
       setCurrentMessage(response.message);
       setPhase('completed');
@@ -420,7 +455,10 @@ export const useAIInterviewer = (config = {}) => {
       // Speak the closing message
       await speakMessage(response.message);
 
-      return response;
+      return {
+        ...response,
+        backendInterview,
+      };
     } catch (err) {
       console.error('Failed to end interview:', err);
       setError(err.message);
@@ -444,7 +482,10 @@ export const useAIInterviewer = (config = {}) => {
    * Reset interview
    */
   const resetInterview = useCallback(() => {
+    backendSyncRef.current?.destroy?.();
     interviewerRef.current = null;
+    backendSyncRef.current = null;
+    currentQuestionIdRef.current = null;
     setIsInitialized(false);
     setCurrentMessage('');
     setPhase('not_started');
@@ -469,8 +510,8 @@ export const useAIInterviewer = (config = {}) => {
     isSpeaking,
     isListening,
     currentTranscript,
-  whisperAvailable,
-  isTranscribing,
+    whisperAvailable,
+    isTranscribing,
     canCandidateSpeak,
     error,
     conversationHistory,

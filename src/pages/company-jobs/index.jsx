@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
@@ -11,11 +11,446 @@ import Select from '../../components/ui/Select';
 import LoadingIndicator from '../../components/ui/LoadingIndicator';
 import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
+import { cn } from '../../utils/cn';
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const MAX_ADVERT_IMAGE_BYTES = 8 * 1024 * 1024;
+const MAX_ADVERT_VIDEO_BYTES = 50 * 1024 * 1024;
+const ADVERT_IMAGE_MIME_TYPES = ['image/jpeg', 'image/png', 'image/webp', 'image/gif'];
+const ADVERT_VIDEO_MIME_TYPES = ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/ogg'];
+const PRESET_JOB_SKILLS = [
+  'JavaScript',
+  'TypeScript',
+  'React',
+  'Node.js',
+  'Python',
+  'Java',
+  'SQL',
+  'AWS',
+  'Docker',
+  'Kubernetes',
+  'Git',
+  'Testing/QA',
+];
+
+const normalizeSkillValue = (value = '') => value.trim().toLowerCase();
+
+const mergeUniqueSkills = (existingSkills = [], incomingSkills = []) => {
+  const seen = new Set(existingSkills.map((skill) => normalizeSkillValue(skill)));
+  const merged = [...existingSkills];
+
+  incomingSkills.forEach((rawSkill) => {
+    const skill = rawSkill?.trim();
+    if (!skill) return;
+    const normalized = normalizeSkillValue(skill);
+    if (seen.has(normalized)) return;
+    seen.add(normalized);
+    merged.push(skill);
+  });
+
+  return merged;
+};
+
+const toAbsoluteAssetUrl = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('blob:') || trimmed.startsWith('data:')) {
+    return trimmed;
+  }
+  const base = API_URL.replace(/\/$/, '');
+  return `${base}${trimmed.startsWith('/') ? trimmed : `/${trimmed}`}`;
+};
+
+const toDateTimeLocalValue = (isoValue) => {
+  if (!isoValue || typeof isoValue !== 'string') return '';
+  const parsed = new Date(isoValue);
+  if (Number.isNaN(parsed.getTime())) return '';
+  const localDate = new Date(parsed.getTime() - parsed.getTimezoneOffset() * 60 * 1000);
+  return localDate.toISOString().slice(0, 16);
+};
+
+const formatDateTime = (value) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return '';
+  return parsed.toLocaleString();
+};
+
+const isResizeHandleClick = (event) => {
+  if (!event?.currentTarget?.getBoundingClientRect) return false;
+  const rect = event.currentTarget.getBoundingClientRect();
+  const resizeHandleZone = 22;
+  const nearRight = rect.right - event.clientX <= resizeHandleZone;
+  const nearBottom = rect.bottom - event.clientY <= resizeHandleZone;
+  return nearRight && nearBottom;
+};
+
+const SCHEDULE_WEEKDAY_LABELS = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+const parseLocalDateTimeValue = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
+};
+
+const formatLocalDateTimeValue = (date) => {
+  if (!(date instanceof Date) || Number.isNaN(date.getTime())) return '';
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const areSameCalendarDate = (left, right) => (
+  left?.getFullYear?.() === right?.getFullYear?.()
+  && left?.getMonth?.() === right?.getMonth?.()
+  && left?.getDate?.() === right?.getDate?.()
+);
+
+const buildCalendarGridDays = (monthDate) => {
+  const monthStart = new Date(monthDate.getFullYear(), monthDate.getMonth(), 1);
+  const firstGridDate = new Date(monthStart);
+  firstGridDate.setDate(monthStart.getDate() - monthStart.getDay());
+  return Array.from({ length: 42 }, (_, index) => {
+    const day = new Date(firstGridDate);
+    day.setDate(firstGridDate.getDate() + index);
+    return day;
+  });
+};
+
+const isDateBeforeMinimumDay = (date, minDate) => {
+  if (!minDate) return false;
+  const endOfDay = new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+  return endOfDay.getTime() < minDate.getTime();
+};
+
+const clampToMinDate = (date, minDate) => {
+  if (!date) return null;
+  if (!minDate) return date;
+  return date.getTime() < minDate.getTime() ? new Date(minDate) : date;
+};
+
+const ScheduleDateTimePicker = ({ value, minValue, timezoneLabel, onChange, required = false }) => {
+  const selectedDate = parseLocalDateTimeValue(value);
+  const minDate = parseLocalDateTimeValue(minValue);
+  const fallbackDate = minDate || new Date();
+  const activeDate = selectedDate || fallbackDate;
+  const [visibleMonth, setVisibleMonth] = useState(
+    new Date(activeDate.getFullYear(), activeDate.getMonth(), 1),
+  );
+
+  useEffect(() => {
+    const anchorDate = parseLocalDateTimeValue(value) || parseLocalDateTimeValue(minValue) || new Date();
+    setVisibleMonth((previousMonth) => {
+      if (
+        previousMonth.getFullYear() === anchorDate.getFullYear()
+        && previousMonth.getMonth() === anchorDate.getMonth()
+      ) {
+        return previousMonth;
+      }
+      return new Date(anchorDate.getFullYear(), anchorDate.getMonth(), 1);
+    });
+  }, [value, minValue]);
+
+  const hour24 = activeDate.getHours();
+  const selectedHour = String(((hour24 + 11) % 12) + 1).padStart(2, '0');
+  const selectedMinute = String(activeDate.getMinutes()).padStart(2, '0');
+  const selectedPeriod = hour24 >= 12 ? 'PM' : 'AM';
+  const [hourInput, setHourInput] = useState(selectedHour);
+  const [minuteInput, setMinuteInput] = useState(selectedMinute);
+  const calendarDays = buildCalendarGridDays(visibleMonth);
+  const selectedDateLabel = selectedDate
+    ? selectedDate.toLocaleString([], { dateStyle: 'full', timeStyle: 'short' })
+    : 'Select a date and time';
+  const monthLabel = visibleMonth.toLocaleString([], { month: 'long', year: 'numeric' });
+
+  const emitDateChange = (candidateDate) => {
+    const clampedDate = clampToMinDate(candidateDate, minDate);
+    if (!clampedDate) return;
+    onChange?.(formatLocalDateTimeValue(clampedDate));
+  };
+
+  const handleDaySelect = (dayDate) => {
+    if (isDateBeforeMinimumDay(dayDate, minDate)) return;
+    const next = new Date(activeDate);
+    next.setFullYear(dayDate.getFullYear(), dayDate.getMonth(), dayDate.getDate());
+    next.setSeconds(0, 0);
+    emitDateChange(next);
+  };
+
+  const applyTimeChange = ({ nextHour = selectedHour, nextMinute = selectedMinute, nextPeriod = selectedPeriod }) => {
+    const hour = Number(nextHour);
+    const minute = Number(nextMinute);
+    if (!Number.isInteger(hour) || !Number.isInteger(minute)) return;
+
+    const next = new Date(activeDate);
+    let convertedHour = hour % 12;
+    if (nextPeriod === 'PM') {
+      convertedHour += 12;
+    }
+    next.setHours(convertedHour, minute, 0, 0);
+    emitDateChange(next);
+  };
+
+  useEffect(() => {
+    setHourInput(selectedHour);
+  }, [selectedHour]);
+
+  useEffect(() => {
+    setMinuteInput(selectedMinute);
+  }, [selectedMinute]);
+
+  const commitHourInput = () => {
+    const sanitized = hourInput.replace(/\D/g, '');
+    if (!sanitized) {
+      setHourInput(selectedHour);
+      return;
+    }
+    const parsedHour = Number.parseInt(sanitized, 10);
+    if (!Number.isInteger(parsedHour)) {
+      setHourInput(selectedHour);
+      return;
+    }
+    const clampedHour = Math.min(12, Math.max(1, parsedHour));
+    const normalizedHour = String(clampedHour).padStart(2, '0');
+    setHourInput(normalizedHour);
+    applyTimeChange({ nextHour: normalizedHour });
+  };
+
+  const commitMinuteInput = () => {
+    const sanitized = minuteInput.replace(/\D/g, '');
+    if (!sanitized) {
+      setMinuteInput(selectedMinute);
+      return;
+    }
+    const parsedMinute = Number.parseInt(sanitized, 10);
+    if (!Number.isInteger(parsedMinute)) {
+      setMinuteInput(selectedMinute);
+      return;
+    }
+    const clampedMinute = Math.min(59, Math.max(0, parsedMinute));
+    const normalizedMinute = String(clampedMinute).padStart(2, '0');
+    setMinuteInput(normalizedMinute);
+    applyTimeChange({ nextMinute: normalizedMinute });
+  };
+
+  const applyRelativeMinutesPreset = (minutesToAdd) => {
+    const quickDate = new Date();
+    quickDate.setMinutes(quickDate.getMinutes() + minutesToAdd, 0, 0);
+    emitDateChange(quickDate);
+  };
+
+  const applyTomorrowAtPreset = (hours, minutes = 0) => {
+    const quickDate = new Date();
+    quickDate.setDate(quickDate.getDate() + 1);
+    quickDate.setHours(hours, minutes, 0, 0);
+    emitDateChange(quickDate);
+  };
+
+  const applyNextWeekdayAtPreset = (targetWeekday, hours, minutes = 0) => {
+    const quickDate = new Date();
+    const currentWeekday = quickDate.getDay();
+    let daysToAdd = (targetWeekday - currentWeekday + 7) % 7;
+    if (daysToAdd === 0) {
+      daysToAdd = 7;
+    }
+    quickDate.setDate(quickDate.getDate() + daysToAdd);
+    quickDate.setHours(hours, minutes, 0, 0);
+    emitDateChange(quickDate);
+  };
+
+  const shortPresetOptions = [
+    { label: '+15 min', onClick: () => applyRelativeMinutesPreset(15) },
+    { label: '+30 min', onClick: () => applyRelativeMinutesPreset(30) },
+    { label: '+1 hour', onClick: () => applyRelativeMinutesPreset(60) },
+    { label: '+2 hours', onClick: () => applyRelativeMinutesPreset(120) },
+  ];
+
+  const longPresetOptions = [
+    { label: 'Tomorrow 9:00 AM', onClick: () => applyTomorrowAtPreset(9, 0) },
+    { label: 'Next Monday 9:00 AM', onClick: () => applyNextWeekdayAtPreset(1, 9, 0) },
+  ];
+
+  const baseTimeInputClass = 'h-11 w-full rounded-xl border border-input bg-background dark:bg-slate-900 px-3 text-center text-sm font-semibold text-foreground dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 transition-all duration-200';
+
+  return (
+    <div className="space-y-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/40 p-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <label className="text-sm font-medium text-gray-900 dark:text-slate-100">
+          Scheduled Publish Date & Time
+          {required && <span className="ml-1 text-red-500">*</span>}
+        </label>
+        <span className="inline-flex items-center gap-1 rounded-full border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-2.5 py-1 text-xs text-gray-600 dark:text-slate-300">
+          <Icon name="Globe2" size={12} />
+          {timezoneLabel}
+        </span>
+      </div>
+
+      <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-500/10 px-3 py-2.5">
+        <div className="inline-flex items-center gap-2 text-sm font-medium text-blue-800 dark:text-blue-200">
+          <Icon name="CalendarClock" size={16} />
+          {selectedDateLabel}
+        </div>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-[1.35fr_1fr]">
+        <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+          <div className="mb-3 flex items-center justify-between">
+            <button
+              type="button"
+              onClick={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+              className="h-8 w-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Previous month"
+            >
+              <Icon name="ChevronLeft" size={16} className="mx-auto" />
+            </button>
+            <div className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+              {monthLabel}
+            </div>
+            <button
+              type="button"
+              onClick={() => setVisibleMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+              className="h-8 w-8 rounded-lg border border-gray-200 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
+              aria-label="Next month"
+            >
+              <Icon name="ChevronRight" size={16} className="mx-auto" />
+            </button>
+          </div>
+
+          <div className="grid grid-cols-7 gap-1">
+            {SCHEDULE_WEEKDAY_LABELS.map((weekday) => (
+              <div
+                key={weekday}
+                className="text-center text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 py-1"
+              >
+                {weekday}
+              </div>
+            ))}
+            {calendarDays.map((dayDate) => {
+              const isCurrentMonth = dayDate.getMonth() === visibleMonth.getMonth();
+              const isSelected = selectedDate ? areSameCalendarDate(dayDate, selectedDate) : false;
+              const isToday = areSameCalendarDate(dayDate, new Date());
+              const isDisabled = isDateBeforeMinimumDay(dayDate, minDate);
+
+              return (
+                <button
+                  key={dayDate.toISOString()}
+                  type="button"
+                  onClick={() => handleDaySelect(dayDate)}
+                  disabled={isDisabled}
+                  className={cn(
+                    'h-9 w-9 rounded-lg text-sm font-medium transition-colors',
+                    isSelected
+                      ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                      : isDisabled
+                        ? 'cursor-not-allowed text-gray-300 dark:text-slate-600'
+                        : isCurrentMonth
+                          ? 'text-gray-800 dark:text-slate-200 hover:bg-blue-50 dark:hover:bg-blue-500/20'
+                          : 'text-gray-400 dark:text-slate-500 hover:bg-gray-100 dark:hover:bg-slate-800',
+                    isToday && !isSelected && !isDisabled && 'ring-1 ring-blue-400/70 dark:ring-blue-500/60',
+                  )}
+                >
+                  {dayDate.getDate()}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="space-y-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
+          <div className="inline-flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-slate-100">
+            <Icon name="Clock3" size={16} />
+            Time
+          </div>
+          <div className="grid grid-cols-[1fr_1fr_auto] gap-2">
+            <input
+              value={hourInput}
+              onChange={(event) => setHourInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={commitHourInput}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitHourInput();
+                  event.currentTarget.blur();
+                }
+              }}
+              className={baseTimeInputClass}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="HH"
+              aria-label="Hour"
+            />
+            <input
+              value={minuteInput}
+              onChange={(event) => setMinuteInput(event.target.value.replace(/\D/g, '').slice(0, 2))}
+              onBlur={commitMinuteInput}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  commitMinuteInput();
+                  event.currentTarget.blur();
+                }
+              }}
+              className={baseTimeInputClass}
+              inputMode="numeric"
+              pattern="[0-9]*"
+              placeholder="MM"
+              aria-label="Minute"
+            />
+            <Select
+              value={selectedPeriod}
+              onChange={(value) => applyTimeChange({ nextPeriod: value })}
+              options={[
+                { value: 'AM', label: 'AM' },
+                { value: 'PM', label: 'PM' },
+              ]}
+              className="!space-y-0"
+            />
+          </div>
+          <div className="space-y-2">
+            <div className="grid grid-cols-2 gap-2">
+              {shortPresetOptions.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={option.onClick}
+                  className="h-9 rounded-lg border border-gray-200 dark:border-slate-700 text-xs font-semibold text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 gap-2">
+              {longPresetOptions.map((option) => (
+                <button
+                  key={option.label}
+                  type="button"
+                  onClick={option.onClick}
+                  className="h-9 rounded-lg border border-gray-200 dark:border-slate-700 px-3 text-xs font-medium text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors whitespace-nowrap"
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
+          </div>
+          <p className="text-xs text-gray-500 dark:text-slate-400">
+            Select the publish date and time in your local timezone.
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const CompanyJobsPage = () => {
   const { user, logout, organizationContext, refresh } = useAuth();
   const navigate = useNavigate();
+  const organizationId = organizationContext?.organization?.id || user?.organizationContext?.organization?.id;
   
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
@@ -34,6 +469,13 @@ const CompanyJobsPage = () => {
   const [selectedJob, setSelectedJob] = useState(null);
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const keySkillsInputRef = useRef(null);
+  const advertImageInputRef = useRef(null);
+  const advertVideoInputRef = useRef(null);
+  const [advertImageFile, setAdvertImageFile] = useState(null);
+  const [advertVideoFile, setAdvertVideoFile] = useState(null);
+  const [advertImagePreview, setAdvertImagePreview] = useState('');
+  const [advertVideoPreview, setAdvertVideoPreview] = useState('');
   
   // Location detection state
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
@@ -207,6 +649,12 @@ const CompanyJobsPage = () => {
     salaryCurrency: 'USD',
     salaryMin: '',
     salaryMax: '',
+    postingDuration: '30',
+    publishTiming: 'immediate',
+    scheduledPublishAt: '',
+    advertImageUrl: '',
+    advertImageAlt: '',
+    advertVideoUrl: '',
     status: 'DRAFT',
     requiredSkills: [],
     templateConfig: {
@@ -218,6 +666,8 @@ const CompanyJobsPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadJobsRef = useRef(null);
 
   useEffect(() => {
     document.title = 'Jobs - InterviewAI Pro';
@@ -239,8 +689,123 @@ const CompanyJobsPage = () => {
     }
   };
 
+  useEffect(() => {
+    loadJobsRef.current = loadJobs;
+  }, [loadJobs]);
+
+  useRealtimePathFeed({
+    path: organizationId ? `organizationFeeds/${organizationId}` : null,
+    enabled: Boolean(organizationId),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadJobsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (!advertImageFile) {
+      setAdvertImagePreview('');
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(advertImageFile);
+    setAdvertImagePreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [advertImageFile]);
+
+  useEffect(() => {
+    if (!advertVideoFile) {
+      setAdvertVideoPreview('');
+      return undefined;
+    }
+    const objectUrl = URL.createObjectURL(advertVideoFile);
+    setAdvertVideoPreview(objectUrl);
+    return () => URL.revokeObjectURL(objectUrl);
+  }, [advertVideoFile]);
+
+  const resetAdvertMediaState = () => {
+    setAdvertImageFile(null);
+    setAdvertVideoFile(null);
+    if (advertImageInputRef.current) {
+      advertImageInputRef.current.value = '';
+    }
+    if (advertVideoInputRef.current) {
+      advertVideoInputRef.current.value = '';
+    }
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setSelectedJob(null);
+    resetAdvertMediaState();
+    setError('');
+  };
+
+  const handleAdvertImageFileChange = (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    setError('');
+    if (!ADVERT_IMAGE_MIME_TYPES.includes(file.type)) {
+      setError('Advert image must be JPG, PNG, WEBP, or GIF.');
+      if (advertImageInputRef.current) {
+        advertImageInputRef.current.value = '';
+      }
+      return;
+    }
+
+    if (file.size > MAX_ADVERT_IMAGE_BYTES) {
+      setError('Advert image must be 8 MB or less.');
+      if (advertImageInputRef.current) {
+        advertImageInputRef.current.value = '';
+      }
+      return;
+    }
+
+    setAdvertImageFile(file);
+  };
+
+  const handleAdvertVideoFileChange = (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    setError('');
+    if (!ADVERT_VIDEO_MIME_TYPES.includes(file.type)) {
+      setError('Advert video must be MP4, WEBM, MOV, MKV, or OGG.');
+      if (advertVideoInputRef.current) {
+        advertVideoInputRef.current.value = '';
+      }
+      return;
+    }
+
+    if (file.size > MAX_ADVERT_VIDEO_BYTES) {
+      setError('Advert video must be 50 MB or less.');
+      if (advertVideoInputRef.current) {
+        advertVideoInputRef.current.value = '';
+      }
+      return;
+    }
+
+    setAdvertVideoFile(file);
+  };
+
   const handleCreateJob = () => {
     setSelectedJob(null);
+    resetAdvertMediaState();
+    setError('');
     setFormData({
       title: '',
       department: '',
@@ -254,6 +819,12 @@ const CompanyJobsPage = () => {
       salaryCurrency: 'USD',
       salaryMin: '',
       salaryMax: '',
+      postingDuration: '30',
+      publishTiming: 'immediate',
+      scheduledPublishAt: '',
+      advertImageUrl: '',
+      advertImageAlt: '',
+      advertVideoUrl: '',
       status: 'DRAFT',
       requiredSkills: [],
       templateConfig: {
@@ -267,11 +838,14 @@ const CompanyJobsPage = () => {
 
   const handleEditJob = (job) => {
     setSelectedJob(job);
+    resetAdvertMediaState();
+    setError('');
     // Parse existing salary range if it exists
     const existingSalary = job.compensationRange || job.salaryRange || '';
     let parsedCurrency = job.salaryCurrency || 'USD';
     let parsedMin = job.salaryMin || '';
     let parsedMax = job.salaryMax || '';
+    const isScheduledPublish = job.status === 'PUBLISHED' && Boolean(job.scheduledPublishAt) && !job.publishedAt;
     
     // Try to parse legacy format like "$80,000 - $120,000"
     if (existingSalary && !parsedMin && !parsedMax) {
@@ -297,6 +871,12 @@ const CompanyJobsPage = () => {
       salaryCurrency: parsedCurrency,
       salaryMin: parsedMin,
       salaryMax: parsedMax,
+      postingDuration: String(job.postingDuration || 30),
+      publishTiming: isScheduledPublish ? 'scheduled' : 'immediate',
+      scheduledPublishAt: isScheduledPublish ? toDateTimeLocalValue(job.scheduledPublishAt) : '',
+      advertImageUrl: job.advertImageUrl || '',
+      advertImageAlt: job.advertImageAlt || '',
+      advertVideoUrl: job.advertVideoUrl || '',
       status: job.status || 'DRAFT',
       requiredSkills: Array.isArray(job.skills) ? job.skills : (job.skills ? [job.skills] : []),
       templateConfig: job.templateConfig || {
@@ -323,6 +903,35 @@ const CompanyJobsPage = () => {
           setSubmitting(false);
           return;
         }
+      }
+
+      const postingDurationValue = parseInt(String(formData.postingDuration || '').trim(), 10);
+      if (!Number.isInteger(postingDurationValue) || postingDurationValue < 1 || postingDurationValue > 365) {
+        setError('Posting duration must be between 1 and 365 days.');
+        setSubmitting(false);
+        return;
+      }
+
+      const shouldSchedulePublish = formData.status === 'PUBLISHED' && formData.publishTiming === 'scheduled';
+      let scheduledPublishAtIso = null;
+      if (shouldSchedulePublish) {
+        if (!formData.scheduledPublishAt) {
+          setError('Please choose a scheduled publish date and time.');
+          setSubmitting(false);
+          return;
+        }
+        const scheduledDate = new Date(formData.scheduledPublishAt);
+        if (Number.isNaN(scheduledDate.getTime())) {
+          setError('Scheduled publish date must be valid.');
+          setSubmitting(false);
+          return;
+        }
+        if (scheduledDate.getTime() <= Date.now()) {
+          setError('Scheduled publish date must be in the future.');
+          setSubmitting(false);
+          return;
+        }
+        scheduledPublishAtIso = scheduledDate.toISOString();
       }
 
       // Build the salary range string from components
@@ -352,6 +961,15 @@ const CompanyJobsPage = () => {
         salaryCurrency: formData.salaryCurrency || undefined,
         salaryMin: formData.salaryMin ? parseInt(parseSalary(formData.salaryMin), 10) : undefined,
         salaryMax: formData.salaryMax ? parseInt(parseSalary(formData.salaryMax), 10) : undefined,
+        postingDuration: postingDurationValue,
+        scheduledPublishAt: formData.status === 'PUBLISHED'
+          ? (shouldSchedulePublish ? scheduledPublishAtIso : null)
+          : null,
+        advertImageUrl: formData.advertImageUrl?.trim() ? formData.advertImageUrl.trim() : null,
+        advertImageAlt: (formData.advertImageUrl?.trim() || advertImageFile) && formData.advertImageAlt?.trim()
+          ? formData.advertImageAlt.trim()
+          : null,
+        advertVideoUrl: formData.advertVideoUrl?.trim() ? formData.advertVideoUrl.trim() : null,
         status: formData.status || 'DRAFT',
         // Convert requirements string to array if provided
         requirements: formData.requirements 
@@ -374,25 +992,46 @@ const CompanyJobsPage = () => {
         }
       });
 
+      let savedJob = null;
       if (selectedJob) {
         // Update existing job
         const result = await apiClient.jobs.update(selectedJob.id, payload);
-        if (result.success) {
-          await loadJobs();
-          setShowCreateModal(false);
-        } else {
-          setError(result.error || 'Failed to update job');
+        if (!result?.success) {
+          setError(result?.error || 'Failed to update job');
+          return;
         }
+        savedJob = result.job || { id: selectedJob.id };
       } else {
         // Create new job
         const result = await apiClient.jobs.create(payload);
-        if (result.success) {
-          await loadJobs();
-          setShowCreateModal(false);
-        } else {
-          setError(result.error || 'Failed to create job');
+        if (!result?.success) {
+          setError(result?.error || 'Failed to create job');
+          return;
+        }
+        savedJob = result.job || null;
+        if (savedJob?.id) {
+          setSelectedJob(savedJob);
         }
       }
+
+      if (savedJob?.id && advertImageFile) {
+        const imageResult = await apiClient.jobs.uploadAdvertImage(savedJob.id, advertImageFile, formData.advertImageAlt || '');
+        if (!imageResult?.success) {
+          throw new Error(imageResult?.error || 'Failed to upload advert image.');
+        }
+        savedJob = imageResult.job || savedJob;
+      }
+
+      if (savedJob?.id && advertVideoFile) {
+        const videoResult = await apiClient.jobs.uploadAdvertVideo(savedJob.id, advertVideoFile);
+        if (!videoResult?.success) {
+          throw new Error(videoResult?.error || 'Failed to upload advert video.');
+        }
+        savedJob = videoResult.job || savedJob;
+      }
+
+      await loadJobs();
+      closeCreateModal();
     } catch (err) {
       console.error('Job submission error:', err);
       // Extract validation errors from response
@@ -476,6 +1115,9 @@ const CompanyJobsPage = () => {
     return true;
   });
 
+  const advertImageSource = advertImagePreview || toAbsoluteAssetUrl(formData.advertImageUrl);
+  const advertVideoSource = advertVideoPreview || toAbsoluteAssetUrl(formData.advertVideoUrl);
+
   const getStatusColor = (status) => {
     switch (status) {
       case 'PUBLISHED':
@@ -488,6 +1130,69 @@ const CompanyJobsPage = () => {
         return 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300';
     }
   };
+
+  const handleAddSkillsFromInput = () => {
+    const inputValue = keySkillsInputRef.current?.value?.trim();
+    if (!inputValue) {
+      return;
+    }
+
+    const parsedSkills = inputValue
+      .split(',')
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+
+    setFormData((prev) => ({
+      ...prev,
+      requiredSkills: mergeUniqueSkills(prev.requiredSkills, parsedSkills),
+    }));
+
+    if (keySkillsInputRef.current) {
+      keySkillsInputRef.current.value = '';
+    }
+  };
+
+  const togglePresetSkill = (presetSkill) => {
+    const normalizedPreset = normalizeSkillValue(presetSkill);
+
+    setFormData((prev) => {
+      const exists = prev.requiredSkills.some(
+        (skill) => normalizeSkillValue(skill) === normalizedPreset,
+      );
+
+      if (exists) {
+        return {
+          ...prev,
+          requiredSkills: prev.requiredSkills.filter(
+            (skill) => normalizeSkillValue(skill) !== normalizedPreset,
+          ),
+        };
+      }
+
+      return {
+        ...prev,
+        requiredSkills: mergeUniqueSkills(prev.requiredSkills, [presetSkill]),
+      };
+    });
+  };
+
+  const removeSkill = (skillToRemove) => {
+    const normalizedTarget = normalizeSkillValue(skillToRemove);
+    setFormData((prev) => ({
+      ...prev,
+      requiredSkills: prev.requiredSkills.filter(
+        (skill) => normalizeSkillValue(skill) !== normalizedTarget,
+      ),
+    }));
+  };
+
+  const selectedCustomSkills = formData.requiredSkills.filter(
+    (skill) => !PRESET_JOB_SKILLS.some(
+      (presetSkill) => normalizeSkillValue(presetSkill) === normalizeSkillValue(skill),
+    ),
+  );
+  const scheduleMinDateTime = toDateTimeLocalValue(new Date(Date.now() + 60 * 1000).toISOString());
+  const scheduleTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'Local time';
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
@@ -533,7 +1238,7 @@ const CompanyJobsPage = () => {
                     onClick={handleCreateJob}
                     className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shrink-0"
                   >
-                    <Icon name="Plus" size={18} />
+                    <Icon name="Plus" size={18} className="mr-1.5" />
                     Create Job
                   </Button>
                 )}
@@ -616,7 +1321,7 @@ const CompanyJobsPage = () => {
                   </p>
                   {organizationContext?.organization?.status !== 'PENDING' && (
                     <Button onClick={handleCreateJob}>
-                      <Icon name="Plus" size={18} />
+                      <Icon name="Plus" size={18} className="mr-1.5" />
                       Create Job
                     </Button>
                   )}
@@ -641,6 +1346,24 @@ const CompanyJobsPage = () => {
                                 <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(job.status)}`}>
                                   {job.status}
                                 </span>
+                                {job.status === 'PUBLISHED' && job.scheduledPublishAt && !job.publishedAt && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                                    <Icon name="Clock" size={12} />
+                                    Scheduled
+                                  </span>
+                                )}
+                                {job.advertImageUrl && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-blue-50 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+                                    <Icon name="Image" size={12} />
+                                    Image advert
+                                  </span>
+                                )}
+                                {job.advertVideoUrl && (
+                                  <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium bg-purple-50 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300">
+                                    <Icon name="Video" size={12} />
+                                    Video advert
+                                  </span>
+                                )}
                                 {job.department && (
                                   <span className="text-sm text-gray-600 dark:text-slate-400">
                                     {job.department}
@@ -671,6 +1394,12 @@ const CompanyJobsPage = () => {
                               <Icon name="Clock" size={16} />
                               {new Date(job.createdAt).toLocaleDateString()}
                             </span>
+                            {job.status === 'PUBLISHED' && job.scheduledPublishAt && !job.publishedAt && (
+                              <span className="flex items-center gap-1 text-indigo-700 dark:text-indigo-300">
+                                <Icon name="Calendar" size={16} />
+                                Publishes {formatDateTime(job.scheduledPublishAt)}
+                              </span>
+                            )}
                           </div>
                         </div>
 
@@ -681,7 +1410,7 @@ const CompanyJobsPage = () => {
                               size="sm"
                               onClick={() => handleEditJob(job)}
                             >
-                              <Icon name="Edit" size={16} />
+                              <Icon name="Edit" size={16} className="mr-1.5" />
                               Edit
                             </Button>
                           )}
@@ -692,7 +1421,7 @@ const CompanyJobsPage = () => {
                               onClick={() => handlePublishJob(job.id)}
                               className="text-green-600 border-green-600 hover:bg-green-50"
                             >
-                              <Icon name="Send" size={16} />
+                              <Icon name="Send" size={16} className="mr-1.5" />
                               Publish
                             </Button>
                           )}
@@ -703,7 +1432,7 @@ const CompanyJobsPage = () => {
                               onClick={() => handleArchiveJob(job.id)}
                               className="text-orange-600 border-orange-600 hover:bg-orange-50"
                             >
-                              <Icon name="Archive" size={16} />
+                              <Icon name="Archive" size={16} className="mr-1.5" />
                               Archive
                             </Button>
                           )}
@@ -738,7 +1467,7 @@ const CompanyJobsPage = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
-            onClick={() => setShowCreateModal(false)}
+            onClick={closeCreateModal}
           >
             <motion.div
               initial={{ scale: 0.95, opacity: 0 }}
@@ -870,6 +1599,147 @@ const CompanyJobsPage = () => {
                   />
                 </div>
 
+                <div className="space-y-3 rounded-xl border border-gray-200 dark:border-slate-700 p-4">
+                  <div className="flex items-start gap-2">
+                    <Icon name="ImagePlus" size={18} className="text-blue-600 dark:text-blue-400 mt-0.5" />
+                    <div>
+                      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                        Optional Job Advert Media
+                      </h3>
+                      <p className="text-xs text-gray-600 dark:text-slate-400">
+                        Add an image or short video to be shown with this job post.
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                        Drag the bottom-right corner of each preview to resize it.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-4">
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert image</div>
+                      <div className="relative">
+                        {advertImageSource ? (
+                          <div className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-auto flex items-center justify-center">
+                            <img
+                              src={advertImageSource}
+                              alt={formData.advertImageAlt || 'Job advert image preview'}
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              if (isResizeHandleClick(event)) return;
+                              advertImageInputRef.current?.click();
+                            }}
+                            className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-auto flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                            title="Click to upload image"
+                            aria-label="Upload advert image"
+                          >
+                            <div className="text-center text-gray-500 dark:text-slate-400">
+                              <Icon name="Image" size={24} className="mx-auto mb-2" />
+                              <p className="text-xs">No image selected (click to upload)</p>
+                            </div>
+                          </button>
+                        )}
+                        {advertImageSource && (
+                          <button
+                            type="button"
+                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                            aria-label="Remove image"
+                            title="Remove image"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdvertImageFile(null);
+                              if (advertImageInputRef.current) {
+                                advertImageInputRef.current.value = '';
+                              }
+                              setFormData((prev) => ({ ...prev, advertImageUrl: '', advertImageAlt: '' }));
+                            }}
+                          >
+                            <Icon name="X" size={12} color="white" />
+                          </button>
+                        )}
+                      </div>
+                      <Input
+                        label="Image alt text (optional)"
+                        value={formData.advertImageAlt}
+                        onChange={(e) => setFormData({ ...formData, advertImageAlt: e.target.value })}
+                        placeholder="Describe the image for accessibility"
+                      />
+                      <p className="text-xs text-gray-500 dark:text-slate-400">Allowed: JPG, PNG, WEBP, GIF. Max 8 MB.</p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert video</div>
+                      <div className="relative">
+                        {advertVideoSource ? (
+                          <div className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-auto flex items-center justify-center">
+                            <video
+                              src={advertVideoSource}
+                              controls
+                              preload="metadata"
+                              className="w-full h-full object-cover"
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              if (isResizeHandleClick(event)) return;
+                              advertVideoInputRef.current?.click();
+                            }}
+                            className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-auto flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                            title="Click to upload video"
+                            aria-label="Upload advert video"
+                          >
+                            <div className="text-center text-gray-300">
+                              <Icon name="Video" size={24} className="mx-auto mb-2" />
+                              <p className="text-xs">No video selected (click to upload)</p>
+                            </div>
+                          </button>
+                        )}
+                        {advertVideoSource && (
+                          <button
+                            type="button"
+                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                            aria-label="Remove video"
+                            title="Remove video"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setAdvertVideoFile(null);
+                              if (advertVideoInputRef.current) {
+                                advertVideoInputRef.current.value = '';
+                              }
+                              setFormData((prev) => ({ ...prev, advertVideoUrl: '' }));
+                            }}
+                          >
+                            <Icon name="X" size={12} color="white" />
+                          </button>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">Allowed: MP4, WEBM, MOV, MKV, OGG. Max 50 MB.</p>
+                    </div>
+                  </div>
+
+                  <input
+                    ref={advertImageInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                    className="hidden"
+                    onChange={handleAdvertImageFileChange}
+                  />
+                  <input
+                    ref={advertVideoInputRef}
+                    type="file"
+                    accept=".mp4,.webm,.mov,.mkv,.ogv,video/mp4,video/webm,video/quicktime,video/x-matroska,video/ogg"
+                    className="hidden"
+                    onChange={handleAdvertVideoFileChange}
+                  />
+                </div>
+
                 {/* Salary Range Section */}
                 <div className="space-y-1.5 sm:space-y-2">
                   <label className="text-sm font-medium leading-none text-foreground">
@@ -954,47 +1824,61 @@ const CompanyJobsPage = () => {
                     Key Skills
                   </label>
                   <div className="space-y-2">
-                    <div className="flex flex-wrap gap-2 mb-2">
-                      {formData.requiredSkills.map((skill, index) => (
-                        <span
-                          key={index}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-sm border border-blue-200 dark:border-blue-800"
-                        >
-                          {skill}
+                    <div className="space-y-2">
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        Suggested skills
+                      </p>
+                      <div className="flex flex-wrap gap-2">
+                        {PRESET_JOB_SKILLS.map((presetSkill) => {
+                          const isSelected = formData.requiredSkills.some(
+                            (skill) => normalizeSkillValue(skill) === normalizeSkillValue(presetSkill),
+                          );
+
+                          return (
+                            <button
+                              key={presetSkill}
+                              type="button"
+                              onClick={() => togglePresetSkill(presetSkill)}
+                              className={`px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 ${
+                                isSelected
+                                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/30'
+                                  : 'bg-white/80 dark:bg-slate-800/80 text-gray-700 dark:text-slate-300 border border-gray-200 dark:border-slate-700 hover:border-blue-300 dark:hover:border-blue-600'
+                              }`}
+                            >
+                              <span className="inline-flex items-center gap-1">
+                                {presetSkill}
+                                {isSelected && <Icon name="X" size={12} />}
+                              </span>
+                            </button>
+                          );
+                        })}
+                        {selectedCustomSkills.map((customSkill) => (
                           <button
+                            key={customSkill}
                             type="button"
-                            onClick={() => {
-                              const newSkills = formData.requiredSkills.filter((_, i) => i !== index);
-                              setFormData({ ...formData, requiredSkills: newSkills });
-                            }}
-                            className="hover:bg-blue-100 dark:hover:bg-blue-800 rounded-full p-0.5 transition-colors"
+                            onClick={() => removeSkill(customSkill)}
+                            className="px-3 py-1.5 rounded-full text-sm font-medium transition-all duration-200 bg-blue-600 text-white shadow-md shadow-blue-500/30"
+                            title={`Remove ${customSkill}`}
+                            aria-label={`Remove ${customSkill}`}
                           >
-                            <Icon name="X" size={14} />
+                            <span className="inline-flex items-center gap-1">
+                              {customSkill}
+                              <Icon name="X" size={12} />
+                            </span>
                           </button>
-                        </span>
-                      ))}
+                        ))}
+                      </div>
                     </div>
                     <div className="flex gap-2">
                       <input
+                        ref={keySkillsInputRef}
                         type="text"
                         placeholder="Add skills (e.g. React, JavaScript, Python)"
                         className="flex-1 h-11 sm:h-12 px-3 sm:px-4 border border-input bg-background rounded-xl text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-200"
                         onKeyDown={(e) => {
                           if (e.key === 'Enter' && e.target.value.trim()) {
                             e.preventDefault();
-                            const inputValue = e.target.value.trim();
-                            // Split by comma and filter out empty values
-                            const newSkills = inputValue
-                              .split(',')
-                              .map(s => s.trim())
-                              .filter(s => s && !formData.requiredSkills.includes(s));
-                            if (newSkills.length > 0) {
-                              setFormData({
-                                ...formData,
-                                requiredSkills: [...formData.requiredSkills, ...newSkills],
-                              });
-                            }
-                            e.target.value = '';
+                            handleAddSkillsFromInput();
                           }
                         }}
                       />
@@ -1003,25 +1887,10 @@ const CompanyJobsPage = () => {
                         variant="outline"
                         onClick={(e) => {
                           e.preventDefault();
-                          const input = e.target.closest('div').querySelector('input');
-                          if (input && input.value.trim()) {
-                            const inputValue = input.value.trim();
-                            // Split by comma and filter out empty values
-                            const newSkills = inputValue
-                              .split(',')
-                              .map(s => s.trim())
-                              .filter(s => s && !formData.requiredSkills.includes(s));
-                            if (newSkills.length > 0) {
-                              setFormData({
-                                ...formData,
-                                requiredSkills: [...formData.requiredSkills, ...newSkills],
-                              });
-                            }
-                            input.value = '';
-                          }
+                          handleAddSkillsFromInput();
                         }}
                       >
-                        <Icon name="Plus" size={16} />
+                        <Icon name="Plus" size={16} className="mr-1.5" />
                         Add
                       </Button>
                     </div>
@@ -1034,7 +1903,16 @@ const CompanyJobsPage = () => {
                 <Select
                   label="Status"
                   value={formData.status}
-                  onChange={(value) => setFormData({ ...formData, status: value })}
+                  onChange={(value) => setFormData((prev) => ({
+                    ...prev,
+                    status: value,
+                    publishTiming: value === 'PUBLISHED' ? prev.publishTiming : 'immediate',
+                    scheduledPublishAt: value === 'PUBLISHED'
+                      ? (prev.publishTiming === 'scheduled'
+                        ? (prev.scheduledPublishAt || scheduleMinDateTime)
+                        : prev.scheduledPublishAt)
+                      : '',
+                  }))}
                   options={[
                     { value: 'DRAFT', label: 'Draft' },
                     { value: 'PUBLISHED', label: 'Published' },
@@ -1042,11 +1920,58 @@ const CompanyJobsPage = () => {
                   ]}
                 />
 
+                <Select
+                  label="Publish Timing"
+                  value={formData.publishTiming}
+                  onChange={(value) => setFormData((prev) => ({
+                    ...prev,
+                    publishTiming: value,
+                    scheduledPublishAt: value === 'scheduled'
+                      ? (prev.scheduledPublishAt || scheduleMinDateTime)
+                      : '',
+                  }))}
+                  options={[
+                    { value: 'immediate', label: 'Publish immediately' },
+                    { value: 'scheduled', label: 'Schedule for later' },
+                  ]}
+                  disabled={formData.status !== 'PUBLISHED'}
+                />
+                {formData.status !== 'PUBLISHED' && (
+                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                    Set status to Published to enable scheduling.
+                  </p>
+                )}
+                {formData.status === 'PUBLISHED' && formData.publishTiming === 'scheduled' && (
+                  <>
+                    <ScheduleDateTimePicker
+                      value={formData.scheduledPublishAt}
+                      minValue={scheduleMinDateTime}
+                      timezoneLabel={scheduleTimezone}
+                      onChange={(nextValue) => setFormData((prev) => ({ ...prev, scheduledPublishAt: nextValue }))}
+                      required
+                    />
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
+                      This job will become publicly visible at the scheduled time.
+                    </p>
+                  </>
+                )}
+
+                <Input
+                  label="Posting Duration (days)"
+                  type="number"
+                  min="1"
+                  max="365"
+                  value={formData.postingDuration}
+                  onChange={(e) => setFormData({ ...formData, postingDuration: e.target.value })}
+                  placeholder="30"
+                  description="Controls how long the job stays active before it expires."
+                />
+
                 <div className="flex gap-3 pt-4">
                   <Button
                     type="button"
                     variant="outline"
-                    onClick={() => setShowCreateModal(false)}
+                    onClick={closeCreateModal}
                     className="flex-1"
                   >
                     Cancel

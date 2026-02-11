@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -7,6 +7,8 @@ import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -99,6 +101,7 @@ const formatDate = (dateInput) => {
 
 const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const navigate = useNavigate();
+  const { organization } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -111,6 +114,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const [startingReview, setStartingReview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadApplicationsRef = useRef(null);
 
   useEffect(() => {
     loadApplications();
@@ -148,6 +153,33 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadApplicationsRef.current = loadApplications;
+  }, [loadApplications]);
+
+  useRealtimePathFeed({
+    path: organization?.id ? `organizationFeeds/${organization.id}` : null,
+    enabled: Boolean(organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadApplicationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handleStatusChange = async (applicationId, newStatus) => {
     try {

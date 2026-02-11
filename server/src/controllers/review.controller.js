@@ -1,4 +1,12 @@
-import { activityLogStore, interviewStore, reviewStore, userStore } from '../services/firebaseData.service.js';
+import {
+  activityLogStore,
+  interviewStore,
+  publishAdminRealtimeUpdate,
+  publishOrganizationRealtimeUpdate,
+  recordRealtimeEvent,
+  reviewStore,
+  userStore,
+} from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const sanitizeReview = (review, reviewerSummary = null) => ({
@@ -153,6 +161,41 @@ export class ReviewController {
         },
       });
 
+      try {
+        await recordRealtimeEvent(interviewId, 'review-submitted', {
+          actor: req.user.id,
+          status: interview.status || null,
+          decision: req.body.decision || req.body.recommendation || null,
+          score: req.body.score ?? smeOverallScore ?? null,
+          overrideOverall,
+          finalOverallScore:
+            overrideOverall && smeOverallScore != null
+              ? smeOverallScore
+              : interview.finalOverallScore ?? interview.overallScore ?? null,
+        });
+
+        await publishOrganizationRealtimeUpdate(organizationId, 'review-submitted', {
+          interviewId,
+          reviewerId: req.user.id,
+          decision: req.body.decision || req.body.recommendation || null,
+          score: req.body.score ?? smeOverallScore ?? null,
+          overrideOverall,
+        });
+
+        await publishAdminRealtimeUpdate('review-submitted', {
+          interviewId,
+          organizationId,
+          reviewerId: req.user.id,
+          decision: req.body.decision || req.body.recommendation || null,
+          score: req.body.score ?? smeOverallScore ?? null,
+          overrideOverall,
+          aiOverallScoreAtReview: aiOverallScoreAtReview ?? null,
+          smeOverallScore: smeOverallScore ?? null,
+        });
+      } catch (realtimeError) {
+        logger.warn('Failed to publish review realtime updates:', realtimeError);
+      }
+
       res.status(201).json({
         success: true,
         review: sanitizeReview(review, reviewerSummary),
@@ -163,4 +206,3 @@ export class ReviewController {
     }
   }
 }
-

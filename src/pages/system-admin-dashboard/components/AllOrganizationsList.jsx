@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
@@ -7,6 +7,7 @@ import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
 import { useToast } from '../../../components/ui/Toast.jsx';
 import apiClient from '../../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const MIN_SUSPENSION_REASON_LENGTH = 10;
 
@@ -20,6 +21,8 @@ const AllOrganizationsList = () => {
   const [suspensionReason, setSuspensionReason] = useState('');
   const [activateDialog, setActivateDialog] = useState({ open: false, org: null });
   const { success: showSuccessToast, error: showErrorToast, warning: showWarningToast } = useToast();
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadOrganizationsRef = useRef(null);
 
   useEffect(() => {
     loadOrganizations();
@@ -39,6 +42,33 @@ const AllOrganizationsList = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadOrganizationsRef.current = loadOrganizations;
+  }, [loadOrganizations]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadOrganizationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const getStatusColor = (status) => {
     switch (status) {

@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Input from '../../../components/ui/Input';
 import Select from '../../../components/ui/Select';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const decisionOptions = [
   { value: 'ADVANCE', label: 'Advance' },
@@ -12,6 +14,7 @@ const decisionOptions = [
 ];
 
 const ReviewerPanel = ({ interviews = [] }) => {
+  const { organization } = useAuth();
   const reviewableInterviews = useMemo(
     () =>
       interviews
@@ -36,6 +39,8 @@ const ReviewerPanel = ({ interviews = [] }) => {
     notes: '',
   });
   const [statusMessage, setStatusMessage] = useState('');
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadReviewsRef = useRef(null);
 
   useEffect(() => {
     if (reviewableInterviews.length && !selectedInterviewId) {
@@ -62,6 +67,33 @@ const ReviewerPanel = ({ interviews = [] }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadReviewsRef.current = loadReviews;
+  }, [loadReviews]);
+
+  useRealtimePathFeed({
+    path: organization?.id ? `organizationFeeds/${organization.id}` : null,
+    enabled: Boolean(organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial || !selectedInterviewId) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadReviewsRef.current?.(selectedInterviewId);
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (selectedInterviewId) {

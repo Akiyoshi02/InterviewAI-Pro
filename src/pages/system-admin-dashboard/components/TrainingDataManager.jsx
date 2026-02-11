@@ -11,7 +11,7 @@
  * For system administrators only.
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
@@ -19,6 +19,7 @@ import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 import { useToast } from '../../../components/ui/Toast';
 import apiClient from '../../../services/apiClient';
 import { downloadJSONL, downloadJSON } from '../../../services/interviewDatasetService';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 /**
  * Statistics Card Component
@@ -168,6 +169,8 @@ const TrainingDataManager = () => {
   const [datasets, setDatasets] = useState({ interview: [], analytics: [] });
   const [activeTab, setActiveTab] = useState('overview');
   const [isExporting, setIsExporting] = useState(false);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadDataRef = useRef(null);
 
   // Load data
   const loadData = useCallback(async () => {
@@ -192,6 +195,33 @@ const TrainingDataManager = () => {
       setIsLoading(false);
     }
   }, [showError]);
+
+  useEffect(() => {
+    loadDataRef.current = loadData;
+  }, [loadData]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     loadData();

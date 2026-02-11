@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -17,6 +17,7 @@ import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
@@ -28,6 +29,8 @@ const CandidateDashboard = () => {
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const fetchDashboardDataRef = useRef(null);
 
 
   const handleLogout = async () => {
@@ -125,6 +128,30 @@ const CandidateDashboard = () => {
       setDataLoading(false);
     }
   }, [user]);
+
+  useEffect(() => {
+    fetchDashboardDataRef.current = fetchDashboardData;
+  }, [fetchDashboardData]);
+
+  useInterviewRealtimeFeed({
+    userId: user?.id,
+    enabled: Boolean(user?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        fetchDashboardDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimeoutRef.current) {
+      clearTimeout(realtimeRefreshTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     fetchDashboardData();
