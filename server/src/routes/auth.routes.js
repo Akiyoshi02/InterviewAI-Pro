@@ -114,6 +114,20 @@ router.post(
 router.get('/me', authenticate, AuthController.getMe);
 
 /**
+ * POST /api/auth/me/organization/request-rereview
+ * Request a new manual review for a rejected organization (owner only)
+ */
+router.post(
+  '/me/organization/request-rereview',
+  authenticate,
+  requireCompany,
+  stripUnexpectedFields(validationSchemas.auth.requestOrganizationReReview.allowedFields),
+  validationSchemas.auth.requestOrganizationReReview.validators,
+  validateRequest,
+  AuthController.requestOrganizationReReview
+);
+
+/**
  * PATCH /api/auth/me
  * Update current user profile
  * 
@@ -153,6 +167,21 @@ router.patch(
   requireCompany,
   registrationUpload.single('companyLogo'),
   AuthController.updateCompanyLogo
+);
+
+/**
+ * PATCH /api/auth/me/company-proof
+ * Update company verification document
+ *
+ * Rate limited: Through upload limiter
+ * Validates: Business document verification in controller
+ */
+router.patch(
+  '/me/company-proof',
+  authenticate,
+  requireCompany,
+  registrationUpload.single('companyProof'),
+  AuthController.updateCompanyVerificationDocument
 );
 
 /**

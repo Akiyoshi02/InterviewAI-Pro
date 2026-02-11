@@ -54,25 +54,10 @@ const ENV_CONFIG = {
     ],
   },
 
-  // Email Configuration (Optional but recommended for production)
+  // Email Configuration
   email: {
     required: false,
     variables: [
-      {
-        key: 'EMAIL_PROVIDER',
-        description: 'Email provider: sendgrid, smtp, or console',
-        sensitive: false,
-        validator: (value) => !value || ['sendgrid', 'smtp', 'console'].includes(value),
-        rotationNotes: 'N/A - not a secret',
-      },
-      {
-        key: 'SENDGRID_API_KEY',
-        description: 'SendGrid API key for email delivery',
-        sensitive: true,
-        requiredIf: (env) => env.EMAIL_PROVIDER === 'sendgrid',
-        validator: (value) => !value || value.startsWith('SG.'),
-        rotationNotes: 'Generate new key in SendGrid Dashboard > Settings > API Keys. Revoke old key after updating.',
-      },
       {
         key: 'FROM_EMAIL',
         description: 'Default sender email address',
@@ -83,27 +68,29 @@ const ENV_CONFIG = {
     ],
   },
 
-  // SMTP Configuration (Optional)
+  // Gmail SMTP Configuration
   smtp: {
     required: false,
     variables: [
       {
         key: 'SMTP_HOST',
-        description: 'SMTP server hostname',
+        description: 'Gmail SMTP server hostname (smtp.gmail.com)',
         sensitive: false,
-        requiredIf: (env) => env.EMAIL_PROVIDER === 'smtp',
+        requiredIf: () => true,
+        validator: (value) => !!value && value.toLowerCase().includes('gmail.com'),
       },
       {
         key: 'SMTP_USER',
-        description: 'SMTP username',
+        description: 'Gmail address used to send emails',
         sensitive: false,
-        requiredIf: (env) => env.EMAIL_PROVIDER === 'smtp',
+        requiredIf: () => true,
+        validator: (value) => !!value && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value),
       },
       {
         key: 'SMTP_PASS',
-        description: 'SMTP password or app-specific password',
+        description: 'Gmail App Password',
         sensitive: true,
-        requiredIf: (env) => env.EMAIL_PROVIDER === 'smtp',
+        requiredIf: () => true,
         rotationNotes: 'For Gmail: Generate new App Password at myaccount.google.com/apppasswords',
       },
     ],

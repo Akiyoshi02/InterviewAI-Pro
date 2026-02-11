@@ -4,6 +4,7 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
+import PhoneInput from '../../components/ui/PhoneInput';
 import PasswordStrengthIndicator from '../register/components/PasswordStrengthIndicator';
 import PasswordMatchIndicator from '../register/components/PasswordMatchIndicator';
 import apiClient from '../../services/apiClient';
@@ -41,6 +42,14 @@ const AcceptTeamInvitePage = () => {
     { value: 'executive', label: 'Executive Leadership' },
     { value: 'other', label: 'Other' }
   ];
+  const otherDepartmentValue = 'other';
+  const normalizeValue = (value) => (value ?? '').toString().trim().toLowerCase();
+  const hasCustomDepartment = Boolean(
+    department
+    && !departments.some((option) => normalizeValue(option.value) === normalizeValue(department)),
+  );
+  const selectedDepartmentValue = hasCustomDepartment ? otherDepartmentValue : department;
+  const customDepartmentValue = hasCustomDepartment ? department : '';
 
   useEffect(() => {
     const fetchInvitation = async () => {
@@ -80,6 +89,11 @@ const AcceptTeamInvitePage = () => {
     // Validate required fields
     if (!fullName.trim() || !jobTitle.trim() || !password || !confirmPassword) {
       setError('Please fill in all required fields.');
+      return;
+    }
+
+    if (selectedDepartmentValue === otherDepartmentValue && !customDepartmentValue.trim()) {
+      setError('Please specify your department when selecting "Other".');
       return;
     }
 
@@ -128,7 +142,7 @@ const AcceptTeamInvitePage = () => {
         accountType: 'COMPANY',
         teamInvitationToken: token,
         jobTitle: jobTitle.trim() || undefined,
-        department: department || undefined,
+        department: department && normalizeValue(department) !== otherDepartmentValue ? department : undefined,
         phoneNumber: phoneNumber.trim() || undefined,
       });
 
@@ -225,16 +239,40 @@ const AcceptTeamInvitePage = () => {
                   label="Department"
                   placeholder="Select your department"
                   options={departments}
-                  value={department}
-                  onChange={(value) => setDepartment(value)}
+                  value={selectedDepartmentValue}
+                  onChange={(value) => setDepartment(value || '')}
                 />
               </div>
-              <Input
+              {selectedDepartmentValue === otherDepartmentValue && (
+                <div className="space-y-2">
+                  <Input
+                    label="Specify Department"
+                    type="text"
+                    placeholder="Type your department"
+                    value={customDepartmentValue}
+                    onChange={(event) => {
+                      const nextValue = event?.target?.value || '';
+                      setDepartment(nextValue.trim() ? nextValue : otherDepartmentValue);
+                    }}
+                  />
+                  {hasCustomDepartment && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      onClick={() => setDepartment(otherDepartmentValue)}
+                      iconName="X"
+                      className="rounded-full text-rose-500 hover:text-rose-600"
+                    >
+                      Remove custom department
+                    </Button>
+                  )}
+                </div>
+              )}
+              <PhoneInput
                 label="Phone Number"
-                type="tel"
-                placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
                 value={phoneNumber}
-                onChange={(e) => setPhoneNumber(e.target.value)}
+                onChange={(value) => setPhoneNumber(value)}
               />
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <div className="space-y-2">

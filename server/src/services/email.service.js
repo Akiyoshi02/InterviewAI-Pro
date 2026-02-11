@@ -3,53 +3,31 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { dirname } from 'path';
 import logger from '../utils/logger.js';
-import sgMail from '@sendgrid/mail';
 import nodemailer from 'nodemailer';
 
 /**
  * Email Service
- * 
- * This service provides email functionality with support for multiple providers.
- * Configure your preferred provider in environment variables.
- * 
- * Supported providers:
- * - sendgrid: SendGrid API (Free: 100 emails/day)
- * - smtp: Generic SMTP (Nodemailer) - Works with Gmail, Outlook, etc.
- * - console: Console logging only (development)
- * 
- * Free Email Service Options:
- * 1. SendGrid: https://sendgrid.com (100 emails/day free forever)
- * 2. Gmail SMTP: Use your Gmail account with app password
- * 3. Outlook SMTP: Use your Outlook account
- * 
- * IMPORTANT FOR DELIVERABILITY (Avoiding Spam):
- * =============================================
- * 1. Use a custom domain for FROM_EMAIL (e.g., noreply@yourdomain.com)
- *    - Using Gmail addresses with SendGrid causes authentication failures
- *    - Gmail's strict SPF/DKIM policies make emails look like spoofing
- * 
- * 2. Set up domain authentication in SendGrid:
- *    - Go to Settings > Sender Authentication
- *    - Authenticate your domain (adds SPF, DKIM, DMARC records)
- *    - This significantly improves deliverability
- * 
- * 3. Verify your sender identity in SendGrid:
- *    - Go to Settings > Sender Authentication > Single Sender Verification
- *    - Or use domain authentication (preferred)
- * 
- * 4. Warm up your sending reputation gradually:
- *    - Start with small volumes
- *    - Maintain good engagement rates
+ *
+ * This service is configured for Gmail SMTP only.
+ * Required environment variables:
+ * - SMTP_HOST (typically smtp.gmail.com)
+ * - SMTP_PORT (typically 587)
+ * - SMTP_USER (your Gmail address)
+ * - SMTP_PASS (Google App Password)
+ *
+ * Gmail setup:
+ * 1. Enable 2-factor authentication on your Google account.
+ * 2. Generate an App Password: https://myaccount.google.com/apppasswords
  */
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const EMAIL_PROVIDER = process.env.EMAIL_PROVIDER || 'console';
 // SECURITY: Default email should be a placeholder, not a real email
 const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@localhost';
 const FROM_NAME = process.env.FROM_NAME || 'InterviewAI Pro';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
+const CONTACT_EMAIL = process.env.SMTP_USER || FROM_EMAIL;
 // Use a simple content_id that email clients can easily match
 const EMAIL_LOGO_CONTENT_ID = 'logo';
 
@@ -127,33 +105,6 @@ const getLogoMimeType = () => {
   return 'image/png';
 };
 
-const getSendGridLogoAttachment = () => {
-  const base64 = getLogoBase64();
-  if (!base64 || !EMAIL_LOGO_PATH) {
-    logger.warn('⚠️  Cannot create SendGrid logo attachment - logo not available');
-    return null;
-  }
-  // SendGrid API: content_id should be without brackets in the API call
-  // But the actual email Content-ID header will have brackets: <logo>
-  // HTML should reference it as: cid:<logo> to match the email header
-  const attachment = {
-    content: base64,
-    filename: path.basename(EMAIL_LOGO_PATH) || 'logo.png',
-    type: getLogoMimeType(),
-    disposition: 'inline',
-    content_id: EMAIL_LOGO_CONTENT_ID, // SendGrid API expects without brackets
-  };
-  logger.info('📎 SendGrid logo attachment created', {
-    contentId: attachment.content_id,
-    htmlReference: `cid:<${attachment.content_id}>`,
-    expectedEmailHeader: `<${attachment.content_id}>`,
-    filename: attachment.filename,
-    type: attachment.type,
-    contentLength: base64.length,
-  });
-  return attachment;
-};
-
 const getSmtpLogoAttachment = () => {
   const base64 = getLogoBase64();
   if (!base64 || !EMAIL_LOGO_PATH) return null;
@@ -190,18 +141,6 @@ const formatEmailDate = (dateValue) => {
     return new Date().toLocaleDateString(); // Fallback to current date
   }
 };
-
-// Initialize SendGrid if API key is provided
-if (process.env.SENDGRID_API_KEY) {
-  try {
-    sgMail.setApiKey(process.env.SENDGRID_API_KEY);
-    logger.info('✅ SendGrid API key initialized successfully');
-  } catch (error) {
-    logger.error('❌ Failed to initialize SendGrid API key:', error);
-  }
-} else if (process.env.EMAIL_PROVIDER === 'sendgrid') {
-  logger.warn('⚠️  EMAIL_PROVIDER is set to sendgrid but SENDGRID_API_KEY is not configured');
-}
 
 const DEFAULT_FOOTER_HTML = `
   <p class="footer-brand"><strong>InterviewAI Pro</strong></p>
@@ -604,6 +543,97 @@ The InterviewAI Pro Team
     }),
   },
 
+  ORGANIZATION_SUSPENDED: {
+    subject: 'Important: Your Organization Access Has Been Suspended',
+    getText: (data) => `
+Hi ${data.ownerName},
+
+Your organization "${data.organizationName}" has been suspended by our system administration team.
+
+Reason:
+${data.reason}
+
+What this means:
+- Company dashboard access is temporarily restricted
+- Team actions and hiring workflows are paused
+
+Need help?
+- Contact page: ${data.contactUrl}
+- Email support: ${data.supportEmail}
+
+You can review your current status here:
+${data.statusUrl}
+
+Best regards,
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Organization Access Suspended',
+      bodyHtml: `
+        <p>Hi ${data.ownerName},</p>
+        <p>Your organization "<strong>${data.organizationName}</strong>" has been suspended by our system administration team.</p>
+
+        <div class="reason-box">
+          <strong>Reason:</strong>
+          <p>${data.reason}</p>
+        </div>
+
+        <div class="details">
+          <p><strong>What this means:</strong></p>
+          <p>&bull; Company dashboard access is temporarily restricted</p>
+          <p>&bull; Team actions and hiring workflows are paused</p>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.statusUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">View Account Status</a>
+        </div>
+
+        <p class="note" style="margin-top: 24px;">
+          Need help? <a href="${data.contactUrl}">Contact support</a> or email <a href="mailto:${data.supportEmail}">${data.supportEmail}</a>.
+        </p>
+      `,
+    }),
+  },
+
+  ORGANIZATION_REACTIVATED: {
+    subject: 'Your Organization Access Has Been Restored',
+    getText: (data) => `
+Hi ${data.ownerName},
+
+Good news. Your organization "${data.organizationName}" has been reactivated.
+
+You can now sign in and continue using InterviewAI Pro:
+${data.dashboardUrl}
+
+If you have any questions, contact us at ${data.supportEmail} or ${data.contactUrl}.
+
+Best regards,
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Organization Reactivated',
+      bodyHtml: `
+        <p>Hi ${data.ownerName},</p>
+        <p>Good news. Your organization "<strong>${data.organizationName}</strong>" has been reactivated.</p>
+
+        <div class="features">
+          <h3>You can now:</h3>
+          <div class="feature-item">&bull; Access your company dashboard</div>
+          <div class="feature-item">&bull; Resume hiring workflows and team actions</div>
+          <div class="feature-item">&bull; Continue using platform features</div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Go to Dashboard</a>
+        </div>
+
+        <p class="note" style="margin-top: 24px;">
+          Questions? <a href="${data.contactUrl}">Contact support</a> or email <a href="mailto:${data.supportEmail}">${data.supportEmail}</a>.
+        </p>
+      `,
+    }),
+  },
+
   EMAIL_VERIFICATION: {
     subject: 'Verify your email to finish creating your InterviewAI Pro account',
     getText: (data) => `
@@ -859,14 +889,14 @@ If you need to add more details, just reply to this email.
 };
 
 /**
- * Send email using the configured provider
+ * Send email via Gmail SMTP
  * @param {Object} options - Email options
  * @param {string} options.to - Recipient email
  * @param {string} options.subject - Email subject
  * @param {string} options.text - Plain text content (IMPORTANT for deliverability)
  * @param {string} options.html - HTML content
  * @param {string} [options.replyTo] - Reply-to email
- * @param {string} [options.category] - Email category for tracking (e.g., 'contact', 'notification')
+ * @param {string} [options.category] - Backward-compatible field (ignored)
  */
 async function sendEmail({ to, subject, text, html, replyTo, category }) {
   if (!to || !to.trim()) {
@@ -875,46 +905,15 @@ async function sendEmail({ to, subject, text, html, replyTo, category }) {
   if (!subject || !subject.trim()) {
     throw new Error('Email subject is required');
   }
-  
+  // Keep category in the signature for backward compatibility with existing callers.
+  void category;
   // Warn if no plain text version (critical for deliverability)
   if (!text || !text.trim()) {
-    logger.warn('⚠️  Email missing plain text version. This can hurt deliverability.');
+    logger.warn('Email missing plain text version. This can hurt deliverability.');
   }
-  
   try {
-    logger.info(`📧 Sending email to ${to}: ${subject}`);
-
-    switch (EMAIL_PROVIDER) {
-      case 'sendgrid':
-        return await sendWithSendGrid({ to, subject, text, html, replyTo, category });
-      
-      case 'ses':
-        return await sendWithSES({ to, subject, text, html, replyTo });
-      
-      case 'smtp':
-        return await sendWithSMTP({ to, subject, text, html, replyTo });
-      
-      case 'console':
-      default:
-        // Log to console in development
-        logger.info('═══════════════════════════════════════════════════════════');
-        logger.info('📧 EMAIL (Console Mode - Development Only)');
-        logger.info('═══════════════════════════════════════════════════════════');
-        logger.info(`To: ${to}`);
-        logger.info(`From: ${FROM_NAME} <${FROM_EMAIL}>`);
-        logger.info(`Subject: ${subject}`);
-        if (replyTo) {
-          logger.info(`Reply-To: ${replyTo}`);
-        }
-        logger.info('───────────────────────────────────────────────────────────');
-        logger.info('Text Content:');
-        logger.info(text);
-        logger.info('───────────────────────────────────────────────────────────');
-        logger.info('HTML Content:');
-        logger.info(html.substring(0, 200) + (html.length > 200 ? '...' : ''));
-        logger.info('═══════════════════════════════════════════════════════════');
-        return { success: true, messageId: 'console-' + Date.now() };
-    }
+    logger.info(`Sending email to ${to}: ${subject}`);
+    return await sendWithSMTP({ to, subject, text, html, replyTo });
   } catch (error) {
     logger.error('Failed to send email:', error);
     throw error;
@@ -922,159 +921,15 @@ async function sendEmail({ to, subject, text, html, replyTo, category }) {
 }
 
 /**
- * SendGrid implementation
- * Free tier: 100 emails/day forever
- * Setup: https://sendgrid.com
- * 1. Sign up for free account
- * 2. Create API key in Settings > API Keys
- * 3. Set SENDGRID_API_KEY in .env
- */
-async function sendWithSendGrid({ to, subject, text, html, replyTo, category }) {
-  if (!process.env.SENDGRID_API_KEY) {
-    throw new Error('SENDGRID_API_KEY is not configured. Please set it in your .env file.');
-  }
-
-  // Warn if using a free email provider as FROM_EMAIL (causes deliverability issues)
-  const freeEmailDomains = ['gmail.com', 'yahoo.com', 'hotmail.com', 'outlook.com', 'aol.com'];
-  const fromDomain = FROM_EMAIL.split('@')[1]?.toLowerCase();
-  if (freeEmailDomains.includes(fromDomain)) {
-    logger.warn(`⚠️  DELIVERABILITY WARNING: Using ${fromDomain} as sender domain.
-    This significantly increases spam likelihood. For better deliverability:
-    1. Use a custom domain (e.g., noreply@yourdomain.com)
-    2. Set up domain authentication in SendGrid
-    3. Verify sender identity in SendGrid dashboard`);
-  }
-
-  try {
-    const msg = {
-      to,
-      from: {
-        email: FROM_EMAIL,
-        name: FROM_NAME,
-      },
-      subject,
-      text, // Plain text version is CRITICAL for deliverability
-      html,
-      // SendGrid-specific settings to improve deliverability
-      categories: category ? [category] : ['transactional'],
-      // Mail settings
-      mailSettings: {
-        // Disable click tracking (can trigger spam filters)
-        clickTracking: {
-          enable: false,
-        },
-        // Disable open tracking (can trigger spam filters)
-        openTracking: {
-          enable: false,
-        },
-        // Enable subscription tracking with unsubscribe link
-        subscriptionTracking: {
-          enable: false, // Disable for transactional emails
-        },
-      },
-      // Tracking settings
-      trackingSettings: {
-        clickTracking: {
-          enable: false,
-          enableText: false,
-        },
-        openTracking: {
-          enable: false,
-        },
-      },
-      // Custom headers for better deliverability
-      headers: {
-        'X-Priority': '3', // Normal priority (1=high, 3=normal, 5=low)
-        'X-Mailer': 'InterviewAI-Pro-Mailer',
-        'Precedence': 'bulk', // Indicates bulk/transactional email
-      },
-    };
-
-    // Add Reply-To header
-    if (replyTo) {
-      msg.replyTo = replyTo;
-    }
-
-    // Add List-Unsubscribe header for transactional emails (helps with spam filters)
-    const unsubscribeUrl = `${FRONTEND_URL}/unsubscribe`;
-    msg.headers['List-Unsubscribe'] = `<${unsubscribeUrl}>`;
-    msg.headers['List-Unsubscribe-Post'] = 'List-Unsubscribe=One-Click';
-
-    logger.info(`📤 SendGrid: Preparing to send email from ${FROM_EMAIL} to ${to}`, {
-      category: msg.categories,
-      hasText: !!text,
-      hasHtml: !!html,
-    });
-    const result = await sgMail.send(msg);
-    
-    const statusCode = result[0]?.statusCode;
-    const messageId = result[0]?.headers['x-message-id'] || 'unknown';
-    
-    if (statusCode >= 200 && statusCode < 300) {
-      logger.info(`✅ Email sent via SendGrid to ${to} - Status: ${statusCode}, Message ID: ${messageId}`);
-      return { success: true, messageId, statusCode };
-    } else {
-      logger.warn(`⚠️  SendGrid returned non-2xx status: ${statusCode} for email to ${to}`);
-      return { success: true, messageId, statusCode };
-    }
-  } catch (error) {
-    logger.error('❌ SendGrid error:', {
-      message: error.message,
-      code: error.code,
-      response: error.response ? {
-        statusCode: error.response.statusCode,
-        body: error.response.body,
-        headers: error.response.headers,
-      } : null,
-    });
-    
-    // Provide more helpful error messages
-    if (error.response) {
-      const body = error.response.body;
-      if (body && body.errors) {
-        const errorMessages = body.errors.map(e => e.message).join(', ');
-        throw new Error(`SendGrid error: ${errorMessages}`);
-      }
-      if (error.response.statusCode === 403) {
-        throw new Error('SendGrid: Authentication failed. Please check your API key.');
-      }
-      if (error.response.statusCode === 400) {
-        throw new Error(`SendGrid: Invalid request. ${body?.message || error.message}`);
-      }
-    }
-    
-    throw new Error(`Failed to send email via SendGrid: ${error.message}`);
-  }
-}
-
-/**
- * AWS SES implementation
- */
-async function sendWithSES({ to, subject, text, html }) {
-  // TODO: Implement AWS SES
-  // const AWS = require('aws-sdk');
-  // const ses = new AWS.SES({ region: process.env.AWS_REGION });
-  // const params = { ... };
-  // return await ses.sendEmail(params).promise();
-  
-  logger.warn('AWS SES not implemented, falling back to console');
-  return sendEmail({ to, subject, text, html });
-}
-
-/**
- * SMTP implementation (Nodemailer)
- * Supports Gmail, Outlook, and other SMTP servers
- * 
- * Gmail Setup:
- * 1. Enable 2-factor authentication on your Google account
+ * Gmail SMTP implementation (Nodemailer)
+ *
+ * Gmail setup:
+ * 1. Enable 2-factor authentication on your Google account.
  * 2. Generate App Password: https://myaccount.google.com/apppasswords
- * 3. Use: SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER=your-email@gmail.com, SMTP_PASS=your-app-password
- * 
- * Outlook Setup:
- * 1. Use: SMTP_HOST=smtp-mail.outlook.com, SMTP_PORT=587, SMTP_USER=your-email@outlook.com, SMTP_PASS=your-password
+ * 3. Configure SMTP_HOST=smtp.gmail.com, SMTP_PORT=587, SMTP_USER, SMTP_PASS.
  */
 async function sendWithSMTP({ to, subject, text, html, replyTo }) {
-  const smtpHost = process.env.SMTP_HOST;
+  const smtpHost = process.env.SMTP_HOST || 'smtp.gmail.com';
   const smtpPort = parseInt(process.env.SMTP_PORT || '587', 10);
   const smtpUser = process.env.SMTP_USER;
   const smtpPass = process.env.SMTP_PASS;
@@ -1082,6 +937,9 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
 
   if (!smtpHost || !smtpUser || !smtpPass) {
     throw new Error('SMTP configuration incomplete. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in your .env file.');
+  }
+  if (!smtpHost.toLowerCase().includes('gmail.com')) {
+    throw new Error(`Unsupported SMTP_HOST "${smtpHost}". This system is configured for Gmail SMTP only.`);
   }
 
   try {
@@ -1166,24 +1024,6 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
 /**
  * Send templated email
  */
-/**
- * Map template names to email categories for better tracking and deliverability
- */
-const TEMPLATE_CATEGORIES = {
-  ORGANIZATION_APPROVED: 'organization',
-  ORGANIZATION_REJECTED: 'organization',
-  EMAIL_VERIFICATION: 'verification',
-  INVITATION_RECEIVED: 'invitation',
-  TEAM_INVITATION: 'invitation',
-  INTERVIEW_INVITATION: 'interview',
-  INTERVIEW_REMINDER: 'interview',
-  APPLICATION_RECEIVED: 'application',
-  APPLICATION_STATUS_UPDATE: 'application',
-  PASSWORD_RESET: 'security',
-  NEWSLETTER_WELCOME: 'newsletter',
-  CONTACT_RECEIVED: 'contact',
-  CONTACT_CONFIRMATION: 'contact',
-};
 
 export async function sendTemplatedEmail(templateName, data) {
   const template = TEMPLATES[templateName];
@@ -1200,17 +1040,13 @@ export async function sendTemplatedEmail(templateName, data) {
   const html = template.getHtml(data);
 
   const recipient = data.to || data.email;
-  
-  // Get category for this template type
-  const category = TEMPLATE_CATEGORIES[templateName] || 'transactional';
 
   return await sendEmail({
     to: recipient,
     subject,
     text,
     html,
-    replyTo: data.replyTo,
-    category,
+    replyTo: data.replyTo
   });
 }
 
@@ -1248,6 +1084,45 @@ export const emailNotifications = {
       ownerName: owner.fullName || owner.email || 'there',
       organizationName: organization.displayName || organization.name || 'Your Organization',
       reason: reason.trim(),
+    });
+  },
+
+  async sendOrganizationSuspended(organization, owner, reason) {
+    if (!owner || !owner.email) {
+      throw new Error('Owner email is required to send suspension email');
+    }
+    if (!reason || !reason.trim()) {
+      throw new Error('Suspension reason is required');
+    }
+
+    const organizationId = organization?.id ? String(organization.id) : null;
+    const statusUrl = organizationId
+      ? `${FRONTEND_URL}/register?pendingApproval=true&orgId=${encodeURIComponent(organizationId)}`
+      : `${FRONTEND_URL}/register?pendingApproval=true`;
+
+    return await sendTemplatedEmail('ORGANIZATION_SUSPENDED', {
+      email: owner.email,
+      ownerName: owner.fullName || owner.email || 'there',
+      organizationName: organization.displayName || organization.name || 'Your Organization',
+      reason: reason.trim(),
+      statusUrl,
+      contactUrl: `${FRONTEND_URL}/contact`,
+      supportEmail: CONTACT_EMAIL,
+    });
+  },
+
+  async sendOrganizationReactivated(organization, owner) {
+    if (!owner || !owner.email) {
+      throw new Error('Owner email is required to send reactivation email');
+    }
+
+    return await sendTemplatedEmail('ORGANIZATION_REACTIVATED', {
+      email: owner.email,
+      ownerName: owner.fullName || owner.email || 'there',
+      organizationName: organization.displayName || organization.name || 'Your Organization',
+      dashboardUrl: `${FRONTEND_URL}/company-dashboard`,
+      contactUrl: `${FRONTEND_URL}/contact`,
+      supportEmail: CONTACT_EMAIL,
     });
   },
 

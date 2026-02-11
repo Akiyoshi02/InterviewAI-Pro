@@ -5,6 +5,10 @@ import apiClient from '../../services/apiClient.js';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import LoadingIndicator from '../../components/ui/LoadingIndicator';
+import {
+  buildPendingApprovalRoute,
+  isRestrictedCompanyUser,
+} from '../../utils/organizationAccess.js';
 
 const VerifyEmail = () => {
   const navigate = useNavigate();
@@ -16,6 +20,11 @@ const VerifyEmail = () => {
   // Decide which dashboard path to navigate to based on accountType
   const redirectToDashboard = (userObj) => {
     try {
+      if (isRestrictedCompanyUser(userObj)) {
+        navigate(buildPendingApprovalRoute(userObj), { replace: true });
+        return;
+      }
+
       const accountType = (userObj && (userObj.accountType || userObj.account_type)) || 'CANDIDATE';
       if ((accountType || '').toString().toUpperCase() === 'COMPANY') {
         navigate('/company-dashboard');

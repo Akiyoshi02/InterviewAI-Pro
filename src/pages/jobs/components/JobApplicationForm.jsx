@@ -408,20 +408,26 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
                         className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50 resize-none"
                       />
                     ) : question.type === 'SELECT' ? (
-                      <select
-                        value={getAnswer(question.id)}
-                        onChange={(e) => handleAnswerChange(question.id, e.target.value)}
-                        required={question.required}
-                        disabled={submitting}
-                        className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
-                      >
-                        <option value="">Select an option...</option>
-                        {question.options?.map((option, i) => (
-                          <option key={i} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative group">
+                        <select
+                          value={getAnswer(question.id)}
+                          onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                          required={question.required}
+                          disabled={submitting}
+                          className="w-full appearance-none px-3 pr-10 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                        >
+                          <option value="">Select an option...</option>
+                          {question.options?.map((option, i) => (
+                            <option key={i} value={option}>
+                              {option}
+                            </option>
+                          ))}
+                        </select>
+                        <Icon
+                          name="ChevronDown"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
+                        />
+                      </div>
                     ) : (
                       <input
                         type="text"

@@ -11,6 +11,7 @@ import { apiClient } from '../../services/apiClient';
 
 const ContactPage = () => {
   const navigate = useNavigate();
+  const supportContactEmail = (import.meta.env.VITE_SMTP_USER || import.meta.env.VITE_FROM_EMAIL || '').trim();
   const [contactForm, setContactForm] = useState({
     name: '',
     email: '',
@@ -27,8 +28,8 @@ const ContactPage = () => {
       icon: Mail,
       title: 'Email Support',
       description: 'Get help via email',
-      actionLabel: 'support@aiinterviewpro.com',
-      href: 'mailto:support@aiinterviewpro.com',
+      actionLabel: supportContactEmail || 'Email not configured',
+      href: supportContactEmail ? `mailto:${supportContactEmail}` : null,
       color: 'from-blue-600 to-blue-500'
     },
     {

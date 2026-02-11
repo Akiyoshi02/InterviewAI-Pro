@@ -329,6 +329,24 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async updateCompanyProof(file) {
+      const formData = new FormData();
+      formData.append('companyProof', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/me/company-proof`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
     async updateResume(file) {
       const formData = new FormData();
       formData.append('resumeFile', file);
@@ -343,6 +361,15 @@ export const apiClient = {
         method: 'PATCH',
         headers,
         body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async requestOrganizationReReview(note) {
+      const response = await fetch(`${API_URL}/api/auth/me/organization/request-rereview`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ note }),
       });
       return handleResponse(response);
     },
@@ -949,11 +976,16 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async rejectOrganization(id, reason) {
+    async rejectOrganization(id, reasonOrPayload) {
+      const payload =
+        typeof reasonOrPayload === 'string'
+          ? { reason: reasonOrPayload }
+          : reasonOrPayload || {};
+
       const response = await fetch(`${API_URL}/api/admin/organizations/${id}/reject`, {
         method: 'POST',
         headers: await getHeaders(),
-        body: JSON.stringify({ reason }),
+        body: JSON.stringify(payload),
       });
       return handleResponse(response);
     },

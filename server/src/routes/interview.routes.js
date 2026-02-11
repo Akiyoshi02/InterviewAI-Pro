@@ -21,6 +21,7 @@ import {
   validationSchemas,
   LENGTH_LIMITS,
 } from '../middleware/inputValidation.middleware.js';
+import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
 import { InterviewController } from '../controllers/interview.controller.js';
 
 const router = express.Router();
@@ -69,6 +70,7 @@ router.get(
   '/company/all',
   authenticate,
   requireCompany,
+  requireApprovedOrganization,
   InterviewController.getCompanyInterviews
 );
 

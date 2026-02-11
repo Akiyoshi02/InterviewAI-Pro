@@ -1,9 +1,30 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Button from './Button';
 import Icon from '../AppIcon';
 import LoadingIndicator from './LoadingIndicator';
+
+const FOCUSABLE_SELECTOR = [
+  'a[href]',
+  'button:not([disabled])',
+  'input:not([disabled]):not([type="hidden"])',
+  'select:not([disabled])',
+  'textarea:not([disabled])',
+  '[tabindex]:not([tabindex="-1"])',
+  '[contenteditable="true"]',
+].join(',');
+
+const isElementVisible = (element) => Boolean(
+  element
+  && (element.offsetWidth || element.offsetHeight || element.getClientRects().length),
+);
+
+const getFocusableElements = (container) => {
+  if (!container) return [];
+  return Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR))
+    .filter((element) => isElementVisible(element) && element.getAttribute('aria-hidden') !== 'true');
+};
 
 const ConfirmDialog = ({
   open = false,
@@ -16,16 +37,79 @@ const ConfirmDialog = ({
   variant = 'warning', // 'warning', 'danger', 'info'
   isLoading = false,
 }) => {
+  const dialogRef = useRef(null);
+  const previousFocusedRef = useRef(null);
+
   useEffect(() => {
     if (!open) return undefined;
+    previousFocusedRef.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+
+    const focusTarget = dialogRef.current;
+    if (!focusTarget) return undefined;
+
+    const focusFirstElement = () => {
+      const focusableElements = getFocusableElements(focusTarget);
+      if (focusableElements.length > 0) {
+        focusableElements[0].focus();
+        return;
+      }
+      focusTarget.focus();
+    };
+
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(focusFirstElement);
+    } else {
+      focusFirstElement();
+    }
+
     const handleKeyDown = (event) => {
+      if (!dialogRef.current) return;
+
       if (event.key === 'Escape') {
-        onClose?.();
+        if (!isLoading) {
+          onClose?.();
+        }
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusableElements = getFocusableElements(dialogRef.current);
+      if (focusableElements.length === 0) {
+        event.preventDefault();
+        dialogRef.current.focus();
+        return;
+      }
+
+      const firstFocusable = focusableElements[0];
+      const lastFocusable = focusableElements[focusableElements.length - 1];
+      const activeElement = document.activeElement;
+      const focusInsideDialog = activeElement instanceof Node && dialogRef.current.contains(activeElement);
+
+      if (event.shiftKey) {
+        if (!focusInsideDialog || activeElement === firstFocusable) {
+          event.preventDefault();
+          lastFocusable.focus();
+        }
+        return;
+      }
+
+      if (!focusInsideDialog || activeElement === lastFocusable) {
+        event.preventDefault();
+        firstFocusable.focus();
       }
     };
+
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [open, onClose]);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      if (previousFocusedRef.current && typeof previousFocusedRef.current.focus === 'function') {
+        previousFocusedRef.current.focus();
+      }
+    };
+  }, [open, onClose, isLoading]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -85,7 +169,9 @@ const ConfirmDialog = ({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm"
-            onClick={onClose}
+            onClick={() => {
+              if (!isLoading) onClose?.();
+            }}
             aria-hidden="true"
           />
           <motion.div
@@ -93,10 +179,12 @@ const ConfirmDialog = ({
             animate={{ scale: 1, opacity: 1, y: 0 }}
             exit={{ scale: 0.95, opacity: 0, y: 20 }}
             transition={{ duration: 0.2, ease: 'easeOut' }}
+            ref={dialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-dialog-title"
             aria-describedby="confirm-dialog-message"
+            tabIndex={-1}
             className="relative w-full max-w-md overflow-hidden"
             onClick={(e) => e.stopPropagation()}
           >

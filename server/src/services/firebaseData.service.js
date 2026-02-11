@@ -130,6 +130,12 @@ export const userStore = {
     return snapshot.docs.map((doc) => docToData(doc));
   },
 
+  async findByVerificationHash(verificationHash) {
+    if (!verificationHash) return [];
+    const snapshot = await usersCollection.where('companyVerificationHash', '==', verificationHash).get();
+    return snapshot.docs.map((doc) => docToData(doc));
+  },
+
   async create(uid, data = {}) {
     const payload = {
       id: uid,
@@ -1217,27 +1223,184 @@ export const organizationStore = {
       { merge: true },
     );
     const updated = await docRef.get();
-    return organizationDocToData(updated);
+    const organization = organizationDocToData(updated);
+
+    // Update Realtime Database for real-time notification to waiting users
+    if (organization && realtimeDb) {
+      try {
+        await realtimeDb.ref(`organizationApprovalStatus/${id}`).update({
+          status: 'APPROVED',
+          approvedBy: approvedBy || null,
+          approvedAt: now(),
+          updatedAt: now(),
+        });
+        logger.info(`Updated organization approval status in Realtime DB: ${id} - APPROVED`);
+      } catch (rtdbError) {
+        logger.error('Failed to update organization approval status in Realtime DB:', rtdbError);
+        // Don't fail the approval if RTDB update fails
+      }
+    }
+
+    return organization;
   },
 
-  async reject(id, reason, rejectedBy) {
+  async reject(
+    id,
+    {
+      reason,
+      rejectedBy = null,
+      reasonCode = 'OTHER',
+      reasonTags = [],
+      reasonTagOther = null,
+    } = {},
+  ) {
     if (!id) throw new Error('Organization ID is required');
     if (!reason || !reason.trim()) {
       throw new Error('Rejection reason is required');
     }
+
     const docRef = organizationsCollection.doc(id);
+    const currentDoc = await docRef.get();
+    const current = organizationDocToData(currentDoc);
+
+    if (!current) {
+      throw new Error('Organization not found');
+    }
+
+    const normalizedReason = reason.trim();
+    const normalizedReasonCode = (reasonCode || 'OTHER').toString().trim().toUpperCase() || 'OTHER';
+    const normalizedReasonTags = Array.isArray(reasonTags)
+      ? Array.from(
+          new Set(
+            reasonTags
+              .map((tag) => (tag || '').toString().trim().toUpperCase())
+              .filter(Boolean),
+          ),
+        ).slice(0, 8)
+      : [];
+    const normalizedReasonTagOther = normalizedReasonTags.includes('OTHER') && reasonTagOther
+      ? String(reasonTagOther).trim() || null
+      : null;
+    const rejectedAt = now();
+    const rejectionEntry = {
+      rejectedAt,
+      rejectedBy: rejectedBy || null,
+      reason: normalizedReason,
+      reasonCode: normalizedReasonCode,
+      reasonTags: normalizedReasonTags,
+      reasonTagOther: normalizedReasonTagOther,
+    };
+    const rejectionHistory = Array.isArray(current.rejectionHistory)
+      ? [...current.rejectionHistory, rejectionEntry]
+      : [rejectionEntry];
+
     await docRef.set(
       {
         status: 'REJECTED',
-        rejectedReason: reason.trim(),
+        rejectedReason: normalizedReason,
+        rejectedReasonCode: normalizedReasonCode,
+        rejectedReasonTags: normalizedReasonTags,
+        rejectedReasonTagOther: normalizedReasonTagOther,
         rejectedBy: rejectedBy || null,
-        rejectedAt: now(),
+        rejectedAt,
+        rejectionHistory,
+        reReviewRequestedAt: null,
+        reReviewRequestedBy: null,
+        reReviewRequestNote: null,
         updatedAt: now(),
       },
       { merge: true },
     );
     const updated = await docRef.get();
-    return organizationDocToData(updated);
+    const organization = organizationDocToData(updated);
+
+    // Update Realtime Database for real-time notification to waiting users
+    if (organization && realtimeDb) {
+      try {
+        await realtimeDb.ref(`organizationApprovalStatus/${id}`).update({
+          status: 'REJECTED',
+          rejectedReason: normalizedReason,
+          rejectedReasonCode: normalizedReasonCode,
+          rejectedReasonTags: normalizedReasonTags,
+          rejectedReasonTagOther: normalizedReasonTagOther,
+          rejectedBy: rejectedBy || null,
+          rejectedAt,
+          reReviewRequestedAt: null,
+          reReviewRequestNote: null,
+          updatedAt: now(),
+        });
+        logger.info(`Updated organization approval status in Realtime DB: ${id} - REJECTED`);
+      } catch (rtdbError) {
+        logger.error('Failed to update organization approval status in Realtime DB:', rtdbError);
+        // Don't fail the rejection if RTDB update fails
+      }
+    }
+
+    return organization;
+  },
+
+  async requestReReview(id, { requestedBy = null, note } = {}) {
+    if (!id) throw new Error('Organization ID is required');
+    if (!note || !note.trim()) {
+      throw new Error('Re-review note is required');
+    }
+
+    const docRef = organizationsCollection.doc(id);
+    const currentDoc = await docRef.get();
+    const current = organizationDocToData(currentDoc);
+
+    if (!current) {
+      throw new Error('Organization not found');
+    }
+
+    const normalizedNote = note.trim();
+    const requestedAt = now();
+    const currentCount = Number.isFinite(current.reReviewRequestCount) ? current.reReviewRequestCount : 0;
+    const requestEntry = {
+      requestedAt,
+      requestedBy: requestedBy || null,
+      note: normalizedNote,
+      previousRejectedReason: current.rejectedReason || null,
+      previousRejectedReasonCode: current.rejectedReasonCode || null,
+    };
+    const reReviewRequests = Array.isArray(current.reReviewRequests)
+      ? [...current.reReviewRequests, requestEntry]
+      : [requestEntry];
+
+    await docRef.set(
+      {
+        status: 'PENDING',
+        reReviewRequestedAt: requestedAt,
+        reReviewRequestedBy: requestedBy || null,
+        reReviewRequestNote: normalizedNote,
+        reReviewRequestCount: currentCount + 1,
+        reReviewRequests,
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+
+    const updated = await docRef.get();
+    const organization = organizationDocToData(updated);
+
+    // Update Realtime Database for real-time notification to waiting users
+    if (organization && realtimeDb) {
+      try {
+        await realtimeDb.ref(`organizationApprovalStatus/${id}`).update({
+          status: 'PENDING',
+          reReviewRequestedAt: requestedAt,
+          reReviewRequestedBy: requestedBy || null,
+          reReviewRequestNote: normalizedNote,
+          updatedAt: now(),
+        });
+        logger.info(`Updated organization approval status in Realtime DB: ${id} - PENDING (re-review requested)`);
+      } catch (rtdbError) {
+        logger.error('Failed to update organization approval status in Realtime DB:', rtdbError);
+        // Don't fail the re-review request if RTDB update fails
+      }
+    }
+
+    return organization;
   },
 
   async suspend(id, reason, suspendedBy) {
@@ -1257,7 +1420,24 @@ export const organizationStore = {
       { merge: true },
     );
     const updated = await docRef.get();
-    return organizationDocToData(updated);
+    const organization = organizationDocToData(updated);
+
+    if (organization && realtimeDb) {
+      try {
+        await realtimeDb.ref(`organizationApprovalStatus/${id}`).update({
+          status: 'SUSPENDED',
+          suspensionReason: reason.trim(),
+          suspendedBy: suspendedBy || null,
+          suspendedAt: now(),
+          updatedAt: now(),
+        });
+        logger.info(`Updated organization approval status in Realtime DB: ${id} - SUSPENDED`);
+      } catch (rtdbError) {
+        logger.error('Failed to update organization approval status in Realtime DB:', rtdbError);
+      }
+    }
+
+    return organization;
   },
 
   async activate(id) {
@@ -1274,7 +1454,24 @@ export const organizationStore = {
       { merge: true },
     );
     const updated = await docRef.get();
-    return organizationDocToData(updated);
+    const organization = organizationDocToData(updated);
+
+    if (organization && realtimeDb) {
+      try {
+        await realtimeDb.ref(`organizationApprovalStatus/${id}`).update({
+          status: 'APPROVED',
+          suspensionReason: null,
+          suspendedAt: null,
+          suspendedBy: null,
+          updatedAt: now(),
+        });
+        logger.info(`Updated organization approval status in Realtime DB: ${id} - APPROVED`);
+      } catch (rtdbError) {
+        logger.error('Failed to update organization approval status in Realtime DB:', rtdbError);
+      }
+    }
+
+    return organization;
   },
 };
 

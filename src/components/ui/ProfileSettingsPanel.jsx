@@ -6,6 +6,7 @@ import Select from './Select';
 import Icon from '../AppIcon';
 import LoadingIndicator from './LoadingIndicator';
 import OrganizationSettings from './OrganizationSettings';
+import PhoneInput from './PhoneInput';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 
@@ -172,6 +173,7 @@ const departmentOptions = [
   { value: 'executive', label: 'Executive' },
   { value: 'other', label: 'Other' },
 ];
+const OTHER_DEPARTMENT_VALUE = 'other';
 
 const candidatePreferencesDefaults = {
   notificationCadence: 'weekly',
@@ -583,6 +585,16 @@ const ProfileSettingsPanel = ({
     () => appendCurrentOption(institutionOptions, profileForm.institutionName),
     [profileForm.institutionName]
   );
+  const hasCustomCompanyDepartment = isCompany && Boolean(
+    profileForm.department
+    && !departmentOptions.some(
+      (option) => normalizeOptionValue(option.value) === normalizeOptionValue(profileForm.department),
+    ),
+  );
+  const selectedCompanyDepartment = hasCustomCompanyDepartment
+    ? OTHER_DEPARTMENT_VALUE
+    : (profileForm.department || '');
+  const customCompanyDepartment = hasCustomCompanyDepartment ? profileForm.department : '';
 
   const handleProfileFieldChange = (field, value) => {
     setProfileForm((prev) => ({ ...prev, [field]: value }));
@@ -655,13 +667,22 @@ const ProfileSettingsPanel = ({
 
   const handleSaveProfile = async () => {
     setProfileStatus(null);
+    if (isCompany && selectedCompanyDepartment === OTHER_DEPARTMENT_VALUE && !customCompanyDepartment.trim()) {
+      setProfileStatus({
+        type: 'error',
+        message: 'Please specify your department when selecting "Other".',
+      });
+      return;
+    }
     setIsSavingProfile(true);
     try {
       const payload = isCompany
         ? {
             fullName: profileForm.fullName,
             jobTitle: profileForm.jobTitle,
-            department: profileForm.department,
+            department: normalizeOptionValue(profileForm.department) === OTHER_DEPARTMENT_VALUE
+              ? null
+              : profileForm.department || null,
             phoneNumber: profileForm.phoneNumber,
           }
         : {
@@ -1009,15 +1030,42 @@ const ProfileSettingsPanel = ({
                   <Select
                     label="Department"
                     options={departmentOptions}
-                    value={profileForm.department}
+                    value={selectedCompanyDepartment}
                     onChange={(value) => handleProfileFieldChange('department', value)}
                     placeholder="Select department"
                   />
-                  <Input
+                  {selectedCompanyDepartment === OTHER_DEPARTMENT_VALUE && (
+                    <div className="space-y-2">
+                      <Input
+                        label="Specify department"
+                        value={customCompanyDepartment}
+                        onChange={(event) => {
+                          const nextValue = event?.target?.value || '';
+                          handleProfileFieldChange(
+                            'department',
+                            nextValue.trim() ? nextValue : OTHER_DEPARTMENT_VALUE,
+                          );
+                        }}
+                        placeholder="Type your department"
+                      />
+                      {hasCustomCompanyDepartment && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="xs"
+                          iconName="X"
+                          onClick={() => handleProfileFieldChange('department', OTHER_DEPARTMENT_VALUE)}
+                          className="rounded-full text-rose-500 hover:text-rose-600"
+                        >
+                          Remove custom department
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                  <PhoneInput
                     label="Phone number"
-                    type="tel"
                     value={profileForm.phoneNumber}
-                    onChange={(event) => handleProfileFieldChange('phoneNumber', event.target.value)}
+                    onChange={(value) => handleProfileFieldChange('phoneNumber', value)}
                   />
                 </>
               ) : (
@@ -1079,12 +1127,10 @@ const ProfileSettingsPanel = ({
                       </p>
                     )}
                   </div>
-                  <Input
+                  <PhoneInput
                     label="Phone number"
-                    type="tel"
-                    placeholder="+94 XX XXX XXXX"
                     value={profileForm.phoneNumber}
-                    onChange={(event) => handleProfileFieldChange('phoneNumber', event.target.value)}
+                    onChange={(value) => handleProfileFieldChange('phoneNumber', value)}
                   />
                   <Select
                     label="Preferred language"

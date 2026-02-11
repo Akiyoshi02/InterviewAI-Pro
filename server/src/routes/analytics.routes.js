@@ -1,17 +1,18 @@
 import express from 'express';
 import { authenticate, requireCompany } from '../middleware/auth.middleware.js';
+import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
 import { AnalyticsController } from '../controllers/analytics.controller.js';
 
 const router = express.Router();
 
 router.get('/dashboard', authenticate, AnalyticsController.getDashboard);
-router.get('/company/metrics', authenticate, requireCompany, AnalyticsController.getCompanyMetrics);
+router.get('/company/metrics', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getCompanyMetrics);
 
 // Company: Dashboard metrics with historical comparison
-router.get('/dashboard-metrics', authenticate, requireCompany, AnalyticsController.getDashboardMetrics);
+router.get('/dashboard-metrics', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getDashboardMetrics);
 
 // Company: Historical metrics snapshots for trend analysis
-router.get('/historical', authenticate, requireCompany, AnalyticsController.getHistoricalMetrics);
+router.get('/historical', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getHistoricalMetrics);
 
 // Candidate: Dashboard metrics with historical comparison
 router.get('/candidate/dashboard-metrics', authenticate, AnalyticsController.getCandidateDashboardMetrics);

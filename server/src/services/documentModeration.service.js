@@ -334,14 +334,13 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
   const words = normalized.split(/\s+/);
   const uniqueWords = new Set(words.map((word) => word.toLowerCase()));
 
-  // TESTING: Relaxed content length requirements
-  // if (
-  //   normalized.length < BUSINESS_MIN_CHAR_COUNT
-  //   || words.length < BUSINESS_MIN_WORD_COUNT
-  //   || uniqueWords.size < BUSINESS_MIN_UNIQUE_WORDS
-  // ) {
-  //   throw new Error('Please upload the complete certificate or letter.');
-  // }
+  if (
+    normalized.length < BUSINESS_MIN_CHAR_COUNT
+    || words.length < BUSINESS_MIN_WORD_COUNT
+    || uniqueWords.size < BUSINESS_MIN_UNIQUE_WORDS
+  ) {
+    throw new Error('Please upload the complete certificate or letter.');
+  }
 
   const lower = normalized.toLowerCase();
   const matchedSections = BUSINESS_SECTION_KEYWORDS.reduce(
@@ -349,24 +348,17 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
     0
   );
 
-  // TESTING: Relaxed section keyword matching
-  // if (matchedSections < BUSINESS_MIN_SECTION_MATCHES) {
-  //   throw new Error('We could not find typical business verification details (registration, tax, or authority references). Please upload an official document.');
-  // }
+  if (matchedSections < BUSINESS_MIN_SECTION_MATCHES) {
+    throw new Error('We could not find typical business verification details (registration, tax, or authority references). Please upload an official document.');
+  }
 
   const authorityMentions = extractAuthorityMentions(text);
   const registrationMentions = extractRegistrationMentions(text);
-  // TESTING: Relaxed authority/registration requirement
-  // if (!authorityMentions.length && !registrationMentions.length) {
-  //   throw new Error('Document is missing an authority reference or registration number. Please upload an official certificate or license.');
-  // }
+  if (!authorityMentions.length && !registrationMentions.length) {
+    throw new Error('Document is missing an authority reference or registration number. Please upload an official certificate or license.');
+  }
 
   const addressMentions = extractAddressMentions(text);
-  // TESTING: Relaxed address requirement
-  // if (!addressMentions.length) {
-  //   throw new Error('Document should include a business address or postal code. Please upload the full document.');
-  // }
-
   const detectedCountries = detectCountriesInDocument(lower);
   const expectedCountry = context.expectedCountry || null;
   let countryMatchStatus = 'not_provided';
@@ -375,35 +367,19 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
       countryMatchStatus = 'missing_in_document';
     } else {
       countryMatchStatus = detectedCountries.includes(expectedCountry) ? 'match' : 'mismatch';
-      // TESTING: Relaxed country match validation
-      // if (countryMatchStatus === 'mismatch') {
-      //   throw new Error(`Document country (${detectedCountries.join(', ')}) does not match ${expectedCountry}. Please upload the official certificate for the correct jurisdiction.`);
-      // }
     }
   }
 
   const mostRecentDate = determineMostRecentDate(text);
-  // TESTING: Relaxed date requirement
-  // if (!mostRecentDate) {
-  //   throw new Error('Document must include an issue or validation date. Please upload the full certificate.');
-  // }
-  // TESTING: Relaxed recency check
-  // if (mostRecentDate && isOlderThanYears(mostRecentDate, MAX_DOC_AGE_YEARS)) {
-  //   throw new Error(`Document appears to be older than ${MAX_DOC_AGE_YEARS} years. Please upload a recently issued certificate.`);
-  // }
 
   const nameMatch = calculateEntityNameMatch(lower, context.expectedCompanyName);
-  // TESTING: Relaxed company name match validation
-  // if (nameMatch.status === 'mismatch') {
-  //   throw new Error('We could not find the provided company name in this document. Please upload a certificate that references your organization.');
-  // }
-
-  // TESTING: Relaxed registration number requirement
-  // if (!registrationMentions.length) {
-  //   throw new Error('Could not locate a registration or license number in the document. Please upload the official certificate or license.');
-  // }
 
   const limitedRegistrationMentions = registrationMentions.slice(0, MAX_REGISTERED_REG_NUMBERS);
+  const recencyStatus = !mostRecentDate
+    ? 'unknown'
+    : isOlderThanYears(mostRecentDate, MAX_DOC_AGE_YEARS)
+      ? 'stale'
+      : 'recent';
 
   return {
     wordCount: words.length,
@@ -417,8 +393,8 @@ const analyzeBusinessDocumentText = (text, context = {}) => {
     countryMatchStatus,
     companyNameScore: nameMatch.score,
     companyNameMatches: nameMatch.matches,
-    mostRecentDate: mostRecentDate.toISOString(),
-    recencyStatus: 'recent',
+    mostRecentDate: mostRecentDate ? mostRecentDate.toISOString() : null,
+    recencyStatus,
     expectedCompanyName: context.expectedCompanyName || null,
   };
 };

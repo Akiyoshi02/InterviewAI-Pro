@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+﻿import React, { useState, useEffect } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { ref, onValue, off } from 'firebase/database';
 import Icon from '../../components/AppIcon';
 import BrandMark from '../../components/BrandMark';
 import Input from '../../components/ui/Input';
@@ -13,13 +14,23 @@ import SocialRegistration from './components/SocialRegistration';
 import CandidateFields from './components/CandidateFields';
 import CompanyFields from './components/CompanyFields';
 import TermsAndPrivacy from './components/TermsAndPrivacy';
-import { authHelpers } from '../../config/firebase.js';
+import { authHelpers, realtimeDb } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import {
+  buildPendingApprovalRoute,
+  getOrganizationId,
+  getOrganizationRejectionReason,
+  getOrganizationSuspensionReason,
+  getOrganizationStatus,
+  isRestrictedCompanyUser,
+} from '../../utils/organizationAccess.js';
 import {
   passwordMeetsAllRequirements,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from '../../utils/passwordValidation';
+
+const MIN_REREVIEW_NOTE_LENGTH = 15;
 
 const Register = () => {
   const navigate = useNavigate();
@@ -110,6 +121,19 @@ const Register = () => {
   const [isVerifyingCode, setIsVerifyingCode] = useState(false);
   const [resendAvailableAt, setResendAvailableAt] = useState(null);
   const [resendSeconds, setResendSeconds] = useState(0);
+  
+  // Organization approval state (for company accounts)
+  const [organizationId, setOrganizationId] = useState(null);
+  const [organizationStatus, setOrganizationStatus] = useState(null); // 'PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'
+  const [organizationRejectionReason, setOrganizationRejectionReason] = useState('');
+  const [organizationSuspensionReason, setOrganizationSuspensionReason] = useState('');
+  const [reReviewNote, setReReviewNote] = useState('');
+  const [reReviewRequestedAt, setReReviewRequestedAt] = useState('');
+  const [isRequestingReReview, setIsRequestingReReview] = useState(false);
+  const [isUploadingReReviewProof, setIsUploadingReReviewProof] = useState(false);
+  const [isUploadingReReviewLogo, setIsUploadingReReviewLogo] = useState(false);
+  const reReviewProofInputRef = React.useRef(null);
+  const reReviewLogoInputRef = React.useRef(null);
 
   const getSafeRedirectPath = (value) => {
     if (!value || typeof value !== 'string') return null;
@@ -121,13 +145,14 @@ const Register = () => {
 
   const redirectAfterAuth = getSafeRedirectPath(searchParams.get('redirect'));
   const loginHref = redirectAfterAuth ? `/login?redirect=${encodeURIComponent(redirectAfterAuth)}` : '/login';
+  const supportContactEmail = (import.meta.env.VITE_SMTP_USER || import.meta.env.VITE_FROM_EMAIL || '').trim();
 
   const viewportConfig = { once: true, amount: 0.2 };
   const friendlyRateLimitMessage = (text) => {
     if (!text) return '';
     const normalized = text.toLowerCase();
     if (normalized.includes('too many authentication attempts')) {
-      return 'You’ve tried a few times. Please wait 15 minutes before trying again.';
+      return "You've tried a few times. Please wait 15 minutes before trying again.";
     }
     return text;
   };
@@ -139,6 +164,19 @@ const Register = () => {
   };
 
   const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+  const normalizeDepartmentValue = (value) => {
+    const trimmed = (value || '').trim();
+    if (!trimmed) return '';
+    return trimmed.toLowerCase() === 'other' ? '' : trimmed;
+  };
+
+  const formatDateTime = (value) => {
+    if (!value) return '';
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleString();
+  };
+
   const formatDetectedLocation = (data, coords) => {
     if (!data && !coords) {
       return '';
@@ -387,6 +425,31 @@ const Register = () => {
               navigate('/admin', { replace: true });
               return;
             }
+
+            if (isRestrictedCompanyUser(userData.user)) {
+              // Company with restricted organization status - keep user in Step 4
+              const orgId = getOrganizationId(userData.user);
+              const orgStatus = getOrganizationStatus(userData.user) || 'PENDING';
+              const rejectionReason = getOrganizationRejectionReason(userData.user) || '';
+              const suspensionReason = getOrganizationSuspensionReason(userData.user) || '';
+              const lastReReviewRequestAt = userData.user?.organizationContext?.organization?.reReviewRequestedAt || '';
+              const isPendingApproval = searchParams.get('pendingApproval') === 'true';
+              const orgIdParam = searchParams.get('orgId');
+
+              setOrganizationId(orgId || null);
+              setOrganizationStatus(orgStatus);
+              setOrganizationRejectionReason(rejectionReason);
+              setOrganizationSuspensionReason(suspensionReason);
+              setReReviewRequestedAt(lastReReviewRequestAt);
+              setCurrentStep(4);
+              setFormData((prev) => ({ ...prev, accountType: 'company' }));
+
+              if (!isPendingApproval || (orgId && orgIdParam !== String(orgId))) {
+                navigate(buildPendingApprovalRoute(userData.user), { replace: true });
+              }
+              return;
+            }
+            
             const dashboardRoute = accountType === 'candidate'
               ? '/candidate-dashboard'
               : '/company-dashboard';
@@ -434,12 +497,109 @@ const Register = () => {
     return () => {
       cancelled = true;
     };
-  }, [navigate, redirectAfterAuth]);
+  }, [navigate, redirectAfterAuth, searchParams]);
 
   const handleFieldChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
     if (errors?.[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
+    }
+  };
+
+  const triggerReReviewFilePicker = (field) => {
+    const inputRef = field === 'companyProof' ? reReviewProofInputRef.current : reReviewLogoInputRef.current;
+    if (!inputRef) return;
+    inputRef.value = '';
+    inputRef.click();
+  };
+
+  const handleReReviewEvidenceUpload = async (field, event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    const isProofUpload = field === 'companyProof';
+    const setUploading = isProofUpload ? setIsUploadingReReviewProof : setIsUploadingReReviewLogo;
+    setUploading(true);
+    setErrors((prev) => ({ ...prev, reReviewEvidence: '' }));
+
+    try {
+      if (isProofUpload) {
+        await moderateUpload('companyProof', file, {
+          metadata: {
+            expectedCompanyName: formData?.companyName?.trim() || '',
+            expectedCountry: formData?.companyLocation?.trim() || '',
+          },
+        });
+
+        const result = await apiClient.auth.updateCompanyProof(file);
+        if (!result?.success) {
+          throw new Error('Failed to upload verification document.');
+        }
+
+        setStatus('success');
+        setMessage('Verification document updated. You can now submit a re-review request.');
+      } else {
+        await moderateUpload('companyLogo', file);
+
+        const result = await apiClient.auth.updateCompanyLogo(file);
+        if (!result?.success) {
+          throw new Error('Failed to upload company logo.');
+        }
+
+        setStatus('success');
+        setMessage('Company logo updated. You can now submit a re-review request.');
+      }
+    } catch (error) {
+      setErrors((prev) => ({
+        ...prev,
+        reReviewEvidence: friendlyRateLimitMessage(error?.message)
+          || (isProofUpload
+            ? 'Failed to upload verification document. Please try again.'
+            : 'Failed to upload company logo. Please try again.'),
+      }));
+    } finally {
+      setUploading(false);
+      if (event?.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  const handleRequestReReview = async () => {
+    if (!organizationId || isRequestingReReview) return;
+
+    const trimmedNote = reReviewNote.trim();
+    if (trimmedNote.length < MIN_REREVIEW_NOTE_LENGTH) {
+      setErrors((prev) => ({
+        ...prev,
+        reReviewNote: `Please provide at least ${MIN_REREVIEW_NOTE_LENGTH} characters before submitting.`,
+      }));
+      return;
+    }
+
+    setIsRequestingReReview(true);
+    setErrors((prev) => ({ ...prev, reReviewNote: '', reReviewEvidence: '', submit: '' }));
+
+    try {
+      const result = await apiClient.auth.requestOrganizationReReview(trimmedNote);
+      if (!result?.success) {
+        throw new Error('Failed to submit re-review request.');
+      }
+
+      setOrganizationStatus(result?.organization?.status || 'PENDING');
+      setReReviewRequestedAt(result?.organization?.reReviewRequestedAt || '');
+      setOrganizationRejectionReason(result?.organization?.rejectedReason || '');
+      setOrganizationSuspensionReason(result?.organization?.suspensionReason || '');
+      setReReviewNote('');
+      setStatus('info');
+      setMessage(result?.message || 'Re-review request submitted successfully.');
+    } catch (error) {
+      setErrors((prev) => ({
+        ...prev,
+        reReviewNote: friendlyRateLimitMessage(error?.message) || 'Failed to submit re-review request. Please try again.',
+      }));
+    } finally {
+      setIsRequestingReReview(false);
     }
   };
 
@@ -664,9 +824,9 @@ const Register = () => {
           newErrors.profilePhoto = uploadModeration?.profilePhoto?.error || 'Profile picture must pass moderation before continuing.';
         }
         if (!formData?.resumeFile) {
-          newErrors.resumeFile = 'Please upload your CV or résumé';
+          newErrors.resumeFile = 'Please upload your CV or resume';
         } else if (uploadModeration?.resumeFile?.status !== 'approved') {
-          newErrors.resumeFile = uploadModeration?.resumeFile?.error || 'CV or résumé must pass verification before continuing.';
+          newErrors.resumeFile = uploadModeration?.resumeFile?.error || 'CV or resume must pass verification before continuing.';
         }
       } else if (formData?.accountType === 'company') {
         if (!formData?.companyName?.trim()) {
@@ -686,9 +846,20 @@ const Register = () => {
         }
         if (!formData?.department) {
           newErrors.department = 'Department is required';
+        } else if (!normalizeDepartmentValue(formData.department)) {
+          newErrors.department = 'Please specify your department when selecting "Other".';
         }
         if (!formData?.hiringVolume) {
           newErrors.hiringVolume = 'Hiring volume is required';
+        }
+        if (!formData?.companyLocation?.trim()) {
+          newErrors.companyLocation = 'Company location is required';
+        }
+        if (!formData?.businessRegistrationNumber?.trim()) {
+          newErrors.businessRegistrationNumber = 'Business registration number is required';
+        }
+        if (!formData?.companyEmail?.trim()) {
+          newErrors.companyEmail = 'Official company email is required';
         }
         if (!formData?.companyLogo) {
           newErrors.companyLogo = 'Please upload your company logo';
@@ -792,7 +963,7 @@ const Register = () => {
       return;
     }
 
-    setCurrentStep(prev => Math.min(prev + 1, 3));
+    setCurrentStep(prev => Math.min(prev + 1, 4));
   };
 
   const handleDetectLocation = async (fieldKey) => {
@@ -813,7 +984,7 @@ const Register = () => {
     setLocationHelper({
       targetField: fieldKey,
       status: 'info',
-      message: 'Requesting location permission…',
+      message: 'Requesting location permissionâ€¦',
     });
 
     try {
@@ -828,7 +999,7 @@ const Register = () => {
       setLocationHelper({
         targetField: fieldKey,
         status: 'info',
-        message: 'Detecting your city…',
+        message: 'Detecting your cityâ€¦',
       });
 
       const { latitude, longitude } = position.coords || {};
@@ -849,7 +1020,7 @@ const Register = () => {
       const formattedLocation = formatDetectedLocation(data, { latitude, longitude });
 
       if (!formattedLocation) {
-        throw new Error('We couldn’t convert your coordinates into a city. Please enter it manually.');
+        throw new Error('We couldnâ€™t convert your coordinates into a city. Please enter it manually.');
       }
 
       handleFieldChange(fieldKey, formattedLocation);
@@ -917,11 +1088,11 @@ const Register = () => {
         missingSections.add('professional details');
       }
       if (!formData?.resumeFile) {
-        missingFields.resumeFile = 'CV or résumé is required before using Google sign-up.';
+        missingFields.resumeFile = 'CV or resume is required before using Google sign-up.';
         missingSections.add('professional details');
       }
       if (formData?.resumeFile && uploadModeration?.resumeFile?.status !== 'approved') {
-        missingFields.resumeFile = uploadModeration?.resumeFile?.error || 'CV or résumé must pass verification before using Google sign-up.';
+        missingFields.resumeFile = uploadModeration?.resumeFile?.error || 'CV or resume must pass verification before using Google sign-up.';
         missingSections.add('professional details');
       }
     } else if (formData?.accountType === 'company') {
@@ -948,9 +1119,24 @@ const Register = () => {
       if (!formData?.department) {
         missingFields.department = 'Department is required before using Google sign-up.';
         missingSections.add('company information');
+      } else if (!normalizeDepartmentValue(formData.department)) {
+        missingFields.department = 'Please specify your department when selecting "Other" before using Google sign-up.';
+        missingSections.add('company information');
       }
       if (!formData?.hiringVolume) {
         missingFields.hiringVolume = 'Hiring volume is required before using Google sign-up.';
+        missingSections.add('company information');
+      }
+      if (!formData?.companyLocation?.trim()) {
+        missingFields.companyLocation = 'Company location is required before using Google sign-up.';
+        missingSections.add('company information');
+      }
+      if (!formData?.businessRegistrationNumber?.trim()) {
+        missingFields.businessRegistrationNumber = 'Business registration number is required before using Google sign-up.';
+        missingSections.add('company information');
+      }
+      if (!formData?.companyEmail?.trim()) {
+        missingFields.companyEmail = 'Official company email is required before using Google sign-up.';
         missingSections.add('company information');
       }
       if (!formData?.companyLogo) {
@@ -1081,7 +1267,9 @@ const Register = () => {
         companyType: formData.accountType === 'company' ? formData.companyType || undefined : undefined,
         companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
         jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
-        department: formData.accountType === 'company' ? formData.department || undefined : undefined,
+        department: formData.accountType === 'company'
+          ? normalizeDepartmentValue(formData.department) || undefined
+          : undefined,
         hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
         companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
         companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
@@ -1104,6 +1292,30 @@ const Register = () => {
         localStorage.removeItem('pendingAccountType');
         localStorage.removeItem('socialAuthIntent');
         setAuthenticatedUser(registerData.user);
+
+        // For company accounts, check if organization approval is needed
+        if (formData.accountType === 'company') {
+          const orgId = getOrganizationId(registerData.user);
+          const orgStatus = getOrganizationStatus(registerData.user);
+          const rejectionReason = getOrganizationRejectionReason(registerData.user) || '';
+          const suspensionReason = getOrganizationSuspensionReason(registerData.user) || '';
+          const lastReReviewRequestAt = registerData.user?.organizationContext?.organization?.reReviewRequestedAt || '';
+          
+          if (orgId && ['PENDING', 'REJECTED', 'SUSPENDED'].includes(orgStatus)) {
+            // Organization has a restricted status - keep user in Step 4
+            setOrganizationId(orgId);
+            setOrganizationStatus(orgStatus);
+            setOrganizationRejectionReason(rejectionReason);
+            setOrganizationSuspensionReason(suspensionReason);
+            setReReviewRequestedAt(lastReReviewRequestAt);
+            setCurrentStep(4);
+            return;
+          } else if (orgStatus === 'APPROVED') {
+            // Organization already approved, redirect to dashboard
+            navigate(redirectAfterAuth || '/company-dashboard');
+            return;
+          }
+        }
 
         const redirectPath = formData.accountType === 'candidate'
           ? '/candidate-dashboard'
@@ -1275,7 +1487,9 @@ const Register = () => {
             companyType: formData.accountType === 'company' ? formData.companyType || undefined : undefined,
             companySize: formData.accountType === 'company' ? formData.companySize || undefined : undefined,
             jobTitle: formData.accountType === 'company' ? formData.jobTitle || undefined : undefined,
-            department: formData.accountType === 'company' ? formData.department || undefined : undefined,
+            department: formData.accountType === 'company'
+              ? normalizeDepartmentValue(formData.department) || undefined
+              : undefined,
             hiringVolume: formData.accountType === 'company' ? formData.hiringVolume || undefined : undefined,
             companyWebsite: formData.accountType === 'company' ? formData.companyWebsite || undefined : undefined,
             companyLocation: formData.accountType === 'company' ? formData.companyLocation || undefined : undefined,
@@ -1299,7 +1513,31 @@ const Register = () => {
             localStorage.removeItem('socialAuthIntent');
             setAuthenticatedUser(registerData.user);
             
-            // Redirect based on account type
+            // For company accounts, check if organization approval is needed
+            if (formData.accountType === 'company') {
+              const orgId = getOrganizationId(registerData.user);
+              const orgStatus = getOrganizationStatus(registerData.user);
+              const rejectionReason = getOrganizationRejectionReason(registerData.user) || '';
+              const suspensionReason = getOrganizationSuspensionReason(registerData.user) || '';
+              const lastReReviewRequestAt = registerData.user?.organizationContext?.organization?.reReviewRequestedAt || '';
+              
+              if (orgId && ['PENDING', 'REJECTED', 'SUSPENDED'].includes(orgStatus)) {
+                // Organization has a restricted status - keep user in Step 4
+                setOrganizationId(orgId);
+                setOrganizationStatus(orgStatus);
+                setOrganizationRejectionReason(rejectionReason);
+                setOrganizationSuspensionReason(suspensionReason);
+                setReReviewRequestedAt(lastReReviewRequestAt);
+                setCurrentStep(4);
+                return;
+              } else if (orgStatus === 'APPROVED') {
+                // Organization already approved, redirect to dashboard
+                navigate(redirectAfterAuth || '/company-dashboard');
+                return;
+              }
+            }
+            
+            // For candidate accounts, redirect directly
             const redirectPath = formData.accountType === 'candidate' 
               ? '/candidate-dashboard' 
               : '/company-dashboard';
@@ -1340,6 +1578,46 @@ const Register = () => {
     }
   }, [formData?.accountType]);
 
+  // Real-time listener for organization approval status
+  useEffect(() => {
+    if (!organizationId || currentStep !== 4) {
+      return;
+    }
+
+    // Set up Firebase Realtime Database listener
+    const orgStatusRef = ref(realtimeDb, `organizationApprovalStatus/${organizationId}`);
+    
+    const unsubscribe = onValue(orgStatusRef, (snapshot) => {
+      const data = snapshot.val();
+      if (data && data.status) {
+        setOrganizationStatus(data.status);
+        setReReviewRequestedAt(data.reReviewRequestedAt || '');
+        if (data.status === 'REJECTED') {
+          setOrganizationRejectionReason(data.rejectedReason || '');
+        } else {
+          setOrganizationRejectionReason('');
+        }
+        if (data.status === 'SUSPENDED') {
+          setOrganizationSuspensionReason(data.suspensionReason || '');
+        } else {
+          setOrganizationSuspensionReason('');
+        }
+        
+        if (data.status === 'APPROVED') {
+          // Organization approved! Redirect to dashboard
+          setTimeout(() => {
+            navigate(redirectAfterAuth || '/company-dashboard', { replace: true });
+          }, 1500); // Small delay to show success message
+        }
+      }
+    });
+
+    // Cleanup listener on unmount
+    return () => {
+      off(orgStatusRef);
+    };
+  }, [organizationId, currentStep, navigate, redirectAfterAuth]);
+
   const getStepTitle = () => {
     switch (currentStep) {
       case 1: return emailVerification.status !== 'idle' && emailVerification.status !== 'verified'
@@ -1347,6 +1625,13 @@ const Register = () => {
         : 'Create Your Account';
       case 2: return `${formData?.accountType === 'candidate' ? 'Professional' : 'Company'} Information`;
       case 3: return 'Terms & Privacy';
+      case 4: return organizationStatus === 'APPROVED'
+        ? 'Organization Approved'
+        : organizationStatus === 'REJECTED'
+          ? 'Organization Review Result'
+          : organizationStatus === 'SUSPENDED'
+            ? 'Organization Access Suspended'
+            : 'Organization Approval Pending';
       default: return 'Create Your Account';
     }
   };
@@ -1358,8 +1643,22 @@ const Register = () => {
         : 'Start your AI interview journey with basic account setup';
       case 2: return formData?.accountType === 'candidate' ?'Help us personalize your interview experience' :'Tell us about your company and hiring needs';
       case 3: return 'Review and accept our terms to complete registration';
+      case 4: return organizationStatus === 'APPROVED'
+        ? 'Your organization has been approved. Redirecting you to the dashboard now.'
+        : organizationStatus === 'REJECTED'
+          ? 'Your organization registration requires updates before approval'
+          : organizationStatus === 'SUSPENDED'
+            ? 'Your organization has been suspended by the system administrator'
+            : 'Your organization is under review by our administrators';
       default: return 'Start your AI interview journey';
     }
+  };
+
+  const getCompanyStepFourProgressTitle = () => {
+    if (organizationStatus === 'REJECTED') return 'Review Decision';
+    if (organizationStatus === 'SUSPENDED') return 'Organization Access Status';
+    if (organizationStatus === 'APPROVED') return 'Access Granted';
+    return 'Organization Approval';
   };
 
   const isStep2ModerationBlocking = currentStep === 2 && (
@@ -1413,6 +1712,49 @@ const Register = () => {
     isVerifyingCode
     || isSendingVerification
     || (verificationCode || '').replace(/\D/g, '').length !== 8;
+  const handleSignInClick = async () => {
+    if (currentStep === 4) {
+      try {
+        await authHelpers.signOut();
+      } catch (error) {
+        console.error('Failed to sign out before navigating to sign in:', error);
+      } finally {
+        localStorage.removeItem('user');
+        localStorage.removeItem('isAuthenticated');
+      }
+    }
+
+    navigate(loginHref);
+  };
+
+  const isCompanyStepFour = formData?.accountType === 'company' && currentStep === 4;
+  const showOrganizationStatusSidebar = isCompanyStepFour && organizationStatus && organizationStatus !== 'PENDING';
+  const organizationSidebarStatusConfig = organizationStatus === 'REJECTED'
+    ? {
+      title: 'Review Required',
+      message: 'Your submission needs updates before approval. Check the review details and request re-review.',
+      icon: 'AlertTriangle',
+      iconTone: 'text-rose-600 dark:text-rose-400',
+      containerTone: 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20',
+      textTone: 'text-rose-700 dark:text-rose-300',
+    }
+    : organizationStatus === 'SUSPENDED'
+      ? {
+        title: 'Access Suspended',
+        message: 'Organization access is paused by system administration until the issue is resolved.',
+        icon: 'AlertOctagon',
+        iconTone: 'text-orange-600 dark:text-orange-400',
+        containerTone: 'border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20',
+        textTone: 'text-orange-700 dark:text-orange-300',
+      }
+      : {
+        title: 'Organization Approved',
+        message: 'Approval is complete. You will be redirected to the company dashboard shortly.',
+        icon: 'CheckCircle',
+        iconTone: 'text-emerald-600 dark:text-emerald-400',
+        containerTone: 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20',
+        textTone: 'text-emerald-700 dark:text-emerald-300',
+      };
 
   return (
     <>
@@ -1423,7 +1765,7 @@ const Register = () => {
           content="Create your InterviewAI Pro account and start practicing interviews with AI-powered feedback and analytics."
         />
       </Helmet>
-      <div className="relative min-h-screen lg:h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 overflow-hidden transition-colors duration-300">
+      <div className={`relative min-h-screen ${isCompanyStepFour ? '' : 'lg:h-screen'} bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 ${isCompanyStepFour ? 'overflow-visible' : 'overflow-hidden'} transition-colors duration-300`}>
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 overflow-hidden"
@@ -1432,7 +1774,7 @@ const Register = () => {
           <div className="absolute bottom-0 -left-24 h-[520px] w-[520px] bg-gradient-to-tr from-indigo-300/25 via-cyan-200/20 to-transparent blur-[140px]" />
           <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
         </div>
-        <div className="relative z-10 flex min-h-screen lg:h-screen flex-col">
+        <div className={`relative z-10 flex min-h-screen ${isCompanyStepFour ? '' : 'lg:h-screen'} flex-col`}>
           <header className="flex-shrink-0">
             <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-4">
               <div className="flex items-center justify-between rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.3)] backdrop-blur">
@@ -1447,7 +1789,7 @@ const Register = () => {
                   <span className="hidden sm:block text-sm md:text-base text-gray-500 dark:text-slate-400">Already have an account?</span>
                   <Button
                     variant="ghost"
-                    onClick={() => navigate(loginHref)}
+                    onClick={handleSignInClick}
                     className="rounded-full border border-white/40 dark:border-slate-700/50 text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
                   >
                     Sign In
@@ -1466,62 +1808,87 @@ const Register = () => {
             >
               <motion.div variants={fadeUpChild} className="lg:col-span-4 flex flex-col">
                 <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-5 lg:p-6 h-full flex flex-col shadow-[0_20px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_70px_rgba(0,0,0,0.4)] backdrop-blur">
-                  <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Registration Progress</h3>
-                  <div className="space-y-3 flex-1">
-                    {[
-                      { step: 1, title: 'Account Type & Basic Info', icon: 'User' },
-                      { step: 2, title: 'Professional Details', icon: 'Briefcase' },
-                      { step: 3, title: 'Terms & Completion', icon: 'CheckCircle' }
-                    ]?.map((item) => (
-                      <div
-                        key={item?.step}
-                        className={`flex items-center space-x-3 p-3 rounded-2xl border transition-colors duration-200 ${
-                          currentStep === item?.step
-                            ? 'border-blue-500/40 dark:border-blue-500/60 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.2)]'
-                            : currentStep > item?.step
-                            ? 'border-emerald-400/40 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
-                            : 'border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 text-gray-500 dark:text-slate-400'
-                        }`}
-                      >
-                        <div className="w-8 h-8 rounded-full bg-white/80 dark:bg-slate-700/80 flex items-center justify-center flex-shrink-0 shadow-inner">
-                          <Icon 
-                            name={currentStep > item?.step ? 'Check' : item?.icon} 
-                            size={16} 
-                            className="text-current"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm md:text-base font-semibold">
-                            Step {item?.step}
-                          </div>
-                          <div className="text-xs md:text-sm text-gray-500 dark:text-slate-400">
-                            {item?.title}
+                  {showOrganizationStatusSidebar ? (
+                    <>
+                      <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Organization Status</h3>
+                      <div className={`rounded-2xl border p-4 ${organizationSidebarStatusConfig.containerTone}`}>
+                        <div className="flex items-start space-x-3">
+                          <Icon name={organizationSidebarStatusConfig.icon} size={18} className={`mt-0.5 flex-shrink-0 ${organizationSidebarStatusConfig.iconTone}`} />
+                          <div className={`space-y-1 text-sm ${organizationSidebarStatusConfig.textTone}`}>
+                            <p className="font-semibold">{organizationSidebarStatusConfig.title}</p>
+                            <p className="text-xs leading-relaxed">{organizationSidebarStatusConfig.message}</p>
                           </div>
                         </div>
                       </div>
-                    ))}
-                  </div>
-                  <div className="mt-4 pt-3 border-t border-white/30">
-                  <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-slate-100 mb-2">Why InterviewAI Pro?</h4>
-                    <ul className="space-y-2 text-xs md:text-sm text-gray-500 dark:text-slate-400">
-                      <li className="flex items-center space-x-2">
-                        <Icon name="Zap" size={12} className="text-purple-500" />
-                        <span>AI-powered practice</span>
-                      </li>
-                      <li className="flex items-center space-x-2">
-                        <Icon name="BarChart3" size={12} className="text-emerald-500" />
-                        <span>Real-time analytics</span>
-                      </li>
-                      <li className="flex items-center space-x-2">
-                        <Icon name="Shield" size={12} className="text-blue-500" />
-                        <span>Secure & confidential</span>
-                      </li>
-                      <li className="flex items-center space-x-2">
-                        <Icon name="Users" size={12} className="text-cyan-500" />
-                        <span>10,000+ users</span>
-                      </li>
-                    </ul>
-                  </div>
+                    </>
+                  ) : (
+                    <>
+                      <h3 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Registration Progress</h3>
+                      <div className="space-y-3 flex-1">
+                        {(formData?.accountType === 'company'
+                          ? [
+                              { step: 1, title: 'Account Type & Basic Info', icon: 'User' },
+                              { step: 2, title: 'Company Information', icon: 'Building' },
+                              { step: 3, title: 'Terms & Completion', icon: 'CheckCircle' },
+                              { step: 4, title: getCompanyStepFourProgressTitle(), icon: 'Shield' },
+                            ]
+                          : [
+                              { step: 1, title: 'Account Type & Basic Info', icon: 'User' },
+                              { step: 2, title: 'Professional Details', icon: 'Briefcase' },
+                              { step: 3, title: 'Terms & Completion', icon: 'CheckCircle' },
+                            ]
+                        )?.map((item) => (
+                          <div
+                            key={item?.step}
+                            className={`flex items-center space-x-3 p-3 rounded-2xl border transition-colors duration-200 ${
+                              currentStep === item?.step
+                                ? 'border-blue-500/40 dark:border-blue-500/60 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.2)]'
+                                : currentStep > item?.step
+                                ? 'border-emerald-400/40 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                                : 'border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 text-gray-500 dark:text-slate-400'
+                            }`}
+                          >
+                            <div className="w-8 h-8 rounded-full bg-white/80 dark:bg-slate-700/80 flex items-center justify-center flex-shrink-0 shadow-inner">
+                              <Icon
+                                name={currentStep > item?.step ? 'Check' : item?.icon}
+                                size={16}
+                                className="text-current"
+                              />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <div className="text-sm md:text-base font-semibold">
+                                Step {item?.step}
+                              </div>
+                              <div className="text-xs md:text-sm text-gray-500 dark:text-slate-400">
+                                {item?.title}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-4 pt-3 border-t border-white/30">
+                        <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-slate-100 mb-2">Why InterviewAI Pro?</h4>
+                        <ul className="space-y-2 text-xs md:text-sm text-gray-500 dark:text-slate-400">
+                          <li className="flex items-center space-x-2">
+                            <Icon name="Zap" size={12} className="text-purple-500" />
+                            <span>AI-powered practice</span>
+                          </li>
+                          <li className="flex items-center space-x-2">
+                            <Icon name="BarChart3" size={12} className="text-emerald-500" />
+                            <span>Real-time analytics</span>
+                          </li>
+                          <li className="flex items-center space-x-2">
+                            <Icon name="Shield" size={12} className="text-blue-500" />
+                            <span>Secure & confidential</span>
+                          </li>
+                          <li className="flex items-center space-x-2">
+                            <Icon name="Users" size={12} className="text-cyan-500" />
+                            <span>10,000+ users</span>
+                          </li>
+                        </ul>
+                      </div>
+                    </>
+                  )}
                 </div>
               </motion.div>
 
@@ -1703,6 +2070,309 @@ const Register = () => {
                         </div>
                       )}
 
+                      {currentStep === 4 && (
+                        <div className="px-1 pr-3 space-y-6">
+                          <div className="flex flex-col items-center justify-center py-8 space-y-6">
+                            {/* Status Icon */}
+                            <div className={`w-20 h-20 rounded-full flex items-center justify-center ${
+                              organizationStatus === 'APPROVED' 
+                                ? 'bg-green-100 dark:bg-green-900/30' 
+                                : organizationStatus === 'REJECTED'
+                                ? 'bg-rose-100 dark:bg-rose-900/30'
+                                : organizationStatus === 'SUSPENDED'
+                                ? 'bg-orange-100 dark:bg-orange-900/30'
+                                : 'bg-amber-100 dark:bg-amber-900/30'
+                            }`}>
+                              <Icon 
+                                name={
+                                  organizationStatus === 'APPROVED' 
+                                    ? 'CheckCircle' 
+                                    : organizationStatus === 'REJECTED'
+                                    ? 'XCircle'
+                                    : organizationStatus === 'SUSPENDED'
+                                    ? 'AlertOctagon'
+                                    : 'Clock'
+                                } 
+                                size={40} 
+                                className={
+                                  organizationStatus === 'APPROVED' 
+                                    ? 'text-green-600 dark:text-green-400' 
+                                    : organizationStatus === 'REJECTED'
+                                    ? 'text-rose-600 dark:text-rose-400'
+                                    : organizationStatus === 'SUSPENDED'
+                                    ? 'text-orange-600 dark:text-orange-400'
+                                    : 'text-amber-600 dark:text-amber-400'
+                                }
+                              />
+                            </div>
+
+                            {/* Status Message */}
+                            <div className="text-center space-y-2">
+                              <h3 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
+                                {organizationStatus === 'APPROVED' 
+                                  ? 'Organization Approved!' 
+                                  : organizationStatus === 'REJECTED'
+                                  ? 'Organization Not Approved'
+                                  : organizationStatus === 'SUSPENDED'
+                                  ? 'Organization Access Suspended'
+                                  : 'Waiting for Admin Approval'}
+                              </h3>
+                              <p className="text-sm text-gray-600 dark:text-slate-400 max-w-md">
+                                {organizationStatus === 'APPROVED' 
+                                  ? 'Your organization has been approved. Redirecting to your dashboard...' 
+                                  : organizationStatus === 'REJECTED'
+                                  ? 'Your organization could not be approved at this time. Review the reason below and submit a re-review request after making corrections.'
+                                  : organizationStatus === 'SUSPENDED'
+                                  ? 'Your organization has been suspended by an administrator. Access to company tools is currently disabled until this is resolved.'
+                                  : 'Your organization is currently under review by our administrators. You will be redirected automatically once approved. Please keep this page open.'}
+                              </p>
+                            </div>
+
+                            {organizationStatus === 'REJECTED' && organizationRejectionReason && (
+                              <div className="w-full p-4 rounded-xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20">
+                                <div className="flex items-start space-x-3">
+                                  <Icon name="AlertTriangle" size={18} className="text-rose-600 dark:text-rose-400 mt-0.5 flex-shrink-0" />
+                                  <div className="space-y-1 text-sm text-rose-700 dark:text-rose-300">
+                                    <p className="font-medium">Rejection reason</p>
+                                    <p className="text-xs leading-relaxed break-words">{organizationRejectionReason}</p>
+                                  </div>
+                                </div>
+                              </div>
+                            )}
+
+                            {organizationStatus === 'SUSPENDED' && (
+                              <div className="w-full p-4 rounded-xl border border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20 space-y-3">
+                                <div className="flex items-start space-x-3">
+                                  <Icon name="AlertOctagon" size={18} className="text-orange-600 dark:text-orange-400 mt-0.5 flex-shrink-0" />
+                                  <div className="space-y-1 text-sm text-orange-700 dark:text-orange-300">
+                                    <p className="font-medium">Suspension reason</p>
+                                    <p className="text-xs leading-relaxed break-words">
+                                      {organizationSuspensionReason || 'No specific reason was provided. Please contact support for details.'}
+                                    </p>
+                                  </div>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="default"
+                                    size="sm"
+                                    iconName="MessageCircle"
+                                    iconPosition="left"
+                                    className="rounded-full bg-orange-600 hover:bg-orange-700 text-white"
+                                    onClick={() => navigate('/contact')}
+                                  >
+                                    Contact Support
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    iconName="Mail"
+                                    iconPosition="left"
+                                    className="rounded-full border-orange-300 text-orange-700 hover:bg-orange-100 dark:border-orange-700 dark:text-orange-300 dark:hover:bg-orange-900/30"
+                                    disabled={!supportContactEmail}
+                                    onClick={() => {
+                                      if (typeof window !== 'undefined' && supportContactEmail) {
+                                        window.location.href = `mailto:${supportContactEmail}`;
+                                      }
+                                    }}
+                                  >
+                                    Email Support
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+
+                            {/* Loading Indicator for Pending */}
+                            {organizationStatus === 'PENDING' && (
+                              <div className="flex items-center space-x-2">
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                                <div className="w-2 h-2 bg-blue-600 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+                              </div>
+                            )}
+
+                            {/* Information Box */}
+                            <div className={`w-full p-4 rounded-xl border ${
+                              organizationStatus === 'REJECTED'
+                                ? 'border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20'
+                                : organizationStatus === 'SUSPENDED'
+                                ? 'border-orange-200 dark:border-orange-800 bg-orange-50 dark:bg-orange-900/20'
+                                : 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20'
+                            }`}>
+                              <div className="flex items-start space-x-3">
+                                <Icon
+                                  name="Info"
+                                  size={18}
+                                  className={`mt-0.5 flex-shrink-0 ${
+                                    organizationStatus === 'REJECTED'
+                                      ? 'text-rose-600 dark:text-rose-400'
+                                      : organizationStatus === 'SUSPENDED'
+                                      ? 'text-orange-600 dark:text-orange-400'
+                                      : 'text-blue-600 dark:text-blue-400'
+                                  }`}
+                                />
+                                <div className={`space-y-1 text-sm ${
+                                  organizationStatus === 'REJECTED'
+                                    ? 'text-rose-700 dark:text-rose-300'
+                                    : organizationStatus === 'SUSPENDED'
+                                    ? 'text-orange-700 dark:text-orange-300'
+                                    : 'text-gray-700 dark:text-slate-300'
+                                }`}>
+                                  <p className="font-medium">What happens next?</p>
+                                  {organizationStatus === 'REJECTED' ? (
+                                    <ul className="space-y-1 text-xs text-rose-600 dark:text-rose-300/90">
+                                      <li>- Review and correct the submitted company details.</li>
+                                      <li>- Check your email for the same rejection explanation.</li>
+                                      <li>- Submit a re-review request below after corrections.</li>
+                                    </ul>
+                                  ) : organizationStatus === 'SUSPENDED' ? (
+                                    <ul className="space-y-1 text-xs text-orange-700 dark:text-orange-300/90">
+                                      <li>- Organization access is paused by system administration.</li>
+                                      <li>- Company dashboard features are temporarily unavailable.</li>
+                                      <li>- Contact support or your system admin for reactivation.</li>
+                                    </ul>
+                                  ) : (
+                                    <ul className="space-y-1 text-xs text-gray-600 dark:text-slate-400">
+                                      <li>- Our team will review your organization details.</li>
+                                      <li>- This typically takes a few minutes.</li>
+                                      <li>- You will be redirected automatically once approved.</li>
+                                      <li>- No action required from you at this time.</li>
+                                    </ul>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+
+                            {organizationStatus === 'REJECTED' && (
+                              <div className="w-full p-4 rounded-xl border border-rose-200 dark:border-rose-800 bg-white dark:bg-slate-900/50 space-y-3">
+                                <div className="flex items-center gap-2">
+                                  <Icon name="RotateCcw" size={16} className="text-rose-600 dark:text-rose-400" />
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                    Request re-review
+                                  </p>
+                                </div>
+                                <p className="text-xs text-gray-600 dark:text-slate-400">
+                                  Explain what you updated so admins can reassess your organization quickly.
+                                </p>
+                                <div className="rounded-xl border border-rose-200/80 dark:border-rose-900/40 bg-rose-50/40 dark:bg-rose-900/10 p-3 space-y-3">
+                                  <div className="flex items-center gap-2">
+                                    <Icon name="UploadCloud" size={14} className="text-rose-600 dark:text-rose-400" />
+                                    <p className="text-xs font-semibold text-rose-700 dark:text-rose-300">
+                                      Update supporting evidence (optional)
+                                    </p>
+                                  </div>
+                                  <p className="text-xs text-rose-600 dark:text-rose-300/90">
+                                    Upload corrected files first, then submit your re-review note.
+                                  </p>
+                                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                                    <div className="rounded-lg border border-rose-200/70 dark:border-rose-900/40 bg-white/80 dark:bg-slate-900/55 p-2.5 space-y-2">
+                                      <p className="text-xs font-medium text-gray-900 dark:text-slate-100">Business verification document</p>
+                                      <p className="text-[11px] text-gray-500 dark:text-slate-400">PDF, DOC, DOCX &middot; Max 15 MB</p>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        iconName="Upload"
+                                        iconPosition="left"
+                                        className="w-full rounded-lg"
+                                        onClick={() => triggerReReviewFilePicker('companyProof')}
+                                        loading={isUploadingReReviewProof}
+                                        disabled={isRequestingReReview || isUploadingReReviewLogo}
+                                      >
+                                        Upload document
+                                      </Button>
+                                      <input
+                                        ref={reReviewProofInputRef}
+                                        type="file"
+                                        accept=".pdf,.doc,.docx"
+                                        onChange={(event) => handleReReviewEvidenceUpload('companyProof', event)}
+                                        className="hidden"
+                                      />
+                                    </div>
+                                    <div className="rounded-lg border border-rose-200/70 dark:border-rose-900/40 bg-white/80 dark:bg-slate-900/55 p-2.5 space-y-2">
+                                      <p className="text-xs font-medium text-gray-900 dark:text-slate-100">Company logo</p>
+                                      <p className="text-[11px] text-gray-500 dark:text-slate-400">JPG, PNG, WEBP, SVG &middot; Max 5 MB</p>
+                                      <Button
+                                        type="button"
+                                        variant="outline"
+                                        size="sm"
+                                        iconName="Upload"
+                                        iconPosition="left"
+                                        className="w-full rounded-lg"
+                                        onClick={() => triggerReReviewFilePicker('companyLogo')}
+                                        loading={isUploadingReReviewLogo}
+                                        disabled={isRequestingReReview || isUploadingReReviewProof}
+                                      >
+                                        Upload logo
+                                      </Button>
+                                      <input
+                                        ref={reReviewLogoInputRef}
+                                        type="file"
+                                        accept="image/*,.svg"
+                                        onChange={(event) => handleReReviewEvidenceUpload('companyLogo', event)}
+                                        className="hidden"
+                                      />
+                                    </div>
+                                  </div>
+                                  {errors?.reReviewEvidence && (
+                                    <p className="text-xs text-rose-600 dark:text-rose-400">{errors.reReviewEvidence}</p>
+                                  )}
+                                </div>
+                                <textarea
+                                  value={reReviewNote}
+                                  onChange={(event) => {
+                                    setReReviewNote(event.target.value);
+                                    if (errors?.reReviewNote) {
+                                      setErrors((prev) => ({ ...prev, reReviewNote: '' }));
+                                    }
+                                  }}
+                                  rows={4}
+                                  maxLength={2000}
+                                  placeholder="Describe the corrections or additional evidence you added..."
+                                  disabled={isRequestingReReview}
+                                  className="w-full px-3 py-2 rounded-xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-transparent disabled:opacity-60"
+                                />
+                                <div className="flex justify-end">
+                                  <p className="text-xs text-gray-500 dark:text-slate-500 text-right">
+                                    {reReviewNote.trim().length}/{MIN_REREVIEW_NOTE_LENGTH} minimum
+                                  </p>
+                                </div>
+                                <div className="flex justify-end">
+                                  <Button
+                                    type="button"
+                                    variant="default"
+                                    iconName="Send"
+                                    iconPosition="left"
+                                    className="h-9 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-5"
+                                    onClick={handleRequestReReview}
+                                    loading={isRequestingReReview}
+                                    disabled={
+                                      !organizationId
+                                      || isRequestingReReview
+                                      || isUploadingReReviewProof
+                                      || isUploadingReReviewLogo
+                                      || reReviewNote.trim().length < MIN_REREVIEW_NOTE_LENGTH
+                                    }
+                                  >
+                                    Request Re-review
+                                  </Button>
+                                </div>
+                                {errors?.reReviewNote && (
+                                  <p className="text-xs text-rose-600 dark:text-rose-400">{errors.reReviewNote}</p>
+                                )}
+                              </div>
+                            )}
+
+                            {organizationStatus === 'PENDING' && reReviewRequestedAt && (
+                              <p className="text-xs text-blue-600 dark:text-blue-300">
+                                Re-review request submitted on {formatDateTime(reReviewRequestedAt)}.
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
                       {message && (
                         <div
                           className={`p-4 rounded-2xl border ${
@@ -1728,27 +2398,31 @@ const Register = () => {
                       )}
 
                       <div className="flex items-center justify-center gap-4 flex-shrink-0">
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          onClick={handlePrevStep}
-                          disabled={currentStep === 1}
-                          iconName="ChevronLeft"
-                          iconPosition="left"
-                          className="h-10 rounded-full text-sm text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
-                        >
-                          Previous
-                        </Button>
-                        <div className="flex items-center space-x-2">
-                          {[1, 2, 3]?.map((step) => (
-                            <div
-                              key={step}
-                              className={`w-2 h-2 rounded-full transition-colors duration-200 ${
-                                step <= currentStep ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'
-                              }`}
-                            />
-                          ))}
-                        </div>
+                        {currentStep !== 4 && (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            onClick={handlePrevStep}
+                            disabled={currentStep === 1}
+                            iconName="ChevronLeft"
+                            iconPosition="left"
+                            className="h-10 rounded-full text-sm text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
+                          >
+                            Previous
+                          </Button>
+                        )}
+                        {currentStep !== 4 && (
+                          <div className="flex items-center space-x-2">
+                            {(formData?.accountType === 'company' ? [1, 2, 3, 4] : [1, 2, 3])?.map((step) => (
+                              <div
+                                key={step}
+                                className={`w-2 h-2 rounded-full transition-colors duration-200 ${
+                                  step <= currentStep ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
                         {currentStep < 3 ? (
                           <Button
                             type="button"
@@ -1762,7 +2436,7 @@ const Register = () => {
                           >
                             {nextButtonLabel}
                           </Button>
-                        ) : (
+                        ) : currentStep === 3 ? (
                           <div className="flex flex-col sm:flex-row gap-3">
                             <Button
                               type="submit"
@@ -1787,7 +2461,7 @@ const Register = () => {
                               Complete with Google
                             </Button>
                           </div>
-                        )}
+                        ) : null}
                       </div>
                     </div>
                   </form>
@@ -1800,9 +2474,12 @@ const Register = () => {
             <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-2 lg:py-3">
               <div className="text-center text-xs md:text-sm text-gray-500 dark:text-slate-400">
                 <p>
-                © {new Date()?.getFullYear()} InterviewAI Pro ·
-                  <a href="/privacy" className="text-blue-600 hover:underline mx-1">Privacy</a>·
-                  <a href="/terms" className="text-blue-600 hover:underline mx-1">Terms</a>·
+                  &copy; {new Date()?.getFullYear()} InterviewAI Pro
+                  <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
+                  <a href="/privacy" className="text-blue-600 hover:underline mx-1">Privacy</a>
+                  <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
+                  <a href="/terms" className="text-blue-600 hover:underline mx-1">Terms</a>
+                  <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
                   <a href="/help-center" className="text-blue-600 hover:underline mx-1">Help Center</a>
                 </p>
               </div>
@@ -1815,3 +2492,4 @@ const Register = () => {
 };
 
 export default Register;
+
