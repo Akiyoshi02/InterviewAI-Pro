@@ -11,6 +11,10 @@ import CompanyFields from '../register/components/CompanyFields';
 import TermsAndPrivacy from '../register/components/TermsAndPrivacy';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import {
+  buildPendingApprovalRoute,
+  isRestrictedCompanyUser,
+} from '../../utils/organizationAccess.js';
 
 const Onboarding = () => {
   const navigate = useNavigate();
@@ -67,6 +71,11 @@ const Onboarding = () => {
   // Align account type with authenticated user & redirect if already onboarded
   useEffect(() => {
     if (!user) return;
+    if (isRestrictedCompanyUser(user)) {
+      navigate(buildPendingApprovalRoute(user), { replace: true });
+      return;
+    }
+
     const normalizedAccountType = user.accountType?.toLowerCase() || 'candidate';
     setAccountType(normalizedAccountType);
 
@@ -171,7 +180,13 @@ const Onboarding = () => {
         throw new Error('Failed to update profile');
       }
 
-      await refresh();
+      const refreshedUser = await refresh();
+
+      const effectiveUser = refreshedUser || user;
+      if (isRestrictedCompanyUser(effectiveUser)) {
+        navigate(buildPendingApprovalRoute(effectiveUser), { replace: true });
+        return;
+      }
 
       // Clear onboarding flags
       localStorage.removeItem('needsOnboarding');

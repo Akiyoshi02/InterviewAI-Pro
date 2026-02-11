@@ -2,10 +2,15 @@ import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext.jsx';
 import LoadingState from './ui/LoadingState';
+import {
+  buildPendingApprovalRoute,
+  isRestrictedCompanyUser,
+} from '../utils/organizationAccess.js';
 
 const ProtectedRoute = ({ children, roles = [] }) => {
   const location = useLocation();
   const { status, user } = useAuth();
+  const currentPath = `${location.pathname}${location.search || ''}`;
 
   if (status === 'loading') {
     return (
@@ -19,11 +24,16 @@ const ProtectedRoute = ({ children, roles = [] }) => {
   }
 
   if (status === 'unauthenticated' || !user) {
-    return <Navigate to="/login" replace state={{ from: `${location.pathname}${location.search || ''}` }} />;
+    return <Navigate to="/login" replace state={{ from: currentPath }} />;
+  }
+
+  const isCompanyRoute = location.pathname.startsWith('/company-');
+  if (isCompanyRoute && isRestrictedCompanyUser(user)) {
+    return <Navigate to={buildPendingApprovalRoute(user)} replace state={{ from: currentPath }} />;
   }
 
   if (roles.length > 0) {
-    const normalizedRole = user.accountType?.toUpperCase();
+    const normalizedRole = (user.accountType || user.account_type || '').toString().toUpperCase();
     const isAllowed = roles.some(
       (role) => role.toUpperCase() === normalizedRole,
     );
@@ -32,7 +42,9 @@ const ProtectedRoute = ({ children, roles = [] }) => {
       // Determine fallback based on account type
       let fallback = '/';
       if (normalizedRole === 'COMPANY') {
-        fallback = '/company-dashboard';
+        fallback = isRestrictedCompanyUser(user)
+          ? buildPendingApprovalRoute(user)
+          : '/company-dashboard';
       } else if (normalizedRole === 'CANDIDATE') {
         fallback = '/candidate-dashboard';
       } else if (normalizedRole === 'SYSTEM_ADMIN') {

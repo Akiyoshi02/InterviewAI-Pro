@@ -111,6 +111,17 @@ const ALLOWED_VALUES = {
   ACCOUNT_TYPE: ['CANDIDATE', 'COMPANY'],
   ORGANIZATION_ROLE: ['ADMIN', 'RECRUITER', 'REVIEWER'],
   ORGANIZATION_STATUS: ['PENDING', 'APPROVED', 'REJECTED', 'SUSPENDED'],
+  REJECTION_REASON_CODE: [
+    'DOCUMENT_MISSING',
+    'DOCUMENT_MISMATCH',
+    'IDENTITY_MISMATCH',
+    'DOMAIN_MISMATCH',
+    'PUBLIC_EMAIL_DOMAIN',
+    'INSUFFICIENT_PUBLIC_PRESENCE',
+    'HIGH_RISK_SIGNALS',
+    'INCOMPLETE_REGISTRATION',
+    'OTHER',
+  ],
   APPLICATION_STATUS: ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'],
   JOB_STATUS: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
   INTERVIEW_MODE: ['PRACTICE', 'HIRING'],
@@ -151,7 +162,7 @@ const sanitizeObject = (obj, allowedFields) => {
   
   const sanitized = {};
   allowedFields.forEach(field => {
-    if (obj.hasOwnProperty(field) && obj[field] !== undefined) {
+    if (Object.prototype.hasOwnProperty.call(obj, field) && obj[field] !== undefined) {
       sanitized[field] = obj[field];
     }
   });
@@ -609,7 +620,7 @@ export const validationSchemas = {
   auth: {
     register: {
       allowedFields: [
-        'accountType', 'fullName', 'experienceLevel', 'gender', 'targetRole',
+        'email', 'accountType', 'fullName', 'experienceLevel', 'gender', 'targetRole',
         'careerGoals', 'location', 'preferredLanguage', 'phoneNumber',
         'highestQualification', 'fieldOfStudy', 'institutionName', 'graduationYear',
         'skills', 'linkedinUrl', 'githubUrl', 'portfolioUrl',
@@ -617,10 +628,11 @@ export const validationSchemas = {
         'expectedSalary', 'companyName', 'companyType', 'industry', 'companySize',
         'jobTitle', 'department', 'hiringVolume', 'companyWebsite', 'companyLocation',
         'companyAddress', 'companyDescription', 'businessRegistrationNumber',
-        'companyEmail', 'establishedYear', 'facebookUrl', 'companyLinkedinUrl',
+        'companyEmail', 'companyPhoneNumber', 'establishedYear', 'facebookUrl', 'companyLinkedinUrl',
         'teamInvitationToken',
       ],
       validators: [
+        commonValidators.email('email', false),
         commonValidators.enum('accountType', ALLOWED_VALUES.ACCOUNT_TYPE, true),
         commonValidators.name('fullName', false),
         commonValidators.shortText('experienceLevel'),
@@ -656,6 +668,7 @@ export const validationSchemas = {
         commonValidators.longText('companyDescription'),
         commonValidators.shortText('businessRegistrationNumber'),
         commonValidators.email('companyEmail', false),
+        commonValidators.phone('companyPhoneNumber'),
         commonValidators.year('establishedYear'),
         commonValidators.url('facebookUrl'),
         commonValidators.url('companyLinkedinUrl'),
@@ -694,6 +707,17 @@ export const validationSchemas = {
           .withMessage('User ID is required')
           .isLength({ max: LENGTH_LIMITS.ID })
           .withMessage('Invalid user ID'),
+      ],
+    },
+
+    requestOrganizationReReview: {
+      allowedFields: ['note'],
+      validators: [
+        commonValidators.longText('note', true),
+        body('note')
+          .trim()
+          .isLength({ min: 15 })
+          .withMessage('Re-review note must be at least 15 characters'),
       ],
     },
   },
@@ -919,9 +943,45 @@ export const validationSchemas = {
     },
     
     rejectOrganization: {
-      allowedFields: ['reason'],
+      allowedFields: ['reason', 'reasonCode', 'reasonTags', 'reasonTagOther'],
       validators: [
         commonValidators.longText('reason', true),
+        body('reason')
+          .trim()
+          .isLength({ min: 15 })
+          .withMessage('Rejection reason must be at least 15 characters'),
+        body('reasonCode')
+          .optional()
+          .trim()
+          .toUpperCase()
+          .isIn(ALLOWED_VALUES.REJECTION_REASON_CODE)
+          .withMessage('Invalid rejection reason code'),
+        body('reasonTags')
+          .optional()
+          .isArray({ max: 8 })
+          .withMessage('Rejection reason tags must be an array (max 8 items)'),
+        body('reasonTags.*')
+          .optional()
+          .isString()
+          .trim()
+          .toUpperCase()
+          .isIn(ALLOWED_VALUES.REJECTION_REASON_CODE)
+          .withMessage('One or more rejection reason tags are invalid'),
+        body('reasonTagOther')
+          .optional()
+          .trim()
+          .isLength({ min: 3, max: LENGTH_LIMITS.LONG_TEXT })
+          .withMessage('Other tag details must be between 3 and 2000 characters'),
+        body('reasonTagOther')
+          .custom((value, { req }) => {
+            const tags = Array.isArray(req.body?.reasonTags)
+              ? req.body.reasonTags.map((tag) => (tag || '').toString().trim().toUpperCase())
+              : [];
+            if (tags.includes('OTHER') && (!value || !String(value).trim())) {
+              throw new Error('Please provide details for the "Other" supporting tag');
+            }
+            return true;
+          }),
       ],
     },
     

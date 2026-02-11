@@ -47,7 +47,7 @@ export function requireApprovedOrganization(req, res, next) {
 
     if (orgStatus === 'REJECTED') {
       return res.status(403).json({
-        error: 'Organization access has been rejected. Please contact support.',
+        error: 'Organization access has been rejected. Submit a re-review request from the registration status page.',
         code: 'ORG_REJECTED',
         reason: organizationContext.organization.rejectedReason || 'Not specified',
       });
@@ -99,7 +99,7 @@ export function allowPendingOrganization(req, res, next) {
 
     if (orgStatus === 'REJECTED') {
       return res.status(403).json({
-        error: 'Organization access has been rejected. Please contact support.',
+        error: 'Organization access has been rejected. Submit a re-review request from the registration status page.',
         code: 'ORG_REJECTED',
         reason: organizationContext.organization.rejectedReason || 'Not specified',
       });

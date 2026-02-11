@@ -378,16 +378,22 @@ const LLMDataAggregator = () => {
                 <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
                   Category
                 </label>
-                <select
-                  value={manualEntry.category}
-                  onChange={(e) => setManualEntry(prev => ({ ...prev, category: e.target.value }))}
-                  className="w-full px-3 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
-                >
-                  <option value="behavioral">Behavioral</option>
-                  <option value="technical">Technical</option>
-                  <option value="situational">Situational</option>
-                  <option value="general">General</option>
-                </select>
+                <div className="relative group">
+                  <select
+                    value={manualEntry.category}
+                    onChange={(e) => setManualEntry(prev => ({ ...prev, category: e.target.value }))}
+                    className="w-full appearance-none px-3 pr-10 py-2 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 text-sm"
+                  >
+                    <option value="behavioral">Behavioral</option>
+                    <option value="technical">Technical</option>
+                    <option value="situational">Situational</option>
+                    <option value="general">General</option>
+                  </select>
+                  <Icon
+                    name="ChevronDown"
+                    className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
+                  />
+                </div>
               </div>
             </div>
 

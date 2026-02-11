@@ -39,6 +39,15 @@ const sanitizeOrganization = (org) => {
     approvedBy: org.approvedBy,
     approvedAt: org.approvedAt,
     rejectedReason: org.rejectedReason,
+    rejectedReasonCode: org.rejectedReasonCode || null,
+    rejectedReasonTags: Array.isArray(org.rejectedReasonTags) ? org.rejectedReasonTags : [],
+    rejectedReasonTagOther: org.rejectedReasonTagOther || null,
+    rejectedAt: org.rejectedAt || null,
+    rejectedBy: org.rejectedBy || null,
+    reReviewRequestedAt: org.reReviewRequestedAt || null,
+    reReviewRequestedBy: org.reReviewRequestedBy || null,
+    reReviewRequestNote: org.reReviewRequestNote || null,
+    reReviewRequestCount: Number.isFinite(org.reReviewRequestCount) ? org.reReviewRequestCount : 0,
     suspensionReason: org.suspensionReason,
     branding: org.branding,
     settings: org.settings,
@@ -58,6 +67,527 @@ const sanitizeUser = (user) => {
     primaryOrganizationId: user.primaryOrganizationId,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
+  };
+};
+
+const FREE_EMAIL_DOMAINS = new Set([
+  'gmail.com',
+  'googlemail.com',
+  'yahoo.com',
+  'yahoo.co.uk',
+  'hotmail.com',
+  'outlook.com',
+  'live.com',
+  'icloud.com',
+  'aol.com',
+  'protonmail.com',
+  'mail.com',
+  'zoho.com',
+]);
+
+const normalizeHostname = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .split('?')[0]
+    .split('#')[0]
+    .replace(/\.$/, '') || null;
+};
+
+const extractHostnameFromWebsite = (website) => {
+  if (!website || typeof website !== 'string') return null;
+  try {
+    const withProtocol = /^https?:\/\//i.test(website) ? website : `https://${website}`;
+    const hostname = new URL(withProtocol).hostname;
+    return normalizeHostname(hostname);
+  } catch {
+    return normalizeHostname(website);
+  }
+};
+
+const extractDomainFromEmail = (email) => {
+  if (!email || typeof email !== 'string') return null;
+  const parts = email.toLowerCase().trim().split('@');
+  if (parts.length !== 2 || !parts[1]) return null;
+  return normalizeHostname(parts[1]);
+};
+
+const normalizeRejectionCode = (value) =>
+  (value || 'OTHER').toString().trim().toUpperCase() || 'OTHER';
+
+const normalizeRejectionTags = (tags = [], reasonCode = 'OTHER') => {
+  const normalized = Array.isArray(tags)
+    ? Array.from(
+        new Set(
+          tags
+            .map((tag) => (tag || '').toString().trim().toUpperCase())
+            .filter(Boolean),
+        ),
+      )
+    : [];
+
+  const primaryCode = normalizeRejectionCode(reasonCode);
+  if (primaryCode !== 'OTHER' && !normalized.includes(primaryCode)) {
+    normalized.unshift(primaryCode);
+  }
+
+  return normalized.slice(0, 8);
+};
+
+const normalizeVerificationInsights = (insights) => {
+  if (!insights) return null;
+  if (typeof insights === 'object' && !Array.isArray(insights)) {
+    return insights;
+  }
+  if (typeof insights === 'string') {
+    try {
+      const parsed = JSON.parse(insights);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        return parsed;
+      }
+    } catch {
+      return { raw: insights };
+    }
+    return { raw: insights };
+  }
+  return { raw: String(insights) };
+};
+
+const normalizeRegistrationNumber = (value) => {
+  if (!value) return '';
+  return String(value).replace(/[^a-z0-9]/gi, '').toLowerCase();
+};
+
+const toIsoDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+
+const yearsSince = (isoDate) => {
+  if (!isoDate) return null;
+  const date = new Date(isoDate);
+  if (Number.isNaN(date.getTime())) return null;
+  const nowDate = new Date();
+  const diffMs = nowDate.getTime() - date.getTime();
+  return diffMs / (1000 * 60 * 60 * 24 * 365.25);
+};
+
+const normalizeCheckStatus = (status) => {
+  if (status === 'pass' || status === 'warn' || status === 'fail' || status === 'info') {
+    return status;
+  }
+  return 'info';
+};
+
+const buildVerificationPayload = (organization, owner) => {
+  const insights = normalizeVerificationInsights(owner?.companyVerificationInsights);
+  const website = organization?.website || owner?.companyWebsite || null;
+  const websiteDomain = extractHostnameFromWebsite(website);
+  const companyEmail = owner?.companyEmail || null;
+  const companyEmailDomain = extractDomainFromEmail(companyEmail);
+  const ownerEmail = owner?.email || null;
+  const ownerEmailDomain = extractDomainFromEmail(ownerEmail);
+  const registrationNumber = owner?.businessRegistrationNumber || null;
+  const normalizedRegistrationNumber = normalizeRegistrationNumber(registrationNumber);
+
+  const registrationMentions = Array.isArray(insights?.registrationNumbers)
+    ? insights.registrationNumbers
+    : [];
+  const authorityMentions = Array.isArray(insights?.authorityMentions) ? insights.authorityMentions : [];
+  const addressMentions = Array.isArray(insights?.addressMentions) ? insights.addressMentions : [];
+  const normalizedExtractedRegistrationNumbers = registrationMentions
+    .map((item) => normalizeRegistrationNumber(item?.number || item))
+    .filter(Boolean);
+
+  const registrationMentionMatched = normalizedRegistrationNumber
+    ? normalizedExtractedRegistrationNumbers.some((extracted) => extracted === normalizedRegistrationNumber)
+    : false;
+  const registrationMentionPartial = !registrationMentionMatched && normalizedRegistrationNumber
+    ? normalizedExtractedRegistrationNumbers.some(
+      (extracted) =>
+        extracted.length >= 6
+        && (
+          extracted.includes(normalizedRegistrationNumber)
+          || normalizedRegistrationNumber.includes(extracted)
+        ),
+    )
+    : false;
+
+  const checks = [];
+
+  const requiredFields = [
+    ['Organization name', organization?.displayName || organization?.name],
+    ['Owner full name', owner?.fullName],
+    ['Owner email', owner?.email],
+    ['Company contact email', companyEmail],
+    ['Company location', owner?.companyLocation || organization?.address],
+    ['Business registration number', registrationNumber],
+    ['Verification document', owner?.companyVerificationUrl],
+  ];
+
+  const missingRequired = requiredFields.filter(([, value]) => !value).map(([label]) => label);
+  checks.push({
+    id: 'identity-completeness',
+    label: 'Identity details complete',
+    status:
+      missingRequired.length === 0 ? 'pass'
+        : missingRequired.length <= 2 ? 'warn'
+          : 'fail',
+    details:
+      missingRequired.length === 0
+        ? 'All core identity and registration fields are present.'
+        : `Missing: ${missingRequired.join(', ')}`,
+  });
+
+  if (!companyEmail) {
+    checks.push({
+      id: 'company-email',
+      label: 'Company contact email',
+      status: 'fail',
+      details: 'No dedicated company contact email was provided.',
+    });
+  } else if (!companyEmailDomain) {
+    checks.push({
+      id: 'company-email',
+      label: 'Company contact email',
+      status: 'warn',
+      details: `Company email "${companyEmail}" is not in a valid format.`,
+    });
+  } else if (FREE_EMAIL_DOMAINS.has(companyEmailDomain)) {
+    checks.push({
+      id: 'company-email',
+      label: 'Company contact email',
+      status: 'warn',
+      details: `Company email uses a public provider (${companyEmailDomain}) instead of a business domain.`,
+      evidence: { companyEmailDomain },
+    });
+  } else {
+    checks.push({
+      id: 'company-email',
+      label: 'Company contact email',
+      status: 'pass',
+      details: `Company email domain (${companyEmailDomain}) looks business-owned.`,
+      evidence: { companyEmailDomain },
+    });
+  }
+
+  if (!websiteDomain || !companyEmailDomain) {
+    checks.push({
+      id: 'domain-alignment',
+      label: 'Email and website domain alignment',
+      status: 'warn',
+      details: 'Provide both website and company email to validate domain ownership.',
+      evidence: { websiteDomain, companyEmailDomain },
+    });
+  } else if (websiteDomain === companyEmailDomain) {
+    checks.push({
+      id: 'domain-alignment',
+      label: 'Email and website domain alignment',
+      status: 'pass',
+      details: 'Website and company email share the same domain.',
+      evidence: { websiteDomain, companyEmailDomain },
+    });
+  } else {
+    checks.push({
+      id: 'domain-alignment',
+      label: 'Email and website domain alignment',
+      status: 'fail',
+      details: `Website domain (${websiteDomain}) does not match company email domain (${companyEmailDomain}).`,
+      evidence: { websiteDomain, companyEmailDomain },
+    });
+  }
+
+  if (!registrationNumber) {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'fail',
+      details: 'No business registration number was provided.',
+    });
+  } else if (insights && registrationMentionMatched) {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'pass',
+      details: 'Provided registration number appears in uploaded proof document.',
+    });
+  } else if (insights && registrationMentionPartial) {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'warn',
+      details: 'Document includes a similar registration number, but exact value was not matched.',
+      evidence: { extractedRegistrationCount: registrationMentions.length },
+    });
+  } else if (insights && registrationMentions.length > 0) {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'warn',
+      details: 'Document includes registration numbers, but exact provided value was not matched.',
+      evidence: { extractedRegistrationCount: registrationMentions.length },
+    });
+  } else if (insights) {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'warn',
+      details: 'Document analysis did not extract a registration number to cross-check.',
+    });
+  } else {
+    checks.push({
+      id: 'registration-number',
+      label: 'Business registration number',
+      status: 'info',
+      details: 'Registration number was provided, but document analysis is unavailable for comparison.',
+    });
+  }
+
+  if (!owner?.companyVerificationUrl) {
+    checks.push({
+      id: 'verification-document',
+      label: 'Verification document quality',
+      status: 'fail',
+      details: 'No verification document is attached.',
+    });
+  } else if (!insights) {
+    checks.push({
+      id: 'verification-document',
+      label: 'Verification document quality',
+      status: 'warn',
+      details: 'Verification document exists, but extracted insights are unavailable.',
+    });
+  } else if (insights.countryMatchStatus === 'mismatch') {
+    checks.push({
+      id: 'verification-document',
+      label: 'Verification document quality',
+      status: 'fail',
+      details: 'Detected document jurisdiction does not match provided company location.',
+      evidence: {
+        expectedCountry: insights.expectedCountry || null,
+        detectedCountries: insights.detectedCountries || [],
+      },
+    });
+  } else if (authorityMentions.length > 0 && (registrationMentions.length > 0 || addressMentions.length > 0)) {
+    checks.push({
+      id: 'verification-document',
+      label: 'Verification document quality',
+      status: 'pass',
+      details: 'Document includes authority, registration, and/or address signals typically found in official records.',
+      evidence: {
+        authorityMentions: authorityMentions.length,
+        registrationMentions: registrationMentions.length,
+        addressMentions: addressMentions.length,
+      },
+    });
+  } else {
+    checks.push({
+      id: 'verification-document',
+      label: 'Verification document quality',
+      status: 'warn',
+      details: 'Document is attached but has weak official signals. Manual review is recommended.',
+      evidence: {
+        authorityMentions: authorityMentions.length,
+        registrationMentions: registrationMentions.length,
+      },
+    });
+  }
+
+  const companyNameScore = typeof insights?.companyNameScore === 'number' ? insights.companyNameScore : null;
+  if (companyNameScore == null) {
+    checks.push({
+      id: 'company-name-match',
+      label: 'Company name found in document',
+      status: insights ? 'warn' : 'info',
+      details: insights
+        ? 'Document analysis could not confidently score company name matching.'
+        : 'Company name matching skipped because insights are unavailable.',
+    });
+  } else if (companyNameScore >= 0.6) {
+    checks.push({
+      id: 'company-name-match',
+      label: 'Company name found in document',
+      status: 'pass',
+      details: `Company name match score is ${(companyNameScore * 100).toFixed(0)}%.`,
+    });
+  } else if (companyNameScore >= 0.35) {
+    checks.push({
+      id: 'company-name-match',
+      label: 'Company name found in document',
+      status: 'warn',
+      details: `Company name match score is ${(companyNameScore * 100).toFixed(0)}%, verify manually.`,
+    });
+  } else {
+    checks.push({
+      id: 'company-name-match',
+      label: 'Company name found in document',
+      status: 'fail',
+      details: `Company name match score is ${(companyNameScore * 100).toFixed(0)}%, likely mismatch.`,
+    });
+  }
+
+  const recentDocumentDate = toIsoDate(insights?.mostRecentDate);
+  if (!insights) {
+    checks.push({
+      id: 'document-recency',
+      label: 'Document recency',
+      status: 'info',
+      details: 'Recency not scored because document insights are unavailable.',
+    });
+  } else if (!recentDocumentDate) {
+    checks.push({
+      id: 'document-recency',
+      label: 'Document recency',
+      status: 'warn',
+      details: 'Document date could not be extracted. Consider requesting a clearer copy.',
+    });
+  } else {
+    const ageYears = yearsSince(recentDocumentDate);
+    if (ageYears != null && ageYears <= 3) {
+      checks.push({
+        id: 'document-recency',
+        label: 'Document recency',
+        status: 'pass',
+        details: 'Document appears recent (within approximately 3 years).',
+        evidence: { mostRecentDate: recentDocumentDate },
+      });
+    } else {
+      checks.push({
+        id: 'document-recency',
+        label: 'Document recency',
+        status: 'warn',
+        details: 'Document appears older than 3 years. Confirm the company is currently active.',
+        evidence: { mostRecentDate: recentDocumentDate },
+      });
+    }
+  }
+
+  const footprintSignals = [
+    Boolean(website),
+    Boolean(organization?.linkedinUrl || owner?.companyLinkedinUrl),
+    Boolean(organization?.address || owner?.companyLocation),
+  ];
+  const footprintCount = footprintSignals.filter(Boolean).length;
+  checks.push({
+    id: 'public-footprint',
+    label: 'Public footprint',
+    status: footprintCount >= 2 ? 'pass' : 'warn',
+    details:
+      footprintCount >= 2
+        ? 'Website plus at least one additional public signal is available.'
+        : footprintCount === 1
+          ? 'Only one public signal is available. Collect more evidence if needed.'
+          : 'No public website, social profile, or address signal is available.',
+  });
+
+  const summary = checks.reduce(
+    (acc, check) => {
+      const status = normalizeCheckStatus(check.status);
+      acc[status] += 1;
+      acc.total += 1;
+      return acc;
+    },
+    { pass: 0, warn: 0, fail: 0, info: 0, total: 0 },
+  );
+
+  const riskFlags = [];
+  if (summary.fail > 0) {
+    riskFlags.push('At least one critical verification check failed.');
+  }
+  if (missingRequired.length > 0) {
+    riskFlags.push(`Missing core fields: ${missingRequired.join(', ')}.`);
+  }
+  if (companyEmailDomain && FREE_EMAIL_DOMAINS.has(companyEmailDomain)) {
+    riskFlags.push('Company contact uses a public email provider.');
+  }
+  if (websiteDomain && companyEmailDomain && websiteDomain !== companyEmailDomain) {
+    riskFlags.push('Company website and email domain mismatch.');
+  }
+  if (insights?.countryMatchStatus === 'mismatch') {
+    riskFlags.push('Document country does not match provided company location.');
+  }
+  if (!owner?.companyVerificationUrl) {
+    riskFlags.push('No verification document attached.');
+  }
+
+  let recommendationLevel = 'ready';
+  let recommendationLabel = 'Ready for approval';
+  let recommendationReason = 'All critical identity checks passed with limited risk.';
+
+  if (summary.fail > 0) {
+    recommendationLevel = 'high_risk';
+    recommendationLabel = 'High risk - require clarification';
+    recommendationReason = 'One or more critical checks failed. Request additional evidence before approval.';
+  } else if (summary.warn >= 3 || summary.info >= 2) {
+    recommendationLevel = 'caution';
+    recommendationLabel = 'Needs manual review';
+    recommendationReason = 'No critical failures, but multiple warnings require manual verification.';
+  }
+
+  return {
+    summary,
+    recommendation: {
+      level: recommendationLevel,
+      label: recommendationLabel,
+      reason: recommendationReason,
+    },
+    checks: checks.map((check) => ({
+      ...check,
+      status: normalizeCheckStatus(check.status),
+    })),
+    riskFlags,
+    domainSignals: {
+      websiteDomain,
+      companyEmailDomain,
+      ownerEmailDomain,
+      ownerEmailIsPublic: ownerEmailDomain ? FREE_EMAIL_DOMAINS.has(ownerEmailDomain) : null,
+    },
+    organizationProfile: {
+      legalName: organization?.name || null,
+      displayName: organization?.displayName || null,
+      industry: organization?.industry || owner?.industry || null,
+      companySize: organization?.companySize || owner?.companySize || null,
+      companyType: owner?.companyType || null,
+      hiringVolume: owner?.hiringVolume || null,
+      website: website || null,
+      location: owner?.companyLocation || null,
+      address: organization?.address || owner?.companyLocation || null,
+      description: organization?.description || null,
+      establishedYear: owner?.establishedYear || null,
+      registrationNumber: registrationNumber || null,
+      socialLinks: {
+        linkedin: organization?.linkedinUrl || owner?.companyLinkedinUrl || null,
+        facebook: organization?.facebookUrl || null,
+        youtube: organization?.youtubeUrl || null,
+      },
+    },
+    ownerProfile: owner
+      ? {
+        id: owner.id,
+        fullName: owner.fullName || null,
+        email: owner.email || null,
+        phoneNumber: owner.phoneNumber || null,
+        jobTitle: owner.jobTitle || null,
+        department: owner.department || null,
+        companyEmail: owner.companyEmail || null,
+        companyLocation: owner.companyLocation || null,
+        hiringVolume: owner.hiringVolume || null,
+        accountCreatedAt: owner.createdAt || null,
+      }
+      : null,
+    evidence: {
+      companyLogoUrl: organization?.logo || owner?.companyLogoUrl || null,
+      verificationDocumentUrl: owner?.companyVerificationUrl || null,
+      verificationDocumentName: owner?.companyVerificationOriginalName || null,
+      verificationDocumentHash: owner?.companyVerificationHash || null,
+      verificationInsights: insights,
+    },
   };
 };
 
@@ -324,6 +854,9 @@ export class AdminController {
         return res.status(404).json({ error: 'Organization not found' });
       }
 
+      const owner = organization.ownerId ? await userStore.getByUid(organization.ownerId) : null;
+      const verification = buildVerificationPayload(organization, owner);
+
       // Get members
       const members = await organizationMemberStore.listByOrganization(id);
       const userIds = members.map((m) => m.userId);
@@ -336,6 +869,17 @@ export class AdminController {
       res.json({
         success: true,
         organization: sanitizeOrganization(organization),
+        owner: owner
+          ? {
+            id: owner.id,
+            email: owner.email || null,
+            fullName: owner.fullName || null,
+            accountType: owner.accountType || null,
+            companyName: owner.companyName || null,
+            profilePhotoUrl: owner.profilePhotoUrl || owner.photoURL || null,
+          }
+          : null,
+        verification,
         members: members.map((m) => ({
           ...m,
           user: users.get(m.userId) || null,
@@ -419,7 +963,7 @@ export class AdminController {
   static async rejectOrganization(req, res, next) {
     try {
       const { id } = req.params;
-      const { reason } = req.body;
+      const { reason, reasonCode, reasonTags, reasonTagOther } = req.body;
       const adminId = req.user.id;
 
       const organization = await organizationStore.getById(id);
@@ -427,7 +971,34 @@ export class AdminController {
         return res.status(404).json({ error: 'Organization not found' });
       }
 
-      const rejected = await organizationStore.reject(id, reason, adminId);
+      if (organization.status === 'REJECTED') {
+        return res.json({
+          success: true,
+          message: 'Organization is already rejected',
+          organization: sanitizeOrganization(organization),
+        });
+      }
+
+      if (organization.status !== 'PENDING') {
+        return res.status(409).json({
+          success: false,
+          error: `Only pending organizations can be rejected. Current status: ${organization.status}.`,
+          code: 'INVALID_ORG_STATUS',
+        });
+      }
+
+      const normalizedReasonCode = normalizeRejectionCode(reasonCode);
+      const normalizedReasonTags = normalizeRejectionTags(reasonTags, normalizedReasonCode);
+      const normalizedReasonTagOther = normalizedReasonTags.includes('OTHER') && reasonTagOther
+        ? String(reasonTagOther).trim()
+        : null;
+      const rejected = await organizationStore.reject(id, {
+        reason,
+        rejectedBy: adminId,
+        reasonCode: normalizedReasonCode,
+        reasonTags: normalizedReasonTags,
+        reasonTagOther: normalizedReasonTagOther,
+      });
 
       // Log the action
       await platformAuditLogStore.record({
@@ -440,6 +1011,9 @@ export class AdminController {
           organizationName: organization.name,
           ownerId: organization.ownerId,
           reason,
+          reasonCode: normalizedReasonCode,
+          reasonTags: normalizedReasonTags,
+          reasonTagOther: normalizedReasonTagOther,
         },
       });
 
@@ -453,10 +1027,10 @@ export class AdminController {
         } else {
           logger.info(`Attempting to send rejection email to ${owner.email} for organization ${organization.name}`);
           await emailNotifications.sendOrganizationRejected(rejected, owner, reason);
-          logger.info(`✅ Rejection email sent successfully to ${owner.email}`);
+          logger.info(`Rejection email sent successfully to ${owner.email}`);
         }
       } catch (emailError) {
-        logger.error('❌ Failed to send rejection email:', {
+        logger.error('Failed to send rejection email:', {
           error: emailError.message,
           stack: emailError.stack,
           organizationId: id,
@@ -492,6 +1066,22 @@ export class AdminController {
         return res.status(404).json({ error: 'Organization not found' });
       }
 
+      if (organization.status === 'SUSPENDED') {
+        return res.json({
+          success: true,
+          message: 'Organization is already suspended',
+          organization: sanitizeOrganization(organization),
+        });
+      }
+
+      if (organization.status !== 'APPROVED') {
+        return res.status(409).json({
+          success: false,
+          error: `Only approved organizations can be suspended. Current status: ${organization.status}.`,
+          code: 'INVALID_ORG_STATUS',
+        });
+      }
+
       const suspended = await organizationStore.suspend(id, reason, adminId);
 
       // Log the action
@@ -508,7 +1098,26 @@ export class AdminController {
         },
       });
 
-      // TODO: Send suspension notification email
+      // Send suspension email to organization owner
+      try {
+        const owner = await userStore.getByUid(organization.ownerId);
+        if (!owner) {
+          logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
+        } else if (!owner.email) {
+          logger.warn(`Owner ${organization.ownerId} does not have an email address`);
+        } else {
+          await emailNotifications.sendOrganizationSuspended(suspended, owner, reason);
+          logger.info(`Suspension email sent successfully to ${owner.email}`);
+        }
+      } catch (emailError) {
+        logger.error('Failed to send suspension email:', {
+          error: emailError.message,
+          stack: emailError.stack,
+          organizationId: id,
+          ownerId: organization.ownerId,
+        });
+        // Do not fail suspension action if email fails
+      }
 
       logger.info(`Organization suspended: ${id} by admin ${adminId}, reason: ${reason}`);
 
@@ -536,6 +1145,22 @@ export class AdminController {
         return res.status(404).json({ error: 'Organization not found' });
       }
 
+      if (organization.status === 'APPROVED') {
+        return res.json({
+          success: true,
+          message: 'Organization is already active',
+          organization: sanitizeOrganization(organization),
+        });
+      }
+
+      if (organization.status !== 'SUSPENDED') {
+        return res.status(409).json({
+          success: false,
+          error: `Only suspended organizations can be activated. Current status: ${organization.status}.`,
+          code: 'INVALID_ORG_STATUS',
+        });
+      }
+
       const activated = await organizationStore.activate(id);
 
       // Log the action
@@ -551,7 +1176,26 @@ export class AdminController {
         },
       });
 
-      // TODO: Send reactivation email
+      // Send reactivation email to organization owner
+      try {
+        const owner = await userStore.getByUid(organization.ownerId);
+        if (!owner) {
+          logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
+        } else if (!owner.email) {
+          logger.warn(`Owner ${organization.ownerId} does not have an email address`);
+        } else {
+          await emailNotifications.sendOrganizationReactivated(activated, owner);
+          logger.info(`Reactivation email sent successfully to ${owner.email}`);
+        }
+      } catch (emailError) {
+        logger.error('Failed to send reactivation email:', {
+          error: emailError.message,
+          stack: emailError.stack,
+          organizationId: id,
+          ownerId: organization.ownerId,
+        });
+        // Do not fail activation action if email fails
+      }
 
       logger.info(`Organization activated: ${id} by admin ${adminId}`);
 

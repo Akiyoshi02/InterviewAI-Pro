@@ -3,6 +3,10 @@ import { useNavigate } from 'react-router-dom';
 import { Sparkles, Menu, X } from 'lucide-react';
 import Icon from '../AppIcon';
 import Button from '../ui/Button';
+import {
+  buildPendingApprovalRoute,
+  isRestrictedCompanyUser,
+} from '../../utils/organizationAccess.js';
 
 const PublicHeader = () => {
   const navigate = useNavigate();
@@ -104,6 +108,13 @@ const PublicHeader = () => {
       if (session) {
         const userData = await apiClient.auth.getMe();
         if (userData.success && userData.user) {
+          if (isRestrictedCompanyUser(userData.user)) {
+            localStorage.setItem('user', JSON.stringify(userData.user));
+            localStorage.setItem('isAuthenticated', 'true');
+            navigate(buildPendingApprovalRoute(userData.user));
+            return;
+          }
+
           const accountType = userData.user.accountType?.toLowerCase();
           const dashboardRoute =
             accountType === 'candidate' ? '/candidate-dashboard' : '/company-dashboard';

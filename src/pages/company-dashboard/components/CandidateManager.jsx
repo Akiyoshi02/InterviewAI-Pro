@@ -119,36 +119,48 @@ const CandidateManager = ({ canStartReview = true }) => {
             <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
               Filter by Job
             </label>
-            <select
-              value={filterJob}
-              onChange={(e) => setFilterJob(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
-            >
-              <option value="all">All Jobs</option>
-              {jobs.map((job) => (
-                <option key={job.id} value={job.id}>
-                  {job.title}
-                </option>
-              ))}
-            </select>
+            <div className="relative group">
+              <select
+                value={filterJob}
+                onChange={(e) => setFilterJob(e.target.value)}
+                className="w-full appearance-none px-3 pr-10 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+              >
+                <option value="all">All Jobs</option>
+                {jobs.map((job) => (
+                  <option key={job.id} value={job.id}>
+                    {job.title}
+                  </option>
+                ))}
+              </select>
+              <Icon
+                name="ChevronDown"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
+              />
+            </div>
           </div>
 
           <div>
             <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
               Filter by Status
             </label>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="w-full px-3 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
-            >
-              <option value="all">All Statuses</option>
-              {statusOptions.map((status) => (
-                <option key={status} value={status}>
-                  {status.charAt(0) + status.slice(1).toLowerCase()}
-                </option>
-              ))}
-            </select>
+            <div className="relative group">
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="w-full appearance-none px-3 pr-10 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
+              >
+                <option value="all">All Statuses</option>
+                {statusOptions.map((status) => (
+                  <option key={status} value={status}>
+                    {status.charAt(0) + status.slice(1).toLowerCase()}
+                  </option>
+                ))}
+              </select>
+              <Icon
+                name="ChevronDown"
+                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
+              />
+            </div>
           </div>
         </div>
       </div>

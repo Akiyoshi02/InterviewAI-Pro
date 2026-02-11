@@ -10,6 +10,12 @@ import LoginFooter from './components/LoginFooter';
 import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import {
+  buildPendingApprovalRoute,
+  getOrganizationRejectionReason,
+  getOrganizationSuspensionReason,
+  isRestrictedCompanyUser,
+} from '../../utils/organizationAccess.js';
 
 const Login = () => {
   const navigate = useNavigate();
@@ -96,10 +102,17 @@ const Login = () => {
               navigate('/admin', { replace: true });
               return;
             }
+
+            if (isRestrictedCompanyUser(userData.user)) {
+              setAuthenticatedUser(userData.user);
+              navigate(buildPendingApprovalRoute(userData.user), { replace: true });
+              return;
+            }
             
             const dashboardRoute = accountType === 'candidate'
               ? '/candidate-dashboard'
               : '/company-dashboard';
+            setAuthenticatedUser(userData.user);
             navigate(redirectPath || dashboardRoute, { replace: true });
             return;
           }
@@ -139,7 +152,7 @@ const Login = () => {
     };
 
     checkAuth();
-  }, [navigate, redirectPath, registerHref]);
+  }, [navigate, redirectPath, registerHref, setAuthenticatedUser]);
 
   // Note: Firebase OAuth callbacks work differently than Supabase
   // They typically redirect to a configured redirect URL
@@ -211,8 +224,25 @@ const Login = () => {
           localStorage.setItem('user', JSON.stringify(userData.user));
           localStorage.setItem('isAuthenticated', 'true');
           
-          // Navigate based on account type
+          // For company accounts, check organization approval status
           const accountType = userData.user.accountType?.toLowerCase();
+          if (accountType === 'company') {
+            if (isRestrictedCompanyUser(userData.user)) {
+              // Organization has a restricted status, route user to status step
+              const reason =
+                getOrganizationRejectionReason(userData.user)
+                || getOrganizationSuspensionReason(userData.user);
+              setAuthenticatedUser(userData.user);
+              if (reason) {
+                setStatusType('info');
+                setStatusMessage(`Organization review update: ${reason}`);
+              }
+              navigate(buildPendingApprovalRoute(userData.user), { replace: true });
+              return;
+            }
+          }
+          
+          // Navigate based on account type
           const dashboardRoute = accountType === 'candidate'
             ? '/candidate-dashboard'
             : '/company-dashboard';
@@ -301,6 +331,23 @@ const Login = () => {
         
         localStorage.setItem('user', JSON.stringify(userData.user));
         localStorage.setItem('isAuthenticated', 'true');
+
+        // For company accounts, check organization approval status
+        if (accountType === 'company') {
+          if (isRestrictedCompanyUser(userData.user)) {
+            // Organization has a restricted status, route user to status step
+            const reason =
+              getOrganizationRejectionReason(userData.user)
+              || getOrganizationSuspensionReason(userData.user);
+            setAuthenticatedUser(userData.user);
+            if (reason) {
+              setStatusType('info');
+              setStatusMessage(`Organization review update: ${reason}`);
+            }
+            navigate(buildPendingApprovalRoute(userData.user), { replace: true });
+            return;
+          }
+        }
 
         const dashboardRoute = accountType === 'candidate'
           ? '/candidate-dashboard'

@@ -1,5 +1,12 @@
-import admin, { deleteFirebaseUser } from '../config/firebase.js';
-import { organizationMemberStore, organizationStore, userStore, teamInvitationStore, emailVerificationStore } from '../services/firebaseData.service.js';
+import admin, { deleteFirebaseUser, realtimeDb } from '../config/firebase.js';
+import {
+  organizationMemberStore,
+  organizationStore,
+  userStore,
+  teamInvitationStore,
+  emailVerificationStore,
+  platformAuditLogStore,
+} from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
@@ -73,6 +80,17 @@ const sanitizeOrganization = (organization) => {
     industry: organization.industry,
     companySize: organization.companySize,
     status: organization.status || 'PENDING', // Include status for approval workflow
+    approvedAt: organization.approvedAt || null,
+    rejectedReason: organization.rejectedReason || null,
+    rejectedReasonCode: organization.rejectedReasonCode || null,
+    rejectedReasonTags: Array.isArray(organization.rejectedReasonTags) ? organization.rejectedReasonTags : [],
+    rejectedReasonTagOther: organization.rejectedReasonTagOther || null,
+    rejectedAt: organization.rejectedAt || null,
+    reReviewRequestedAt: organization.reReviewRequestedAt || null,
+    reReviewRequestNote: organization.reReviewRequestNote || null,
+    reReviewRequestCount: Number.isFinite(organization.reReviewRequestCount) ? organization.reReviewRequestCount : 0,
+    suspensionReason: organization.suspensionReason || null,
+    suspendedAt: organization.suspendedAt || null,
     branding: organization.branding || { theme: 'default' },
     settings: organization.settings || {},
     createdAt: organization.createdAt,
@@ -373,6 +391,26 @@ export class AuthController {
       }
 
       if (accountTypeEnum === 'COMPANY' && !teamInvitationToken) {
+        const missingCompanyFields = [];
+        if (!companyName?.trim()) missingCompanyFields.push('company name');
+        if (!companyType?.trim()) missingCompanyFields.push('company type');
+        if (!companySize?.trim()) missingCompanyFields.push('company size');
+        if (!industry?.trim()) missingCompanyFields.push('industry');
+        if (!jobTitle?.trim()) missingCompanyFields.push('job title');
+        if (!department?.trim()) missingCompanyFields.push('department');
+        if (!hiringVolume?.trim()) missingCompanyFields.push('monthly hiring volume');
+        if (!companyLocation?.trim()) missingCompanyFields.push('company location');
+        if (!businessRegistrationNumber?.trim()) missingCompanyFields.push('business registration number');
+        if (!companyEmail?.trim()) missingCompanyFields.push('official company email');
+
+        if (missingCompanyFields.length) {
+          const error = new Error(
+            `Missing required company fields: ${missingCompanyFields.join(', ')}.`,
+          );
+          error.status = 400;
+          throw error;
+        }
+
         if (!companyLogo) {
           const error = new Error('Company logo is required.');
           error.status = 400;
@@ -404,16 +442,17 @@ export class AuthController {
           }
         );
 
-        // TESTING: Relaxed duplicate document detection
-        // if (businessVerificationResult?.hash) {
-        //   const duplicateDocs = await userStore.findByVerificationHash(businessVerificationResult.hash);
-        //   if (duplicateDocs.length) {
-        //     const existingCompany = duplicateDocs[0]?.companyName || 'another organization';
-        //     const error = new Error(`This verification document is already linked to ${existingCompany}. Please upload a unique certificate.`);
-        //     error.status = 400;
-        //     throw error;
-        //   }
-        // }
+        if (businessVerificationResult?.hash) {
+          const duplicateDocs = await userStore.findByVerificationHash(businessVerificationResult.hash);
+          if (duplicateDocs.length) {
+            const existingCompany = duplicateDocs[0]?.companyName || 'another organization';
+            const error = new Error(
+              `This verification document is already linked to ${existingCompany}. Please upload a unique certificate.`,
+            );
+            error.status = 400;
+            throw error;
+          }
+        }
       }
 
       // Prevent duplicate registrations by UID
@@ -476,6 +515,25 @@ export class AuthController {
 
         primaryOrganizationId = organization.id;
         organizationRoles = [{ organizationId: organization.id, role: 'ADMIN' }];
+
+        // Set organization approval status in Realtime Database for real-time updates
+        if (organization.id && organization.status) {
+          try {
+            await realtimeDb.ref(`organizationApprovalStatus/${organization.id}`).set({
+              status: organization.status,
+              organizationId: organization.id,
+              organizationName: organization.name || organization.displayName,
+              ownerId: firebaseUid,
+              ownerEmail: email,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            });
+            logger.info(`Set organization approval status in Realtime DB: ${organization.id} - ${organization.status}`);
+          } catch (rtdbError) {
+            logger.error('Failed to set organization approval status in Realtime DB:', rtdbError);
+            // Don't fail registration if RTDB write fails
+          }
+        }
       }
 
       const user = await userStore.create(firebaseUid, {
@@ -684,6 +742,82 @@ export class AuthController {
     }
   }
 
+  static async requestOrganizationReReview(req, res, next) {
+    try {
+      const note = (req.body.note || '').trim();
+      const user = req.user?.profile || null;
+
+      if (!user?.id || !user?.primaryOrganizationId) {
+        return res.status(400).json({
+          success: false,
+          error: 'No organization is linked to this account.',
+          code: 'NO_ORGANIZATION',
+        });
+      }
+
+      const organization = await organizationStore.getById(user.primaryOrganizationId);
+      if (!organization) {
+        return res.status(404).json({
+          success: false,
+          error: 'Organization not found.',
+        });
+      }
+
+      if (organization.ownerId !== user.id) {
+        return res.status(403).json({
+          success: false,
+          error: 'Only the organization owner can request a re-review.',
+          code: 'OWNER_ONLY',
+        });
+      }
+
+      if (organization.status === 'PENDING') {
+        return res.json({
+          success: true,
+          message: 'Your organization is already pending review.',
+          organization: sanitizeOrganization(organization),
+        });
+      }
+
+      if (organization.status !== 'REJECTED') {
+        return res.status(409).json({
+          success: false,
+          error: `Re-review can only be requested for rejected organizations. Current status: ${organization.status}.`,
+          code: 'INVALID_ORG_STATUS',
+        });
+      }
+
+      const updatedOrganization = await organizationStore.requestReReview(organization.id, {
+        requestedBy: user.id,
+        note,
+      });
+
+      await platformAuditLogStore.record({
+        actorId: user.id,
+        actorType: user.accountType || 'COMPANY',
+        action: 'ORG_REREVIEW_REQUESTED',
+        targetType: 'ORGANIZATION',
+        targetId: organization.id,
+        metadata: {
+          organizationName: organization.name || organization.displayName || null,
+          previousStatus: organization.status,
+          previousRejectedReason: organization.rejectedReason || null,
+          previousRejectedReasonCode: organization.rejectedReasonCode || null,
+          note,
+        },
+      });
+
+      return res.json({
+        success: true,
+        message: 'Re-review request submitted. Your organization is now back in the review queue.',
+        organization: sanitizeOrganization(updatedOrganization),
+      });
+    } catch (error) {
+      logger.error('Request organization re-review error:', error);
+      next(error);
+    }
+  }
+
   static async updateProfilePhoto(req, res, next) {
     const profilePhoto = req.file;
     const uploadedPaths = [];
@@ -754,6 +888,53 @@ export class AuthController {
     } catch (error) {
       await cleanupUploadedFiles(uploadedPaths);
       logger.error('Update company logo error:', error);
+      next(error);
+    }
+  }
+
+  static async updateCompanyVerificationDocument(req, res, next) {
+    const companyProof = req.file;
+    const uploadedPaths = [];
+    if (companyProof?.path) uploadedPaths.push(companyProof.path);
+
+    try {
+      if (!companyProof) {
+        const error = new Error('Company verification document is required.');
+        error.status = 400;
+        throw error;
+      }
+      if (companyProof.size > COMPANY_PROOF_MAX_BYTES) {
+        const error = new Error('Verification document must be 15 MB or less.');
+        error.status = 400;
+        throw error;
+      }
+
+      const user = await userStore.getByUid(req.user.uid);
+      const businessVerificationResult = await validateBusinessVerificationDocument(
+        companyProof.path,
+        companyProof,
+        {
+          expectedCompanyName: user?.companyName,
+          expectedCountry: user?.companyLocation,
+        }
+      );
+
+      const verificationUrl = buildUploadUrl(COMPANY_PROOF_BASE_PATH, companyProof.filename);
+
+      const updated = await userStore.update(req.user.uid, {
+        companyVerificationUrl: verificationUrl,
+        companyVerificationOriginalName: companyProof.originalname || null,
+        companyVerificationHash: businessVerificationResult?.hash || null,
+        companyVerificationInsights: businessVerificationResult?.analysis || null,
+      });
+
+      const organization = req.user.organizationContext?.organization || null;
+      const membership = req.user.organizationContext?.membership || null;
+
+      res.json({ success: true, user: buildUserResponse(updated, organization, membership) });
+    } catch (error) {
+      await cleanupUploadedFiles(uploadedPaths);
+      logger.error('Update company verification document error:', error);
       next(error);
     }
   }

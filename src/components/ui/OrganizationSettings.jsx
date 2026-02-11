@@ -3,6 +3,7 @@ import Button from './Button';
 import Input from './Input';
 import Select from './Select';
 import Icon from '../AppIcon';
+import PhoneInput from './PhoneInput';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import apiClient from '../../services/apiClient.js';
 
@@ -414,12 +415,10 @@ const OrganizationSettings = ({ className = '' }) => {
               onChange={(e) => setOrgDetails((prev) => ({ ...prev, contactEmail: e.target.value }))}
               disabled={!isOrgAdmin}
             />
-            <Input
+            <PhoneInput
               label="Primary contact phone"
-              type="tel"
-              placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
               value={orgDetails.contactPhone}
-              onChange={(e) => setOrgDetails((prev) => ({ ...prev, contactPhone: e.target.value }))}
+              onChange={(value) => setOrgDetails((prev) => ({ ...prev, contactPhone: value }))}
               disabled={!isOrgAdmin}
             />
             <Input

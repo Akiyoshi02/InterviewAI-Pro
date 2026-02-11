@@ -4,6 +4,7 @@ import Select from '../../../components/ui/Select';
 import Button from '../../../components/ui/Button';
 import Icon from '../../../components/AppIcon';
 import LoadingIndicator from '../../../components/ui/LoadingIndicator';
+import PhoneInput from '../../../components/ui/PhoneInput';
 
 const CandidateFields = ({
   formData,
@@ -253,6 +254,8 @@ const CandidateFields = ({
   const baseCertificationLookup = new Set(availableCertifications.map((option) => normalizeValue(option.value)));
   const hasCustomSkill = selectedSkills.some((value) => !baseSkillLookup.has(normalizeValue(value)));
   const hasCustomCertification = selectedCertifications.some((value) => !baseCertificationLookup.has(normalizeValue(value)));
+  const customSkillValues = selectedSkills.filter((value) => !baseSkillLookup.has(normalizeValue(value)));
+  const customCertificationValues = selectedCertifications.filter((value) => !baseCertificationLookup.has(normalizeValue(value)));
   const shouldShowCustomSkillInput = showCustomSkillInput;
   const shouldShowCustomCertificationInput = showCustomCertificationInput;
 
@@ -308,6 +311,20 @@ const CandidateFields = ({
       onFieldChange('certifications', [...currentCerts, valueToAdd]);
     }
     setCustomCertification('');
+  };
+
+  const handleRemoveCustomSkill = (targetValue) => {
+    const nextSkills = selectedSkills.filter(
+      (value) => normalizeValue(value) !== normalizeValue(targetValue),
+    );
+    onFieldChange('skills', nextSkills);
+  };
+
+  const handleRemoveCustomCertification = (targetValue) => {
+    const nextCertifications = selectedCertifications.filter(
+      (value) => normalizeValue(value) !== normalizeValue(targetValue),
+    );
+    onFieldChange('certifications', nextCertifications);
   };
 
   const fileUploads = [
@@ -572,13 +589,10 @@ const CandidateFields = ({
           error={errors?.gender}
           required
         />
-        <Input
+        <PhoneInput
           label="Phone Number"
-          type="tel"
-          placeholder="+94 XX XXX XXXX or 0XX XXX XXXX"
-          description="For interview reminders & notifications"
           value={formData?.phoneNumber}
-          onChange={(e) => onFieldChange('phoneNumber', e?.target?.value)}
+          onChange={(value) => onFieldChange('phoneNumber', value)}
           error={errors?.phoneNumber}
         />
       </div>
@@ -761,6 +775,28 @@ const CandidateFields = ({
             </Button>
           </div>
         )}
+        {customSkillValues.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Custom skills
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {customSkillValues.map((skillValue) => (
+                <button
+                  key={skillValue}
+                  type="button"
+                  onClick={() => handleRemoveCustomSkill(skillValue)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-blue-300/70 text-blue-700 bg-blue-50 hover:bg-blue-100 dark:border-blue-500/60 dark:text-blue-200 dark:bg-blue-900/30 dark:hover:bg-blue-900/50 transition-colors"
+                  title={`Remove ${skillValue}`}
+                  aria-label={`Remove custom skill ${skillValue}`}
+                >
+                  <span>{skillValue}</span>
+                  <Icon name="X" size={12} />
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {selectedSkills.length > 0 && (
           <p className="text-xs text-gray-500 dark:text-slate-400">
             {selectedSkills.length} skill{selectedSkills.length !== 1 ? 's' : ''} selected
@@ -842,6 +878,28 @@ const CandidateFields = ({
             >
               Add
             </Button>
+          </div>
+        )}
+        {customCertificationValues.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-xs text-gray-500 dark:text-slate-400">
+              Custom certifications
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {customCertificationValues.map((certValue) => (
+                <button
+                  key={certValue}
+                  type="button"
+                  onClick={() => handleRemoveCustomCertification(certValue)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border border-amber-300/70 text-amber-700 bg-amber-50 hover:bg-amber-100 dark:border-amber-500/60 dark:text-amber-200 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 transition-colors"
+                  title={`Remove ${certValue}`}
+                  aria-label={`Remove custom certification ${certValue}`}
+                >
+                  <span>{certValue}</span>
+                  <Icon name="X" size={12} />
+                </button>
+              ))}
+            </div>
           </div>
         )}
         {selectedCertifications.length > 0 && (
