@@ -2,6 +2,9 @@ import { LLMService } from '../services/llm.service.js';
 import {
   hydrateInterviewParticipants,
   interviewStore,
+  publishAdminRealtimeUpdate,
+  publishOrganizationRealtimeUpdate,
+  recordRealtimeEvent,
   userStore,
 } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
@@ -67,6 +70,25 @@ export class InterviewController {
       });
 
       const hydrated = await attachSingleInterviewParticipants({ ...interview, questions: [] });
+
+      try {
+        await recordRealtimeEvent(interview.id, 'interview-created', {
+          actor: userId,
+          status: interview.status || 'SCHEDULED',
+          mode: interview.mode || null,
+        });
+        if (interview.organizationId) {
+          await publishOrganizationRealtimeUpdate(interview.organizationId, 'interview-created', {
+            interviewId: interview.id,
+            status: interview.status || 'SCHEDULED',
+            candidateId: interview.candidateId || null,
+            companyId: interview.companyId || null,
+            jobId: interview.jobId || null,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-created realtime event:', eventError);
+      }
 
       res.status(201).json({
         success: true,
@@ -168,6 +190,26 @@ export class InterviewController {
         startedAt: new Date().toISOString(),
       });
 
+      try {
+        await recordRealtimeEvent(id, 'interview-started', {
+          actor: userId,
+          status: 'IN_PROGRESS',
+          startedAt: updatedInterview.startedAt,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-started', {
+            interviewId: updatedInterview.id,
+            status: 'IN_PROGRESS',
+            startedAt: updatedInterview.startedAt,
+            candidateId: updatedInterview.candidateId || null,
+            companyId: updatedInterview.companyId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-started realtime event:', eventError);
+      }
+
       const responseInterview = await attachSingleInterviewParticipants({
         ...updatedInterview,
         questions: interview.questions,
@@ -208,6 +250,39 @@ export class InterviewController {
         overallScore: evaluation.overallScore,
         readinessLevel: evaluation.readinessLevel,
       });
+
+      try {
+        await recordRealtimeEvent(id, 'interview-ended', {
+          actor: userId,
+          status: 'COMPLETED',
+          endedAt: updatedInterview.endedAt,
+          overallScore: updatedInterview.overallScore ?? null,
+          readinessLevel: updatedInterview.readinessLevel ?? null,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-ended', {
+            interviewId: updatedInterview.id,
+            status: 'COMPLETED',
+            endedAt: updatedInterview.endedAt,
+            overallScore: updatedInterview.overallScore ?? null,
+            readinessLevel: updatedInterview.readinessLevel ?? null,
+            candidateId: updatedInterview.candidateId || null,
+            companyId: updatedInterview.companyId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+
+        await publishAdminRealtimeUpdate('interview-completed', {
+          interviewId: updatedInterview.id,
+          organizationId: updatedInterview.organizationId || null,
+          status: 'COMPLETED',
+          endedAt: updatedInterview.endedAt,
+          overallScore: updatedInterview.overallScore ?? null,
+          readinessLevel: updatedInterview.readinessLevel ?? null,
+        });
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-ended realtime event:', eventError);
+      }
 
       const hydrated = await attachSingleInterviewParticipants({
         ...updatedInterview,
@@ -348,6 +423,17 @@ export class InterviewController {
         logger.error('Error evaluating answer:', evalError);
       }
 
+      try {
+        await recordRealtimeEvent(id, 'answer-submitted', {
+          actor: userId,
+          questionId,
+          answeredAt: updatedQuestion.answeredAt || answeredAt.toISOString(),
+          score: evaluation?.score ?? updatedQuestion?.score ?? null,
+        });
+      } catch (eventError) {
+        logger.warn('Failed to publish answer-submitted realtime event:', eventError);
+      }
+
       res.json({
         success: true,
         question: updatedQuestion,
@@ -371,9 +457,20 @@ export class InterviewController {
         return res.status(access.status).json({ error: access.message });
       }
 
+      const askedAt = new Date().toISOString();
       await interviewStore.updateQuestion(id, questionId, {
-        askedAt: new Date().toISOString(),
+        askedAt,
       });
+
+      try {
+        await recordRealtimeEvent(id, 'question-asked', {
+          actor: userId,
+          questionId,
+          askedAt,
+        });
+      } catch (eventError) {
+        logger.warn('Failed to publish question-asked realtime event:', eventError);
+      }
 
       res.json({ success: true, questionId });
     } catch (error) {
@@ -382,4 +479,3 @@ export class InterviewController {
     }
   }
 }
-

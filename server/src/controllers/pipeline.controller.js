@@ -1,4 +1,13 @@
-import { activityLogStore, invitationStore, interviewStore, jobStore, userStore } from '../services/firebaseData.service.js';
+import {
+  activityLogStore,
+  invitationStore,
+  interviewStore,
+  jobStore,
+  publishCandidateRealtimeUpdate,
+  publishOrganizationRealtimeUpdate,
+  recordRealtimeEvent,
+  userStore,
+} from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const summarizeCandidate = (interview) => ({
@@ -79,6 +88,30 @@ export class PipelineController {
           jobStage: updated.jobStage,
           pipelineStatus: updated.pipelineStatus,
         },
+      });
+
+      try {
+        await recordRealtimeEvent(updated.id, 'pipeline-updated', {
+          actor: req.user.id,
+          status: updated.status || null,
+          jobStage: updated.jobStage || null,
+          pipelineStatus: updated.pipelineStatus || null,
+        });
+      } catch (eventError) {
+        logger.warn(`Failed to publish pipeline-updated realtime event for interview ${updated.id}:`, eventError);
+      }
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'pipeline-updated', {
+        interviewId: updated.id,
+        candidateId: updated.candidateId || null,
+        pipelineStatus: updated.pipelineStatus || null,
+        jobStage: updated.jobStage || null,
+      });
+      await publishCandidateRealtimeUpdate(updated.candidateId, 'pipeline-updated', {
+        interviewId: updated.id,
+        organizationId,
+        pipelineStatus: updated.pipelineStatus || null,
+        jobStage: updated.jobStage || null,
       });
 
       res.json({ success: true, interview: updated });

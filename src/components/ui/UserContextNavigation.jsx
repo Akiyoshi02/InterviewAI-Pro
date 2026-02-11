@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import BrandMark from '../BrandMark';
@@ -107,15 +107,37 @@ const UserContextNavigation = ({
   const { user } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
+  const mobileNavRef = useRef(null);
   const [activeItem, setActiveItem] = useState(location.pathname);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [profileImageIndex, setProfileImageIndex] = useState(0);
   const [profileImageFailed, setProfileImageFailed] = useState(false);
+  const [mobileGroupMenuKey, setMobileGroupMenuKey] = useState(null);
 
   useEffect(() => {
     setActiveItem(location.pathname);
+    setMobileGroupMenuKey(null);
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (!mobileGroupMenuKey) return undefined;
+
+    const handleClickOutside = (event) => {
+      if (!mobileNavRef.current) return;
+      if (!mobileNavRef.current.contains(event.target)) {
+        setMobileGroupMenuKey(null);
+      }
+    };
+
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('touchstart', handleClickOutside);
+
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('touchstart', handleClickOutside);
+    };
+  }, [mobileGroupMenuKey]);
 
   const candidateNavItems = [
     { 
@@ -201,12 +223,56 @@ const UserContextNavigation = ({
     return companyNavItems;
   }, [userType, user?.organizationContext?.membership?.role]);
 
+  const resolveItemPath = (item) => {
+    if (!item) return '';
+    if (typeof item.path === 'string' && item.path.trim()) return item.path;
+    if (!Array.isArray(item.items)) return '';
+    const firstSubItemWithPath = item.items.find(
+      (subItem) => typeof subItem?.path === 'string' && subItem.path.trim()
+    );
+    return firstSubItemWithPath?.path || '';
+  };
+
+  const isNavigationItemActive = (item, currentPath) => {
+    if (!item || !currentPath) return false;
+    const directPath = resolveItemPath(item);
+    if (directPath && currentPath.startsWith(directPath)) return true;
+    if (!Array.isArray(item.items)) return false;
+
+    return item.items.some((subItem) => {
+      const subPath = resolveItemPath(subItem);
+      return !!subPath && currentPath.startsWith(subPath);
+    });
+  };
+
+  const getNavigableSubItems = (item) => {
+    if (!Array.isArray(item?.items)) return [];
+    return item.items.filter(
+      (subItem) => typeof subItem?.path === 'string' && subItem.path.trim()
+    );
+  };
+
   const handleNavigation = (path) => {
+    if (!path || typeof path !== 'string') return;
+    setMobileGroupMenuKey(null);
     setActiveItem(path);
     navigate(path);
   };
 
+  const handleMobileTabNavigation = (item, itemKey) => {
+    const hasDirectPath = typeof item?.path === 'string' && item.path.trim();
+    const subItems = getNavigableSubItems(item);
+
+    if (!hasDirectPath && subItems.length > 1) {
+      setMobileGroupMenuKey((prev) => (prev === itemKey ? null : itemKey));
+      return;
+    }
+
+    handleNavigation(resolveItemPath(item));
+  };
+
   const handleProfileClick = () => {
+    setMobileGroupMenuKey(null);
     setIsProfileOpen(true);
   };
 
@@ -272,6 +338,7 @@ const UserContextNavigation = ({
   const companyRole = user?.jobTitle
     || storedUser?.jobTitle
     || 'Hiring Manager';
+  const mobilePrimaryItems = navigationItems?.slice(0, 4) || [];
 
   return (
     <>
@@ -366,37 +433,97 @@ const UserContextNavigation = ({
       </aside>
 
       {/* Mobile Bottom Navigation */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding">
+      <nav
+        ref={mobileNavRef}
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding"
+      >
         <div className="flex items-center justify-around h-16 xs:h-18 px-2">
-          {navigationItems?.slice(0, 4).map((item, index) => {
-            const isActive = activeItem === item?.path;
+          {mobilePrimaryItems.map((item, index) => {
+            const isActive = isNavigationItemActive(item, activeItem);
+            const subItems = getNavigableSubItems(item);
+            const hasSubmenu = !item?.path && subItems.length > 1;
             // Use key property if available, otherwise use path, otherwise use index
             const uniqueKey = item?.key || item?.path || `nav-item-${index}`;
+            const isSubmenuOpen = mobileGroupMenuKey === uniqueKey;
+            const isFirstItem = index === 0;
+            const isLastPrimaryItem = index === mobilePrimaryItems.length - 1;
+            const popoverPositionClass = isFirstItem
+              ? 'left-0'
+              : isLastPrimaryItem
+                ? 'right-0'
+                : 'left-1/2 -translate-x-1/2';
             
             return (
-              <button
-                key={uniqueKey}
-                onClick={() => handleNavigation(item?.path)}
-                className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-w-[60px] ${
-                  isActive
-                    ? 'text-blue-600 dark:text-blue-400'
-                    : 'text-gray-500 dark:text-slate-400'
-                }`}
-                aria-current={isActive ? 'page' : undefined}
-              >
-                <div className={`p-1.5 rounded-lg transition-colors ${
-                  isActive ? 'bg-blue-100 dark:bg-blue-900/50' : ''
-                }`}>
-                  <Icon 
-                    name={item?.icon} 
-                    size={20} 
-                    className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
-                  />
-                </div>
-                <span className="text-[10px] xs:text-xs font-medium truncate max-w-[60px]">
-                  {item?.label?.split(' ')[0]}
-                </span>
-              </button>
+              <div key={uniqueKey} className="relative flex flex-col items-center">
+                {hasSubmenu && isSubmenuOpen && (
+                  <div
+                    role="menu"
+                    aria-label={`${item?.label || 'Navigation'} submenu`}
+                    className={`absolute bottom-full mb-2 z-50 w-44 max-w-[46vw] rounded-2xl border border-gray-200/70 dark:border-slate-700/80 bg-white/96 dark:bg-slate-900/96 backdrop-blur-xl shadow-[0_20px_35px_rgba(15,23,42,0.2)] overflow-hidden ${popoverPositionClass}`}
+                  >
+                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2.5 h-2.5 rotate-45 bg-white/96 dark:bg-slate-900/96 border-r border-b border-gray-200/70 dark:border-slate-700/80" />
+                    <div className="px-2 py-1.5">
+                      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-slate-400 px-1 pb-1">
+                        {item?.label}
+                      </p>
+                      <div className="space-y-1">
+                        {subItems.map((subItem, subIndex) => {
+                          const isSubActive = isNavigationItemActive(subItem, activeItem);
+                          const subItemKey = subItem?.path || `${uniqueKey}-sub-${subIndex}`;
+
+                          return (
+                            <button
+                              key={subItemKey}
+                              role="menuitem"
+                              onClick={() => handleNavigation(subItem.path)}
+                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all duration-200 text-left ${
+                                isSubActive
+                                  ? 'bg-blue-100 dark:bg-blue-900/45 text-blue-700 dark:text-blue-300'
+                                  : 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
+                              }`}
+                              aria-current={isSubActive ? 'page' : undefined}
+                            >
+                              <Icon
+                                name={subItem?.icon}
+                                size={16}
+                                className={isSubActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                              />
+                              <span className="text-xs font-medium truncate">
+                                {subItem?.label}
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  onClick={() => handleMobileTabNavigation(item, uniqueKey)}
+                  className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-w-[60px] ${
+                    isActive
+                      ? 'text-blue-600 dark:text-blue-400'
+                      : 'text-gray-500 dark:text-slate-400'
+                  }`}
+                  aria-current={isActive ? 'page' : undefined}
+                  aria-expanded={hasSubmenu ? isSubmenuOpen : undefined}
+                  aria-haspopup={hasSubmenu ? 'menu' : undefined}
+                >
+                  <div className={`p-1.5 rounded-lg transition-colors ${
+                    isActive ? 'bg-blue-100 dark:bg-blue-900/50' : ''
+                  }`}>
+                    <Icon
+                      name={item?.icon}
+                      size={20}
+                      className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                    />
+                  </div>
+                  <span className="text-[10px] xs:text-[11px] font-medium text-center whitespace-nowrap">
+                    {item?.label?.split(' ')[0]}
+                  </span>
+                </button>
+              </div>
             );
           })}
           

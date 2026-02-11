@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { onValue, ref as realtimeRef } from 'firebase/database';
 import Header from '../../components/ui/Header';
 import InterviewSessionControls from '../../components/ui/InterviewSessionControls';
 import AIInterviewerPanel from './components/AIInterviewerPanel';
@@ -22,6 +23,9 @@ import {
 } from '../../services/poseAnalyticsStorage';
 import { useAIInterviewer } from '../../hooks/useAIInterviewer';
 import apiClient from '../../services/apiClient';
+import { realtimeDb } from '../../config/firebase.js';
+
+const isBackendInterviewId = (id) => Boolean(id && !/^interview_\d+$/.test(id));
 
 const LiveInterviewSession = () => {
   const navigate = useNavigate();
@@ -67,13 +71,52 @@ const LiveInterviewSession = () => {
   // Configurable multimodal: nonverbal (body language) feedback only when enabled (2.7.3 defensible feedback).
   const [nonverbalFeedbackEnabled, setNonverbalFeedbackEnabled] = useState(true);
   useEffect(() => {
-    const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-    fetch(`${API_URL}/api/public/config`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (data.success && data.nonverbalFeedbackEnabled === false) setNonverbalFeedbackEnabled(false);
-      })
-      .catch(() => {});
+    let unsubSettings = null;
+    let cancelled = false;
+
+    const fetchPublicConfigFallback = async () => {
+      try {
+        const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+        const response = await fetch(`${API_URL}/api/public/config`);
+        const data = await response.json();
+        if (!cancelled && data.success && typeof data.nonverbalFeedbackEnabled === 'boolean') {
+          setNonverbalFeedbackEnabled(data.nonverbalFeedbackEnabled);
+        }
+      } catch {
+        // Keep default enabled if config cannot be fetched
+      }
+    };
+
+    try {
+      if (realtimeDb) {
+        const settingsRef = realtimeRef(realtimeDb, 'public/systemSettings');
+        unsubSettings = onValue(
+          settingsRef,
+          (snapshot) => {
+            const data = snapshot.val();
+            if (!cancelled && data && typeof data.nonverbalFeedbackEnabled === 'boolean') {
+              setNonverbalFeedbackEnabled(data.nonverbalFeedbackEnabled);
+              return;
+            }
+            void fetchPublicConfigFallback();
+          },
+          () => {
+            void fetchPublicConfigFallback();
+          },
+        );
+      } else {
+        void fetchPublicConfigFallback();
+      }
+    } catch {
+      void fetchPublicConfigFallback();
+    }
+
+    return () => {
+      cancelled = true;
+      if (typeof unsubSettings === 'function') {
+        unsubSettings();
+      }
+    };
   }, []);
 
   // AI Interviewer Hook
@@ -143,6 +186,12 @@ const LiveInterviewSession = () => {
 
   // Full analytics metrics (including face-mesh data)
   const [analyticsMetrics, setAnalyticsMetrics] = useState(null);
+  const poseMetricsRef = useRef(poseMetrics);
+  const lastRealtimeEventRef = useRef('');
+
+  useEffect(() => {
+    poseMetricsRef.current = poseMetrics;
+  }, [poseMetrics]);
 
   // Initialize AI Interviewer when component mounts
   useEffect(() => {
@@ -160,7 +209,7 @@ const LiveInterviewSession = () => {
 
         // Add interviewId to config if available from URL
         const idFromUrl = interviewId.current;
-        if (idFromUrl && idFromUrl !== `interview_${Date.now()}`) {
+        if (isBackendInterviewId(idFromUrl)) {
           config.interviewId = idFromUrl;
         }
 
@@ -179,6 +228,63 @@ const LiveInterviewSession = () => {
 
     loadInterviewConfig();
   }, []);
+
+  // Realtime interview lifecycle synchronization for backend interviews.
+  useEffect(() => {
+    if (!realtimeDb || !isBackendInterviewId(interviewId.current)) {
+      return undefined;
+    }
+
+    const lastEventRef = realtimeRef(realtimeDb, `sessions/${interviewId.current}/lastEvent`);
+    const unsubscribe = onValue(
+      lastEventRef,
+      (snapshot) => {
+        const event = snapshot.val();
+        if (!event || !event.eventType) return;
+
+        const eventKey = `${event.eventType}:${event.timestamp || ''}`;
+        if (lastRealtimeEventRef.current === eventKey) {
+          return;
+        }
+        lastRealtimeEventRef.current = eventKey;
+
+        if (event.eventType === 'interview-started') {
+          setSessionState((prev) => ({
+            ...prev,
+            isActive: true,
+            isPaused: false,
+          }));
+          return;
+        }
+
+        if (event.eventType === 'question-asked') {
+          setSessionState((prev) => ({
+            ...prev,
+            currentQuestion: Math.min(
+              (prev?.currentQuestion || 0) + 1,
+              prev?.totalQuestions || (prev?.currentQuestion || 0) + 1,
+            ),
+          }));
+          return;
+        }
+
+        if (event.eventType === 'interview-ended') {
+          setSessionState((prev) => (
+            prev?.isActive ? { ...prev, isActive: false, isPaused: false } : prev
+          ));
+        }
+      },
+      () => {
+        // Fail open if realtime session updates are unavailable.
+      },
+    );
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [user?.id]);
 
   // Session timer
   useEffect(() => {
@@ -361,8 +467,7 @@ const LiveInterviewSession = () => {
       recordingConsentVersion: data.recordingConsentVersion,
     }));
     const id = interviewId.current;
-    const isBackendInterviewId = id && !/^interview_\d+$/.test(id);
-    if (isBackendInterviewId) {
+    if (isBackendInterviewId(id)) {
       try {
         await apiClient.interviews.recordRecordingConsent(id, {
           recordingConsentGivenAt: data.recordingConsentGivenAt,
@@ -377,7 +482,8 @@ const LiveInterviewSession = () => {
 
   // Save pose snapshots every 5 seconds to localStorage
   useEffect(() => {
-    if (sessionState?.isActive && !sessionState?.isPaused && poseMetrics?.lastUpdated) {
+    const isSessionRunning = sessionState?.isActive && !sessionState?.isPaused;
+    if (isSessionRunning) {
       // Clear any existing interval
       if (snapshotIntervalRef.current) {
         clearInterval(snapshotIntervalRef.current);
@@ -385,7 +491,12 @@ const LiveInterviewSession = () => {
 
       // Start saving snapshots every 5 seconds
       snapshotIntervalRef.current = setInterval(() => {
-        const saved = savePoseSnapshot(interviewId.current, poseMetrics);
+        const latestPoseMetrics = poseMetricsRef.current;
+        if (!latestPoseMetrics?.lastUpdated) {
+          return;
+        }
+
+        const saved = savePoseSnapshot(interviewId.current, latestPoseMetrics);
         if (saved) {
           console.log('Pose snapshot saved to localStorage');
         }
@@ -397,7 +508,7 @@ const LiveInterviewSession = () => {
         clearInterval(snapshotIntervalRef.current);
       }
     };
-  }, [sessionState?.isActive, sessionState?.isPaused, poseMetrics]);
+  }, [sessionState?.isActive, sessionState?.isPaused]);
 
   if (status === 'loading' || !user) {
     return (

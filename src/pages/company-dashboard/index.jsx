@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -18,6 +18,8 @@ import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
+import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 
 const CompanyDashboard = () => {
@@ -31,6 +33,8 @@ const CompanyDashboard = () => {
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const fetchCompanyDataRef = useRef(null);
 
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
@@ -132,6 +136,46 @@ const CompanyDashboard = () => {
       setDataLoading(false);
     }
   }, [navigate, user]);
+
+  useEffect(() => {
+    fetchCompanyDataRef.current = fetchCompanyData;
+  }, [fetchCompanyData]);
+
+  useInterviewRealtimeFeed({
+    userId: user?.id,
+    enabled: Boolean(user?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        fetchCompanyDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useRealtimePathFeed({
+    path: user?.organizationContext?.organization?.id
+      ? `organizationFeeds/${user.organizationContext.organization.id}`
+      : null,
+    enabled: Boolean(user?.organizationContext?.organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        fetchCompanyDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimeoutRef.current) {
+      clearTimeout(realtimeRefreshTimeoutRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     fetchCompanyData();

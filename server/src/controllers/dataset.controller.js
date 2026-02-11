@@ -15,6 +15,7 @@
  */
 
 import { firestore as db } from '../config/firebase.js';
+import { publishAdminRealtimeUpdate } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 // Firestore collection names
@@ -90,6 +91,12 @@ export const saveInterviewDataset = async (req, res) => {
 
     // Update metadata collection
     await updateDatasetMetadata('interview');
+
+    await publishAdminRealtimeUpdate('dataset-updated', {
+      datasetType: 'interview',
+      action: 'created',
+      datasetId: docRef.id,
+    });
 
     logger.info(`Interview dataset saved: ${docRef.id} by user ${userId}`);
 
@@ -174,6 +181,12 @@ export const saveAnalyticsDataset = async (req, res) => {
 
     // Update metadata collection
     await updateDatasetMetadata('analytics');
+
+    await publishAdminRealtimeUpdate('dataset-updated', {
+      datasetType: 'analytics',
+      action: 'created',
+      datasetId: docRef.id,
+    });
 
     logger.info(`Analytics dataset saved: ${docRef.id} by user ${userId}`);
 
@@ -461,6 +474,12 @@ export const deleteDataset = async (req, res) => {
       : COLLECTIONS.ANALYTICS_DATASETS;
 
     await db.collection(collection).doc(id).delete();
+
+    await publishAdminRealtimeUpdate('dataset-updated', {
+      datasetType: type,
+      action: 'deleted',
+      datasetId: id,
+    });
 
     logger.info(`Dataset deleted: ${id} (type: ${type})`);
 

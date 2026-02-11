@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
@@ -7,19 +7,20 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import JobApplicationForm from './components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Helper function to convert relative upload paths to absolute URLs
-const getLogoUrl = (logoPath) => {
-  if (!logoPath) return null;
-  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-    return logoPath;
+const getAssetUrl = (assetPath) => {
+  if (!assetPath) return null;
+  if (assetPath.startsWith('http://') || assetPath.startsWith('https://') || assetPath.startsWith('blob:') || assetPath.startsWith('data:')) {
+    return assetPath;
   }
   // Convert relative path to absolute URL
   const base = API_URL.replace(/\/$/, '');
-  return `${base}${logoPath.startsWith('/') ? logoPath : `/${logoPath}`}`;
+  return `${base}${assetPath.startsWith('/') ? assetPath : `/${assetPath}`}`;
 };
 
 const JobsPage = () => {
@@ -35,6 +36,10 @@ const JobsPage = () => {
   const [applicationsByJobId, setApplicationsByJobId] = useState(new Map()); // Map<jobId, {status, withdrawnBy}>
   const [currentPage, setCurrentPage] = useState(1);
   const [jobsPerPage] = useState(12);
+  const jobsRefreshTimeoutRef = useRef(null);
+  const applicationsRefreshTimeoutRef = useRef(null);
+  const loadJobsRef = useRef(null);
+  const loadApplicationsRef = useRef(null);
   
   const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
 
@@ -43,64 +48,111 @@ const JobsPage = () => {
     navigate('/login');
   };
 
-  useEffect(() => {
-    const loadJobs = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const result = await apiClient.jobs.listPublic(50);
-        if (result.success) {
-          setJobs(result.jobs || []);
-        } else {
-          setError('Failed to load jobs.');
-        }
-      } catch (err) {
-        setError(err.message || 'Failed to load jobs.');
-      } finally {
-        setLoading(false);
+  const loadJobs = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await apiClient.jobs.listPublic(50);
+      if (result.success) {
+        setJobs(result.jobs || []);
+      } else {
+        setError('Failed to load jobs.');
       }
-    };
+    } catch (err) {
+      setError(err.message || 'Failed to load jobs.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
     loadJobs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Load user's applications to check which jobs have been applied to and their status
-  useEffect(() => {
-    const loadApplications = async () => {
-      if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
-        setApplicationsByJobId(new Map());
-        return;
-      }
-      try {
-        const result = await apiClient.applications.getMyApplications();
-        if (result.success && result.applications) {
-          // Create a map of jobId -> application status info
-          // If multiple applications exist for the same job, prioritize the most recent non-withdrawn one
-          const applicationsMap = new Map();
-          result.applications.forEach((app) => {
-            if (app.jobId) {
-              const existing = applicationsMap.get(app.jobId);
-              const isWithdrawn = app.status === 'REJECTED' && app.withdrawnBy;
-              const existingIsWithdrawn = existing?.status === 'REJECTED' && existing?.withdrawnBy;
-              
-              // Always prefer non-withdrawn applications over withdrawn ones
-              // If both are withdrawn or both are not withdrawn, prefer the most recent (later in array)
-              if (!existing || (!isWithdrawn && existingIsWithdrawn) || (isWithdrawn === existingIsWithdrawn)) {
-                applicationsMap.set(app.jobId, {
-                  status: app.status,
-                  withdrawnBy: app.withdrawnBy || null,
-                });
-              }
+  const loadApplications = async () => {
+    if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
+      setApplicationsByJobId(new Map());
+      return;
+    }
+    try {
+      const result = await apiClient.applications.getMyApplications();
+      if (result.success && result.applications) {
+        const applicationsMap = new Map();
+        result.applications.forEach((app) => {
+          if (app.jobId) {
+            const existing = applicationsMap.get(app.jobId);
+            const isWithdrawn = app.status === 'REJECTED' && app.withdrawnBy;
+            const existingIsWithdrawn = existing?.status === 'REJECTED' && existing?.withdrawnBy;
+
+            if (!existing || (!isWithdrawn && existingIsWithdrawn) || (isWithdrawn === existingIsWithdrawn)) {
+              applicationsMap.set(app.jobId, {
+                status: app.status,
+                withdrawnBy: app.withdrawnBy || null,
+              });
             }
-          });
-          setApplicationsByJobId(applicationsMap);
-        }
-      } catch (err) {
-        console.error('Failed to load applications:', err);
+          }
+        });
+        setApplicationsByJobId(applicationsMap);
       }
-    };
+    } catch (err) {
+      console.error('Failed to load applications:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadJobsRef.current = loadJobs;
+  }, [loadJobs]);
+
+  useEffect(() => {
+    loadApplicationsRef.current = loadApplications;
+  }, [loadApplications]);
+
+  useEffect(() => {
     loadApplications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
+
+  useRealtimePathFeed({
+    path: 'publicFeeds/jobs',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (jobsRefreshTimeoutRef.current) {
+        clearTimeout(jobsRefreshTimeoutRef.current);
+      }
+      jobsRefreshTimeoutRef.current = setTimeout(() => {
+        loadJobsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useRealtimePathFeed({
+    path: user?.id ? `candidateFeeds/${user.id}` : null,
+    enabled: Boolean(user?.id && user?.accountType?.toUpperCase() === 'CANDIDATE'),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (applicationsRefreshTimeoutRef.current) {
+        clearTimeout(applicationsRefreshTimeoutRef.current);
+      }
+      applicationsRefreshTimeoutRef.current = setTimeout(() => {
+        loadApplicationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (jobsRefreshTimeoutRef.current) {
+        clearTimeout(jobsRefreshTimeoutRef.current);
+      }
+      if (applicationsRefreshTimeoutRef.current) {
+        clearTimeout(applicationsRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handlePractice = (job) => {
     if (job) {
@@ -149,35 +201,8 @@ const JobsPage = () => {
       });
     }
     
-    // Reload applications to ensure we have the latest status
     if (user?.accountType?.toUpperCase() === 'CANDIDATE') {
-      try {
-        const result = await apiClient.applications.getMyApplications();
-        if (result.success && result.applications) {
-          // Create a map of jobId -> application status info
-          // If multiple applications exist for the same job, prioritize the most recent non-withdrawn one
-          const applicationsMap = new Map();
-          result.applications.forEach((app) => {
-            if (app.jobId) {
-              const existing = applicationsMap.get(app.jobId);
-              const isWithdrawn = app.status === 'REJECTED' && app.withdrawnBy;
-              const existingIsWithdrawn = existing?.status === 'REJECTED' && existing?.withdrawnBy;
-              
-              // Always prefer non-withdrawn applications over withdrawn ones
-              // If both are withdrawn or both are not withdrawn, prefer the most recent (later in array)
-              if (!existing || (!isWithdrawn && existingIsWithdrawn) || (isWithdrawn === existingIsWithdrawn)) {
-                applicationsMap.set(app.jobId, {
-                  status: app.status,
-                  withdrawnBy: app.withdrawnBy || null,
-                });
-              }
-            }
-          });
-          setApplicationsByJobId(applicationsMap);
-        }
-      } catch (err) {
-        console.error('Failed to reload applications:', err);
-      }
+      await loadApplicationsRef.current?.();
     }
     
     setTimeout(() => setApplicationSuccess(false), 5000);
@@ -454,6 +479,7 @@ const JobsPage = () => {
                     const showRejectedBadge = isRejected;
                     
                     const daysLeft = getDaysLeft(job);
+                    const companyLogoUrl = getAssetUrl(job.organization?.logo);
                     
                     return (
                     <motion.div
@@ -465,10 +491,10 @@ const JobsPage = () => {
                       {/* Left Section - Company Logo */}
                       <div className="flex-shrink-0">
                         <div className="w-20 h-20 xs:w-24 xs:h-24 sm:w-28 sm:h-28 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center p-2">
-                          {job.organization?.logo && getLogoUrl(job.organization.logo) ? (
+                          {companyLogoUrl ? (
                             <img
-                              src={getLogoUrl(job.organization.logo)}
-                              alt={job.organization.name || 'Company logo'}
+                              src={companyLogoUrl}
+                              alt={job.organization?.name || 'Company logo'}
                               className="w-full h-full object-contain"
                               onError={(e) => {
                                 e.target.style.display = 'none';
@@ -476,7 +502,7 @@ const JobsPage = () => {
                               }}
                             />
                           ) : null}
-                          <div className="w-full h-full flex items-center justify-center text-gray-400 dark:text-slate-500" style={{ display: job.organization?.logo && getLogoUrl(job.organization.logo) ? 'none' : 'flex' }}>
+                          <div className="w-full h-full items-center justify-center text-gray-400 dark:text-slate-500" style={{ display: companyLogoUrl ? 'none' : 'flex' }}>
                             <Icon name="Building2" size={32} />
                           </div>
                         </div>

@@ -4,6 +4,9 @@ import {
   userStore,
   activityLogStore,
   organizationStore,
+  isJobCurrentlyPublic,
+  publishOrganizationRealtimeUpdate,
+  publishCandidateRealtimeUpdate,
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import logger from '../utils/logger.js';
@@ -55,13 +58,19 @@ export class ApplicationController {
       const candidateId = req.user.id;
 
       // Get the job
-      const job = await jobStore.getById(jobId);
+      let job = await jobStore.getById(jobId);
       if (!job) {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      // Check if job is published and accepting applications
-      if (job.status !== 'PUBLISHED') {
+      // Ensure scheduled jobs are promoted before evaluating application eligibility.
+      if (job.status === 'PUBLISHED' && job.scheduledPublishAt && !job.publishedAt) {
+        await jobStore.autoPublishScheduledJobs();
+        job = await jobStore.getById(jobId);
+      }
+
+      // Check if job is publicly live and accepting applications.
+      if (!isJobCurrentlyPublic(job)) {
         return res.status(400).json({ error: 'This job is not currently accepting applications' });
       }
 
@@ -125,6 +134,19 @@ export class ApplicationController {
       });
 
       logger.info(`Application submitted: ${application.id} for job ${jobId} by candidate ${candidateId}`);
+
+      await publishOrganizationRealtimeUpdate(job.organizationId, 'application-submitted', {
+        applicationId: application.id,
+        jobId,
+        candidateId,
+        status: application.status || null,
+      });
+      await publishCandidateRealtimeUpdate(candidateId, 'application-submitted', {
+        applicationId: application.id,
+        jobId,
+        organizationId: job.organizationId,
+        status: application.status || null,
+      });
 
       // Send confirmation email to candidate
       let organization = null;
@@ -309,6 +331,19 @@ export class ApplicationController {
 
       logger.info(`Application ${id} status updated to ${status} by ${userId}`);
 
+      await publishOrganizationRealtimeUpdate(organizationId, 'application-status-updated', {
+        applicationId: id,
+        jobId: application.jobId || null,
+        candidateId: application.candidateId || null,
+        status: updated.status || status,
+      });
+      await publishCandidateRealtimeUpdate(application.candidateId, 'application-status-updated', {
+        applicationId: id,
+        jobId: application.jobId || null,
+        organizationId,
+        status: updated.status || status,
+      });
+
       // Send status update email to candidate
       try {
         const [candidate, job, organization] = await Promise.all([
@@ -368,6 +403,19 @@ export class ApplicationController {
       });
 
       logger.info(`Application ${id} withdrawn by candidate ${candidateId}`);
+
+      await publishOrganizationRealtimeUpdate(application.organizationId, 'application-withdrawn', {
+        applicationId: id,
+        jobId: application.jobId || null,
+        candidateId,
+        status: updated.status || 'REJECTED',
+      });
+      await publishCandidateRealtimeUpdate(candidateId, 'application-withdrawn', {
+        applicationId: id,
+        jobId: application.jobId || null,
+        organizationId: application.organizationId || null,
+        status: updated.status || 'REJECTED',
+      });
 
       res.json({
         success: true,

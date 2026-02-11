@@ -6,6 +6,8 @@
  */
 
 import { apiClient } from './apiClient.js';
+import { onValue, ref as dbRef } from 'firebase/database';
+import { realtimeDb } from '../config/firebase.js';
 
 export class InterviewBackendSync {
   constructor(interviewId) {
@@ -13,6 +15,8 @@ export class InterviewBackendSync {
     this.questions = [];
     this.currentQuestionIndex = -1;
     this.initialized = false;
+    this.realtimeUnsubscribe = null;
+    this.lastRealtimeEventKey = '';
   }
 
   /**
@@ -38,6 +42,82 @@ export class InterviewBackendSync {
       console.error('Failed to initialize interview sync:', error);
       throw error;
     }
+  }
+
+  /**
+   * Refresh interview state from backend.
+   */
+  async refreshInterview() {
+    const response = await apiClient.interviews.getById(this.interviewId);
+    if (!response.success || !response.interview) {
+      throw new Error('Failed to refresh interview');
+    }
+
+    this.interview = response.interview;
+    this.questions = response.interview.questions || [];
+    this.initialized = true;
+    return this.interview;
+  }
+
+  /**
+   * Subscribe to interview realtime events from Firebase RTDB.
+   */
+  subscribeToRealtime(onEvent) {
+    if (!realtimeDb || !this.interviewId) {
+      return () => {};
+    }
+
+    this.destroyRealtimeSubscription();
+
+    const lastEventRef = dbRef(realtimeDb, `sessions/${this.interviewId}/lastEvent`);
+    this.realtimeUnsubscribe = onValue(
+      lastEventRef,
+      async (snapshot) => {
+        const event = snapshot.val();
+        if (!event?.eventType) return;
+
+        const eventKey = `${event.eventType}:${event.timestamp || ''}`;
+        if (eventKey === this.lastRealtimeEventKey) {
+          return;
+        }
+        this.lastRealtimeEventKey = eventKey;
+
+        const eventsThatRequireRefresh = new Set([
+          'interview-started',
+          'interview-ended',
+          'question-asked',
+          'answer-submitted',
+          'pipeline-updated',
+        ]);
+
+        if (eventsThatRequireRefresh.has(event.eventType)) {
+          try {
+            await this.refreshInterview();
+          } catch {
+            // Fail open: local interview can still proceed.
+          }
+        }
+
+        if (typeof onEvent === 'function') {
+          onEvent(event);
+        }
+      },
+      () => {
+        // Keep fail-open behavior if realtime subscription fails.
+      },
+    );
+
+    return () => {
+      this.destroyRealtimeSubscription();
+    };
+  }
+
+  destroyRealtimeSubscription() {
+    if (typeof this.realtimeUnsubscribe === 'function') {
+      this.realtimeUnsubscribe();
+    }
+    this.realtimeUnsubscribe = null;
+    this.lastRealtimeEventKey = '';
   }
 
   /**
@@ -211,6 +291,13 @@ export class InterviewBackendSync {
    */
   isInitialized() {
     return this.initialized;
+  }
+
+  /**
+   * Destroy service resources/subscriptions.
+   */
+  destroy() {
+    this.destroyRealtimeSubscription();
   }
 }
 

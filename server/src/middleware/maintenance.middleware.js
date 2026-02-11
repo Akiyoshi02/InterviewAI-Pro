@@ -43,6 +43,7 @@ export async function checkMaintenanceMode(req, res, next) {
     // Allow read operations but add maintenance flag to response
     // This allows frontend to show maintenance banner
     res.locals.maintenanceMode = true;
+    res.setHeader('X-Maintenance-Mode', 'true');
     return next();
   } catch (error) {
     logger.error('Maintenance mode check error:', error);

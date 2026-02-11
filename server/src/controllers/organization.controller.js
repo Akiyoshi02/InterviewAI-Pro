@@ -1,4 +1,10 @@
-import { activityLogStore, organizationMemberStore, organizationStore, userStore } from '../services/firebaseData.service.js';
+import {
+  activityLogStore,
+  organizationMemberStore,
+  organizationStore,
+  publishOrganizationRealtimeUpdate,
+  userStore,
+} from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const sanitizeOrganization = (organization) => {
@@ -83,6 +89,10 @@ export class OrganizationController {
 
       const updated = await organizationStore.update(context.organization.id, payload);
 
+      await publishOrganizationRealtimeUpdate(context.organization.id, 'organization-updated', {
+        organizationId: context.organization.id,
+      });
+
       res.json({
         success: true,
         organization: sanitizeOrganization(updated),
@@ -150,6 +160,13 @@ export class OrganizationController {
         metadata: { role, status: status || 'ACTIVE' },
       });
 
+      await publishOrganizationRealtimeUpdate(organization.id, 'member-updated', {
+        organizationId: organization.id,
+        userId,
+        role: membership?.role || role || null,
+        status: membership?.status || status || 'ACTIVE',
+      });
+
       res.status(201).json({
         success: true,
         member: {
@@ -163,4 +180,3 @@ export class OrganizationController {
     }
   }
 }
-

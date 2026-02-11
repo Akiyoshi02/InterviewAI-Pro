@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -9,6 +9,7 @@ import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import apiClient from '../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 import { Navigate } from 'react-router-dom';
 
@@ -38,6 +39,9 @@ const CompanyTeamMembersPage = () => {
   const [teamInvitations, setTeamInvitations] = useState([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadMembersRef = useRef(null);
+  const loadInvitationsRef = useRef(null);
 
   const loadMembers = useCallback(async () => {
     if (!organization?.id) return;
@@ -68,6 +72,38 @@ const CompanyTeamMembersPage = () => {
       setLoadingInvitations(false);
     }
   }, [organization?.id]);
+
+  useEffect(() => {
+    loadMembersRef.current = loadMembers;
+  }, [loadMembers]);
+
+  useEffect(() => {
+    loadInvitationsRef.current = loadInvitations;
+  }, [loadInvitations]);
+
+  useRealtimePathFeed({
+    path: organization?.id ? `organizationFeeds/${organization.id}` : null,
+    enabled: Boolean(organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadMembersRef.current?.();
+        loadInvitationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     loadMembers();

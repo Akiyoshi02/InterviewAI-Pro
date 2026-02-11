@@ -1,9 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useInterviewRealtimeFeed } from '../../../hooks/useInterviewRealtimeFeed';
 
 /** Rubric criteria for AI evaluation (explainable output for recruiters/SMEs). */
 const EVALUATION_RUBRIC_CRITERIA = [
@@ -22,6 +24,7 @@ const STAR_COMPONENTS = [
 ];
 
 const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
+  const { user } = useAuth();
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
@@ -36,13 +39,10 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     overrideOverall: false,
   });
   const [submitting, setSubmitting] = useState(false);
+  const loadInterviewRef = useRef(null);
+  const realtimeRefreshTimeoutRef = useRef(null);
 
-  useEffect(() => {
-    loadInterview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewId]);
-
-  const loadInterview = async () => {
+  const loadInterview = useCallback(async () => {
     try {
       setLoading(true);
       const result = await apiClient.interviews.getInterview(interviewId);
@@ -56,7 +56,36 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [interviewId]);
+
+  useEffect(() => {
+    loadInterview();
+  }, [loadInterview]);
+
+  useEffect(() => {
+    loadInterviewRef.current = loadInterview;
+  }, [loadInterview]);
+
+  useInterviewRealtimeFeed({
+    userId: user?.id,
+    enabled: Boolean(user?.id && interviewId),
+    onFeedUpdate: (feed = {}, { initial }) => {
+      if (initial) return;
+      if (!feed?.[interviewId]) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadInterviewRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimeoutRef.current) {
+      clearTimeout(realtimeRefreshTimeoutRef.current);
+    }
+  }, []);
 
   const loadExistingReview = async () => {
     try {

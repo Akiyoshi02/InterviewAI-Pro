@@ -1,15 +1,18 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const PlatformAuditLogs = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [limit] = useState(50);
   const [offset, setOffset] = useState(0);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadAuditLogsRef = useRef(null);
 
   useEffect(() => {
     loadAuditLogs();
@@ -28,6 +31,33 @@ const PlatformAuditLogs = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadAuditLogsRef.current = loadAuditLogs;
+  }, [loadAuditLogs]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadAuditLogsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const getActionIcon = (action) => {
     switch (action) {

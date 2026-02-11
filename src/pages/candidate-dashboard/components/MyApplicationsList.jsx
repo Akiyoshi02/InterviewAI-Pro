@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
@@ -7,6 +7,8 @@ import Select from '../../../components/ui/Select';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -93,6 +95,7 @@ const getStatusConfig = (status, withdrawnBy = null) => {
 
 const MyApplicationsList = () => {
   const navigate = useNavigate();
+  const { user } = useAuth();
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -103,6 +106,8 @@ const MyApplicationsList = () => {
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadApplicationsRef = useRef(null);
 
   useEffect(() => {
     loadApplications();
@@ -138,6 +143,33 @@ const MyApplicationsList = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadApplicationsRef.current = loadApplications;
+  }, [loadApplications]);
+
+  useRealtimePathFeed({
+    path: user?.id ? `candidateFeeds/${user.id}` : null,
+    enabled: Boolean(user?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadApplicationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handleWithdrawClick = (applicationId) => {
     setWithdrawDialog({ open: true, applicationId });

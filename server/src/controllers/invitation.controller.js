@@ -1,4 +1,15 @@
-import { activityLogStore, invitationStore, jobStore, interviewStore, userStore, organizationStore } from '../services/firebaseData.service.js';
+import {
+  activityLogStore,
+  invitationStore,
+  jobStore,
+  isJobCurrentlyPublic,
+  interviewStore,
+  organizationStore,
+  recordRealtimeEvent,
+  publishOrganizationRealtimeUpdate,
+  publishCandidateRealtimeUpdate,
+  userStore,
+} from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import logger from '../utils/logger.js';
 
@@ -63,6 +74,13 @@ export class InvitationController {
         // Don't fail the request if email fails
       }
 
+      await publishOrganizationRealtimeUpdate(organizationId, 'invitation-created', {
+        invitationId: invitation.id,
+        jobId: invitation.jobId || null,
+        email: invitation.email || null,
+        status: invitation.status || 'PENDING',
+      });
+
       res.status(201).json({ success: true, invitation: sanitizeInvitation(invitation) });
     } catch (error) {
       logger.error('Create invitation error:', error);
@@ -92,8 +110,12 @@ export class InvitationController {
         return res.status(404).json({ error: 'Invitation not found' });
       }
 
-      const job = await jobStore.getById(invitation.jobId);
-      if (!job || job.status !== 'PUBLISHED') {
+      let job = await jobStore.getById(invitation.jobId);
+      if (job?.status === 'PUBLISHED' && job.scheduledPublishAt && !job.publishedAt) {
+        await jobStore.autoPublishScheduledJobs();
+        job = await jobStore.getById(invitation.jobId);
+      }
+      if (!isJobCurrentlyPublic(job)) {
         return res.status(404).json({ error: 'Associated job not available' });
       }
 
@@ -177,6 +199,29 @@ export class InvitationController {
         skillFocus: job.requiredSkills || [],
         duration: job.templateConfig?.duration || 30,
         config: job.templateConfig || null,
+      });
+
+      try {
+        await recordRealtimeEvent(interview.id, 'interview-created', {
+          actor: req.user.id,
+          status: interview.status || 'SCHEDULED',
+          mode: interview.mode || 'HIRING',
+        });
+      } catch (eventError) {
+        logger.warn(`Failed to publish interview-created event for invitation ${invitation.id}:`, eventError);
+      }
+
+      await publishOrganizationRealtimeUpdate(invitation.organizationId, 'invitation-accepted', {
+        invitationId: invitation.id,
+        interviewId: interview.id,
+        candidateId: req.user.id,
+        status: accepted?.status || 'ACCEPTED',
+      });
+      await publishCandidateRealtimeUpdate(req.user.id, 'invitation-accepted', {
+        invitationId: invitation.id,
+        interviewId: interview.id,
+        organizationId: invitation.organizationId,
+        status: accepted?.status || 'ACCEPTED',
       });
 
       logger.info(`Interview ${interview.id} created for accepted invitation ${invitation.id}`);

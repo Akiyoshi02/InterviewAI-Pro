@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -7,6 +7,7 @@ import Icon from '../../components/AppIcon';
 import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
 
 const InterviewLobby = () => {
   const { interviewId } = useParams();
@@ -17,13 +18,10 @@ const InterviewLobby = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [starting, setStarting] = useState(false);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadInterviewRef = useRef(null);
 
-  useEffect(() => {
-    loadInterview();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [interviewId]);
-
-  const loadInterview = async () => {
+  const loadInterview = useCallback(async () => {
     if (!interviewId) {
       setError('No interview ID provided');
       setLoading(false);
@@ -43,7 +41,37 @@ const InterviewLobby = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [interviewId]);
+
+  useEffect(() => {
+    loadInterview();
+  }, [loadInterview]);
+
+  useEffect(() => {
+    loadInterviewRef.current = loadInterview;
+  }, [loadInterview]);
+
+  useInterviewRealtimeFeed({
+    userId: user?.id,
+    enabled: Boolean(user?.id && interviewId),
+    onFeedUpdate: (feed = {}, { initial }) => {
+      if (initial) return;
+      if (!feed?.[interviewId]) return;
+
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadInterviewRef.current?.();
+      }, 250);
+    },
+  });
+
+  useEffect(() => () => {
+    if (realtimeRefreshTimeoutRef.current) {
+      clearTimeout(realtimeRefreshTimeoutRef.current);
+    }
+  }, []);
 
   const handleStartInterview = () => {
     setStarting(true);

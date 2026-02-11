@@ -2,6 +2,88 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "public": {
+      ".read": true,
+      ".write": false,
+      "systemSettings": {
+        ".read": true,
+        ".write": false
+      }
+    },
+    "organizationApprovalStatus": {
+      "$organizationId": {
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('ownerId').val() === auth.uid)",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "sessions": {
+      "$interviewId": {
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('participants').child(auth.uid).val() === true)",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()",
+        "participants": {
+          "$participantId": {
+            ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || auth.uid === $participantId)",
+            ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+          }
+        },
+        "presence": {
+          "$participantId": {
+            ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || root.child('sessions').child($interviewId).child('participants').child(auth.uid).val() === true)",
+            ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+          }
+        },
+        "meta": {
+          ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || root.child('sessions').child($interviewId).child('participants').child(auth.uid).val() === true)",
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+        },
+        "events": {
+          "$eventId": {
+            ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || root.child('sessions').child($interviewId).child('participants').child(auth.uid).val() === true)",
+            ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+          }
+        },
+        "lastEvent": {
+          ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || root.child('sessions').child($interviewId).child('participants').child(auth.uid).val() === true)",
+          ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+        }
+      }
+    },
+    "userInterviewFeeds": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "userOrganizationMap": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "organizationFeeds": {
+      "$organizationId": {
+        ".read": "auth != null && (root.child('admins').child(auth.uid).exists() || root.child('userOrganizationMap').child(auth.uid).child($organizationId).val() === true)",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "candidateFeeds": {
+      "$uid": {
+        ".read": "auth != null && (auth.uid === $uid || root.child('admins').child(auth.uid).exists())",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "publicFeeds": {
+      "$channel": {
+        ".read": true,
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
+    "adminFeeds": {
+      "$feedId": {
+        ".read": "auth != null && root.child('admins').child(auth.uid).exists()",
+        ".write": "auth != null && root.child('admins').child(auth.uid).exists()"
+      }
+    },
     "admins": {
       "$uid": {
         ".read": "$uid === auth.uid",

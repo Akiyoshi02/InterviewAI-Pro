@@ -7,6 +7,7 @@ import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
 import { useToast } from '../../../components/ui/Toast.jsx';
 import apiClient from '../../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const CHECK_STYLES = {
   pass: {
@@ -287,6 +288,8 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
   const detailsModalRef = useRef(null);
   const previousFocusedRef = useRef(null);
   const actionLoadingRef = useRef(actionLoading);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadPendingOrganizationsRef = useRef(null);
 
   useEffect(() => {
     loadPendingOrganizations();
@@ -321,6 +324,33 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadPendingOrganizationsRef.current = loadPendingOrganizations;
+  }, [loadPendingOrganizations]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadPendingOrganizationsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handleApprove = (org) => {
     if (actionLoading) return;

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import jsPDF from 'jspdf';
 import Icon from '../../../components/AppIcon';
@@ -7,6 +7,7 @@ import Select from '../../../components/ui/Select';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -31,6 +32,8 @@ const CandidateProgressDashboard = () => {
   const [loading, setLoading] = useState(true);
   const [timeRange, setTimeRange] = useState('30d');
   const [selectedJob, setSelectedJob] = useState('all');
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadDashboardDataRef = useRef(null);
 
   useEffect(() => {
     loadDashboardData();
@@ -66,6 +69,35 @@ const CandidateProgressDashboard = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadDashboardDataRef.current = loadDashboardData;
+  }, [loadDashboardData]);
+
+  useRealtimePathFeed({
+    path: user?.organizationContext?.organization?.id
+      ? `organizationFeeds/${user.organizationContext.organization.id}`
+      : null,
+    enabled: Boolean(user?.organizationContext?.organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadDashboardDataRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const calculateStatistics = (applications, jobs) => {
     const stats = {

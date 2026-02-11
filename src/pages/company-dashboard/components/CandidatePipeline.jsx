@@ -1,8 +1,10 @@
-﻿import React, { useEffect, useMemo, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
+import { useAuth } from '../../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const PIPELINE_COLUMNS = [
   { id: 'SCREENING', title: 'AI Screening', color: 'bg-blue-400' },
@@ -13,10 +15,13 @@ const PIPELINE_COLUMNS = [
 ];
 
 const CandidatePipeline = () => {
+  const { organization } = useAuth();
   const [pipeline, setPipeline] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [moving, setMoving] = useState({});
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadPipelineRef = useRef(null);
 
   const loadPipeline = async () => {
     setLoading(true);
@@ -36,6 +41,33 @@ const CandidatePipeline = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadPipelineRef.current = loadPipeline;
+  }, [loadPipeline]);
+
+  useRealtimePathFeed({
+    path: organization?.id ? `organizationFeeds/${organization.id}` : null,
+    enabled: Boolean(organization?.id),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadPipelineRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     loadPipeline();
@@ -166,3 +198,4 @@ const CandidatePipeline = () => {
 };
 
 export default CandidatePipeline;
+

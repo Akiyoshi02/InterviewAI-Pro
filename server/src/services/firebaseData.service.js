@@ -46,6 +46,7 @@ const isIndexBuildingError = (error) => {
 const toMillis = (value) => {
   if (!value) return 0;
   if (typeof value === 'number') return value;
+  if (value instanceof Date) return value.getTime();
   if (typeof value === 'string') {
     const parsed = Date.parse(value);
     return Number.isNaN(parsed) ? 0 : parsed;
@@ -53,6 +54,43 @@ const toMillis = (value) => {
   if (typeof value?.toMillis === 'function') return value.toMillis();
   if (typeof value?.toDate === 'function') return value.toDate().getTime();
   return 0;
+};
+
+const DEFAULT_POSTING_DURATION_DAYS = 30;
+const DAY_IN_MS = 24 * 60 * 60 * 1000;
+
+const normalizePostingDurationDays = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) {
+    return DEFAULT_POSTING_DURATION_DAYS;
+  }
+  return parsed;
+};
+
+const getJobExpiryMillis = (job) => {
+  const explicitExpiry = toMillis(job?.expiresAt);
+  if (explicitExpiry > 0) return explicitExpiry;
+
+  const publishedAtMillis = toMillis(job?.publishedAt);
+  if (!publishedAtMillis) return 0;
+
+  return publishedAtMillis + normalizePostingDurationDays(job?.postingDuration) * DAY_IN_MS;
+};
+
+export const isJobCurrentlyPublic = (job, nowValue = Date.now()) => {
+  if (!job) return false;
+  if ((job.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
+
+  const nowMillis = toMillis(nowValue) || Date.now();
+  const publishedAtMillis = toMillis(job.publishedAt);
+
+  // Scheduled jobs stay non-public until publishedAt is set by the scheduler.
+  if (!publishedAtMillis || publishedAtMillis > nowMillis) return false;
+
+  const expiresAtMillis = getJobExpiryMillis(job);
+  if (!expiresAtMillis) return false;
+
+  return expiresAtMillis > nowMillis;
 };
 
 const buildUserSummary = (user) => {
@@ -269,6 +307,7 @@ export const interviewStore = {
     };
 
     await docRef.set(payload);
+    await syncRealtimeInterviewSession(payload);
     return payload;
   },
 
@@ -303,7 +342,9 @@ export const interviewStore = {
       { merge: true },
     );
     const updated = await docRef.get();
-    return docToData(updated);
+    const normalized = docToData(updated);
+    await syncRealtimeInterviewSession(normalized);
+    return normalized;
   },
 
   async addQuestions(interviewId, questions = []) {
@@ -405,6 +446,13 @@ export const interviewStore = {
       .get();
     return mapQuestionsSnapshot(snapshot);
   },
+
+  async getByInvitationId(invitationId) {
+    if (!invitationId) return null;
+    const snapshot = await interviewsCollection.where('invitationId', '==', invitationId).limit(1).get();
+    if (snapshot.empty) return null;
+    return docToData(snapshot.docs[0]);
+  },
 };
 
 export const webrtcStore = {
@@ -451,21 +499,242 @@ export async function savePoseData(interviewId, posePayload = {}) {
   });
 }
 
+const REALTIME_FEED_EXCLUDED_EVENTS = new Set(['pose-data']);
+
+const getInterviewParticipantIds = (interview = {}) =>
+  Array.from(new Set([interview?.candidateId, interview?.companyId].filter(Boolean)));
+
+const toParticipantMap = (participantIds = []) =>
+  participantIds.reduce((acc, participantId) => {
+    acc[participantId] = true;
+    return acc;
+  }, {});
+
+async function resolveRealtimeParticipantIds(interviewId) {
+  if (!realtimeDb || !interviewId) return [];
+
+  try {
+    const participantsSnapshot = await realtimeDb.ref(`sessions/${interviewId}/participants`).once('value');
+    const participantMap = participantsSnapshot.val() || {};
+    const participantIds = Object.keys(participantMap).filter((participantId) => participantMap[participantId] === true);
+    if (participantIds.length > 0) {
+      return participantIds;
+    }
+  } catch (error) {
+    logger.warn(`Failed to resolve realtime participants for interview ${interviewId} from RTDB:`, error);
+  }
+
+  const interview = await interviewStore.getById(interviewId);
+  if (!interview) return [];
+
+  await syncRealtimeInterviewSession(interview);
+  return getInterviewParticipantIds(interview);
+}
+
+export async function syncRealtimeInterviewSession(interview = {}) {
+  if (!realtimeDb || !interview?.id) return;
+
+  const participantIds = getInterviewParticipantIds(interview);
+  const participantMap = toParticipantMap(participantIds);
+  const timestamp = now();
+  const sessionRef = realtimeDb.ref(`sessions/${interview.id}`);
+
+  try {
+    await sessionRef.child('participants').set(participantMap);
+    await sessionRef.child('meta').update({
+      interviewId: interview.id,
+      candidateId: interview.candidateId || null,
+      companyId: interview.companyId || null,
+      status: interview.status || 'SCHEDULED',
+      pipelineStatus: interview.pipelineStatus || null,
+      jobStage: interview.jobStage || null,
+      overallScore: interview.overallScore ?? null,
+      readinessLevel: interview.readinessLevel ?? null,
+      updatedAt: timestamp,
+    });
+
+    if (participantIds.length > 0) {
+      const feedUpdates = {};
+      participantIds.forEach((participantId) => {
+        const feedBasePath = `userInterviewFeeds/${participantId}/${interview.id}`;
+        feedUpdates[`${feedBasePath}/interviewId`] = interview.id;
+        feedUpdates[`${feedBasePath}/status`] = interview.status || 'SCHEDULED';
+        feedUpdates[`${feedBasePath}/pipelineStatus`] = interview.pipelineStatus || null;
+        feedUpdates[`${feedBasePath}/jobStage`] = interview.jobStage || null;
+        feedUpdates[`${feedBasePath}/overallScore`] = interview.overallScore ?? null;
+        feedUpdates[`${feedBasePath}/readinessLevel`] = interview.readinessLevel ?? null;
+        feedUpdates[`${feedBasePath}/lastEventType`] = 'session-synced';
+        feedUpdates[`${feedBasePath}/lastEventAt`] = interview.updatedAt || interview.createdAt || timestamp;
+        feedUpdates[`${feedBasePath}/updatedAt`] = timestamp;
+      });
+
+      await realtimeDb.ref().update(feedUpdates);
+    }
+  } catch (error) {
+    logger.error(`Failed to sync realtime interview session for interview ${interview.id}:`, error);
+  }
+}
+
 export async function recordRealtimeEvent(interviewId, eventType, payload = {}) {
   if (!realtimeDb || !interviewId) return;
 
+  const timestamp = now();
   const event = {
     eventType,
     payload,
-    timestamp: now(),
+    timestamp,
   };
 
   try {
-    const eventsRef = realtimeDb.ref(`sessions/${interviewId}/events`).push();
+    const sessionRef = realtimeDb.ref(`sessions/${interviewId}`);
+    const eventsRef = sessionRef.child('events').push();
     await eventsRef.set(event);
-    await realtimeDb.ref(`sessions/${interviewId}/lastEvent`).set(event);
+    await sessionRef.child('lastEvent').set(event);
+
+    const metaUpdates = {
+      lastEventType: eventType,
+      lastEventAt: timestamp,
+      updatedAt: timestamp,
+    };
+
+    if (typeof payload?.status === 'string' && payload.status.trim()) {
+      metaUpdates.status = payload.status.trim();
+    }
+    if (payload?.overallScore !== undefined) {
+      metaUpdates.overallScore = payload.overallScore;
+    }
+    if (payload?.readinessLevel !== undefined) {
+      metaUpdates.readinessLevel = payload.readinessLevel;
+    }
+
+    await sessionRef.child('meta').update(metaUpdates);
+
+    if (eventType === 'participant-connected' || eventType === 'participant-disconnected') {
+      const actorId = typeof payload?.actor === 'string' ? payload.actor.trim() : '';
+      if (actorId) {
+        await sessionRef.child(`presence/${actorId}`).update({
+          connected: eventType === 'participant-connected',
+          role: payload?.role || null,
+          socketId: payload?.socketId || null,
+          updatedAt: timestamp,
+        });
+      }
+    }
+
+    if (!REALTIME_FEED_EXCLUDED_EVENTS.has(eventType)) {
+      const participantIds = await resolveRealtimeParticipantIds(interviewId);
+      if (participantIds.length > 0) {
+        const feedUpdates = {};
+        participantIds.forEach((participantId) => {
+          const feedBasePath = `userInterviewFeeds/${participantId}/${interviewId}`;
+          feedUpdates[`${feedBasePath}/interviewId`] = interviewId;
+          feedUpdates[`${feedBasePath}/lastEventType`] = eventType;
+          feedUpdates[`${feedBasePath}/lastEventAt`] = timestamp;
+          feedUpdates[`${feedBasePath}/updatedAt`] = timestamp;
+
+          if (typeof payload?.status === 'string' && payload.status.trim()) {
+            feedUpdates[`${feedBasePath}/status`] = payload.status.trim();
+          }
+          if (payload?.overallScore !== undefined) {
+            feedUpdates[`${feedBasePath}/overallScore`] = payload.overallScore;
+          }
+          if (payload?.readinessLevel !== undefined) {
+            feedUpdates[`${feedBasePath}/readinessLevel`] = payload.readinessLevel;
+          }
+          if (typeof payload?.questionId === 'string' && payload.questionId.trim()) {
+            feedUpdates[`${feedBasePath}/lastQuestionId`] = payload.questionId.trim();
+          }
+        });
+
+        await realtimeDb.ref().update(feedUpdates);
+      }
+    }
   } catch (error) {
     logger.error('Failed to record realtime event:', error);
+  }
+}
+
+const buildPublicSystemSettingsPayload = (settings = {}) => ({
+  maintenanceMode: Boolean(settings.maintenanceMode),
+  nonverbalFeedbackEnabled: settings.nonverbalFeedbackEnabled !== false,
+  updatedAt: now(),
+});
+
+export async function syncPublicSystemSettings(settings = {}) {
+  if (!realtimeDb) return;
+
+  try {
+    await realtimeDb.ref('public/systemSettings').set(
+      buildPublicSystemSettingsPayload(settings),
+    );
+  } catch (error) {
+    logger.error('Failed to sync public system settings to realtime database:', error);
+  }
+}
+
+const buildRealtimeFeedPayload = (eventType, payload = {}, timestamp = now()) => ({
+  lastEventId: randomUUID(),
+  lastEventType: eventType || 'updated',
+  lastEventAt: timestamp,
+  updatedAt: timestamp,
+  payload: payload && typeof payload === 'object' ? payload : {},
+});
+
+const writeRealtimeFeed = async (feedPath, eventType, payload = {}) => {
+  if (!realtimeDb || !feedPath) return null;
+
+  const timestamp = now();
+  const feedPayload = buildRealtimeFeedPayload(eventType, payload, timestamp);
+
+  try {
+    await realtimeDb.ref(feedPath).update(feedPayload);
+    return feedPayload;
+  } catch (error) {
+    logger.error(`Failed to write realtime feed at "${feedPath}":`, error);
+    return null;
+  }
+};
+
+export async function publishOrganizationRealtimeUpdate(organizationId, eventType, payload = {}) {
+  if (!organizationId) return null;
+  return writeRealtimeFeed(`organizationFeeds/${organizationId}`, eventType, payload);
+}
+
+export async function publishCandidateRealtimeUpdate(userId, eventType, payload = {}) {
+  if (!userId) return null;
+  return writeRealtimeFeed(`candidateFeeds/${userId}`, eventType, payload);
+}
+
+export async function publishPublicRealtimeUpdate(channel, eventType, payload = {}) {
+  const safeChannel = typeof channel === 'string' && channel.trim() ? channel.trim() : 'global';
+  return writeRealtimeFeed(`publicFeeds/${safeChannel}`, eventType, payload);
+}
+
+export async function publishAdminRealtimeUpdate(eventType, payload = {}) {
+  return writeRealtimeFeed('adminFeeds/global', eventType, payload);
+}
+
+const isMembershipActive = (status) => (status || 'ACTIVE').toString().toUpperCase() === 'ACTIVE';
+
+export async function syncUserOrganizationRealtimeMembership({
+  userId,
+  organizationId,
+  active = true,
+} = {}) {
+  if (!realtimeDb || !userId || !organizationId) return;
+
+  try {
+    const memberPathRef = realtimeDb.ref(`userOrganizationMap/${userId}/${organizationId}`);
+    if (active) {
+      await memberPathRef.set(true);
+    } else {
+      await memberPathRef.remove();
+    }
+  } catch (error) {
+    logger.error(
+      `Failed to sync realtime organization membership (user=${userId}, organization=${organizationId}, active=${active}):`,
+      error,
+    );
   }
 }
 
@@ -640,7 +909,7 @@ export const analyticsStore = {
       .where('organizationId', '==', organizationId)
       .get();
     const jobs = jobsSnapshot.docs.map(docToData);
-    const activeJobPostings = jobs.filter(j => j?.status === 'PUBLISHED').length;
+    const activeJobPostings = jobs.filter((job) => isJobCurrentlyPublic(job)).length;
 
     // Get all interviews for the organization
     const interviewsSnapshot = await interviewsCollection
@@ -1497,7 +1766,26 @@ export const organizationMemberStore = {
 
     await docRef.set(payload, { merge: true });
     const updated = await docRef.get();
-    return organizationDocToData(updated);
+    const membership = organizationDocToData(updated);
+
+    await syncUserOrganizationRealtimeMembership({
+      userId,
+      organizationId,
+      active: isMembershipActive(membership?.status || status),
+    });
+
+    await publishOrganizationRealtimeUpdate(organizationId, 'member-synced', {
+      userId,
+      role: membership?.role || normalizedRole,
+      status: membership?.status || status,
+    });
+    await publishCandidateRealtimeUpdate(userId, 'organization-membership-updated', {
+      organizationId,
+      role: membership?.role || normalizedRole,
+      status: membership?.status || status,
+    });
+
+    return membership;
   },
 
   async getMember(organizationId, userId) {
@@ -1548,6 +1836,9 @@ export const jobStore = {
       requirements: ensureArray(data.requirements),
       responsibilities: ensureArray(data.responsibilities),
       skills: ensureArray(data.skills),
+      advertImageUrl: data.advertImageUrl || null,
+      advertImageAlt: data.advertImageAlt || null,
+      advertVideoUrl: data.advertVideoUrl || null,
       status: sanitizeJobStatus(data.status),
       stages: ensureArray(data.stages),
       templateConfig: data.templateConfig || {
@@ -1631,8 +1922,8 @@ export const jobStore = {
         publishDate.setDate(publishDate.getDate() + postingDuration);
         payload.expiresAt = publishDate.toISOString();
       }
-    } else if (existing?.status === 'PUBLISHED' && data.status !== 'PUBLISHED') {
-      // If changing from PUBLISHED to another status, clear publishedAt and expiresAt
+    } else if (existing?.status === 'PUBLISHED' && data.status && data.status !== 'PUBLISHED') {
+      // Only clear publish metadata when status is explicitly changed away from PUBLISHED.
       payload.publishedAt = null;
       payload.expiresAt = null;
     } else if (existing?.status === 'PUBLISHED' && !data.status) {
@@ -1666,32 +1957,38 @@ export const jobStore = {
   async listPublished(limit = 20) {
     // First, check and auto-publish any scheduled jobs whose time has come
     await this.autoPublishScheduledJobs();
-    
-    const snapshot = await jobsCollection.where('status', '==', 'PUBLISHED').orderBy('publishedAt', 'desc').limit(limit * 2).get();
-    const jobs = snapshot.docs.map((doc) => docToData(doc));
-    
-    // Filter out expired jobs and jobs that haven't been published yet (scheduled for future)
-    const nowDate = new Date();
-    const activeJobs = jobs.filter(job => {
-      // Exclude jobs scheduled for future (no publishedAt yet)
-      if (!job.publishedAt) return false;
-      
-      // Exclude expired jobs
-      if (job.expiresAt) {
-        const expiresDate = new Date(job.expiresAt);
-        if (expiresDate < nowDate) return false;
-      } else {
-        // Fallback: check using publishedAt + postingDuration
-        const publishedDate = new Date(job.publishedAt);
-        const postingDuration = job.postingDuration || 30;
-        const expiresDate = new Date(publishedDate);
-        expiresDate.setDate(expiresDate.getDate() + postingDuration);
-        if (expiresDate < nowDate) return false;
+
+    let jobs = [];
+    try {
+      const snapshot = await jobsCollection
+        .where('status', '==', 'PUBLISHED')
+        .orderBy('publishedAt', 'desc')
+        .limit(limit * 2)
+        .get();
+      jobs = snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
       }
-      
-      return true;
-    });
-    
+
+      logger.warn('Published jobs index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      // Fallback query that only relies on single-field index.
+      const snapshot = await jobsCollection
+        .where('status', '==', 'PUBLISHED')
+        .limit(limit * 5)
+        .get();
+      jobs = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.publishedAt) - toMillis(a?.publishedAt));
+    }
+
+    // Keep only currently public jobs (published, live, and not expired).
+    const nowDate = new Date();
+    const activeJobs = jobs.filter((job) => isJobCurrentlyPublic(job, nowDate));
+
     // Return limited results
     return activeJobs.slice(0, limit);
   },
@@ -1723,20 +2020,25 @@ export const jobStore = {
           .limit(100)
           .get();
         scheduledJobsSnapshot = {
-          docs: allJobsSnapshot.docs.filter(doc => {
+          docs: allJobsSnapshot.docs.filter((doc) => {
             const job = docToData(doc);
-            return job.scheduledPublishAt && 
-                   new Date(job.scheduledPublishAt) <= nowDate;
-          })
+            if ((job?.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
+            if (!job?.scheduledPublishAt || job?.publishedAt) return false;
+            const scheduledDate = new Date(job.scheduledPublishAt);
+            if (Number.isNaN(scheduledDate.getTime())) return false;
+            return scheduledDate <= nowDate;
+          }),
         };
       }
       
       // Filter for jobs that haven't been published yet
       const jobsToPublish = scheduledJobsSnapshot.docs
         .map(docToData)
-        .filter(job => {
+        .filter((job) => {
+          if ((job?.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
           if (!job.scheduledPublishAt) return false;
           const scheduledDate = new Date(job.scheduledPublishAt);
+          if (Number.isNaN(scheduledDate.getTime())) return false;
           // Include jobs whose scheduled time has passed and haven't been published yet
           return scheduledDate <= nowDate && !job.publishedAt;
         });
@@ -1755,6 +2057,17 @@ export const jobStore = {
           expiresAt,
           updatedAt: now(),
         }, { merge: true });
+
+        await publishOrganizationRealtimeUpdate(job.organizationId, 'job-published', {
+          jobId: job.id,
+          status: 'PUBLISHED',
+          publishedAt: publishDate,
+        });
+        await publishPublicRealtimeUpdate('jobs', 'job-published', {
+          jobId: job.id,
+          organizationId: job.organizationId || null,
+          publishedAt: publishDate,
+        });
         
         logger.info(`Auto-published scheduled job ${job.id} (${job.title})`);
       }
@@ -2169,6 +2482,7 @@ export const systemSettingsStore = {
     };
 
     await systemSettingsCollection.doc('main').set(defaultSettings);
+    await syncPublicSystemSettings(defaultSettings);
     return defaultSettings;
   },
 
@@ -2209,6 +2523,7 @@ export const systemSettingsStore = {
       updatedBy: updatedBy || current.updatedBy,
     };
     await systemSettingsCollection.doc('main').set(merged, { merge: true });
+    await syncPublicSystemSettings(merged);
     return merged;
   },
 };

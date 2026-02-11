@@ -117,6 +117,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
 
   // Detection refs
   const detectionIntervalRef = useRef(null);
+  const metricsRef = useRef(metrics);
   const previousPoseLandmarksRef = useRef(null);
   const movementHistoryRef = useRef([]);
   const blinkCountRef = useRef(0);
@@ -124,6 +125,10 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
   const blinkFrameCountRef = useRef(0);
   const speakingFramesRef = useRef(0);
   const frameCountRef = useRef(0);
+
+  useEffect(() => {
+    metricsRef.current = metrics;
+  }, [metrics]);
 
   /**
    * Initialize MediaPipe models
@@ -516,10 +521,11 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
 
     const startTimeMs = performance.now();
     frameCountRef.current += 1;
-    
-    let poseData = metrics.pose;
-    let bodyLanguageData = metrics.bodyLanguage;
-    let faceData = metrics.face;
+
+    const currentMetrics = metricsRef.current;
+    let poseData = currentMetrics.pose;
+    let bodyLanguageData = currentMetrics.bodyLanguage;
+    let faceData = currentMetrics.face;
 
     // Pose detection
     if (poseLandmarker) {
@@ -554,14 +560,19 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     const { scores, feedback } = calculateScoresAndFeedback(poseData, faceData, bodyLanguageData);
 
     // Update metrics
-    setMetrics({
-      pose: poseData,
-      face: faceData,
-      bodyLanguage: bodyLanguageData,
-      scores,
-      feedback,
-      lastUpdated: Date.now(),
-      frameCount: frameCountRef.current,
+    setMetrics((previousMetrics) => {
+      const nextMetrics = {
+        ...previousMetrics,
+        pose: poseData,
+        face: faceData,
+        bodyLanguage: bodyLanguageData,
+        scores,
+        feedback,
+        lastUpdated: Date.now(),
+        frameCount: frameCountRef.current,
+      };
+      metricsRef.current = nextMetrics;
+      return nextMetrics;
     });
 
     // Collect data if enabled
@@ -603,9 +614,6 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     calculateScoresAndFeedback,
     collectData,
     interviewId,
-    metrics.pose,
-    metrics.face,
-    metrics.bodyLanguage,
   ]);
 
   /**

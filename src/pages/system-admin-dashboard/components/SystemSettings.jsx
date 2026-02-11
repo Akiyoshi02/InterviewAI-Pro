@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
@@ -6,6 +6,7 @@ import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import MessageDialog from '../../../components/ui/MessageDialog';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
+import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 
 const SystemSettings = () => {
   const [settings, setSettings] = useState(null);
@@ -15,6 +16,8 @@ const SystemSettings = () => {
   const [editedSettings, setEditedSettings] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [messageDialog, setMessageDialog] = useState({ open: false, title: '', message: '', variant: 'success' });
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadSettingsRef = useRef(null);
 
   useEffect(() => {
     loadSettings();
@@ -38,6 +41,33 @@ const SystemSettings = () => {
       setLoading(false);
     }
   };
+
+  useEffect(() => {
+    loadSettingsRef.current = loadSettings;
+  }, [loadSettings]);
+
+  useRealtimePathFeed({
+    path: 'adminFeeds/global',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial || hasChanges) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadSettingsRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   const handleFeatureFlagChange = (flag, value) => {
     setEditedSettings(prev => ({

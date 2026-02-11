@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -8,18 +8,19 @@ import Icon from '../../components/AppIcon';
 import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import JobApplicationForm from '../jobs/components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
 // Helper function to convert relative upload paths to absolute URLs
-const getLogoUrl = (logoPath) => {
-  if (!logoPath) return null;
-  if (logoPath.startsWith('http://') || logoPath.startsWith('https://')) {
-    return logoPath;
+const getAssetUrl = (assetPath) => {
+  if (!assetPath) return null;
+  if (assetPath.startsWith('http://') || assetPath.startsWith('https://') || assetPath.startsWith('blob:') || assetPath.startsWith('data:')) {
+    return assetPath;
   }
   const base = API_URL.replace(/\/$/, '');
-  return `${base}${logoPath.startsWith('/') ? logoPath : `/${logoPath}`}`;
+  return `${base}${assetPath.startsWith('/') ? assetPath : `/${assetPath}`}`;
 };
 
 const JobDetailPage = () => {
@@ -34,6 +35,9 @@ const JobDetailPage = () => {
   const [applicationSuccess, setApplicationSuccess] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState(null);
+  const realtimeRefreshTimeoutRef = useRef(null);
+  const loadJobRef = useRef(null);
+  const checkApplicationRef = useRef(null);
 
   const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
 
@@ -42,48 +46,102 @@ const JobDetailPage = () => {
     navigate('/login');
   };
 
-  // Load job details
-  useEffect(() => {
-    const loadJob = async () => {
-      setLoading(true);
-      setError('');
-      try {
-        const result = await apiClient.jobs.getPublic(id);
-        if (result.success) {
-          setJob(result.job);
-        } else {
-          setError('Job not found');
-        }
-      } catch (err) {
-        setError(err.message || 'Failed to load job details');
-      } finally {
-        setLoading(false);
+  const loadJob = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const result = await apiClient.jobs.getPublic(id);
+      if (result.success) {
+        setJob(result.job);
+      } else {
+        setError('Job not found');
       }
-    };
+    } catch (err) {
+      setError(err.message || 'Failed to load job details');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkApplication = async () => {
+    if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
+      setHasApplied(false);
+      setApplicationStatus(null);
+      return;
+    }
+    try {
+      const result = await apiClient.applications.getMyApplications();
+      if (result.success && result.applications) {
+        const application = result.applications.find((app) => app.jobId === id);
+        if (application) {
+          setHasApplied(true);
+          setApplicationStatus(application.status);
+          return;
+        }
+      }
+      setHasApplied(false);
+      setApplicationStatus(null);
+    } catch (err) {
+      console.error('Failed to check application status:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadJobRef.current = loadJob;
+  }, [loadJob]);
+
+  useEffect(() => {
+    checkApplicationRef.current = checkApplication;
+  }, [checkApplication]);
+
+  useEffect(() => {
     if (id) {
       loadJob();
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Check if user has applied
   useEffect(() => {
-    const checkApplication = async () => {
-      if (user?.accountType?.toUpperCase() !== 'CANDIDATE') return;
-      try {
-        const result = await apiClient.applications.getMyApplications();
-        if (result.success && result.applications) {
-          const application = result.applications.find(app => app.jobId === id);
-          if (application) {
-            setHasApplied(true);
-            setApplicationStatus(application.status);
-          }
-        }
-      } catch (err) {
-        console.error('Failed to check application status:', err);
-      }
-    };
     checkApplication();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user, id]);
+
+  useRealtimePathFeed({
+    path: 'publicFeeds/jobs',
+    enabled: true,
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial || !id) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        loadJobRef.current?.();
+      }, 300);
+    },
+  });
+
+  useRealtimePathFeed({
+    path: user?.id ? `candidateFeeds/${user.id}` : null,
+    enabled: Boolean(user?.id && user?.accountType?.toUpperCase() === 'CANDIDATE'),
+    onFeedUpdate: (_feed, { initial }) => {
+      if (initial) return;
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      realtimeRefreshTimeoutRef.current = setTimeout(() => {
+        checkApplicationRef.current?.();
+      }, 300);
+    },
+  });
+
+  useEffect(
+    () => () => {
+      if (realtimeRefreshTimeoutRef.current) {
+        clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   // Format helpers
   const formatExperienceLevel = (level) => {
@@ -226,6 +284,8 @@ const JobDetailPage = () => {
   };
 
   const daysLeft = job ? getDaysLeft(job) : null;
+  const advertImageUrl = getAssetUrl(job?.advertImageUrl);
+  const advertVideoUrl = getAssetUrl(job?.advertVideoUrl);
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
@@ -292,9 +352,9 @@ const JobDetailPage = () => {
                         {/* Company Logo */}
                         <div className="flex-shrink-0">
                           <div className="w-24 h-24 sm:w-32 sm:h-32 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center p-3 shadow-sm">
-                            {job.organization?.logo && getLogoUrl(job.organization.logo) ? (
+                            {job.organization?.logo && getAssetUrl(job.organization.logo) ? (
                               <img
-                                src={getLogoUrl(job.organization.logo)}
+                                src={getAssetUrl(job.organization.logo)}
                                 alt={job.organization.name || 'Company logo'}
                                 className="w-full h-full object-contain"
                                 onError={(e) => {
@@ -377,6 +437,18 @@ const JobDetailPage = () => {
                                 <span>{job.department}</span>
                               </div>
                             )}
+                            {job.advertImageUrl && (
+                              <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
+                                <Icon name="Image" size={16} className="text-blue-500 dark:text-blue-400" />
+                                <span>Image advert</span>
+                              </div>
+                            )}
+                            {job.advertVideoUrl && (
+                              <div className="flex items-center gap-1.5 text-purple-700 dark:text-purple-300">
+                                <Icon name="Video" size={16} className="text-purple-500 dark:text-purple-400" />
+                                <span>Video advert</span>
+                              </div>
+                            )}
                           </div>
 
                           {/* Share Icons */}
@@ -445,6 +517,36 @@ const JobDetailPage = () => {
                               <span className="text-sm ml-2">({job.salaryCurrency})</span>
                             )}
                           </p>
+                        </div>
+                      )}
+
+                      {(advertImageUrl || advertVideoUrl) && (
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
+                            <Icon name="Video" size={20} className="text-blue-600 dark:text-blue-400" />
+                            Job Advert Media
+                          </h3>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {advertImageUrl && (
+                              <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 overflow-hidden">
+                                <img
+                                  src={advertImageUrl}
+                                  alt={job.advertImageAlt || `${job.title} advert image`}
+                                  className="w-full h-56 object-cover"
+                                />
+                              </div>
+                            )}
+                            {advertVideoUrl && (
+                              <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-hidden">
+                                <video
+                                  src={advertVideoUrl}
+                                  controls
+                                  preload="metadata"
+                                  className="w-full h-56 object-cover"
+                                />
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
 
@@ -539,9 +641,9 @@ const JobDetailPage = () => {
                             {/* Company Logo */}
                             <div className="flex-shrink-0">
                               <div className="w-24 h-24 rounded-xl bg-white dark:bg-slate-700 border border-gray-200 dark:border-slate-600 flex items-center justify-center p-3 shadow-sm">
-                                {job.organization.logo && getLogoUrl(job.organization.logo) ? (
+                                {job.organization.logo && getAssetUrl(job.organization.logo) ? (
                                   <img
-                                    src={getLogoUrl(job.organization.logo)}
+                                    src={getAssetUrl(job.organization.logo)}
                                     alt={job.organization.name}
                                     className="w-full h-full object-contain"
                                     onError={(e) => {
@@ -771,3 +873,4 @@ const JobDetailPage = () => {
 };
 
 export default JobDetailPage;
+

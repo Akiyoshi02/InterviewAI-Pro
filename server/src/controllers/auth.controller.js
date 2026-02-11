@@ -2,6 +2,8 @@ import admin, { deleteFirebaseUser, realtimeDb } from '../config/firebase.js';
 import {
   organizationMemberStore,
   organizationStore,
+  publishAdminRealtimeUpdate,
+  publishOrganizationRealtimeUpdate,
   userStore,
   teamInvitationStore,
   emailVerificationStore,
@@ -528,6 +530,13 @@ export class AuthController {
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
             });
+            await publishAdminRealtimeUpdate('organization-status-updated', {
+              organizationId: organization.id,
+              status: organization.status,
+              source: 'company-registration',
+              ownerId: firebaseUid,
+              ownerEmail: email,
+            });
             logger.info(`Set organization approval status in Realtime DB: ${organization.id} - ${organization.status}`);
           } catch (rtdbError) {
             logger.error('Failed to set organization approval status in Realtime DB:', rtdbError);
@@ -619,6 +628,12 @@ export class AuthController {
       // If this was a team invitation registration, mark invitation as accepted
       if (teamInvitationToken && teamInvitation) {
         await teamInvitationStore.markAccepted(teamInvitation.id, firebaseUid);
+        await publishOrganizationRealtimeUpdate(teamInvitation.organizationId, 'team-invitation-accepted', {
+          invitationId: teamInvitation.id,
+          userId: firebaseUid,
+          email,
+          role: invitedRole || teamInvitation.role || null,
+        });
       }
 
       res.status(201).json({
@@ -807,6 +822,13 @@ export class AuthController {
         },
       });
 
+      await publishAdminRealtimeUpdate('organization-status-updated', {
+        organizationId: organization.id,
+        status: updatedOrganization.status || 'PENDING',
+        source: 'organization-re-review-request',
+        requestedBy: user.id,
+      });
+
       return res.json({
         success: true,
         message: 'Re-review request submitted. Your organization is now back in the review queue.',
@@ -879,6 +901,10 @@ export class AuthController {
       // Also update organization logo if user has a primary organization
       if (req.user.primaryOrganizationId) {
         await organizationStore.updateLogo(req.user.primaryOrganizationId, logoUrl);
+        await publishOrganizationRealtimeUpdate(req.user.primaryOrganizationId, 'organization-updated', {
+          organizationId: req.user.primaryOrganizationId,
+          logoUpdated: true,
+        });
       }
 
       const organization = req.user.organizationContext?.organization || null;
