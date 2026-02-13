@@ -12,6 +12,10 @@ import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 import { Navigate } from 'react-router-dom';
+import {
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 const roleOptions = [
   { value: 'ADMIN', label: 'Admin' },
@@ -84,6 +88,10 @@ const CompanyTeamMembersPage = () => {
   useRealtimePathFeed({
     path: organization?.id ? `organizationFeeds/${organization.id}` : null,
     enabled: Boolean(organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.team,
+      ORGANIZATION_FEED_EVENTS.profile,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

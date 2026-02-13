@@ -8,6 +8,10 @@ import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
+import {
+  INTERVIEW_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 const InterviewLobby = () => {
   const { interviewId } = useParams();
@@ -54,6 +58,11 @@ const InterviewLobby = () => {
   useInterviewRealtimeFeed({
     userId: user?.id,
     enabled: Boolean(user?.id && interviewId),
+    eventTypes: combineRealtimeEventTypes(
+      INTERVIEW_FEED_EVENTS.lifecycle,
+      INTERVIEW_FEED_EVENTS.pipeline,
+      INTERVIEW_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (feed = {}, { initial }) => {
       if (initial) return;
       if (!feed?.[interviewId]) return;

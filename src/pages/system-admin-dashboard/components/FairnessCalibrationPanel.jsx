@@ -14,6 +14,10 @@ import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ADMIN_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 const BUCKET_LABELS = ['0-20', '21-40', '41-60', '61-80', '81-100'];
 
@@ -48,6 +52,10 @@ const FairnessCalibrationPanel = () => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: combineRealtimeEventTypes(
+      ADMIN_FEED_EVENTS.interviews,
+      ADMIN_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

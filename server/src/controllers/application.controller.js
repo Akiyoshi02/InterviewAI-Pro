@@ -9,10 +9,95 @@ import {
   publishCandidateRealtimeUpdate,
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
+import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
+import { buildJobSnapshot, buildOrganizationSnapshot } from '../utils/applicationSnapshot.util.js';
+import {
+  APPLICATION_STATUSES,
+  appendStatusHistory,
+  canTransitionApplicationStatus,
+  buildStatusHistoryEntry,
+  getAllowedApplicationTransitions,
+  isTerminalApplicationStatus,
+  normalizeApplicationStatus,
+  normalizeDisposition,
+} from '../utils/applicationLifecycle.util.js';
 import logger from '../utils/logger.js';
+
+const STATUS_TRANSITION_ERROR_CODE = 'INVALID_APPLICATION_STATUS_TRANSITION';
+
+const parseOptionalStatus = (value) => {
+  if (!value) return null;
+  return normalizeApplicationStatus(value);
+};
+
+const parseOptionalLimit = (value) => {
+  if (value == null || value === '') return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1) return null;
+  return parsed;
+};
+
+const buildApplicationJobPayload = (application, liveJob = null) => {
+  const snapshot = application?.jobSnapshot && typeof application.jobSnapshot === 'object'
+    ? application.jobSnapshot
+    : null;
+  const hasDeletionMarker = Boolean(
+    application?.jobDeletedAt || (!liveJob && application?.jobId),
+  );
+  const source = liveJob || snapshot;
+  const isDeleted = !liveJob && hasDeletionMarker;
+
+  if (!source && !application?.jobId && !hasDeletionMarker) {
+    return null;
+  }
+
+  return {
+    id: source?.id || application?.jobId || null,
+    title: source?.title || (isDeleted ? 'Deleted Position' : null),
+    department: source?.department || null,
+    location: source?.location || null,
+    employmentType: source?.employmentType || null,
+    experienceLevel: source?.experienceLevel || null,
+    skills: Array.isArray(source?.skills) ? source.skills : [],
+    isDeleted,
+    deletedAt: application?.jobDeletedAt || null,
+  };
+};
+
+const buildApplicationOrganizationPayload = (application, liveOrganization = null) => {
+  const snapshot = application?.organizationSnapshot && typeof application.organizationSnapshot === 'object'
+    ? application.organizationSnapshot
+    : null;
+  const source = liveOrganization || snapshot;
+
+  if (!source && !application?.organizationId) {
+    return null;
+  }
+
+  return {
+    id: source?.id || application.organizationId || null,
+    name: source?.name || source?.displayName || 'Company',
+    logo: source?.logo || null,
+    website: source?.website || null,
+  };
+};
 
 const sanitizeApplication = (application, candidate = null, job = null, organization = null) => {
   if (!application) return null;
+  const hasDeletedJobContext = Boolean(
+    application.jobDeletedAt || (!job && application.jobId),
+  );
+  const latestHistory = Array.isArray(application.statusHistory)
+    ? application.statusHistory.slice(-20)
+    : [];
+  const disposition = normalizeDisposition(application, {
+    status: application.status,
+    withdrawnBy: application.withdrawnBy || null,
+    jobDeletedAt: hasDeletedJobContext ? (application.jobDeletedAt || 'LEGACY_ORPHAN_JOB') : null,
+    fallbackCode: application.dispositionCode || null,
+    fallbackReason: application.dispositionReason || null,
+  });
+
   return {
     id: application.id,
     jobId: application.jobId,
@@ -26,24 +111,22 @@ const sanitizeApplication = (application, candidate = null, job = null, organiza
     reviewedAt: application.reviewedAt,
     reviewedBy: application.reviewedBy,
     withdrawnBy: application.withdrawnBy || null, // Track if withdrawn by candidate
+    statusSource: application.statusSource || null,
+    statusChangedAt: application.statusChangedAt || application.reviewedAt || application.updatedAt || null,
+    dispositionCode: disposition.code,
+    dispositionCategory: disposition.category,
+    dispositionReason: disposition.reason,
+    dispositionNotes: disposition.notes,
+    dispositionTags: disposition.tags,
+    dispositionAt: application.dispositionAt || null,
+    dispositionBy: application.dispositionBy || null,
+    statusHistory: latestHistory,
     interviewId: application.interviewId,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
     candidate,
-    job: job ? {
-      id: job.id,
-      title: job.title,
-      department: job.department,
-      location: job.location,
-      employmentType: job.employmentType,
-      skills: job.skills || [],
-    } : null,
-    organization: organization ? {
-      id: organization.id,
-      name: organization.name || organization.displayName,
-      logo: organization.logo,
-      website: organization.website,
-    } : null,
+    job: buildApplicationJobPayload(application, job),
+    organization: buildApplicationOrganizationPayload(application, organization),
   };
 };
 
@@ -56,6 +139,7 @@ export class ApplicationController {
       const { jobId } = req.params;
       const { resumeUrl, coverLetter, answers } = req.body;
       const candidateId = req.user.id;
+      let organization = null;
 
       // Get the job
       let job = await jobStore.getById(jobId);
@@ -109,6 +193,12 @@ export class ApplicationController {
       }
 
       // Create application
+      try {
+        organization = await organizationStore.getById(job.organizationId);
+      } catch (organizationError) {
+        logger.warn(`Unable to fetch organization ${job.organizationId} for application snapshot:`, organizationError);
+      }
+
       const application = await jobApplicationStore.create({
         jobId,
         candidateId,
@@ -117,6 +207,18 @@ export class ApplicationController {
         resumeUrl: resumeUrl || req.user.profile?.resumeUrl,
         coverLetter: coverLetter || null,
         answers: answers || [],
+        jobSnapshot: buildJobSnapshot(job),
+        organizationSnapshot: buildOrganizationSnapshot(organization, job.organizationId),
+        statusSource: 'CANDIDATE_SUBMISSION',
+        statusChangedAt: new Date().toISOString(),
+        statusHistory: [
+          buildStatusHistoryEntry({
+            previousStatus: null,
+            status: 'SUBMITTED',
+            changedBy: candidateId,
+            source: 'CANDIDATE_SUBMISSION',
+          }),
+        ],
       });
 
       // Log activity
@@ -148,17 +250,23 @@ export class ApplicationController {
         status: application.status || null,
       });
 
-      // Send confirmation email to candidate
-      let organization = null;
-      try {
-        organization = await organizationStore.getById(job.organizationId);
-        if (organization) {
-          await emailNotifications.sendApplicationReceived(application, req.user, job, organization);
-          logger.info(`Application confirmation email sent to ${req.user.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send application confirmation email:', emailError);
-        // Don't fail the request if email fails
+      // Send confirmation email in background.
+      if (!organization) {
+        organization = await organizationStore.getById(job.organizationId).catch(() => null);
+      }
+      if (organization && req.user?.email) {
+        queueEmailJob({
+          type: 'APPLICATION_RECEIVED',
+          payload: {
+            applicationId: application.id,
+            candidateId,
+            recipient: req.user.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationReceived(application, req.user, job, organization);
+            logger.info(`Application confirmation email sent to ${req.user.email}`);
+          },
+        });
       }
 
       res.status(201).json({
@@ -178,7 +286,27 @@ export class ApplicationController {
   static async getCandidateApplications(req, res, next) {
     try {
       const candidateId = req.user.id;
-      const applications = await jobApplicationStore.listByCandidate(candidateId);
+      const requestedStatus = parseOptionalStatus(req.query.status);
+      const requestedLimit = parseOptionalLimit(req.query.limit);
+      const requestedCursor = req.query.cursor ? String(req.query.cursor).trim() : null;
+
+      let applications = [];
+      let page = null;
+      if (requestedLimit || requestedCursor) {
+        page = await jobApplicationStore.listByCandidatePage(candidateId, {
+          status: requestedStatus,
+          limit: requestedLimit || 50,
+          cursor: requestedCursor,
+        });
+        applications = page.items;
+      } else {
+        applications = await jobApplicationStore.listByCandidate(candidateId);
+        if (requestedStatus) {
+          applications = applications.filter(
+            (application) => normalizeApplicationStatus(application?.status) === requestedStatus,
+          );
+        }
+      }
 
       // Enrich with job and organization details
       const jobIds = applications.map((app) => app.jobId).filter(Boolean);
@@ -199,6 +327,13 @@ export class ApplicationController {
       res.json({
         success: true,
         applications: enriched,
+        pagination: page
+          ? {
+            limit: requestedLimit || 50,
+            nextCursor: page.nextCursor || null,
+            hasMore: page.hasMore === true,
+          }
+          : null,
       });
     } catch (error) {
       logger.error('Get candidate applications error:', error);
@@ -253,6 +388,9 @@ export class ApplicationController {
     try {
       const { jobId } = req.params;
       const organizationId = req.user.organizationContext?.organization?.id;
+      const requestedStatus = parseOptionalStatus(req.query.status);
+      const requestedLimit = parseOptionalLimit(req.query.limit);
+      const requestedCursor = req.query.cursor ? String(req.query.cursor).trim() : null;
 
       // Verify job belongs to organization
       const job = await jobStore.getById(jobId);
@@ -264,14 +402,30 @@ export class ApplicationController {
         return res.status(403).json({ error: 'Access denied' });
       }
 
-      const applications = await jobApplicationStore.listByJob(jobId);
+      let applications = [];
+      let page = null;
+      if (requestedLimit || requestedCursor) {
+        page = await jobApplicationStore.listByJobPage(jobId, {
+          status: requestedStatus,
+          limit: requestedLimit || 50,
+          cursor: requestedCursor,
+        });
+        applications = page.items;
+      } else {
+        applications = await jobApplicationStore.listByJob(jobId);
+        if (requestedStatus) {
+          applications = applications.filter(
+            (application) => normalizeApplicationStatus(application?.status) === requestedStatus,
+          );
+        }
+      }
 
       // Enrich with candidate details
       const candidateIds = applications.map((app) => app.candidateId).filter(Boolean);
       const candidates = await userStore.getSummaries(candidateIds);
 
       const enriched = applications.map((app) =>
-        sanitizeApplication(app, candidates.get(app.candidateId), null, null),
+        sanitizeApplication(app, candidates.get(app.candidateId), job, null),
       );
 
       res.json({
@@ -282,6 +436,13 @@ export class ApplicationController {
           title: job.title,
           department: job.department,
         },
+        pagination: page
+          ? {
+            limit: requestedLimit || 50,
+            nextCursor: page.nextCursor || null,
+            hasMore: page.hasMore === true,
+          }
+          : null,
       });
     } catch (error) {
       logger.error('Get job applications error:', error);
@@ -309,10 +470,72 @@ export class ApplicationController {
         return res.status(403).json({ error: 'Access denied' });
       }
 
+      const nextStatus = normalizeApplicationStatus(status);
+      const previousStatus = normalizeApplicationStatus(application.status);
+      if (!nextStatus) {
+        return res.status(400).json({
+          error: 'Invalid status value',
+          details: { allowedStatuses: APPLICATION_STATUSES },
+        });
+      }
+      if (!canTransitionApplicationStatus(previousStatus, nextStatus, { allowNoop: true })) {
+        return res.status(409).json({
+          error: `Cannot change application status from ${previousStatus || 'UNKNOWN'} to ${nextStatus}`,
+          code: STATUS_TRANSITION_ERROR_CODE,
+          details: {
+            applicationId: id,
+            currentStatus: previousStatus,
+            requestedStatus: nextStatus,
+            allowedNextStatuses: getAllowedApplicationTransitions(previousStatus),
+            isTerminal: isTerminalApplicationStatus(previousStatus),
+          },
+        });
+      }
+
+      const statusChangedAt = new Date().toISOString();
+      const disposition = normalizeDisposition(req.body, {
+        status: nextStatus,
+        withdrawnBy: null,
+        jobDeletedAt: null,
+      });
+      const isFinalDecision = nextStatus === 'REJECTED' || nextStatus === 'HIRED';
+      const statusHistoryEntry = buildStatusHistoryEntry({
+        previousStatus,
+        status: nextStatus,
+        changedAt: statusChangedAt,
+        changedBy: userId,
+        source: 'RECRUITER_MANUAL',
+        note: disposition.notes || disposition.reason || null,
+        dispositionCode: disposition.code,
+        dispositionCategory: disposition.category,
+      });
+
       const updated = await jobApplicationStore.update(id, {
-        status,
-        reviewedAt: new Date().toISOString(),
+        status: nextStatus,
+        reviewedAt: statusChangedAt,
         reviewedBy: userId,
+        statusSource: 'RECRUITER_MANUAL',
+        statusChangedAt,
+        ...(isFinalDecision
+          ? {
+            dispositionCode: disposition.code,
+            dispositionCategory: disposition.category,
+            dispositionReason: disposition.reason,
+            dispositionNotes: disposition.notes,
+            dispositionTags: disposition.tags,
+            dispositionAt: statusChangedAt,
+            dispositionBy: userId,
+          }
+          : {
+            dispositionCode: null,
+            dispositionCategory: null,
+            dispositionReason: null,
+            dispositionNotes: null,
+            dispositionTags: [],
+            dispositionAt: null,
+            dispositionBy: null,
+          }),
+        statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
       });
 
       // Log activity
@@ -324,12 +547,14 @@ export class ApplicationController {
         targetType: 'APPLICATION',
         targetId: id,
         metadata: {
-          status,
+          status: nextStatus,
           jobId: application.jobId,
+          dispositionCode: disposition.code || null,
+          dispositionCategory: disposition.category || null,
         },
       });
 
-      logger.info(`Application ${id} status updated to ${status} by ${userId}`);
+      logger.info(`Application ${id} status updated to ${nextStatus} by ${userId}`);
 
       await publishOrganizationRealtimeUpdate(organizationId, 'application-status-updated', {
         applicationId: id,
@@ -344,21 +569,26 @@ export class ApplicationController {
         status: updated.status || status,
       });
 
-      // Send status update email to candidate
-      try {
-        const [candidate, job, organization] = await Promise.all([
-          userStore.getSummary(application.candidateId),
-          jobStore.getById(application.jobId),
-          organizationStore.getById(organizationId),
-        ]);
-        
-        if (candidate && job && organization) {
-          await emailNotifications.sendApplicationStatusUpdated(updated, candidate, job, organization);
-          logger.info(`Status update email sent to ${candidate.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send status update email:', emailError);
-        // Don't fail the request if email fails
+      // Send status update email in background.
+      const [candidate, job, organization] = await Promise.all([
+        userStore.getSummary(application.candidateId),
+        jobStore.getById(application.jobId),
+        organizationStore.getById(organizationId),
+      ]);
+      if (candidate?.email && job && organization) {
+        queueEmailJob({
+          type: 'APPLICATION_STATUS_UPDATED',
+          payload: {
+            applicationId: updated.id,
+            candidateId: application.candidateId,
+            recipient: candidate.email || null,
+            status: updated.status,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationStatusUpdated(updated, candidate, job, organization);
+            logger.info(`Status update email sent to ${candidate.email}`);
+          },
+        });
       }
 
       res.json({
@@ -395,11 +625,47 @@ export class ApplicationController {
           error: 'Cannot withdraw application at this stage. Please contact the employer.',
         });
       }
+      if (normalizeApplicationStatus(application.status) === 'REJECTED') {
+        return res.status(409).json({
+          error: 'Application is already closed.',
+          code: STATUS_TRANSITION_ERROR_CODE,
+          details: {
+            currentStatus: normalizeApplicationStatus(application.status),
+            requestedStatus: 'REJECTED',
+            allowedNextStatuses: getAllowedApplicationTransitions(application.status),
+          },
+        });
+      }
+
+      const withdrawnAt = new Date().toISOString();
 
       const updated = await jobApplicationStore.update(id, {
         status: 'REJECTED',
         withdrawnBy: candidateId, // Track that this was withdrawn by the candidate
-        updatedAt: new Date().toISOString(),
+        reviewedAt: withdrawnAt,
+        reviewedBy: candidateId,
+        statusSource: 'CANDIDATE_WITHDRAWAL',
+        statusChangedAt: withdrawnAt,
+        dispositionCode: 'CANDIDATE_WITHDREW',
+        dispositionCategory: 'CANDIDATE_ACTION',
+        dispositionReason: 'Application withdrawn by candidate.',
+        dispositionNotes: null,
+        dispositionTags: [],
+        dispositionAt: withdrawnAt,
+        dispositionBy: candidateId,
+        statusHistory: appendStatusHistory(
+          application.statusHistory,
+          buildStatusHistoryEntry({
+            previousStatus: application.status,
+            status: 'REJECTED',
+            changedAt: withdrawnAt,
+            changedBy: candidateId,
+            source: 'CANDIDATE_WITHDRAWAL',
+            note: 'Candidate withdrew application.',
+            dispositionCode: 'CANDIDATE_WITHDREW',
+            dispositionCategory: 'CANDIDATE_ACTION',
+          }),
+        ),
       });
 
       logger.info(`Application ${id} withdrawn by candidate ${candidateId}`);
@@ -434,13 +700,27 @@ export class ApplicationController {
   static async getOrganizationApplications(req, res, next) {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
-      const { status, limit = 50 } = req.query;
+      const requestedStatus = parseOptionalStatus(req.query.status);
+      const requestedLimit = parseOptionalLimit(req.query.limit) || 50;
+      const requestedCursor = req.query.cursor ? String(req.query.cursor).trim() : null;
+      const usingPagination = Boolean(requestedCursor || req.query.limit);
 
-      let applications = await jobApplicationStore.listByOrganization(organizationId, parseInt(limit));
-
-      // Filter by status if provided
-      if (status) {
-        applications = applications.filter((app) => app.status === status.toUpperCase());
+      let applications = [];
+      let page = null;
+      if (usingPagination) {
+        page = await jobApplicationStore.listByOrganizationPage(organizationId, {
+          status: requestedStatus,
+          limit: requestedLimit,
+          cursor: requestedCursor,
+        });
+        applications = page.items;
+      } else {
+        applications = await jobApplicationStore.listByOrganization(organizationId, requestedLimit);
+        if (requestedStatus) {
+          applications = applications.filter(
+            (app) => normalizeApplicationStatus(app?.status) === requestedStatus,
+          );
+        }
       }
 
       // Enrich with candidate, job, and organization details
@@ -463,9 +743,192 @@ export class ApplicationController {
         success: true,
         applications: enriched,
         total: enriched.length,
+        pagination: page
+          ? {
+            limit: requestedLimit,
+            nextCursor: page.nextCursor || null,
+            hasMore: page.hasMore === true,
+          }
+          : null,
       });
     } catch (error) {
       logger.error('Get organization applications error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Bulk update application status (recruiter)
+   */
+  static async bulkUpdateApplicationStatuses(req, res, next) {
+    try {
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const userId = req.user.id;
+      const {
+        applicationIds = [],
+        status,
+      } = req.body || {};
+
+      const targetStatus = normalizeApplicationStatus(status);
+      if (!targetStatus) {
+        return res.status(400).json({
+          error: 'Invalid status value',
+          details: { allowedStatuses: APPLICATION_STATUSES },
+        });
+      }
+
+      const dedupedIds = [...new Set(applicationIds.filter(Boolean).map((id) => String(id).trim()))];
+      if (dedupedIds.length === 0) {
+        return res.status(400).json({ error: 'At least one application ID is required' });
+      }
+
+      const fetchedApplications = await Promise.all(
+        dedupedIds.map(async (applicationId) => {
+          try {
+            const application = await jobApplicationStore.getById(applicationId);
+            return { applicationId, application, error: null };
+          } catch (fetchError) {
+            return { applicationId, application: null, error: fetchError };
+          }
+        }),
+      );
+
+      const results = [];
+      const updatedApplications = [];
+      const statusChangedAt = new Date().toISOString();
+
+      for (const item of fetchedApplications) {
+        const { applicationId, application, error } = item;
+        if (error) {
+          results.push({
+            applicationId,
+            updated: false,
+            reason: 'FETCH_ERROR',
+            message: 'Failed to load application.',
+          });
+          continue;
+        }
+        if (!application) {
+          results.push({
+            applicationId,
+            updated: false,
+            reason: 'NOT_FOUND',
+            message: 'Application not found.',
+          });
+          continue;
+        }
+        if (application.organizationId !== organizationId) {
+          results.push({
+            applicationId,
+            updated: false,
+            reason: 'ACCESS_DENIED',
+            message: 'Application does not belong to your organization.',
+          });
+          continue;
+        }
+
+        const previousStatus = normalizeApplicationStatus(application.status);
+        if (!canTransitionApplicationStatus(previousStatus, targetStatus, { allowNoop: true })) {
+          results.push({
+            applicationId,
+            updated: false,
+            reason: 'INVALID_TRANSITION',
+            message: `Cannot transition from ${previousStatus} to ${targetStatus}.`,
+            allowedNextStatuses: getAllowedApplicationTransitions(previousStatus),
+          });
+          continue;
+        }
+
+        const disposition = normalizeDisposition(req.body, {
+          status: targetStatus,
+          withdrawnBy: null,
+          jobDeletedAt: null,
+        });
+        const isFinalDecision = targetStatus === 'REJECTED' || targetStatus === 'HIRED';
+        const statusHistoryEntry = buildStatusHistoryEntry({
+          previousStatus,
+          status: targetStatus,
+          changedAt: statusChangedAt,
+          changedBy: userId,
+          source: 'RECRUITER_BULK',
+          note: disposition.notes || disposition.reason || null,
+          dispositionCode: disposition.code,
+          dispositionCategory: disposition.category,
+        });
+
+        const updated = await jobApplicationStore.update(applicationId, {
+          status: targetStatus,
+          reviewedAt: statusChangedAt,
+          reviewedBy: userId,
+          statusSource: 'RECRUITER_BULK',
+          statusChangedAt,
+          ...(isFinalDecision
+            ? {
+              dispositionCode: disposition.code,
+              dispositionCategory: disposition.category,
+              dispositionReason: disposition.reason,
+              dispositionNotes: disposition.notes,
+              dispositionTags: disposition.tags,
+              dispositionAt: statusChangedAt,
+              dispositionBy: userId,
+            }
+            : {
+              dispositionCode: null,
+              dispositionCategory: null,
+              dispositionReason: null,
+              dispositionNotes: null,
+              dispositionTags: [],
+              dispositionAt: null,
+              dispositionBy: null,
+            }),
+          statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
+        });
+
+        updatedApplications.push(updated);
+        results.push({
+          applicationId,
+          updated: true,
+          status: updated.status,
+        });
+
+        await publishOrganizationRealtimeUpdate(organizationId, 'application-status-updated', {
+          applicationId: updated.id,
+          jobId: updated.jobId || null,
+          candidateId: updated.candidateId || null,
+          status: updated.status || targetStatus,
+        });
+        await publishCandidateRealtimeUpdate(updated.candidateId, 'application-status-updated', {
+          applicationId: updated.id,
+          jobId: updated.jobId || null,
+          organizationId,
+          status: updated.status || targetStatus,
+        });
+      }
+
+      await activityLogStore.record({
+        organizationId,
+        actorId: userId,
+        actorRole: req.user.organizationContext?.membership?.role,
+        action: 'APPLICATION_STATUS_BULK_UPDATED',
+        targetType: 'APPLICATION',
+        targetId: null,
+        metadata: {
+          totalRequested: dedupedIds.length,
+          updatedCount: updatedApplications.length,
+          targetStatus,
+        },
+      });
+
+      res.json({
+        success: true,
+        targetStatus,
+        totalRequested: dedupedIds.length,
+        updatedCount: updatedApplications.length,
+        skippedCount: dedupedIds.length - updatedApplications.length,
+        results,
+      });
+    } catch (error) {
+      logger.error('Bulk update application statuses error:', error);
       next(error);
     }
   }

@@ -20,6 +20,7 @@ import { useToast } from '../../../components/ui/Toast';
 import apiClient from '../../../services/apiClient';
 import { downloadJSONL, downloadJSON } from '../../../services/interviewDatasetService';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
 
 /**
  * Statistics Card Component
@@ -203,6 +204,7 @@ const TrainingDataManager = () => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: ADMIN_FEED_EVENTS.datasets,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

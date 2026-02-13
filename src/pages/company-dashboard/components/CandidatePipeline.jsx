@@ -5,6 +5,10 @@ import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 const PIPELINE_COLUMNS = [
   { id: 'SCREENING', title: 'AI Screening', color: 'bg-blue-400' },
@@ -49,6 +53,11 @@ const CandidatePipeline = () => {
   useRealtimePathFeed({
     path: organization?.id ? `organizationFeeds/${organization.id}` : null,
     enabled: Boolean(organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.pipeline,
+      ORGANIZATION_FEED_EVENTS.interviews,
+      ORGANIZATION_FEED_EVENTS.applications,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

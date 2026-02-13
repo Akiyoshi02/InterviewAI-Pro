@@ -228,6 +228,11 @@ router.get(
   [
     commonValidators.queryParam.limit(100, 500),
     commonValidators.queryParam.offset(),
+    query('cursor')
+      .optional()
+      .trim()
+      .isLength({ max: 512 })
+      .withMessage('Cursor must be 512 characters or fewer'),
   ],
   validateRequest,
   AdminController.getAuditLogs,
@@ -277,4 +282,3 @@ router.get(
 );
 
 export default router;
-

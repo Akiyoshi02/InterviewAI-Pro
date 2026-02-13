@@ -11,7 +11,8 @@ import logger from '../utils/logger.js';
 
 const sanitizeReview = (review, reviewerSummary = null) => ({
   id: review.id,
-  interviewerId: review.interviewId,
+  interviewId: review.interviewId,
+  interviewerId: review.interviewId, // backward-compatible alias
   reviewerId: review.reviewerId,
   reviewerRole: review.reviewerRole,
   score: review.score,

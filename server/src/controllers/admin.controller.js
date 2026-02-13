@@ -10,6 +10,7 @@ import {
   reviewStore,
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
+import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
 import logger from '../utils/logger.js';
 import admin, { realtimeDb } from '../config/firebase.js';
 
@@ -933,16 +934,21 @@ export class AdminController {
         },
       });
 
-      // Send approval email to organization owner
-      try {
-        const owner = await userStore.getByUid(organization.ownerId);
-        if (owner) {
-          await emailNotifications.sendOrganizationApproved(approved, owner);
-          logger.info(`Approval email sent to ${owner.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send approval email:', emailError);
-        // Don't fail the request if email fails
+      // Send approval email in background.
+      const owner = await userStore.getByUid(organization.ownerId).catch(() => null);
+      if (owner?.email) {
+        queueEmailJob({
+          type: 'ORG_APPROVED_EMAIL',
+          payload: {
+            organizationId: approved.id,
+            ownerId: owner.id,
+            recipient: owner.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendOrganizationApproved(approved, owner);
+            logger.info(`Approval email sent to ${owner.email}`);
+          },
+        });
       }
 
       logger.info(`Organization approved: ${id} by admin ${adminId}`);
@@ -1023,26 +1029,26 @@ export class AdminController {
         },
       });
 
-      // Send rejection email to organization owner
-      try {
-        const owner = await userStore.getByUid(organization.ownerId);
-        if (!owner) {
-          logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
-        } else if (!owner.email) {
-          logger.warn(`Owner ${organization.ownerId} does not have an email address`);
-        } else {
-          logger.info(`Attempting to send rejection email to ${owner.email} for organization ${organization.name}`);
-          await emailNotifications.sendOrganizationRejected(rejected, owner, reason);
-          logger.info(`Rejection email sent successfully to ${owner.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send rejection email:', {
-          error: emailError.message,
-          stack: emailError.stack,
-          organizationId: id,
-          ownerId: organization.ownerId,
+      // Send rejection email in background.
+      const owner = await userStore.getByUid(organization.ownerId).catch(() => null);
+      if (!owner) {
+        logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
+      } else if (!owner.email) {
+        logger.warn(`Owner ${organization.ownerId} does not have an email address`);
+      } else {
+        queueEmailJob({
+          type: 'ORG_REJECTED_EMAIL',
+          payload: {
+            organizationId: rejected.id,
+            ownerId: owner.id,
+            recipient: owner.email,
+          },
+          handler: async () => {
+            logger.info(`Attempting to send rejection email to ${owner.email} for organization ${organization.name}`);
+            await emailNotifications.sendOrganizationRejected(rejected, owner, reason);
+            logger.info(`Rejection email sent successfully to ${owner.email}`);
+          },
         });
-        // Don't fail the request if email fails
       }
 
       logger.info(`Organization rejected: ${id} by admin ${adminId}, reason: ${reason}`);
@@ -1109,25 +1115,25 @@ export class AdminController {
         },
       });
 
-      // Send suspension email to organization owner
-      try {
-        const owner = await userStore.getByUid(organization.ownerId);
-        if (!owner) {
-          logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
-        } else if (!owner.email) {
-          logger.warn(`Owner ${organization.ownerId} does not have an email address`);
-        } else {
-          await emailNotifications.sendOrganizationSuspended(suspended, owner, reason);
-          logger.info(`Suspension email sent successfully to ${owner.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send suspension email:', {
-          error: emailError.message,
-          stack: emailError.stack,
-          organizationId: id,
-          ownerId: organization.ownerId,
+      // Send suspension email in background.
+      const owner = await userStore.getByUid(organization.ownerId).catch(() => null);
+      if (!owner) {
+        logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
+      } else if (!owner.email) {
+        logger.warn(`Owner ${organization.ownerId} does not have an email address`);
+      } else {
+        queueEmailJob({
+          type: 'ORG_SUSPENDED_EMAIL',
+          payload: {
+            organizationId: suspended.id,
+            ownerId: owner.id,
+            recipient: owner.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendOrganizationSuspended(suspended, owner, reason);
+            logger.info(`Suspension email sent successfully to ${owner.email}`);
+          },
         });
-        // Do not fail suspension action if email fails
       }
 
       logger.info(`Organization suspended: ${id} by admin ${adminId}, reason: ${reason}`);
@@ -1192,25 +1198,25 @@ export class AdminController {
         },
       });
 
-      // Send reactivation email to organization owner
-      try {
-        const owner = await userStore.getByUid(organization.ownerId);
-        if (!owner) {
-          logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
-        } else if (!owner.email) {
-          logger.warn(`Owner ${organization.ownerId} does not have an email address`);
-        } else {
-          await emailNotifications.sendOrganizationReactivated(activated, owner);
-          logger.info(`Reactivation email sent successfully to ${owner.email}`);
-        }
-      } catch (emailError) {
-        logger.error('Failed to send reactivation email:', {
-          error: emailError.message,
-          stack: emailError.stack,
-          organizationId: id,
-          ownerId: organization.ownerId,
+      // Send reactivation email in background.
+      const owner = await userStore.getByUid(organization.ownerId).catch(() => null);
+      if (!owner) {
+        logger.warn(`Owner not found for organization ${id}, ownerId: ${organization.ownerId}`);
+      } else if (!owner.email) {
+        logger.warn(`Owner ${organization.ownerId} does not have an email address`);
+      } else {
+        queueEmailJob({
+          type: 'ORG_REACTIVATED_EMAIL',
+          payload: {
+            organizationId: activated.id,
+            ownerId: owner.id,
+            recipient: owner.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendOrganizationReactivated(activated, owner);
+            logger.info(`Reactivation email sent successfully to ${owner.email}`);
+          },
         });
-        // Do not fail activation action if email fails
       }
 
       logger.info(`Organization activated: ${id} by admin ${adminId}`);
@@ -1323,9 +1329,21 @@ export class AdminController {
    */
   static async getAuditLogs(req, res, next) {
     try {
-      const { limit = 100, offset = 0 } = req.query;
+      const { limit = 100, offset = 0, cursor = null } = req.query;
+      const parsedLimit = Number.parseInt(limit, 10);
+      const parsedOffset = Number.parseInt(offset, 10);
+      const normalizedCursor = typeof cursor === 'string' ? cursor.trim() : null;
 
-      const logs = await platformAuditLogStore.list(parseInt(limit), parseInt(offset));
+      const page = normalizedCursor
+        ? await platformAuditLogStore.listPage({
+          limit: parsedLimit,
+          cursor: normalizedCursor,
+        })
+        : await platformAuditLogStore.listPageFromOffset({
+          limit: parsedLimit,
+          offset: parsedOffset,
+        });
+      const logs = page.items;
 
       // Enrich with actor information
       const actorIds = logs.map((log) => log.actorId).filter(Boolean);
@@ -1340,6 +1358,8 @@ export class AdminController {
         success: true,
         logs: enriched,
         total: enriched.length,
+        hasMore: page.hasMore,
+        nextCursor: page.nextCursor,
       });
     } catch (error) {
       logger.error('Get audit logs error:', error);
@@ -1359,7 +1379,8 @@ export class AdminController {
       const suspendedOrgs = allOrgs.filter((o) => o.status === 'SUSPENDED');
 
       // Get recent activity
-      const recentLogs = await platformAuditLogStore.list(10, 0);
+      const recentLogsPage = await platformAuditLogStore.listPage({ limit: 10 });
+      const recentLogs = recentLogsPage.items;
       
       // Enrich with actor information
       const actorIds = recentLogs.map((log) => log.actorId).filter(Boolean);

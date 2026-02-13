@@ -9,6 +9,8 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import { CANDIDATE_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
+import { getDispositionLabel } from '../../../constants/applicationDisposition.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -48,13 +50,23 @@ const formatEmploymentType = (type) => {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 };
 
-const getStatusConfig = (status, withdrawnBy = null) => {
+const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => {
+  const normalizedDispositionCode = String(dispositionCode || '').toUpperCase();
+
   // If status is REJECTED and withdrawnBy exists, it means the candidate withdrew
   if (status === 'REJECTED' && withdrawnBy) {
     return {
       label: 'Withdrew',
       color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
       icon: 'XCircle',
+    };
+  }
+
+  if (status === 'REJECTED' && normalizedDispositionCode === 'JOB_CLOSED') {
+    return {
+      label: 'Position Closed',
+      color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+      icon: 'Archive',
     };
   }
   
@@ -151,6 +163,7 @@ const MyApplicationsList = () => {
   useRealtimePathFeed({
     path: user?.id ? `candidateFeeds/${user.id}` : null,
     enabled: Boolean(user?.id),
+    eventTypes: CANDIDATE_FEED_EVENTS.applications,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -214,7 +227,7 @@ const MyApplicationsList = () => {
 
   // Group applications by job and company
   const groupedApplications = applications.reduce((acc, application) => {
-    const jobId = application.job?.id || 'unknown';
+    const jobId = application.job?.id || application.jobId || `unknown-${application.id}`;
     if (!acc[jobId]) {
       acc[jobId] = {
         job: application.job,
@@ -409,7 +422,11 @@ const MyApplicationsList = () => {
             {paginatedJobs.map(([jobId, jobData], index) => {
               const isExpanded = expandedJobs.has(jobId);
               const latestApplication = jobData.applications[0]; // Most recent application
-              const statusConfig = getStatusConfig(latestApplication.status, latestApplication.withdrawnBy);
+              const statusConfig = getStatusConfig(
+                latestApplication.status,
+                latestApplication.withdrawnBy,
+                latestApplication.dispositionCode,
+              );
               
               return (
                 <motion.div
@@ -444,12 +461,19 @@ const MyApplicationsList = () => {
                         <Icon name="Briefcase" className="w-5 h-5 text-blue-600 dark:text-blue-400" />
                       </div>
                       <div className="flex-1 min-w-0 text-left">
-                        <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
-                          {jobData.job?.title || 'Unknown Position'}
-                        </h3>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
+                            {jobData.job?.title || 'Deleted Position'}
+                          </h3>
+                          {jobData.job?.isDeleted && (
+                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium shrink-0">
+                              Deleted
+                            </span>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-600 dark:text-slate-400 truncate">
                           {jobData.organization?.name || 'Company'}
-                          {jobData.job?.location && ` • ${jobData.job.location}`}
+                          {jobData.job?.location && ` - ${jobData.job.location}`}
                         </p>
                       </div>
                     </div>
@@ -479,7 +503,11 @@ const MyApplicationsList = () => {
                       >
                         <div className="p-4 space-y-4 bg-gray-50/50 dark:bg-slate-800/30">
                           {jobData.applications.map((application, appIndex) => {
-                            const appStatusConfig = getStatusConfig(application.status, application.withdrawnBy);
+                            const appStatusConfig = getStatusConfig(
+                              application.status,
+                              application.withdrawnBy,
+                              application.dispositionCode,
+                            );
                             const canWithdraw = !['HIRED', 'INTERVIEWING', 'REJECTED'].includes(application.status) && !application.withdrawnBy;
                             
                             return (
@@ -517,6 +545,18 @@ const MyApplicationsList = () => {
                                       </Button>
                                     )}
                                   </div>
+
+                                  {application.dispositionCode && (
+                                    <div className="text-xs text-gray-600 dark:text-slate-400">
+                                      Reason: {getDispositionLabel(application.dispositionCode)}
+                                      {application.dispositionReason ? ` - ${application.dispositionReason}` : ''}
+                                    </div>
+                                  )}
+                                  {application.dispositionNotes && (
+                                    <div className="text-xs text-gray-600 dark:text-slate-400">
+                                      Note: {application.dispositionNotes}
+                                    </div>
+                                  )}
 
                                   {/* Job Details */}
                                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -652,3 +692,4 @@ const MyApplicationsList = () => {
 };
 
 export default MyApplicationsList;
+

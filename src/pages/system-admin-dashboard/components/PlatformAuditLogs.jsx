@@ -5,25 +5,35 @@ import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ADMIN_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 const PlatformAuditLogs = () => {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [limit] = useState(50);
-  const [offset, setOffset] = useState(0);
+  const [cursor, setCursor] = useState(null);
+  const [cursorHistory, setCursorHistory] = useState([]);
+  const [nextCursor, setNextCursor] = useState(null);
+  const [hasMore, setHasMore] = useState(false);
+  const [page, setPage] = useState(1);
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadAuditLogsRef = useRef(null);
 
   useEffect(() => {
     loadAuditLogs();
-  }, [offset]);
+  }, [cursor]);
 
   const loadAuditLogs = async () => {
     try {
       setLoading(true);
-      const result = await apiClient.admin.getAuditLogs(limit, offset);
+      const result = await apiClient.admin.getAuditLogs(limit, 0, cursor);
       if (result.success) {
         setLogs(result.logs || []);
+        setHasMore(Boolean(result.hasMore));
+        setNextCursor(result.nextCursor || null);
       }
     } catch (error) {
       console.error('Failed to load audit logs:', error);
@@ -39,6 +49,13 @@ const PlatformAuditLogs = () => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: combineRealtimeEventTypes(
+      ADMIN_FEED_EVENTS.organizations,
+      ADMIN_FEED_EVENTS.settings,
+      ADMIN_FEED_EVENTS.datasets,
+      ADMIN_FEED_EVENTS.interviews,
+      ADMIN_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -205,20 +222,32 @@ const PlatformAuditLogs = () => {
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setOffset((prev) => Math.max(0, prev - limit))}
-                disabled={offset === 0 || loading}
+                onClick={() => {
+                  if (cursorHistory.length === 0) return;
+                  const updatedHistory = [...cursorHistory];
+                  const previousCursor = updatedHistory.pop() || null;
+                  setCursorHistory(updatedHistory);
+                  setCursor(previousCursor);
+                  setPage((prev) => Math.max(1, prev - 1));
+                }}
+                disabled={cursorHistory.length === 0 || loading}
               >
                 <Icon name="ChevronLeft" className="w-4 h-4 mr-1" />
                 Previous
               </Button>
               <span className="text-sm text-gray-600 dark:text-slate-400">
-                Showing {offset + 1} - {offset + logs.length}
+                Page {page} • Showing {logs.length} logs
               </span>
               <Button
                 variant="outline"
                 size="sm"
-                onClick={() => setOffset((prev) => prev + limit)}
-                disabled={logs.length < limit || loading}
+                onClick={() => {
+                  if (!nextCursor) return;
+                  setCursorHistory((prev) => [...prev, cursor]);
+                  setCursor(nextCursor);
+                  setPage((prev) => prev + 1);
+                }}
+                disabled={!hasMore || !nextCursor || loading}
               >
                 Next
                 <Icon name="ChevronRight" className="w-4 h-4 ml-1" />

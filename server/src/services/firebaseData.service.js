@@ -1,6 +1,16 @@
 import { randomUUID } from 'crypto';
 import { firestore, realtimeDb } from '../config/firebase.js';
 import logger from '../utils/logger.js';
+import {
+  decodeAuditCursor,
+  normalizeAuditPageLimit,
+  sliceAuditLogsPage,
+  sortAuditLogsByCreatedAtDesc,
+} from '../utils/auditLogPagination.util.js';
+import {
+  evaluateInvitationAcceptanceClaim,
+  INVITATION_ACCEPTANCE_CLAIM_STATUS,
+} from '../utils/invitationAcceptance.util.js';
 
 const usersCollection = firestore.collection('users');
 const interviewsCollection = firestore.collection('interviews');
@@ -79,6 +89,7 @@ const getJobExpiryMillis = (job) => {
 
 export const isJobCurrentlyPublic = (job, nowValue = Date.now()) => {
   if (!job) return false;
+  if (job.deletedAt) return false;
   if ((job.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
 
   const nowMillis = toMillis(nowValue) || Date.now();
@@ -92,6 +103,8 @@ export const isJobCurrentlyPublic = (job, nowValue = Date.now()) => {
 
   return expiresAtMillis > nowMillis;
 };
+
+const isJobSoftDeleted = (job) => Boolean(job?.deletedAt);
 
 const buildUserSummary = (user) => {
   if (!user) return null;
@@ -130,6 +143,13 @@ const ensureArray = (value) => {
   if (!value) return [];
   if (Array.isArray(value)) return value;
   return [value];
+};
+
+const normalizeInterviewListLimit = (value, max = 200) => {
+  if (value == null) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) return null;
+  return Math.min(parsed, max);
 };
 
 const sanitizeOrgRole = (role) => {
@@ -384,28 +404,124 @@ export const interviewStore = {
     return mapQuestionsSnapshot(questionsSnapshot);
   },
 
-  async listByCandidate(candidateId) {
+  async listByCandidate(candidateId, options = {}) {
     if (!candidateId) return [];
-    const snapshot = await interviewsCollection.where('candidateId', '==', candidateId).get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    const limit = normalizeInterviewListLimit(options?.limit);
+    try {
+      let query = interviewsCollection
+        .where('candidateId', '==', candidateId)
+        .orderBy('createdAt', 'desc');
+      if (limit) {
+        query = query.limit(limit);
+      }
+      const snapshot = await query.get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Candidate interviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+      const snapshot = await interviewsCollection.where('candidateId', '==', candidateId).get();
+      let items = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      if (limit) {
+        items = items.slice(0, limit);
+      }
+      return items;
+    }
   },
 
-  async listByCompany(companyId) {
+  async listByCompany(companyId, options = {}) {
     if (!companyId) return [];
-    const snapshot = await interviewsCollection.where('companyId', '==', companyId).get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    const limit = normalizeInterviewListLimit(options?.limit);
+    try {
+      let query = interviewsCollection
+        .where('companyId', '==', companyId)
+        .orderBy('createdAt', 'desc');
+      if (limit) {
+        query = query.limit(limit);
+      }
+      const snapshot = await query.get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Company interviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+      const snapshot = await interviewsCollection.where('companyId', '==', companyId).get();
+      let items = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      if (limit) {
+        items = items.slice(0, limit);
+      }
+      return items;
+    }
   },
 
-  async listByOrganization(organizationId) {
+  async listByOrganization(organizationId, options = {}) {
     if (!organizationId) return [];
-    const snapshot = await interviewsCollection.where('organizationId', '==', organizationId).get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    const limit = normalizeInterviewListLimit(options?.limit);
+    try {
+      let query = interviewsCollection
+        .where('organizationId', '==', organizationId)
+        .orderBy('createdAt', 'desc');
+      if (limit) {
+        query = query.limit(limit);
+      }
+      const snapshot = await query.get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Organization interviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+      const snapshot = await interviewsCollection.where('organizationId', '==', organizationId).get();
+      let items = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      if (limit) {
+        items = items.slice(0, limit);
+      }
+      return items;
+    }
   },
 
-  async listByJob(jobId) {
+  async listByJob(jobId, options = {}) {
     if (!jobId) return [];
-    const snapshot = await interviewsCollection.where('jobId', '==', jobId).get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    const limit = normalizeInterviewListLimit(options?.limit);
+    try {
+      let query = interviewsCollection
+        .where('jobId', '==', jobId)
+        .orderBy('createdAt', 'desc');
+      if (limit) {
+        query = query.limit(limit);
+      }
+      const snapshot = await query.get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Job interviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+      const snapshot = await interviewsCollection.where('jobId', '==', jobId).get();
+      let items = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      if (limit) {
+        items = items.slice(0, limit);
+      }
+      return items;
+    }
   },
 
   /**
@@ -537,6 +653,7 @@ export async function syncRealtimeInterviewSession(interview = {}) {
   const participantIds = getInterviewParticipantIds(interview);
   const participantMap = toParticipantMap(participantIds);
   const timestamp = now();
+  const syncEventId = randomUUID();
   const sessionRef = realtimeDb.ref(`sessions/${interview.id}`);
 
   try {
@@ -563,6 +680,7 @@ export async function syncRealtimeInterviewSession(interview = {}) {
         feedUpdates[`${feedBasePath}/jobStage`] = interview.jobStage || null;
         feedUpdates[`${feedBasePath}/overallScore`] = interview.overallScore ?? null;
         feedUpdates[`${feedBasePath}/readinessLevel`] = interview.readinessLevel ?? null;
+        feedUpdates[`${feedBasePath}/lastEventId`] = syncEventId;
         feedUpdates[`${feedBasePath}/lastEventType`] = 'session-synced';
         feedUpdates[`${feedBasePath}/lastEventAt`] = interview.updatedAt || interview.createdAt || timestamp;
         feedUpdates[`${feedBasePath}/updatedAt`] = timestamp;
@@ -578,8 +696,10 @@ export async function syncRealtimeInterviewSession(interview = {}) {
 export async function recordRealtimeEvent(interviewId, eventType, payload = {}) {
   if (!realtimeDb || !interviewId) return;
 
+  const eventId = randomUUID();
   const timestamp = now();
   const event = {
+    eventId,
     eventType,
     payload,
     timestamp,
@@ -628,6 +748,7 @@ export async function recordRealtimeEvent(interviewId, eventType, payload = {}) 
         participantIds.forEach((participantId) => {
           const feedBasePath = `userInterviewFeeds/${participantId}/${interviewId}`;
           feedUpdates[`${feedBasePath}/interviewId`] = interviewId;
+          feedUpdates[`${feedBasePath}/lastEventId`] = eventId;
           feedUpdates[`${feedBasePath}/lastEventType`] = eventType;
           feedUpdates[`${feedBasePath}/lastEventAt`] = timestamp;
           feedUpdates[`${feedBasePath}/updatedAt`] = timestamp;
@@ -1818,6 +1939,7 @@ const sanitizeJobStatus = (status) => {
 export const jobStore = {
   async create(data = {}) {
     const docRef = jobsCollection.doc();
+    const createdAt = now();
     const payload = {
       id: docRef.id,
       organizationId: data.organizationId,
@@ -1836,7 +1958,12 @@ export const jobStore = {
       requirements: ensureArray(data.requirements),
       responsibilities: ensureArray(data.responsibilities),
       skills: ensureArray(data.skills),
-      advertImageUrl: data.advertImageUrl || null,
+      advertImageUrls: ensureArray(data.advertImageUrls).length > 0
+        ? ensureArray(data.advertImageUrls)
+        : (data.advertImageUrl ? [data.advertImageUrl] : []),
+      advertImageUrl: data.advertImageUrl
+        || ensureArray(data.advertImageUrls)[0]
+        || null,
       advertImageAlt: data.advertImageAlt || null,
       advertVideoUrl: data.advertVideoUrl || null,
       status: sanitizeJobStatus(data.status),
@@ -1849,11 +1976,16 @@ export const jobStore = {
       reviewerIds: ensureArray(data.reviewerIds),
       hiringManagerId: data.hiringManagerId || null,
       postingDuration: data.postingDuration || 30,
+      acceptingApplications: data.acceptingApplications !== false,
       scheduledPublishAt: data.scheduledPublishAt || null,
       publishedAt: null,
       expiresAt: null,
-      createdAt: now(),
-      updatedAt: now(),
+      deletedAt: null,
+      deletedBy: null,
+      deleteReason: null,
+      deletionMode: null,
+      createdAt,
+      updatedAt: createdAt,
     };
     
     // Handle publishing logic on creation
@@ -1889,7 +2021,7 @@ export const jobStore = {
     const docRef = jobsCollection.doc(id);
     
     // Get existing job to check current status and postingDuration
-    const existing = await this.getById(id);
+    const existing = await this.getById(id, { includeDeleted: true });
     const postingDuration = data.postingDuration || existing?.postingDuration || 30;
     
     const payload = {
@@ -1940,18 +2072,24 @@ export const jobStore = {
     return docToData(updated);
   },
 
-  async getById(id) {
+  async getById(id, options = {}) {
     if (!id) return null;
+    const includeDeleted = options?.includeDeleted === true;
     const doc = await jobsCollection.doc(id).get();
-    return docToData(doc);
+    const job = docToData(doc);
+    if (!includeDeleted && isJobSoftDeleted(job)) return null;
+    return job;
   },
 
-  async listByOrganization(organizationId) {
+  async listByOrganization(organizationId, options = {}) {
     if (!organizationId) return [];
+    const includeDeleted = options?.includeDeleted === true;
     // Auto-publish any scheduled jobs before listing
     await this.autoPublishScheduledJobs();
     const snapshot = await jobsCollection.where('organizationId', '==', organizationId).orderBy('createdAt', 'desc').get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    const jobs = snapshot.docs.map((doc) => docToData(doc));
+    if (includeDeleted) return jobs;
+    return jobs.filter((job) => !isJobSoftDeleted(job));
   },
 
   async listPublished(limit = 20) {
@@ -2023,6 +2161,7 @@ export const jobStore = {
           docs: allJobsSnapshot.docs.filter((doc) => {
             const job = docToData(doc);
             if ((job?.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
+            if (isJobSoftDeleted(job)) return false;
             if (!job?.scheduledPublishAt || job?.publishedAt) return false;
             const scheduledDate = new Date(job.scheduledPublishAt);
             if (Number.isNaN(scheduledDate.getTime())) return false;
@@ -2036,6 +2175,7 @@ export const jobStore = {
         .map(docToData)
         .filter((job) => {
           if ((job?.status || '').toString().toUpperCase() !== 'PUBLISHED') return false;
+          if (isJobSoftDeleted(job)) return false;
           if (!job.scheduledPublishAt) return false;
           const scheduledDate = new Date(job.scheduledPublishAt);
           if (Number.isNaN(scheduledDate.getTime())) return false;
@@ -2079,16 +2219,34 @@ export const jobStore = {
     }
   },
 
-  async delete(id) {
+  async delete(id, options = {}) {
     if (!id) throw new Error('Job ID is required');
     const docRef = jobsCollection.doc(id);
-    await docRef.delete();
-    return { id, deleted: true };
+    const hardDelete = options?.hardDelete === true;
+    if (hardDelete) {
+      await docRef.delete();
+      return { id, deleted: true, hardDeleted: true };
+    }
+
+    const deletedAt = options?.deletedAt || now();
+    await docRef.set({
+      status: 'ARCHIVED',
+      acceptingApplications: false,
+      deletedAt,
+      deletedBy: options?.deletedBy || null,
+      deleteReason: options?.deleteReason || null,
+      deletionMode: 'SOFT',
+      updatedAt: deletedAt,
+    }, { merge: true });
+    const updated = await docRef.get();
+    return { ...docToData(updated), deleted: true, hardDeleted: false };
   },
 };
 
 const buildInvitationPayload = (data = {}) => {
   const token = data.token || randomUUID();
+  const acceptedAt = data.acceptedAt || null;
+  const currentTime = now();
   return {
     id: data.id || token,
     token,
@@ -2101,9 +2259,13 @@ const buildInvitationPayload = (data = {}) => {
     status: INVITATION_STATUSES.has((data.status || '').toUpperCase()) ? data.status.toUpperCase() : 'PENDING',
     expiresAt: data.expiresAt || null,
     metadata: data.metadata || {},
-    acceptedAt: data.acceptedAt || null,
-    createdAt: now(),
-    updatedAt: now(),
+    acceptedAt,
+    acceptanceInProgress: Boolean(data.acceptanceInProgress),
+    acceptanceStartedAt: data.acceptanceStartedAt || null,
+    acceptedInterviewId: data.acceptedInterviewId || null,
+    acceptedApplicationId: data.acceptedApplicationId || null,
+    createdAt: currentTime,
+    updatedAt: currentTime,
   };
 };
 
@@ -2150,19 +2312,169 @@ export const invitationStore = {
     }
   },
 
+  async findActiveByJobAndEmail(organizationId, jobId, email) {
+    if (!organizationId || !jobId || !email) return null;
+    const normalizedEmail = String(email).trim().toLowerCase();
+    try {
+      const snapshot = await invitationsCollection
+        .where('organizationId', '==', organizationId)
+        .where('jobId', '==', jobId)
+        .where('email', '==', normalizedEmail)
+        .orderBy('createdAt', 'desc')
+        .limit(10)
+        .get();
+      const nowDate = new Date();
+      const active = snapshot.docs
+        .map((doc) => docToData(doc))
+        .find((invitation) =>
+          invitation?.status === 'PENDING'
+          && (!invitation?.expiresAt || new Date(invitation.expiresAt) >= nowDate));
+      return active || null;
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Invitation lookup index missing or building; falling back to in-memory duplicate check.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await invitationsCollection
+        .where('organizationId', '==', organizationId)
+        .where('jobId', '==', jobId)
+        .where('email', '==', normalizedEmail)
+        .get();
+      const nowDate = new Date();
+      const active = sortApplicationsByCreatedAtDesc(
+        snapshot.docs.map((doc) => docToData(doc)),
+      ).find((invitation) =>
+        invitation?.status === 'PENDING'
+        && (!invitation?.expiresAt || new Date(invitation.expiresAt) >= nowDate));
+      return active || null;
+    }
+  },
+
   async markAccepted(token, userId) {
+    const claim = await this.claimForAcceptance(token, userId);
+    if (claim.status !== 'CLAIMED' && claim.status !== 'ALREADY_COMPLETED') {
+      return null;
+    }
+    return claim.invitation;
+  },
+
+  async claimForAcceptance(token, userId) {
+    if (!token || !userId) {
+      return { status: 'NOT_FOUND', invitation: null };
+    }
+
     const invitation = await this.getByToken(token);
-    if (!invitation) return null;
-    await invitationsCollection.doc(invitation.id).set(
-      {
+    if (!invitation) {
+      return { status: 'NOT_FOUND', invitation: null };
+    }
+
+    const docRef = invitationsCollection.doc(invitation.id);
+    return firestore.runTransaction(async (transaction) => {
+      const snapshot = await transaction.get(docRef);
+      const current = docToData(snapshot);
+      if (!current) {
+        return { status: 'NOT_FOUND', invitation: null };
+      }
+
+      const currentTime = now();
+      const claimEvaluation = evaluateInvitationAcceptanceClaim(current, userId, currentTime);
+      if (claimEvaluation === INVITATION_ACCEPTANCE_CLAIM_STATUS.EXPIRED) {
+        const expiredPayload = {
+          status: 'EXPIRED',
+          acceptanceInProgress: false,
+          updatedAt: currentTime,
+        };
+        transaction.set(docRef, expiredPayload, { merge: true });
+        return {
+          status: 'EXPIRED',
+          invitation: { ...current, ...expiredPayload },
+        };
+      }
+
+      if (claimEvaluation === INVITATION_ACCEPTANCE_CLAIM_STATUS.ALREADY_COMPLETED) {
+        return {
+          status: 'ALREADY_COMPLETED',
+          invitation: current,
+        };
+      }
+
+      if (claimEvaluation === INVITATION_ACCEPTANCE_CLAIM_STATUS.IN_PROGRESS) {
+        return {
+          status: 'IN_PROGRESS',
+          invitation: current,
+        };
+      }
+
+      if (claimEvaluation !== INVITATION_ACCEPTANCE_CLAIM_STATUS.CLAIM_ALLOWED) {
+        return {
+          status: 'UNAVAILABLE',
+          invitation: current,
+        };
+      }
+
+      const acceptedAt = current.acceptedAt || currentTime;
+      const acceptedPayload = {
         status: 'ACCEPTED',
         candidateUserId: userId,
-        acceptedAt: now(),
+        acceptedAt,
+        acceptanceInProgress: true,
+        acceptanceStartedAt: currentTime,
+        updatedAt: currentTime,
+      };
+      transaction.set(docRef, acceptedPayload, { merge: true });
+
+      return {
+        status: 'CLAIMED',
+        invitation: { ...current, ...acceptedPayload },
+      };
+    });
+  },
+
+  async finalizeAcceptance(invitationId, { interviewId = null, applicationId = null } = {}) {
+    if (!invitationId) return null;
+    await invitationsCollection.doc(invitationId).set(
+      {
+        status: 'ACCEPTED',
+        acceptanceInProgress: false,
+        acceptanceStartedAt: null,
+        acceptedInterviewId: interviewId || null,
+        acceptedApplicationId: applicationId || null,
         updatedAt: now(),
       },
       { merge: true },
     );
-    const updated = await invitationsCollection.doc(invitation.id).get();
+    const updated = await invitationsCollection.doc(invitationId).get();
+    return docToData(updated);
+  },
+
+  async releaseAcceptanceLock(invitationId, options = {}) {
+    if (!invitationId) return null;
+    const revertToPending = options?.revertToPending === true;
+    await invitationsCollection.doc(invitationId).set(
+      {
+        ...(revertToPending
+          ? {
+            status: 'PENDING',
+            candidateUserId: null,
+            acceptedAt: null,
+          }
+          : {}),
+        acceptanceInProgress: false,
+        acceptanceStartedAt: null,
+        ...(revertToPending
+          ? {
+            acceptedInterviewId: null,
+            acceptedApplicationId: null,
+          }
+          : {}),
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
+    const updated = await invitationsCollection.doc(invitationId).get();
     return docToData(updated);
   },
 };
@@ -2276,6 +2588,41 @@ export const activityLogStore = {
   },
 };
 
+const normalizeApplicationPageLimit = (value, fallback = 50, max = 200) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.min(parsed, max);
+};
+
+const normalizeApplicationCursor = (cursor) => {
+  if (!cursor) return null;
+  const normalized = String(cursor).trim();
+  return normalized || null;
+};
+
+const sortApplicationsByCreatedAtDesc = (applications = []) =>
+  applications
+    .filter(Boolean)
+    .sort((a, b) => {
+      const createdAtDiff = toMillis(b?.createdAt) - toMillis(a?.createdAt);
+      if (createdAtDiff !== 0) return createdAtDiff;
+      return String(b?.id || '').localeCompare(String(a?.id || ''));
+    });
+
+const sliceApplicationsPage = (applications = [], limit = 50) => {
+  const safeLimit = normalizeApplicationPageLimit(limit, 50, 200);
+  const hasMore = applications.length > safeLimit;
+  const items = applications.slice(0, safeLimit);
+  const nextCursor = hasMore && items.length > 0 ? (items[items.length - 1]?.createdAt || null) : null;
+  return {
+    items,
+    hasMore,
+    nextCursor,
+  };
+};
+
 export const jobApplicationStore = {
   async create(data = {}) {
     const docRef = jobApplicationsCollection.doc();
@@ -2289,6 +2636,19 @@ export const jobApplicationStore = {
       resumeUrl: data.resumeUrl || null,
       coverLetter: data.coverLetter || null,
       answers: ensureArray(data.answers),
+      jobSnapshot: (data.jobSnapshot && typeof data.jobSnapshot === 'object') ? data.jobSnapshot : null,
+      organizationSnapshot: (data.organizationSnapshot && typeof data.organizationSnapshot === 'object') ? data.organizationSnapshot : null,
+      jobDeletedAt: data.jobDeletedAt || null,
+      statusSource: data.statusSource || null,
+      statusChangedAt: data.statusChangedAt || currentTime,
+      dispositionCode: data.dispositionCode || null,
+      dispositionCategory: data.dispositionCategory || null,
+      dispositionReason: data.dispositionReason || null,
+      dispositionNotes: data.dispositionNotes || null,
+      dispositionTags: ensureArray(data.dispositionTags),
+      dispositionAt: data.dispositionAt || null,
+      dispositionBy: data.dispositionBy || null,
+      statusHistory: ensureArray(data.statusHistory),
       submittedAt: data.submittedAt || currentTime,
       createdAt: currentTime,
       updatedAt: currentTime,
@@ -2305,13 +2665,30 @@ export const jobApplicationStore = {
 
   async checkDuplicate(jobId, candidateId) {
     if (!jobId || !candidateId) return null;
-    const snapshot = await jobApplicationsCollection
-      .where('jobId', '==', jobId)
-      .where('candidateId', '==', candidateId)
-      .limit(1)
-      .get();
-    if (snapshot.empty) return null;
-    return docToData(snapshot.docs[0]);
+    try {
+      const snapshot = await jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .where('candidateId', '==', candidateId)
+        .orderBy('createdAt', 'desc')
+        .limit(1)
+        .get();
+      if (snapshot.empty) return null;
+      return docToData(snapshot.docs[0]);
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Duplicate application index missing or still building; using fallback lookup.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+      const snapshot = await jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .where('candidateId', '==', candidateId)
+        .get();
+      if (snapshot.empty) return null;
+      const latest = sortApplicationsByCreatedAtDesc(snapshot.docs.map((doc) => docToData(doc)))[0];
+      return latest || null;
+    }
   },
 
   async listByCandidate(candidateId) {
@@ -2336,6 +2713,49 @@ export const jobApplicationStore = {
     }
   },
 
+  async listByCandidatePage(candidateId, options = {}) {
+    if (!candidateId) return { items: [], hasMore: false, nextCursor: null };
+    const status = options?.status ? String(options.status).trim().toUpperCase() : null;
+    const cursor = normalizeApplicationCursor(options?.cursor);
+    const limit = normalizeApplicationPageLimit(options?.limit, 50, 200);
+
+    try {
+      let query = jobApplicationsCollection
+        .where('candidateId', '==', candidateId);
+      if (status) {
+        query = query.where('status', '==', status);
+      }
+      if (cursor) {
+        query = query.where('createdAt', '<', cursor);
+      }
+      const snapshot = await query
+        .orderBy('createdAt', 'desc')
+        .limit(limit + 1)
+        .get();
+      return sliceApplicationsPage(snapshot.docs.map((doc) => docToData(doc)), limit);
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Candidate applications page query index missing or building; using fallback pagination.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await jobApplicationsCollection
+        .where('candidateId', '==', candidateId)
+        .get();
+      let items = sortApplicationsByCreatedAtDesc(snapshot.docs.map((doc) => docToData(doc)));
+      if (status) {
+        items = items.filter((app) => String(app?.status || '').toUpperCase() === status);
+      }
+      if (cursor) {
+        const cursorMillis = toMillis(cursor);
+        items = items.filter((app) => toMillis(app?.createdAt) < cursorMillis);
+      }
+      return sliceApplicationsPage(items, limit);
+    }
+  },
+
   async listByJob(jobId) {
     if (!jobId) return [];
     try {
@@ -2355,6 +2775,49 @@ export const jobApplicationStore = {
       return snapshot.docs
         .map((doc) => docToData(doc))
         .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+    }
+  },
+
+  async listByJobPage(jobId, options = {}) {
+    if (!jobId) return { items: [], hasMore: false, nextCursor: null };
+    const status = options?.status ? String(options.status).trim().toUpperCase() : null;
+    const cursor = normalizeApplicationCursor(options?.cursor);
+    const limit = normalizeApplicationPageLimit(options?.limit, 50, 200);
+
+    try {
+      let query = jobApplicationsCollection
+        .where('jobId', '==', jobId);
+      if (status) {
+        query = query.where('status', '==', status);
+      }
+      if (cursor) {
+        query = query.where('createdAt', '<', cursor);
+      }
+      const snapshot = await query
+        .orderBy('createdAt', 'desc')
+        .limit(limit + 1)
+        .get();
+      return sliceApplicationsPage(snapshot.docs.map((doc) => docToData(doc)), limit);
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Job applications page query index missing or building; using fallback pagination.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .get();
+      let items = sortApplicationsByCreatedAtDesc(snapshot.docs.map((doc) => docToData(doc)));
+      if (status) {
+        items = items.filter((app) => String(app?.status || '').toUpperCase() === status);
+      }
+      if (cursor) {
+        const cursorMillis = toMillis(cursor);
+        items = items.filter((app) => toMillis(app?.createdAt) < cursorMillis);
+      }
+      return sliceApplicationsPage(items, limit);
     }
   },
 
@@ -2384,6 +2847,49 @@ export const jobApplicationStore = {
     }
   },
 
+  async listByOrganizationPage(organizationId, options = {}) {
+    if (!organizationId) return { items: [], hasMore: false, nextCursor: null };
+    const status = options?.status ? String(options.status).trim().toUpperCase() : null;
+    const cursor = normalizeApplicationCursor(options?.cursor);
+    const limit = normalizeApplicationPageLimit(options?.limit, 50, 200);
+
+    try {
+      let query = jobApplicationsCollection
+        .where('organizationId', '==', organizationId);
+      if (status) {
+        query = query.where('status', '==', status);
+      }
+      if (cursor) {
+        query = query.where('createdAt', '<', cursor);
+      }
+      const snapshot = await query
+        .orderBy('createdAt', 'desc')
+        .limit(limit + 1)
+        .get();
+      return sliceApplicationsPage(snapshot.docs.map((doc) => docToData(doc)), limit);
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Organization applications page query index missing or building; using fallback pagination.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await jobApplicationsCollection
+        .where('organizationId', '==', organizationId)
+        .get();
+      let items = sortApplicationsByCreatedAtDesc(snapshot.docs.map((doc) => docToData(doc)));
+      if (status) {
+        items = items.filter((app) => String(app?.status || '').toUpperCase() === status);
+      }
+      if (cursor) {
+        const cursorMillis = toMillis(cursor);
+        items = items.filter((app) => toMillis(app?.createdAt) < cursorMillis);
+      }
+      return sliceApplicationsPage(items, limit);
+    }
+  },
+
   async countByJob(jobId) {
     if (!jobId) return 0;
     try {
@@ -2397,10 +2903,56 @@ export const jobApplicationStore = {
     }
   },
 
+  async countByJobIds(jobIds = []) {
+    const uniqueJobIds = Array.from(new Set((jobIds || []).filter(Boolean)));
+    const counts = new Map(uniqueJobIds.map((jobId) => [jobId, 0]));
+    if (uniqueJobIds.length === 0) {
+      return counts;
+    }
+
+    const chunkSize = 10;
+    const chunks = [];
+    for (let i = 0; i < uniqueJobIds.length; i += chunkSize) {
+      chunks.push(uniqueJobIds.slice(i, i + chunkSize));
+    }
+
+    try {
+      const snapshots = await Promise.all(
+        chunks.map((chunk) =>
+          jobApplicationsCollection
+            .where('jobId', 'in', chunk)
+            .get()),
+      );
+      snapshots.forEach((snapshot) => {
+        snapshot.docs.forEach((doc) => {
+          const jobId = doc.data()?.jobId;
+          if (!jobId) return;
+          counts.set(jobId, (counts.get(jobId) || 0) + 1);
+        });
+      });
+      return counts;
+    } catch (error) {
+      logger.warn('Batch job application count query failed; falling back to per-job counts.', error);
+      await Promise.all(
+        uniqueJobIds.map(async (jobId) => {
+          const count = await this.countByJob(jobId);
+          counts.set(jobId, count);
+        }),
+      );
+      return counts;
+    }
+  },
+
   async update(id, updates) {
     if (!id) throw new Error('Application ID is required');
     const updateData = {
       ...updates,
+      ...(Object.prototype.hasOwnProperty.call(updates || {}, 'dispositionTags')
+        ? { dispositionTags: ensureArray(updates.dispositionTags) }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(updates || {}, 'statusHistory')
+        ? { statusHistory: ensureArray(updates.statusHistory) }
+        : {}),
       updatedAt: now(),
     };
     await jobApplicationsCollection.doc(id).set(updateData, { merge: true });
@@ -2426,14 +2978,21 @@ export const platformAuditLogStore = {
     return payload;
   },
 
-  async list(limit = 100, offset = 0) {
+  async listPage(options = {}) {
+    const limit = normalizeAuditPageLimit(options?.limit, 100, 500);
+    const cursor = decodeAuditCursor(options?.cursor);
+    const cursorCreatedAt = cursor?.createdAt || null;
+
     try {
-      const snapshot = await platformAuditLogsCollection
+      let query = platformAuditLogsCollection;
+      if (cursorCreatedAt) {
+        query = query.where('createdAt', '<', cursorCreatedAt);
+      }
+      const snapshot = await query
         .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .offset(offset)
+        .limit(limit + 1)
         .get();
-      return snapshot.docs.map((doc) => docToData(doc));
+      return sliceAuditLogsPage(snapshot.docs.map((doc) => docToData(doc)), limit);
     } catch (error) {
       if (!isIndexBuildingError(error)) {
         throw error;
@@ -2442,11 +3001,42 @@ export const platformAuditLogStore = {
       console.error('Firestore index error - click the link below to create the index:');
       console.error(error.message || error);
       const snapshot = await platformAuditLogsCollection.get();
-      return snapshot.docs
-        .map((doc) => docToData(doc))
-        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
-        .slice(offset, offset + limit);
+      let logs = sortAuditLogsByCreatedAtDesc(snapshot.docs.map((doc) => docToData(doc)));
+      if (cursorCreatedAt) {
+        const cursorMillis = toMillis(cursorCreatedAt);
+        logs = logs.filter((log) => toMillis(log?.createdAt) < cursorMillis);
+      }
+      return sliceAuditLogsPage(logs, limit);
     }
+  },
+
+  async listPageFromOffset(options = {}) {
+    const limit = normalizeAuditPageLimit(options?.limit, 100, 500);
+    let remainingOffset = Number.parseInt(options?.offset, 10);
+    if (!Number.isInteger(remainingOffset) || remainingOffset <= 0) {
+      return this.listPage({ limit });
+    }
+
+    let cursor = null;
+    while (remainingOffset > 0) {
+      const skipLimit = Math.min(remainingOffset, 500);
+      const skippedPage = await this.listPage({ limit: skipLimit, cursor });
+      if (skippedPage.items.length === 0) {
+        return { items: [], hasMore: false, nextCursor: null };
+      }
+      remainingOffset -= skippedPage.items.length;
+      cursor = skippedPage.nextCursor;
+      if (!cursor && remainingOffset > 0) {
+        return { items: [], hasMore: false, nextCursor: null };
+      }
+    }
+
+    return this.listPage({ limit, cursor });
+  },
+
+  async list(limit = 100, offset = 0) {
+    const page = await this.listPageFromOffset({ limit, offset });
+    return page.items;
   },
 };
 

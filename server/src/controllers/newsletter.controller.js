@@ -1,6 +1,7 @@
 import { firestore } from '../config/firebase.js';
 import logger from '../utils/logger.js';
 import { sendTemplatedEmail } from '../services/email.service.js';
+import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
 
 /**
  * Newsletter Controller
@@ -46,16 +47,20 @@ export class NewsletterController {
 
       logger.info(`📧 New newsletter subscription: ${email}`);
 
-      // Send welcome email
-      try {
-        await sendTemplatedEmail('NEWSLETTER_WELCOME', {
-          email: email,
-          unsubscribeUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/unsubscribe?email=${encodeURIComponent(email)}`
-        });
-      } catch (emailError) {
-        logger.error('Failed to send welcome email:', emailError);
-        // Don't fail the subscription if email fails
-      }
+      // Send welcome email in background.
+      queueEmailJob({
+        type: 'NEWSLETTER_WELCOME',
+        payload: {
+          recipient: email,
+          subscriptionId: docRef.id,
+        },
+        handler: async () => {
+          await sendTemplatedEmail('NEWSLETTER_WELCOME', {
+            email,
+            unsubscribeUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/unsubscribe?email=${encodeURIComponent(email)}`,
+          });
+        },
+      });
 
       return res.status(201).json({
         success: true,

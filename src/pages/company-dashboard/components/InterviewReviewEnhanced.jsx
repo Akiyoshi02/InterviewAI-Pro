@@ -6,6 +6,10 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useInterviewRealtimeFeed } from '../../../hooks/useInterviewRealtimeFeed';
+import {
+  INTERVIEW_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 /** Rubric criteria for AI evaluation (explainable output for recruiters/SMEs). */
 const EVALUATION_RUBRIC_CRITERIA = [
@@ -69,6 +73,11 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   useInterviewRealtimeFeed({
     userId: user?.id,
     enabled: Boolean(user?.id && interviewId),
+    eventTypes: combineRealtimeEventTypes(
+      INTERVIEW_FEED_EVENTS.lifecycle,
+      INTERVIEW_FEED_EVENTS.pipeline,
+      INTERVIEW_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (feed = {}, { initial }) => {
       if (initial) return;
       if (!feed?.[interviewId]) return;

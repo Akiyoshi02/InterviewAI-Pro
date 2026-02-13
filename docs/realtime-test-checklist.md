@@ -40,9 +40,22 @@ Open at least 3 sessions:
 
 Expected:
 
-- Company jobs page updates without manual refresh.
+- Company jobs page shows an "updates available" indicator and lets the recruiter refresh when ready (non-disruptive list mode).
 - Public job detail page updates without manual refresh when that specific job changes.
+- Public job detail page does not refetch for unrelated jobs (event payload is scoped by `jobId`).
 - Public jobs list page does not auto-refresh by design (to avoid disruptive list churn while browsing).
+- Public jobs list page shows an "updates available" indicator and refreshes when the user clicks refresh.
+
+### A2. Company interviews list realtime (non-disruptive mode)
+
+1. Open company interviews page.
+2. Trigger interview lifecycle changes from another tab (create/start/end/pipeline/review events).
+
+Expected:
+
+- Company interviews list shows an "updates available" indicator instead of force-refreshing while browsing.
+- Refresh action applies the latest interview list state.
+- Interview detail-focused views still update in realtime.
 
 ### B. Applications realtime
 
@@ -150,3 +163,94 @@ Expected:
 - [ ] Review realtime verified.
 - [ ] Existing realtime flows not broken.
 - [ ] Security checks passed.
+
+## 6. ATS lifecycle hardening verification (new)
+
+### A. Soft-delete behavior
+
+1. Create and publish a job.
+2. Archive the job.
+3. Delete the job from company jobs page.
+
+Expected:
+
+- Job disappears from active company job listings.
+- Job is no longer returned in public job listings/detail.
+- Existing applications remain accessible in application views via snapshot context.
+
+### B. Active application resolution guard
+
+1. Keep at least one application in a non-terminal state.
+2. Attempt job delete without resolution options.
+
+Expected:
+
+- API/UI blocks delete with active-resolution requirement.
+- When user confirms resolve flow, active applications become terminal before job removal from active lists.
+
+### C. Candidate transparency for closed roles
+
+1. Resolve-and-delete a job with active applications.
+2. Open candidate applications view.
+
+Expected:
+
+- Application displays closed/deleted role context (not blank/unknown).
+- Status is visible with closure context (Position Closed / rejected via closure disposition).
+- Candidate receives closure status communication if notifications were enabled.
+
+### D. Disposition reason capture
+
+1. Recruiter manually sets an application to `REJECTED`.
+2. Provide a disposition option in the prompt.
+3. Re-open application details.
+
+Expected:
+
+- Disposition reason/code appears in recruiter view.
+- Candidate view surfaces the disposition label/reason.
+- Status trail metadata is persisted by backend.
+
+## 7. ATS core governance + scale verification (new)
+
+### A. Status transition guardrails
+
+1. Move an application through normal stages (e.g., `SUBMITTED -> SCREENING -> INTERVIEWING -> REJECTED`).
+2. Attempt invalid transition from terminal state (e.g., `REJECTED -> SCREENING`).
+
+Expected:
+
+- Valid transitions succeed.
+- Invalid terminal transition is rejected with conflict response and allowed-next-status metadata.
+
+### B. Bulk application updates
+
+1. Select a set of applications in different jobs within same organization.
+2. Call bulk status endpoint (or wire UI action) with one target status.
+
+Expected:
+
+- Endpoint returns updated/skipped summary with per-item result.
+- Realtime feeds update for candidate and organization viewers.
+
+### C. Invitation-to-application continuity
+
+1. Create a job invitation.
+2. Accept invitation as candidate.
+3. Open company applications view and candidate applications view.
+
+Expected:
+
+- Accepted invitation creates or advances an ATS application into interviewing flow.
+- Application appears in both company and candidate application surfaces.
+- Duplicate active invitation for same job+email is blocked.
+
+### D. Organization interview scope
+
+1. Create interview with one recruiter in organization.
+2. Open company interview list and interview detail with a different recruiter/reviewer in same organization.
+
+Expected:
+
+- Interview appears in organization-scoped company list.
+- Authorized organization member can access detail successfully.

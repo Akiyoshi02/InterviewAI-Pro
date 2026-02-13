@@ -5,25 +5,6 @@ import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-
-const normalizeUploadsPath = (value) => {
-  if (!value || typeof value !== 'string') return '';
-  const trimmed = value.trim();
-  if (!trimmed) return '';
-  if (trimmed.startsWith('/')) return trimmed;
-  const lower = trimmed.toLowerCase();
-  if (lower.startsWith('uploads/')) {
-    return `/${trimmed}`;
-  }
-  const uploadDirs = ['profile-photos/', 'company-logos/', 'company-verifications/', 'resumes/'];
-  const matched = uploadDirs.find((dir) => lower.startsWith(dir));
-  if (matched) {
-    return `/uploads/${trimmed}`;
-  }
-  return '';
-};
-
 const JobApplicationForm = ({ job, onClose, onSuccess }) => {
   const { user, setAuthenticatedUser } = useAuth();
   const [formData, setFormData] = useState({
@@ -137,9 +118,10 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
     }
   };
 
-  const handleViewResume = () => {
+  const handleViewResume = async () => {
     if (!user?.resumeUrl) return;
-    const resumeUrl = `${API_BASE_URL}${normalizeUploadsPath(user.resumeUrl)}`;
+    const resumeUrl = await apiClient.uploads.getDownloadUrl(user.resumeUrl);
+    if (!resumeUrl) return;
     window.open(resumeUrl, '_blank', 'noopener,noreferrer');
   };
 

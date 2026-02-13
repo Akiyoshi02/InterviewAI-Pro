@@ -8,6 +8,7 @@ import LoadingState from '../../../components/ui/LoadingState';
 import { useToast } from '../../../components/ui/Toast.jsx';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
 
 const CHECK_STYLES = {
   pass: {
@@ -332,6 +333,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: ADMIN_FEED_EVENTS.organizations,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

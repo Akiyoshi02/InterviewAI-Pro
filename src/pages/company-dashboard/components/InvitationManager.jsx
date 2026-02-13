@@ -6,6 +6,7 @@ import Icon from '../../../components/AppIcon';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import { ORGANIZATION_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
 
 const stageOptions = [
   { value: 'SCREENING', label: 'AI Screening' },
@@ -64,6 +65,7 @@ const InvitationManager = ({ onRefresh }) => {
   useRealtimePathFeed({
     path: organization?.id ? `organizationFeeds/${organization.id}` : null,
     enabled: Boolean(organization?.id),
+    eventTypes: ORGANIZATION_FEED_EVENTS.invitations,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
