@@ -8,6 +8,10 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -79,6 +83,13 @@ const CandidateProgressDashboard = () => {
       ? `organizationFeeds/${user.organizationContext.organization.id}`
       : null,
     enabled: Boolean(user?.organizationContext?.organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.jobs,
+      ORGANIZATION_FEED_EVENTS.applications,
+      ORGANIZATION_FEED_EVENTS.pipeline,
+      ORGANIZATION_FEED_EVENTS.reviews,
+      ORGANIZATION_FEED_EVENTS.interviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -128,7 +139,7 @@ const CandidateProgressDashboard = () => {
       if (!stats.byJob[jobId]) {
         stats.byJob[jobId] = {
           count: 0,
-          title: app.job?.title || 'Unknown',
+          title: app.job?.title || 'Deleted position',
         };
       }
       stats.byJob[jobId].count++;
@@ -741,7 +752,7 @@ const CandidateProgressDashboard = () => {
       data.stats.recentActivity.slice(0, 10).forEach((activity, index) => {
         checkNewPage(rowHeight + 2);
         const candidateName = activity.candidate?.fullName || activity.candidate?.email || 'Unknown';
-        const jobTitle = activity.job?.title || 'Unknown position';
+        const jobTitle = activity.job?.title || 'Deleted position';
         const date = new Date(activity.submittedAt).toLocaleDateString('en-GB', { month: 'short', day: 'numeric' });
         const appId = activity.id ? activity.id.substring(0, 8) : 'N/A';
         
@@ -970,7 +981,7 @@ const CandidateProgressDashboard = () => {
       data.stats.recentActivity.slice(0, 10).forEach((activity, index) => {
         const candidateName = (activity.candidate?.fullName || 'Unknown').replace(/"/g, '""');
         const candidateEmail = activity.candidate?.email || 'N/A';
-        const jobTitle = (activity.job?.title || 'Unknown position').replace(/"/g, '""');
+        const jobTitle = (activity.job?.title || 'Deleted position').replace(/"/g, '""');
         const date = new Date(activity.submittedAt).toLocaleDateString('en-GB', { 
           year: 'numeric', 
           month: 'short', 
@@ -1394,7 +1405,7 @@ const CandidateProgressDashboard = () => {
                     {activity.candidate?.fullName || activity.candidate?.email || 'Unknown'}
                   </p>
                   <p className="text-xs text-gray-600 dark:text-slate-400 truncate">
-                    Applied to {activity.job?.title || 'Unknown position'}
+                    Applied to {activity.job?.title || 'Deleted position'}
                   </p>
                 </div>
                 <div className="text-right shrink-0">

@@ -21,6 +21,11 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
+import {
+  INTERVIEW_FEED_EVENTS,
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 const CompanyDashboard = () => {
   const navigate = useNavigate();
@@ -144,6 +149,11 @@ const CompanyDashboard = () => {
   useInterviewRealtimeFeed({
     userId: user?.id,
     enabled: Boolean(user?.id),
+    eventTypes: combineRealtimeEventTypes(
+      INTERVIEW_FEED_EVENTS.lifecycle,
+      INTERVIEW_FEED_EVENTS.pipeline,
+      INTERVIEW_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -160,6 +170,13 @@ const CompanyDashboard = () => {
       ? `organizationFeeds/${user.organizationContext.organization.id}`
       : null,
     enabled: Boolean(user?.organizationContext?.organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.jobs,
+      ORGANIZATION_FEED_EVENTS.applications,
+      ORGANIZATION_FEED_EVENTS.pipeline,
+      ORGANIZATION_FEED_EVENTS.reviews,
+      ORGANIZATION_FEED_EVENTS.interviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

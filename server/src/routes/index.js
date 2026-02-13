@@ -12,6 +12,7 @@ import pipelineRoutes from './pipeline.routes.js';
 import reviewRoutes from './review.routes.js';
 import activityRoutes from './activity.routes.js';
 import uploadRoutes from './upload.routes.js';
+import objectStorageRoutes from './objectStorage.routes.js';
 import adminRoutes from './admin.routes.js';
 import applicationRoutes from './application.routes.js';
 import templateRoutes from './template.routes.js';
@@ -37,6 +38,7 @@ export function setupRoutes(app) {
   app.use('/api/reviews', reviewRoutes);
   app.use('/api/activity', activityRoutes);
   app.use('/api/uploads', uploadRoutes);
+  app.use('/api/object-storage', objectStorageRoutes);
   app.use('/api/admin', adminRoutes);
   app.use('/api/templates', templateRoutes);
   app.use('/api/billing', billingRoutes);

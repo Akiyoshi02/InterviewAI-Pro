@@ -2,6 +2,10 @@ import express from 'express';
 import { body, param, query } from 'express-validator';
 import { ApplicationController } from '../controllers/application.controller.js';
 import {
+  APPLICATION_STATUSES,
+  DISPOSITION_CODES,
+} from '../utils/applicationLifecycle.util.js';
+import {
   authenticate,
   requireCandidate,
   requireOrganizationContext,
@@ -37,6 +41,12 @@ router.get(
   '/candidates/applications',
   authenticate,
   requireCandidate,
+  [
+    query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'),
+    query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('Limit must be between 1 and 200'),
+    query('cursor').optional().isString().isLength({ max: 80 }),
+  ],
+  validateRequest,
   ApplicationController.getCandidateApplications,
 );
 
@@ -65,7 +75,12 @@ router.get(
   authenticate,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
-  [param('jobId').isString().notEmpty()],
+  [
+    param('jobId').isString().notEmpty(),
+    query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'),
+    query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('Limit must be between 1 and 200'),
+    query('cursor').optional().isString().isLength({ max: 80 }),
+  ],
   validateRequest,
   ApplicationController.getJobApplications,
 );
@@ -76,9 +91,41 @@ router.get(
   authenticate,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
-  [query('status').optional().isString(), query('limit').optional().isInt({ min: 1, max: 200 })],
+  [
+    query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'),
+    query('limit').optional().isInt({ min: 1, max: 200 }),
+    query('cursor').optional().isString().isLength({ max: 80 }),
+  ],
   validateRequest,
   ApplicationController.getOrganizationApplications,
+);
+
+// Bulk update application statuses (recruiter)
+router.patch(
+  '/applications/bulk/status',
+  authenticate,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    body('applicationIds')
+      .isArray({ min: 1, max: 200 })
+      .withMessage('applicationIds must contain between 1 and 200 items'),
+    body('applicationIds.*').isString().notEmpty(),
+    body('status')
+      .isIn(APPLICATION_STATUSES)
+      .withMessage('Invalid status'),
+    body('dispositionCode')
+      .optional({ nullable: true })
+      .isIn(DISPOSITION_CODES)
+      .withMessage('Invalid disposition code'),
+    body('dispositionCategory').optional({ nullable: true }).isString().isLength({ max: 100 }),
+    body('dispositionReason').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+    body('dispositionNotes').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+    body('dispositionTags').optional({ nullable: true }).isArray({ max: 8 }),
+    body('dispositionTags.*').optional().isString().isLength({ max: 80 }),
+  ],
+  validateRequest,
+  ApplicationController.bulkUpdateApplicationStatuses,
 );
 
 // Update application status (recruiter)
@@ -90,8 +137,17 @@ router.patch(
   [
     param('id').isString().notEmpty(),
     body('status')
-      .isIn(['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'])
+      .isIn(APPLICATION_STATUSES)
       .withMessage('Invalid status'),
+    body('dispositionCode')
+      .optional({ nullable: true })
+      .isIn(DISPOSITION_CODES)
+      .withMessage('Invalid disposition code'),
+    body('dispositionCategory').optional({ nullable: true }).isString().isLength({ max: 100 }),
+    body('dispositionReason').optional({ nullable: true }).isString().isLength({ max: 1000 }),
+    body('dispositionNotes').optional({ nullable: true }).isString().isLength({ max: 2000 }),
+    body('dispositionTags').optional({ nullable: true }).isArray({ max: 8 }),
+    body('dispositionTags.*').optional().isString().isLength({ max: 80 }),
   ],
   validateRequest,
   ApplicationController.updateApplicationStatus,

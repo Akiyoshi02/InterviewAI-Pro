@@ -8,9 +8,11 @@ import Icon from '../../components/AppIcon';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
+import { CANDIDATE_FEED_EVENTS, PUBLIC_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
 import JobApplicationForm from './components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const BOOKMARK_STORAGE_PREFIX = 'jobs-bookmarks';
 
 // Helper function to convert relative upload paths to absolute URLs
 const getAssetUrl = (assetPath) => {
@@ -21,6 +23,19 @@ const getAssetUrl = (assetPath) => {
   // Convert relative path to absolute URL
   const base = API_URL.replace(/\/$/, '');
   return `${base}${assetPath.startsWith('/') ? assetPath : `/${assetPath}`}`;
+};
+
+const parseBookmarkIds = (raw) => {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((id) => String(id || '').trim())
+      .filter(Boolean);
+  } catch {
+    return [];
+  }
 };
 
 const JobsPage = () => {
@@ -34,12 +49,14 @@ const JobsPage = () => {
   const [applicationJob, setApplicationJob] = useState(null);
   const [applicationSuccess, setApplicationSuccess] = useState(false);
   const [applicationsByJobId, setApplicationsByJobId] = useState(new Map()); // Map<jobId, {status, withdrawnBy}>
+  const [pendingRealtimeJobUpdates, setPendingRealtimeJobUpdates] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
   const [jobsPerPage] = useState(12);
-  const jobsRefreshTimeoutRef = useRef(null);
+  const [bookmarkedJobIds, setBookmarkedJobIds] = useState(new Set());
+  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
   const applicationsRefreshTimeoutRef = useRef(null);
-  const loadJobsRef = useRef(null);
   const loadApplicationsRef = useRef(null);
+  const bookmarkStorageKey = `${BOOKMARK_STORAGE_PREFIX}:${user?.id || user?.uid || 'guest'}`;
   
   const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
 
@@ -55,6 +72,7 @@ const JobsPage = () => {
       const result = await apiClient.jobs.listPublic(50);
       if (result.success) {
         setJobs(result.jobs || []);
+        setPendingRealtimeJobUpdates(0);
       } else {
         setError('Failed to load jobs.');
       }
@@ -102,10 +120,6 @@ const JobsPage = () => {
   };
 
   useEffect(() => {
-    loadJobsRef.current = loadJobs;
-  }, [loadJobs]);
-
-  useEffect(() => {
     loadApplicationsRef.current = loadApplications;
   }, [loadApplications]);
 
@@ -117,20 +131,18 @@ const JobsPage = () => {
   useRealtimePathFeed({
     path: 'publicFeeds/jobs',
     enabled: true,
+    eventTypes: PUBLIC_FEED_EVENTS.jobs,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
-      if (jobsRefreshTimeoutRef.current) {
-        clearTimeout(jobsRefreshTimeoutRef.current);
-      }
-      jobsRefreshTimeoutRef.current = setTimeout(() => {
-        loadJobsRef.current?.();
-      }, 300);
+      // Keep browsing stable at scale; prompt user to refresh on demand.
+      setPendingRealtimeJobUpdates((prev) => Math.min(prev + 1, 99));
     },
   });
 
   useRealtimePathFeed({
     path: user?.id ? `candidateFeeds/${user.id}` : null,
     enabled: Boolean(user?.id && user?.accountType?.toUpperCase() === 'CANDIDATE'),
+    eventTypes: CANDIDATE_FEED_EVENTS.applications,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (applicationsRefreshTimeoutRef.current) {
@@ -144,15 +156,17 @@ const JobsPage = () => {
 
   useEffect(
     () => () => {
-      if (jobsRefreshTimeoutRef.current) {
-        clearTimeout(jobsRefreshTimeoutRef.current);
-      }
       if (applicationsRefreshTimeoutRef.current) {
         clearTimeout(applicationsRefreshTimeoutRef.current);
       }
     },
     [],
   );
+
+  useEffect(() => {
+    const savedBookmarks = parseBookmarkIds(localStorage.getItem(bookmarkStorageKey));
+    setBookmarkedJobIds(new Set(savedBookmarks));
+  }, [bookmarkStorageKey]);
 
   const handlePractice = (job) => {
     if (job) {
@@ -281,9 +295,19 @@ const JobsPage = () => {
 
   // Handle bookmark toggle
   const handleBookmark = (jobId, e) => {
-    e.stopPropagation();
-    // TODO: Implement bookmark functionality
-    console.log('Bookmark job:', jobId);
+    e?.stopPropagation?.();
+    if (!jobId) return;
+
+    setBookmarkedJobIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(jobId)) {
+        next.delete(jobId);
+      } else {
+        next.add(jobId);
+      }
+      localStorage.setItem(bookmarkStorageKey, JSON.stringify(Array.from(next)));
+      return next;
+    });
   };
 
   // Handle share
@@ -333,10 +357,20 @@ const JobsPage = () => {
   };
 
   // Pagination calculations
-  const totalPages = Math.ceil(jobs.length / jobsPerPage);
+  const visibleJobs = showBookmarkedOnly
+    ? jobs.filter((job) => bookmarkedJobIds.has(job.id))
+    : jobs;
+  const totalPages = Math.max(1, Math.ceil(visibleJobs.length / jobsPerPage));
   const startIndex = (currentPage - 1) * jobsPerPage;
   const endIndex = startIndex + jobsPerPage;
-  const paginatedJobs = jobs.slice(startIndex, endIndex);
+  const paginatedJobs = visibleJobs.slice(startIndex, endIndex);
+  const bookmarkedCount = jobs.filter((job) => bookmarkedJobIds.has(job.id)).length;
+
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
@@ -385,7 +419,49 @@ const JobsPage = () => {
                 </div>
               </div>
             </div>
-    
+
+            {pendingRealtimeJobUpdates > 0 && (
+              <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                <div className="flex items-start gap-2">
+                  <Icon name="Bell" className="w-4 h-4 mt-0.5 text-blue-600 dark:text-blue-300" />
+                  <p className="text-sm text-blue-800 dark:text-blue-200">
+                    {pendingRealtimeJobUpdates} new job update{pendingRealtimeJobUpdates === 1 ? '' : 's'} available.
+                    Refresh when you are ready.
+                  </p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={loadJobs}
+                  disabled={loading}
+                  className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/20"
+                >
+                  <Icon name="RefreshCw" size={14} className="mr-1.5" />
+                  Refresh List
+                </Button>
+              </div>
+            )}
+
+            {!loading && !error && jobs.length > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 px-4 py-3">
+                <p className="text-sm text-gray-600 dark:text-slate-300">
+                  Saved jobs: <span className="font-semibold text-gray-900 dark:text-slate-100">{bookmarkedCount}</span>
+                </p>
+                <Button
+                  variant={showBookmarkedOnly ? 'default' : 'outline'}
+                  size="sm"
+                  onClick={() => {
+                    setShowBookmarkedOnly((prev) => !prev);
+                    setCurrentPage(1);
+                  }}
+                  className="rounded-full"
+                >
+                  <Icon name={showBookmarkedOnly ? 'List' : 'Bookmark'} size={14} className="mr-1.5" />
+                  {showBookmarkedOnly ? 'Show All Jobs' : 'Show Saved Only'}
+                </Button>
+              </div>
+            )}
+
             {loading && (
               <div className="grid gap-4 xs:gap-5 sm:gap-6 max-w-4xl mx-auto" aria-busy="true">
                 <div className="grid gap-3 xs:gap-4">
@@ -450,14 +526,18 @@ const JobsPage = () => {
                 animate="visible"
                 variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
               >
-                {jobs.length === 0 ? (
+                {visibleJobs.length === 0 ? (
                   <div className="card-base p-6 xs:p-8 text-center max-w-lg mx-auto">
                     <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center mx-auto mb-4">
-                      <Icon name="Briefcase" size={28} className="text-gray-400 dark:text-slate-500" />
+                      <Icon name={showBookmarkedOnly ? 'Bookmark' : 'Briefcase'} size={28} className="text-gray-400 dark:text-slate-500" />
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">No openings available</h3>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                      {showBookmarkedOnly ? 'No saved jobs yet' : 'No openings available'}
+                    </h3>
                     <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-                      There are no public job listings at the moment. You can still practice interviews for any role.
+                      {showBookmarkedOnly
+                        ? 'Bookmark roles to quickly return to them later.'
+                        : 'There are no public job listings at the moment. You can still practice interviews for any role.'}
                     </p>
                     <Button className="rounded-full" onClick={() => handlePractice(null)}>
                       <Icon name="Play" size={16} className="mr-1.5" />
@@ -467,6 +547,7 @@ const JobsPage = () => {
                 ) : (
                   <>
                   {paginatedJobs.map((job) => {
+                    const isBookmarked = bookmarkedJobIds.has(job.id);
                     const applicationInfo = user?.accountType?.toUpperCase() === 'CANDIDATE' 
                       ? applicationsByJobId.get(job.id) 
                       : null;
@@ -520,9 +601,18 @@ const JobsPage = () => {
                               handleBookmark(job.id, e);
                             }}
                             className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
-                            aria-label="Bookmark job"
+                            aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark job'}
+                            title={isBookmarked ? 'Remove bookmark' : 'Save job'}
                           >
-                            <Icon name="Bookmark" size={18} className="text-gray-400 dark:text-slate-500" />
+                            <Icon
+                              name={isBookmarked ? 'BookmarkCheck' : 'Bookmark'}
+                              size={18}
+                              className={
+                                isBookmarked
+                                  ? 'text-blue-600 dark:text-blue-400'
+                                  : 'text-gray-400 dark:text-slate-500'
+                              }
+                            />
                           </button>
                         </div>
                         
@@ -652,7 +742,7 @@ const JobsPage = () => {
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between gap-4 mt-6">
                       <div className="text-sm text-gray-600 dark:text-slate-400">
-                        Showing {startIndex + 1} to {Math.min(endIndex, jobs.length)} of {jobs.length} jobs
+                        Showing {startIndex + 1} to {Math.min(endIndex, visibleJobs.length)} of {visibleJobs.length} jobs
                       </div>
                       <div className="flex items-center gap-2">
                         <Button

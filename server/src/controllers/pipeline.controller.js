@@ -63,6 +63,8 @@ export class PipelineController {
       const organizationId = req.user.organizationContext?.organization?.id;
       const { interviewId } = req.params;
       const { jobStage, pipelineStatus, status } = req.body;
+      const normalizedPipelineStatus = pipelineStatus ? String(pipelineStatus).toUpperCase() : null;
+      const normalizedStatus = status ? String(status).toUpperCase() : null;
 
       const interview = await interviewStore.getById(interviewId);
       if (!interview || interview.organizationId !== organizationId) {
@@ -71,10 +73,10 @@ export class PipelineController {
 
       const updated = await interviewStore.update(interviewId, {
         jobStage: jobStage ?? interview.jobStage,
-        pipelineStatus: pipelineStatus
-          ? pipelineStatus.toUpperCase()
+        pipelineStatus: normalizedPipelineStatus
+          ? normalizedPipelineStatus
           : interview.pipelineStatus,
-        status: status || interview.status,
+        status: normalizedStatus || interview.status,
       });
 
       await activityLogStore.record({

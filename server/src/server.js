@@ -54,7 +54,12 @@ const uploadsPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 if (!fs.existsSync(uploadsPath)) {
   fs.mkdirSync(uploadsPath, { recursive: true });
 }
-app.use('/uploads', express.static(uploadsPath));
+const uploadsAccessMode = String(process.env.UPLOADS_ACCESS_MODE || 'PUBLIC').trim().toUpperCase();
+if (uploadsAccessMode === 'PUBLIC') {
+  app.use('/uploads', express.static(uploadsPath));
+} else {
+  logger.info(`Uploads static route disabled (UPLOADS_ACCESS_MODE=${uploadsAccessMode}). Use signed object-storage URLs.`);
+}
 
 // Routes
 setupRoutes(app);

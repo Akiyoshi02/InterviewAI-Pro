@@ -7,6 +7,10 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -59,6 +63,11 @@ const CandidateManager = ({ canStartReview = true }) => {
   useRealtimePathFeed({
     path: organization?.id ? `organizationFeeds/${organization.id}` : null,
     enabled: Boolean(organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.jobs,
+      ORGANIZATION_FEED_EVENTS.applications,
+      ORGANIZATION_FEED_EVENTS.pipeline,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -628,10 +637,9 @@ const CandidateManager = ({ canStartReview = true }) => {
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => {
-                        const resumeUrl = selectedCandidate.resumeUrl.startsWith('http') 
-                          ? selectedCandidate.resumeUrl 
-                          : `${API_URL}${selectedCandidate.resumeUrl.startsWith('/') ? selectedCandidate.resumeUrl : `/${selectedCandidate.resumeUrl}`}`;
+                      onClick={async () => {
+                        const resumeUrl = await apiClient.uploads.getDownloadUrl(selectedCandidate.resumeUrl);
+                        if (!resumeUrl) return;
                         window.open(resumeUrl, '_blank', 'noopener,noreferrer');
                       }}
                     >

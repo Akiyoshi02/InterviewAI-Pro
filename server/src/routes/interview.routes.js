@@ -13,7 +13,7 @@
  */
 
 import express from 'express';
-import { param, body } from 'express-validator';
+import { param, body, query } from 'express-validator';
 import { authenticate, requireCandidate, requireCompany } from '../middleware/auth.middleware.js';
 import { 
   validateRequest, 
@@ -59,6 +59,8 @@ router.post(
 router.get(
   '/user/my-interviews',
   authenticate,
+  [query('limit').optional().toInt().isInt({ min: 1, max: 200 })],
+  validateRequest,
   InterviewController.getMyInterviews
 );
 
@@ -71,6 +73,8 @@ router.get(
   authenticate,
   requireCompany,
   requireApprovedOrganization,
+  [query('limit').optional().toInt().isInt({ min: 1, max: 200 })],
+  validateRequest,
   InterviewController.getCompanyInterviews
 );
 

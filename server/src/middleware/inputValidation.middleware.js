@@ -125,6 +125,8 @@ const ALLOWED_VALUES = {
   APPLICATION_STATUS: ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'],
   JOB_STATUS: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
   INTERVIEW_MODE: ['PRACTICE', 'HIRING'],
+  INTERVIEW_STATUS: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED'],
+  PIPELINE_STATUS: ['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED'],
   MEMBER_STATUS: ['ACTIVE', 'INACTIVE'],
   PLAN_ID: ['free', 'starter', 'professional', 'enterprise'],
   EMPLOYMENT_TYPE: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'TEMPORARY'],
@@ -759,6 +761,8 @@ export const validationSchemas = {
       allowedFields: [
         'mode', 'jobRole', 'experienceLevel', 'industry', 'interviewTypes',
         'duration', 'difficulty', 'personality', 'totalQuestions', 'skillFocus',
+        'candidateId', 'jobId', 'jobStage', 'invitationId', 'status',
+        'pipelineStatus', 'reviewerAssignments', 'config',
       ],
       validators: [
         commonValidators.enum('mode', ALLOWED_VALUES.INTERVIEW_MODE, true),
@@ -771,6 +775,27 @@ export const validationSchemas = {
         commonValidators.shortText('personality'),
         commonValidators.integer('totalQuestions', { min: 1, max: 50 }),
         commonValidators.stringArray('skillFocus'),
+        body('candidateId')
+          .optional()
+          .trim()
+          .isLength({ min: 1, max: LENGTH_LIMITS.ID })
+          .withMessage('candidateId must be a valid identifier'),
+        body('jobId')
+          .optional()
+          .trim()
+          .isLength({ min: 1, max: LENGTH_LIMITS.ID })
+          .withMessage('jobId must be a valid identifier'),
+        body('jobStage').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+        body('invitationId')
+          .optional()
+          .trim()
+          .isLength({ min: 1, max: LENGTH_LIMITS.ID })
+          .withMessage('invitationId must be a valid identifier'),
+        commonValidators.enum('status', ALLOWED_VALUES.INTERVIEW_STATUS),
+        commonValidators.enum('pipelineStatus', ALLOWED_VALUES.PIPELINE_STATUS),
+        body('reviewerAssignments').optional().isArray({ max: 20 }),
+        body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
+        body('config').optional().isObject(),
       ],
     },
     

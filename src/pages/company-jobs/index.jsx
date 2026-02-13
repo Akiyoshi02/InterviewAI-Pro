@@ -14,6 +14,7 @@ import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 import { cn } from '../../utils/cn';
+import { ORGANIZATION_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const MAX_ADVERT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -33,6 +34,7 @@ const PRESET_JOB_SKILLS = [
   'Kubernetes',
   'Git',
   'Testing/QA',
+  'Other',
 ];
 
 const normalizeSkillValue = (value = '') => value.trim().toLowerCase();
@@ -51,6 +53,18 @@ const mergeUniqueSkills = (existingSkills = [], incomingSkills = []) => {
   });
 
   return merged;
+};
+
+const normalizeAdvertImageUrls = (job = {}) => {
+  if (Array.isArray(job?.advertImageUrls)) {
+    return job.advertImageUrls
+      .map((url) => (typeof url === 'string' ? url.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof job?.advertImageUrl === 'string' && job.advertImageUrl.trim()) {
+    return [job.advertImageUrl.trim()];
+  }
+  return [];
 };
 
 const toAbsoluteAssetUrl = (value) => {
@@ -470,35 +484,25 @@ const CompanyJobsPage = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [searchQuery, setSearchQuery] = useState('');
   const keySkillsInputRef = useRef(null);
+  const [showAddSkillsSection, setShowAddSkillsSection] = useState(false);
   const advertImageInputRef = useRef(null);
   const advertVideoInputRef = useRef(null);
-  const [advertImageFile, setAdvertImageFile] = useState(null);
+  const advertImageUploadsRef = useRef([]);
+  const [advertImageUploads, setAdvertImageUploads] = useState([]);
   const [advertVideoFile, setAdvertVideoFile] = useState(null);
-  const [advertImagePreview, setAdvertImagePreview] = useState('');
   const [advertVideoPreview, setAdvertVideoPreview] = useState('');
   
   // Location detection state
   const [isDetectingLocation, setIsDetectingLocation] = useState(false);
   const [locationFeedback, setLocationFeedback] = useState({ status: 'idle', message: '' });
 
-  // Currency options with their formatting settings
+  // Local testing currently supports only Sri Lankan Rupees.
   const currencyOptions = [
-    { value: 'USD', label: 'USD ($)', symbol: '$', locale: 'en-US' },
     { value: 'LKR', label: 'LKR (Rs)', symbol: 'Rs', locale: 'si-LK' },
-    { value: 'EUR', label: 'EUR (€)', symbol: '€', locale: 'de-DE' },
-    { value: 'GBP', label: 'GBP (£)', symbol: '£', locale: 'en-GB' },
-    { value: 'INR', label: 'INR (₹)', symbol: '₹', locale: 'en-IN' },
-    { value: 'JPY', label: 'JPY (¥)', symbol: '¥', locale: 'ja-JP' },
-    { value: 'CAD', label: 'CAD ($)', symbol: 'C$', locale: 'en-CA' },
-    { value: 'AUD', label: 'AUD ($)', symbol: 'A$', locale: 'en-AU' },
-    { value: 'CHF', label: 'CHF (Fr)', symbol: 'Fr', locale: 'de-CH' },
-    { value: 'CNY', label: 'CNY (¥)', symbol: '¥', locale: 'zh-CN' },
-    { value: 'SGD', label: 'SGD ($)', symbol: 'S$', locale: 'en-SG' },
-    { value: 'AED', label: 'AED (د.إ)', symbol: 'د.إ', locale: 'ar-AE' },
   ];
 
   // Format salary based on currency
-  const formatSalary = (value, currency = 'USD') => {
+  const formatSalary = (value, currency = 'LKR') => {
     if (!value) return '';
     // Remove all non-digit characters
     const numericValue = value.replace(/[^0-9]/g, '');
@@ -646,12 +650,13 @@ const CompanyJobsPage = () => {
     requirements: '',
     benefits: '',
     salaryRange: '',
-    salaryCurrency: 'USD',
+    salaryCurrency: 'LKR',
     salaryMin: '',
     salaryMax: '',
     postingDuration: '30',
     publishTiming: 'immediate',
     scheduledPublishAt: '',
+    advertImageUrls: [],
     advertImageUrl: '',
     advertImageAlt: '',
     advertVideoUrl: '',
@@ -666,8 +671,7 @@ const CompanyJobsPage = () => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
-  const realtimeRefreshTimeoutRef = useRef(null);
-  const loadJobsRef = useRef(null);
+  const [pendingRealtimeJobUpdates, setPendingRealtimeJobUpdates] = useState(0);
 
   useEffect(() => {
     document.title = 'Jobs - InterviewAI Pro';
@@ -680,6 +684,7 @@ const CompanyJobsPage = () => {
       const result = await apiClient.jobs.getOrganizationJobs();
       if (result.success) {
         setJobs(result.jobs || []);
+        setPendingRealtimeJobUpdates(0);
       }
     } catch (err) {
       console.error('Failed to load jobs:', err);
@@ -689,42 +694,31 @@ const CompanyJobsPage = () => {
     }
   };
 
-  useEffect(() => {
-    loadJobsRef.current = loadJobs;
-  }, [loadJobs]);
-
   useRealtimePathFeed({
     path: organizationId ? `organizationFeeds/${organizationId}` : null,
     enabled: Boolean(organizationId),
+    eventTypes: ORGANIZATION_FEED_EVENTS.jobs,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-      }
-      realtimeRefreshTimeoutRef.current = setTimeout(() => {
-        loadJobsRef.current?.();
-      }, 300);
+      // Non-disruptive list behavior: queue updates and let the recruiter refresh on demand.
+      setPendingRealtimeJobUpdates((prev) => Math.min(prev + 1, 99));
     },
   });
 
+  useEffect(() => {
+    advertImageUploadsRef.current = advertImageUploads;
+  }, [advertImageUploads]);
+
   useEffect(
     () => () => {
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-      }
+      advertImageUploadsRef.current.forEach((upload) => {
+        if (upload?.previewUrl) {
+          URL.revokeObjectURL(upload.previewUrl);
+        }
+      });
     },
     [],
   );
-
-  useEffect(() => {
-    if (!advertImageFile) {
-      setAdvertImagePreview('');
-      return undefined;
-    }
-    const objectUrl = URL.createObjectURL(advertImageFile);
-    setAdvertImagePreview(objectUrl);
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [advertImageFile]);
 
   useEffect(() => {
     if (!advertVideoFile) {
@@ -737,7 +731,12 @@ const CompanyJobsPage = () => {
   }, [advertVideoFile]);
 
   const resetAdvertMediaState = () => {
-    setAdvertImageFile(null);
+    advertImageUploadsRef.current.forEach((upload) => {
+      if (upload?.previewUrl) {
+        URL.revokeObjectURL(upload.previewUrl);
+      }
+    });
+    setAdvertImageUploads([]);
     setAdvertVideoFile(null);
     if (advertImageInputRef.current) {
       advertImageInputRef.current.value = '';
@@ -750,32 +749,47 @@ const CompanyJobsPage = () => {
   const closeCreateModal = () => {
     setShowCreateModal(false);
     setSelectedJob(null);
+    setShowAddSkillsSection(false);
     resetAdvertMediaState();
     setError('');
   };
 
   const handleAdvertImageFileChange = (event) => {
-    const file = event?.target?.files?.[0];
-    if (!file) return;
+    const files = Array.from(event?.target?.files || []);
+    if (!files.length) return;
 
     setError('');
-    if (!ADVERT_IMAGE_MIME_TYPES.includes(file.type)) {
-      setError('Advert image must be JPG, PNG, WEBP, or GIF.');
+    const nextUploads = [];
+    let rejectedCount = 0;
+
+    files.forEach((file) => {
+      if (!ADVERT_IMAGE_MIME_TYPES.includes(file.type) || file.size > MAX_ADVERT_IMAGE_BYTES) {
+        rejectedCount += 1;
+        return;
+      }
+      nextUploads.push({
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`,
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
+    });
+
+    if (!nextUploads.length) {
+      setError('Selected files must be JPG, PNG, WEBP, or GIF and each file must be 8 MB or less.');
       if (advertImageInputRef.current) {
         advertImageInputRef.current.value = '';
       }
       return;
     }
 
-    if (file.size > MAX_ADVERT_IMAGE_BYTES) {
-      setError('Advert image must be 8 MB or less.');
-      if (advertImageInputRef.current) {
-        advertImageInputRef.current.value = '';
-      }
-      return;
+    if (rejectedCount > 0) {
+      setError(`${rejectedCount} file(s) were skipped. Only JPG, PNG, WEBP, GIF up to 8 MB are allowed.`);
     }
 
-    setAdvertImageFile(file);
+    setAdvertImageUploads((previous) => [...previous, ...nextUploads]);
+    if (advertImageInputRef.current) {
+      advertImageInputRef.current.value = '';
+    }
   };
 
   const handleAdvertVideoFileChange = (event) => {
@@ -804,6 +818,7 @@ const CompanyJobsPage = () => {
 
   const handleCreateJob = () => {
     setSelectedJob(null);
+    setShowAddSkillsSection(false);
     resetAdvertMediaState();
     setError('');
     setFormData({
@@ -816,12 +831,13 @@ const CompanyJobsPage = () => {
       requirements: '',
       benefits: '',
       salaryRange: '',
-      salaryCurrency: 'USD',
+      salaryCurrency: 'LKR',
       salaryMin: '',
       salaryMax: '',
       postingDuration: '30',
       publishTiming: 'immediate',
       scheduledPublishAt: '',
+      advertImageUrls: [],
       advertImageUrl: '',
       advertImageAlt: '',
       advertVideoUrl: '',
@@ -838,13 +854,18 @@ const CompanyJobsPage = () => {
 
   const handleEditJob = (job) => {
     setSelectedJob(job);
+    setShowAddSkillsSection(false);
     resetAdvertMediaState();
     setError('');
     // Parse existing salary range if it exists
     const existingSalary = job.compensationRange || job.salaryRange || '';
-    let parsedCurrency = job.salaryCurrency || 'USD';
+    let parsedCurrency = job.salaryCurrency || 'LKR';
+    if (!currencyOptions.find((currency) => currency.value === parsedCurrency)) {
+      parsedCurrency = 'LKR';
+    }
     let parsedMin = job.salaryMin || '';
     let parsedMax = job.salaryMax || '';
+    const existingAdvertImageUrls = normalizeAdvertImageUrls(job);
     const isScheduledPublish = job.status === 'PUBLISHED' && Boolean(job.scheduledPublishAt) && !job.publishedAt;
     
     // Try to parse legacy format like "$80,000 - $120,000"
@@ -874,7 +895,8 @@ const CompanyJobsPage = () => {
       postingDuration: String(job.postingDuration || 30),
       publishTiming: isScheduledPublish ? 'scheduled' : 'immediate',
       scheduledPublishAt: isScheduledPublish ? toDateTimeLocalValue(job.scheduledPublishAt) : '',
-      advertImageUrl: job.advertImageUrl || '',
+      advertImageUrls: existingAdvertImageUrls,
+      advertImageUrl: existingAdvertImageUrls[0] || '',
       advertImageAlt: job.advertImageAlt || '',
       advertVideoUrl: job.advertVideoUrl || '',
       status: job.status || 'DRAFT',
@@ -949,6 +971,11 @@ const CompanyJobsPage = () => {
         }
       }
 
+      const sanitizedAdvertImageUrls = (formData.advertImageUrls || [])
+        .map((url) => (typeof url === 'string' ? url.trim() : ''))
+        .filter(Boolean);
+      const primaryAdvertImageUrl = sanitizedAdvertImageUrls[0] || null;
+
       // Prepare payload to match backend validation
       const payload = {
         title: formData.title,
@@ -958,15 +985,16 @@ const CompanyJobsPage = () => {
         experienceLevel: formData.experienceLevel || undefined,
         description: formData.description || undefined,
         compensationRange: salaryRangeString || formData.salaryRange || undefined, // Backend expects compensationRange
-        salaryCurrency: formData.salaryCurrency || undefined,
+        salaryCurrency: 'LKR',
         salaryMin: formData.salaryMin ? parseInt(parseSalary(formData.salaryMin), 10) : undefined,
         salaryMax: formData.salaryMax ? parseInt(parseSalary(formData.salaryMax), 10) : undefined,
         postingDuration: postingDurationValue,
         scheduledPublishAt: formData.status === 'PUBLISHED'
           ? (shouldSchedulePublish ? scheduledPublishAtIso : null)
           : null,
-        advertImageUrl: formData.advertImageUrl?.trim() ? formData.advertImageUrl.trim() : null,
-        advertImageAlt: (formData.advertImageUrl?.trim() || advertImageFile) && formData.advertImageAlt?.trim()
+        advertImageUrls: sanitizedAdvertImageUrls,
+        advertImageUrl: primaryAdvertImageUrl,
+        advertImageAlt: (primaryAdvertImageUrl || advertImageUploads.length > 0) && formData.advertImageAlt?.trim()
           ? formData.advertImageAlt.trim()
           : null,
         advertVideoUrl: formData.advertVideoUrl?.trim() ? formData.advertVideoUrl.trim() : null,
@@ -1014,12 +1042,14 @@ const CompanyJobsPage = () => {
         }
       }
 
-      if (savedJob?.id && advertImageFile) {
-        const imageResult = await apiClient.jobs.uploadAdvertImage(savedJob.id, advertImageFile, formData.advertImageAlt || '');
-        if (!imageResult?.success) {
-          throw new Error(imageResult?.error || 'Failed to upload advert image.');
+      if (savedJob?.id && advertImageUploads.length > 0) {
+        for (const upload of advertImageUploads) {
+          const imageResult = await apiClient.jobs.uploadAdvertImage(savedJob.id, upload.file, formData.advertImageAlt || '');
+          if (!imageResult?.success) {
+            throw new Error(imageResult?.error || 'Failed to upload advert image.');
+          }
+          savedJob = imageResult.job || savedJob;
         }
-        savedJob = imageResult.job || savedJob;
       }
 
       if (savedJob?.id && advertVideoFile) {
@@ -1056,11 +1086,91 @@ const CompanyJobsPage = () => {
     try {
       const result = await apiClient.jobs.remove(jobId);
       if (result.success) {
+        setError('');
         await loadJobs();
       }
     } catch (err) {
-      console.error('Failed to delete job:', err);
-      setError('Failed to delete job');
+      let deleteError = err;
+
+      if (deleteError?.code === 'JOB_MUST_BE_ARCHIVED_BEFORE_DELETE') {
+        const shouldArchiveFirst = confirm(
+          'This job must be archived before deletion.\n\n' +
+          'Press OK to archive it now and continue deleting.\n' +
+          'Press Cancel to keep the job.',
+        );
+
+        if (!shouldArchiveFirst) {
+          setError('Deletion cancelled. Archive the job first when you are ready to remove it.');
+          return;
+        }
+
+        try {
+          const archiveResult = await apiClient.jobs.update(jobId, { status: 'ARCHIVED' });
+          if (!archiveResult?.success) {
+            throw new Error(archiveResult?.error || 'Failed to archive job before deletion');
+          }
+
+          const archivedDeleteResult = await apiClient.jobs.remove(jobId);
+          if (archivedDeleteResult.success) {
+            setError('');
+            await loadJobs();
+            return;
+          }
+        } catch (archiveErr) {
+          if (archiveErr?.code === 'ACTIVE_APPLICATIONS_REQUIRE_RESOLUTION') {
+            deleteError = archiveErr;
+          } else {
+            console.error('Failed to archive job before delete:', archiveErr);
+            setError(archiveErr.message || 'Failed to archive job before deleting');
+            return;
+          }
+        }
+      }
+
+      if (deleteError?.code === 'ACTIVE_APPLICATIONS_REQUIRE_RESOLUTION') {
+        const activeApplications = deleteError?.details?.activeApplications ?? 0;
+        const shouldResolveAndDelete = confirm(
+          `This job has ${activeApplications} active application${activeApplications === 1 ? '' : 's'}.\n\n` +
+          'Best practice is to notify candidates and close these applications before deleting.\n\n' +
+          'Press OK to auto-reject active applications, notify candidates, and then delete this job.\n' +
+          'Press Cancel to keep the job and review candidates manually.',
+        );
+
+        if (!shouldResolveAndDelete) {
+          setError('Deletion cancelled. You can archive the job to stop new applications while you review current candidates.');
+          return;
+        }
+
+        try {
+          const optionalResolutionMessage = prompt(
+            'Optional message for candidates (included in closure email):',
+            '',
+          );
+          if (optionalResolutionMessage === null) {
+            setError('Deletion cancelled. No candidate message was sent.');
+            return;
+          }
+
+          const resolvedResult = await apiClient.jobs.remove(jobId, {
+            resolveActiveApplications: true,
+            notifyCandidates: true,
+            resolutionMessage: optionalResolutionMessage.trim() || undefined,
+          });
+
+          if (resolvedResult.success) {
+            setError('');
+            await loadJobs();
+          }
+          return;
+        } catch (resolveErr) {
+          console.error('Failed to resolve active applications before delete:', resolveErr);
+          setError(resolveErr.message || 'Failed to resolve applications and delete job');
+          return;
+        }
+      }
+
+      console.error('Failed to delete job:', deleteError);
+      setError(deleteError.message || 'Failed to delete job');
     }
   };
 
@@ -1115,7 +1225,22 @@ const CompanyJobsPage = () => {
     return true;
   });
 
-  const advertImageSource = advertImagePreview || toAbsoluteAssetUrl(formData.advertImageUrl);
+  const existingAdvertImagePreviewItems = (formData.advertImageUrls || [])
+    .map((url, index) => ({
+      id: `saved-${index}-${url}`,
+      source: toAbsoluteAssetUrl(url),
+      originalUrl: url,
+      type: 'saved',
+    }))
+    .filter((item) => item.source);
+  const pendingAdvertImagePreviewItems = advertImageUploads
+    .map((upload) => ({
+      id: upload.id,
+      source: upload.previewUrl,
+      type: 'pending',
+    }))
+    .filter((item) => item.source);
+  const advertImagePreviewItems = [...existingAdvertImagePreviewItems, ...pendingAdvertImagePreviewItems];
   const advertVideoSource = advertVideoPreview || toAbsoluteAssetUrl(formData.advertVideoUrl);
 
   const getStatusColor = (status) => {
@@ -1152,7 +1277,52 @@ const CompanyJobsPage = () => {
     }
   };
 
+  const removeSavedAdvertImage = (imageUrlToRemove) => {
+    setFormData((prev) => {
+      const nextAdvertImageUrls = (prev.advertImageUrls || []).filter((url) => url !== imageUrlToRemove);
+      const hasAnyImages = nextAdvertImageUrls.length > 0 || advertImageUploadsRef.current.length > 0;
+      return {
+        ...prev,
+        advertImageUrls: nextAdvertImageUrls,
+        advertImageUrl: nextAdvertImageUrls[0] || '',
+        advertImageAlt: hasAnyImages ? prev.advertImageAlt : '',
+      };
+    });
+  };
+
+  const removePendingAdvertImage = (uploadIdToRemove) => {
+    setAdvertImageUploads((previous) => {
+      const targetUpload = previous.find((upload) => upload.id === uploadIdToRemove);
+      if (targetUpload?.previewUrl) {
+        URL.revokeObjectURL(targetUpload.previewUrl);
+      }
+      const nextUploads = previous.filter((upload) => upload.id !== uploadIdToRemove);
+      if (nextUploads.length === 0) {
+        setFormData((prev) => {
+          if ((prev.advertImageUrls || []).length > 0) {
+            return prev;
+          }
+          return { ...prev, advertImageAlt: '' };
+        });
+      }
+      return nextUploads;
+    });
+  };
+
   const togglePresetSkill = (presetSkill) => {
+    if (normalizeSkillValue(presetSkill) === 'other') {
+      setShowAddSkillsSection((previous) => {
+        const next = !previous;
+        if (next && typeof window !== 'undefined') {
+          window.requestAnimationFrame(() => {
+            keySkillsInputRef.current?.focus?.();
+          });
+        }
+        return next;
+      });
+      return;
+    }
+
     const normalizedPreset = normalizeSkillValue(presetSkill);
 
     setFormData((prev) => {
@@ -1248,6 +1418,28 @@ const CompanyJobsPage = () => {
                   </div>
                 )}
               </div>
+
+              {organizationContext?.organization?.status !== 'PENDING' && pendingRealtimeJobUpdates > 0 && (
+                <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <Icon name="Bell" className="w-4 h-4 mt-0.5 text-blue-600 dark:text-blue-300" />
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      {pendingRealtimeJobUpdates} new job update{pendingRealtimeJobUpdates === 1 ? '' : 's'} available.
+                      Refresh when you are ready.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadJobs}
+                    disabled={loading}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/20"
+                  >
+                    <Icon name="RefreshCw" size={14} className="mr-1.5" />
+                    Refresh List
+                  </Button>
+                </div>
+              )}
 
               {/* Pending Approval Message */}
               {organizationContext?.organization?.status === 'PENDING' ? (
@@ -1607,81 +1799,107 @@ const CompanyJobsPage = () => {
                         Optional Job Advert Media
                       </h3>
                       <p className="text-xs text-gray-600 dark:text-slate-400">
-                        Add an image or short video to be shown with this job post.
+                        Add one or more images and up to one short video for this job post.
                       </p>
                       <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
-                        Drag the bottom-right corner of each preview to resize it.
+                        Media previews use a responsive layout similar to modern job posting pages.
                       </p>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 gap-4">
+                  <div className="grid grid-cols-1 gap-6">
                     <div className="space-y-3">
-                      <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert image</div>
-                      <div className="relative">
-                        {advertImageSource ? (
-                          <div className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-auto flex items-center justify-center">
-                            <img
-                              src={advertImageSource}
-                              alt={formData.advertImageAlt || 'Job advert image preview'}
-                              className="w-full h-full object-cover"
-                            />
-                          </div>
-                        ) : (
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert images</div>
+                      </div>
+
+                      {advertImagePreviewItems.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                          {advertImagePreviewItems.map((imageItem) => (
+                            <div key={imageItem.id} className="relative">
+                              <div className="w-full aspect-[16/10] min-h-[11rem] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-hidden flex items-center justify-center">
+                                <img
+                                  src={imageItem.source}
+                                  alt={formData.advertImageAlt || 'Job advert image preview'}
+                                  className="w-full h-full object-contain"
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                                aria-label="Remove image"
+                                title="Remove image"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (imageItem.type === 'saved') {
+                                    removeSavedAdvertImage(imageItem.originalUrl);
+                                  } else {
+                                    removePendingAdvertImage(imageItem.id);
+                                  }
+                                }}
+                              >
+                                <Icon name="X" size={12} color="white" />
+                              </button>
+                            </div>
+                          ))}
                           <button
                             type="button"
                             onClick={(event) => {
                               if (isResizeHandleClick(event)) return;
                               advertImageInputRef.current?.click();
                             }}
-                            className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-auto flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                            className="w-full aspect-[16/10] min-h-[11rem] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-hidden flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                             title="Click to upload image"
-                            aria-label="Upload advert image"
+                            aria-label="Upload another advert image"
                           >
                             <div className="text-center text-gray-500 dark:text-slate-400">
                               <Icon name="Image" size={24} className="mx-auto mb-2" />
                               <p className="text-xs">No image selected (click to upload)</p>
                             </div>
                           </button>
-                        )}
-                        {advertImageSource && (
-                          <button
-                            type="button"
-                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
-                            aria-label="Remove image"
-                            title="Remove image"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setAdvertImageFile(null);
-                              if (advertImageInputRef.current) {
-                                advertImageInputRef.current.value = '';
-                              }
-                              setFormData((prev) => ({ ...prev, advertImageUrl: '', advertImageAlt: '' }));
-                            }}
-                          >
-                            <Icon name="X" size={12} color="white" />
-                          </button>
-                        )}
-                      </div>
+                        </div>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            if (isResizeHandleClick(event)) return;
+                            advertImageInputRef.current?.click();
+                          }}
+                          className="w-full aspect-[16/10] min-h-[11rem] rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 overflow-hidden flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                          title="Click to upload image"
+                          aria-label="Upload advert image"
+                        >
+                          <div className="text-center text-gray-500 dark:text-slate-400">
+                            <Icon name="Image" size={24} className="mx-auto mb-2" />
+                            <p className="text-xs">No images selected (click to upload)</p>
+                          </div>
+                        </button>
+                      )}
+
                       <Input
                         label="Image alt text (optional)"
                         value={formData.advertImageAlt}
                         onChange={(e) => setFormData({ ...formData, advertImageAlt: e.target.value })}
-                        placeholder="Describe the image for accessibility"
+                        placeholder="Describe the images for accessibility"
                       />
-                      <p className="text-xs text-gray-500 dark:text-slate-400">Allowed: JPG, PNG, WEBP, GIF. Max 8 MB.</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        Allowed: JPG, PNG, WEBP, GIF. Max 8 MB each. Multiple images allowed.
+                      </p>
                     </div>
 
                     <div className="space-y-3">
-                      <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert video</div>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="text-sm font-medium text-gray-800 dark:text-slate-200">Advert video</div>
+                      </div>
+
                       <div className="relative">
                         {advertVideoSource ? (
-                          <div className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-auto flex items-center justify-center">
+                          <div className="w-full aspect-video min-h-[11rem] rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-hidden flex items-center justify-center">
                             <video
                               src={advertVideoSource}
                               controls
                               preload="metadata"
-                              className="w-full h-full object-cover"
+                              className="w-full h-full object-contain"
                             />
                           </div>
                         ) : (
@@ -1691,7 +1909,7 @@ const CompanyJobsPage = () => {
                               if (isResizeHandleClick(event)) return;
                               advertVideoInputRef.current?.click();
                             }}
-                            className="w-full h-40 min-h-[9rem] max-h-[28rem] resize-y rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-auto flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
+                            className="w-full aspect-video min-h-[11rem] rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-hidden flex items-center justify-center cursor-pointer hover:border-blue-300 dark:hover:border-blue-600 transition-colors"
                             title="Click to upload video"
                             aria-label="Upload advert video"
                           >
@@ -1720,7 +1938,9 @@ const CompanyJobsPage = () => {
                           </button>
                         )}
                       </div>
-                      <p className="text-xs text-gray-500 dark:text-slate-400">Allowed: MP4, WEBM, MOV, MKV, OGG. Max 50 MB.</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        Allowed: MP4, WEBM, MOV, MKV, OGG. Max 50 MB. Only one video is allowed.
+                      </p>
                     </div>
                   </div>
 
@@ -1728,6 +1948,7 @@ const CompanyJobsPage = () => {
                     ref={advertImageInputRef}
                     type="file"
                     accept=".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif"
+                    multiple
                     className="hidden"
                     onChange={handleAdvertImageFileChange}
                   />
@@ -1764,7 +1985,7 @@ const CompanyJobsPage = () => {
                     <div className="flex-1 flex items-center gap-2">
                       <div className="relative flex-1">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
-                          {currencyOptions.find(c => c.value === formData.salaryCurrency)?.symbol || '$'}
+                          {currencyOptions.find(c => c.value === formData.salaryCurrency)?.symbol || 'Rs'}
                         </span>
                         <input
                           type="text"
@@ -1782,7 +2003,7 @@ const CompanyJobsPage = () => {
                       
                       <div className="relative flex-1">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">
-                          {currencyOptions.find(c => c.value === formData.salaryCurrency)?.symbol || '$'}
+                          {currencyOptions.find(c => c.value === formData.salaryCurrency)?.symbol || 'Rs'}
                         </span>
                         <input
                           type="text"
@@ -1830,9 +2051,12 @@ const CompanyJobsPage = () => {
                       </p>
                       <div className="flex flex-wrap gap-2">
                         {PRESET_JOB_SKILLS.map((presetSkill) => {
-                          const isSelected = formData.requiredSkills.some(
-                            (skill) => normalizeSkillValue(skill) === normalizeSkillValue(presetSkill),
-                          );
+                          const isOtherSkill = normalizeSkillValue(presetSkill) === 'other';
+                          const isSelected = isOtherSkill
+                            ? showAddSkillsSection
+                            : formData.requiredSkills.some(
+                              (skill) => normalizeSkillValue(skill) === normalizeSkillValue(presetSkill),
+                            );
 
                           return (
                             <button
@@ -1869,34 +2093,38 @@ const CompanyJobsPage = () => {
                         ))}
                       </div>
                     </div>
-                    <div className="flex gap-2">
-                      <input
-                        ref={keySkillsInputRef}
-                        type="text"
-                        placeholder="Add skills (e.g. React, JavaScript, Python)"
-                        className="flex-1 h-11 sm:h-12 px-3 sm:px-4 border border-input bg-background rounded-xl text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-200"
-                        onKeyDown={(e) => {
-                          if (e.key === 'Enter' && e.target.value.trim()) {
-                            e.preventDefault();
-                            handleAddSkillsFromInput();
-                          }
-                        }}
-                      />
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={(e) => {
-                          e.preventDefault();
-                          handleAddSkillsFromInput();
-                        }}
-                      >
-                        <Icon name="Plus" size={16} className="mr-1.5" />
-                        Add
-                      </Button>
-                    </div>
-                    <p className="text-xs text-gray-500 dark:text-slate-400">
-                      Separate multiple skills with commas. Press Enter or click Add.
-                    </p>
+                    {showAddSkillsSection && (
+                      <>
+                        <div className="flex gap-2">
+                          <input
+                            ref={keySkillsInputRef}
+                            type="text"
+                            placeholder="Add skills (e.g. React, JavaScript, Python)"
+                            className="flex-1 h-11 sm:h-12 px-3 sm:px-4 border border-input bg-background rounded-xl text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-200"
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' && e.target.value.trim()) {
+                                e.preventDefault();
+                                handleAddSkillsFromInput();
+                              }
+                            }}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={(e) => {
+                              e.preventDefault();
+                              handleAddSkillsFromInput();
+                            }}
+                          >
+                            <Icon name="Plus" size={16} className="mr-1.5" />
+                            Add
+                          </Button>
+                        </div>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
+                          Separate multiple skills with commas. Press Enter or click Add.
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
 

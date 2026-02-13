@@ -9,6 +9,14 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import {
+  ORGANIZATION_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../../constants/realtimeFeedEvents.js';
+import {
+  APPLICATION_DISPOSITION_OPTIONS,
+  getDispositionLabel,
+} from '../../../constants/applicationDisposition.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -36,13 +44,23 @@ const getCandidateImageUrl = (candidate) => {
   return `${base}${photoUrl.startsWith('/') ? photoUrl : `/${photoUrl}`}`;
 };
 
-const getStatusConfig = (status, withdrawnBy = null) => {
+const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => {
+  const normalizedDispositionCode = String(dispositionCode || '').toUpperCase();
+
   // If status is REJECTED and withdrawnBy exists, it means the candidate withdrew
   if (status === 'REJECTED' && withdrawnBy) {
     return {
       label: 'Withdrew',
       color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
       icon: 'XCircle',
+    };
+  }
+
+  if (status === 'REJECTED' && normalizedDispositionCode === 'JOB_CLOSED') {
+    return {
+      label: 'Position Closed',
+      color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+      icon: 'Archive',
     };
   }
   
@@ -161,6 +179,10 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   useRealtimePathFeed({
     path: organization?.id ? `organizationFeeds/${organization.id}` : null,
     enabled: Boolean(organization?.id),
+    eventTypes: combineRealtimeEventTypes(
+      ORGANIZATION_FEED_EVENTS.applications,
+      ORGANIZATION_FEED_EVENTS.pipeline,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {
@@ -181,10 +203,51 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     [],
   );
 
+  const promptRejectionDisposition = () => {
+    const selectableOptions = APPLICATION_DISPOSITION_OPTIONS.filter(
+      (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
+    );
+    const choiceText = selectableOptions
+      .map((option, index) => `${index + 1}. ${option.label}`)
+      .join('\n');
+    const selection = window.prompt(
+      `Select a rejection reason:\n${choiceText}\n\nEnter number (default: 1).`,
+      '1',
+    );
+    if (selection === null) return null;
+
+    const parsedIndex = Number.parseInt(String(selection).trim(), 10);
+    const selectedOption = Number.isInteger(parsedIndex) && parsedIndex >= 1 && parsedIndex <= selectableOptions.length
+      ? selectableOptions[parsedIndex - 1]
+      : selectableOptions[0];
+    const notes = window.prompt(
+      'Optional recruiter note for audit trail (leave blank to skip):',
+      '',
+    );
+    if (notes === null) return null;
+
+    return {
+      dispositionCode: selectedOption.value,
+      dispositionCategory: selectedOption.category,
+      dispositionReason: selectedOption.reason || selectedOption.label,
+      dispositionNotes: notes.trim() || null,
+    };
+  };
+
   const handleStatusChange = async (applicationId, newStatus) => {
     try {
       setUpdating(applicationId);
-      const result = await apiClient.applications.updateStatus(applicationId, newStatus);
+      const payload = { status: newStatus };
+      if (newStatus === 'REJECTED') {
+        const rejectionDisposition = promptRejectionDisposition();
+        if (!rejectionDisposition) {
+          setUpdating(null);
+          return;
+        }
+        Object.assign(payload, rejectionDisposition);
+      }
+
+      const result = await apiClient.applications.updateStatus(applicationId, payload);
       if (result.success) {
         await loadApplications();
         if (selectedApplication?.id === applicationId) {
@@ -278,7 +341,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
   // Group applications by job
   const groupedApplications = applications.reduce((acc, application) => {
-    const jobId = application.job?.id || 'unknown';
+    const jobId = application.job?.id || application.jobId || `unknown-${application.id}`;
     if (!acc[jobId]) {
       acc[jobId] = {
         job: application.job,
@@ -521,11 +584,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         <Icon name="Briefcase" className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                       </div>
                       <div className="flex-1 min-w-0 text-left">
-                        <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
-                          {jobData.job?.title || 'Unknown Position'}
-                        </h3>
+                        <div className="flex items-center gap-2 min-w-0">
+                          <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
+                            {jobData.job?.title || 'Deleted Position'}
+                          </h3>
+                          {jobData.job?.isDeleted && (
+                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium shrink-0">
+                              Deleted
+                            </span>
+                          )}
+                        </div>
                         <p className="text-sm text-gray-600 dark:text-slate-400">
-                          {jobData.job?.department && `${jobData.job.department} • `}
+                          {jobData.job?.department && `${jobData.job.department} - `}
                           {jobData.filteredCount} {jobData.filteredCount === 1 ? 'application' : 'applications'}
                         </p>
                       </div>
@@ -569,7 +639,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       >
                         <div className="p-4 space-y-3 bg-gray-50/50 dark:bg-slate-800/30">
                           {jobData.applications.map((application, appIndex) => {
-                            const statusConfig = getStatusConfig(application.status, application.withdrawnBy);
+                            const statusConfig = getStatusConfig(
+                              application.status,
+                              application.withdrawnBy,
+                              application.dispositionCode,
+                            );
                             
                             return (
                               <motion.div
@@ -783,11 +857,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                         Position
                       </h3>
-                      <p className="text-base text-gray-900 dark:text-slate-100">
-                        {selectedApplication.job?.title}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-base text-gray-900 dark:text-slate-100">
+                          {selectedApplication.job?.title || 'Deleted Position'}
+                        </p>
+                        {selectedApplication.job?.isDeleted && (
+                          <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium">
+                            Deleted
+                          </span>
+                        )}
+                      </div>
                       <p className="text-sm text-gray-600 dark:text-slate-400">
-                        {selectedApplication.job?.department}
+                        {selectedApplication.job?.department || 'No department'}
                       </p>
                     </div>
 
@@ -819,7 +900,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         <>
                           <div className="flex gap-2 flex-wrap">
                             {['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'].map((status) => {
-                              const config = getStatusConfig(status, null);
+                              const config = getStatusConfig(status, null, status === 'REJECTED' ? 'NOT_SELECTED' : null);
                               const isCurrent = selectedApplication.status === status;
                               const isWithdrawnApp = isWithdrawn(selectedApplication);
                               
@@ -850,10 +931,28 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         </>
                       ) : (
                         <div className={`inline-flex px-3 py-1.5 rounded-lg text-sm font-medium ${
-                          getStatusConfig(selectedApplication.status, selectedApplication.withdrawnBy)?.color || 'bg-gray-100 text-gray-700'
+                          getStatusConfig(
+                            selectedApplication.status,
+                            selectedApplication.withdrawnBy,
+                            selectedApplication.dispositionCode,
+                          )?.color || 'bg-gray-100 text-gray-700'
                         }`}>
-                          {getStatusConfig(selectedApplication.status, selectedApplication.withdrawnBy)?.label || selectedApplication.status}
+                          {getStatusConfig(
+                            selectedApplication.status,
+                            selectedApplication.withdrawnBy,
+                            selectedApplication.dispositionCode,
+                          )?.label || selectedApplication.status}
                         </div>
+                      )}
+                      {selectedApplication.dispositionCode && (
+                        <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+                          Reason: {getDispositionLabel(selectedApplication.dispositionCode)}
+                        </p>
+                      )}
+                      {selectedApplication.dispositionNotes && (
+                        <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                          Note: {selectedApplication.dispositionNotes}
+                        </p>
                       )}
                     </div>
 
@@ -866,11 +965,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={() => {
-                            const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
-                            const resumeUrl = selectedApplication.resumeUrl.startsWith('http') 
-                              ? selectedApplication.resumeUrl 
-                              : `${API_URL}${selectedApplication.resumeUrl.startsWith('/') ? selectedApplication.resumeUrl : `/${selectedApplication.resumeUrl}`}`;
+                          onClick={async () => {
+                            const resumeUrl = await apiClient.uploads.getDownloadUrl(selectedApplication.resumeUrl);
+                            if (!resumeUrl) return;
                             window.open(resumeUrl, '_blank', 'noopener,noreferrer');
                           }}
                         >
@@ -948,3 +1045,4 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 };
 
 export default ApplicationsManager;
+

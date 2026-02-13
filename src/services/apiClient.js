@@ -4,6 +4,35 @@
  */
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = API_URL.replace(/\/$/, '');
+
+const isAbsoluteHttpUrl = (value) => /^https?:\/\//i.test(String(value || ''));
+
+const normalizeUploadsPath = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('/uploads/')) return trimmed;
+  if (trimmed.startsWith('uploads/')) return `/${trimmed}`;
+
+  const normalized = trimmed.replaceAll('\\', '/');
+  if (normalized.includes('..')) return null;
+
+  const knownPrefixes = [
+    'profile-photos/',
+    'resumes/',
+    'company-logos/',
+    'company-verifications/',
+    'job-advert-images/',
+    'job-advert-videos/',
+  ];
+  const lower = normalized.toLowerCase();
+  const hasKnownPrefix = knownPrefixes.some((prefix) => lower.startsWith(prefix));
+  if (!hasKnownPrefix) return null;
+  return `/uploads/${normalized}`;
+};
+
+const toApiAbsoluteUrl = (pathValue) => `${API_BASE}${pathValue.startsWith('/') ? pathValue : `/${pathValue}`}`;
 
 /**
  * Get authentication token from Firebase
@@ -187,7 +216,12 @@ async function handleResponse(response) {
       // If it's a business logic error, just throw the error without clearing session
     }
     
-    throw new Error(data.error || data.message || text || `API Error: ${response.statusText}`);
+    const error = new Error(data.error || data.message || text || `API Error: ${response.statusText}`);
+    error.status = response.status;
+    error.code = data.code || null;
+    error.details = data.details || null;
+    error.error = data.error || null;
+    throw error;
   }
 
   return data;
@@ -400,11 +434,42 @@ export const apiClient = {
   },
 
   uploads: {
+    async getDownloadUrl(pathValue, { expiresInSeconds = 300 } = {}) {
+      if (!pathValue) return null;
+      if (isAbsoluteHttpUrl(pathValue)) return pathValue;
+
+      const normalizedPath = normalizeUploadsPath(pathValue);
+      if (!normalizedPath) {
+        const fallback = String(pathValue || '').trim();
+        return fallback ? toApiAbsoluteUrl(fallback) : null;
+      }
+
+      try {
+        const headers = await getHeaders();
+        const params = new URLSearchParams({
+          path: normalizedPath,
+          expiresInSeconds: String(expiresInSeconds),
+        });
+        const response = await fetch(`${API_BASE}/api/object-storage/signed-url?${params.toString()}`, {
+          method: 'GET',
+          headers,
+        });
+        const data = await handleResponse(response);
+        if (data?.downloadUrl) {
+          return data.downloadUrl;
+        }
+      } catch (error) {
+        console.warn('Failed to fetch signed upload URL, using direct fallback:', error?.message || error);
+      }
+
+      return toApiAbsoluteUrl(normalizedPath);
+    },
+
     async moderateProfilePhoto(file) {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/api/uploads/moderate/profile-photo`, {
+      const response = await fetch(`${API_BASE}/api/uploads/moderate/profile-photo`, {
         method: 'POST',
         body: formData,
       });
@@ -416,7 +481,7 @@ export const apiClient = {
       const formData = new FormData();
       formData.append('file', file);
 
-      const response = await fetch(`${API_URL}/api/uploads/moderate/company-logo`, {
+      const response = await fetch(`${API_BASE}/api/uploads/moderate/company-logo`, {
         method: 'POST',
         body: formData,
       });
@@ -433,7 +498,7 @@ export const apiClient = {
         }
       });
 
-      const response = await fetch(`${API_URL}/api/uploads/moderate/resume`, {
+      const response = await fetch(`${API_BASE}/api/uploads/moderate/resume`, {
         method: 'POST',
         body: formData,
       });
@@ -450,7 +515,7 @@ export const apiClient = {
         }
       });
 
-      const response = await fetch(`${API_URL}/api/uploads/moderate/company-proof`, {
+      const response = await fetch(`${API_BASE}/api/uploads/moderate/company-proof`, {
         method: 'POST',
         body: formData,
       });
@@ -829,10 +894,12 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async remove(jobId) {
+    async remove(jobId, options = null) {
+      const hasOptions = Boolean(options && Object.keys(options).length > 0);
       const response = await fetch(`${API_URL}/api/jobs/${jobId}`, {
         method: 'DELETE',
         headers: await getHeaders(),
+        ...(hasOptions ? { body: JSON.stringify(options) } : {}),
       });
       return handleResponse(response);
     },
@@ -1063,8 +1130,15 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async getAuditLogs(limit = 100, offset = 0) {
-      const response = await fetch(`${API_URL}/api/admin/audit-logs?limit=${limit}&offset=${offset}`, {
+    async getAuditLogs(limit = 100, offset = 0, cursor = null) {
+      const params = new URLSearchParams();
+      params.set('limit', String(limit));
+      if (cursor) {
+        params.set('cursor', String(cursor));
+      } else {
+        params.set('offset', String(offset));
+      }
+      const response = await fetch(`${API_URL}/api/admin/audit-logs?${params.toString()}`, {
         method: 'GET',
         headers: await getHeaders(),
       });
@@ -1093,8 +1167,15 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async getMyApplications() {
-      const response = await fetch(`${API_URL}/api/candidates/applications`, {
+    async getMyApplications(options = null) {
+      const params = new URLSearchParams();
+      if (options && typeof options === 'object') {
+        if (options.status) params.append('status', options.status);
+        if (options.limit) params.append('limit', String(options.limit));
+        if (options.cursor) params.append('cursor', String(options.cursor));
+      }
+      const queryString = params.toString();
+      const response = await fetch(`${API_URL}/api/candidates/applications${queryString ? `?${queryString}` : ''}`, {
         method: 'GET',
         headers: await getHeaders(),
       });
@@ -1109,18 +1190,29 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async getJobApplications(jobId) {
-      const response = await fetch(`${API_URL}/api/jobs/${jobId}/applications`, {
+    async getJobApplications(jobId, options = null) {
+      const params = new URLSearchParams();
+      if (options && typeof options === 'object') {
+        if (options.status) params.append('status', options.status);
+        if (options.limit) params.append('limit', String(options.limit));
+        if (options.cursor) params.append('cursor', String(options.cursor));
+      }
+      const queryString = params.toString();
+      const response = await fetch(`${API_URL}/api/jobs/${jobId}/applications${queryString ? `?${queryString}` : ''}`, {
         method: 'GET',
         headers: await getHeaders(),
       });
       return handleResponse(response);
     },
 
-    async getOrganizationApplications(status = null, limit = 50) {
+    async getOrganizationApplications(statusOrOptions = null, limit = 200) {
+      const options = statusOrOptions && typeof statusOrOptions === 'object'
+        ? statusOrOptions
+        : { status: statusOrOptions, limit };
       const params = new URLSearchParams();
-      if (status) params.append('status', status);
-      params.append('limit', limit);
+      if (options.status) params.append('status', options.status);
+      if (options.limit) params.append('limit', String(options.limit));
+      if (options.cursor) params.append('cursor', String(options.cursor));
       const response = await fetch(`${API_URL}/api/organizations/applications?${params}`, {
         method: 'GET',
         headers: await getHeaders(),
@@ -1128,11 +1220,29 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async updateStatus(id, status, reviewedBy = null) {
+    async updateStatus(id, statusOrPayload, reviewedBy = null) {
+      const payload =
+        statusOrPayload && typeof statusOrPayload === 'object'
+          ? { ...statusOrPayload }
+          : { status: statusOrPayload, reviewedBy };
       const response = await fetch(`${API_URL}/api/applications/${id}`, {
         method: 'PATCH',
         headers: await getHeaders(),
-        body: JSON.stringify({ status, reviewedBy }),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async bulkUpdateStatus(applicationIds = [], statusOrPayload) {
+      const payload = statusOrPayload && typeof statusOrPayload === 'object'
+        ? { ...statusOrPayload }
+        : { status: statusOrPayload };
+      payload.applicationIds = Array.isArray(applicationIds) ? applicationIds : [];
+
+      const response = await fetch(`${API_URL}/api/applications/bulk/status`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
       });
       return handleResponse(response);
     },

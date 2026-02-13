@@ -7,6 +7,7 @@ import MessageDialog from '../../../components/ui/MessageDialog';
 import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
+import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
 
 const SystemSettings = () => {
   const [settings, setSettings] = useState(null);
@@ -49,6 +50,7 @@ const SystemSettings = () => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: ADMIN_FEED_EVENTS.settings,
     onFeedUpdate: (_feed, { initial }) => {
       if (initial || hasChanges) return;
       if (realtimeRefreshTimeoutRef.current) {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
@@ -11,6 +11,10 @@ import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
+import {
+  INTERVIEW_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 const CompanyInterviews = () => {
   const navigate = useNavigate();
@@ -25,8 +29,7 @@ const CompanyInterviews = () => {
   const [showDetails, setShowDetails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
-  const realtimeRefreshTimeoutRef = useRef(null);
-  const loadInterviewsRef = useRef(null);
+  const [pendingRealtimeInterviewUpdates, setPendingRealtimeInterviewUpdates] = useState(0);
 
   useEffect(() => {
     document.title = 'Interviews - InterviewAI Pro';
@@ -39,6 +42,7 @@ const CompanyInterviews = () => {
       const result = await apiClient.interviews.getCompanyInterviews();
       if (result.success) {
         setInterviews(result.interviews || []);
+        setPendingRealtimeInterviewUpdates(0);
       } else {
         setError(result.error || 'Failed to load interviews.');
       }
@@ -49,33 +53,24 @@ const CompanyInterviews = () => {
     }
   }, []);
 
-  useEffect(() => {
-    loadInterviewsRef.current = loadInterviews;
-  }, [loadInterviews]);
-
   useInterviewRealtimeFeed({
     userId: user?.id,
     enabled: Boolean(user?.id),
+    eventTypes: combineRealtimeEventTypes(
+      INTERVIEW_FEED_EVENTS.lifecycle,
+      INTERVIEW_FEED_EVENTS.pipeline,
+      INTERVIEW_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
-      if (realtimeRefreshTimeoutRef.current) {
-        clearTimeout(realtimeRefreshTimeoutRef.current);
-      }
-      realtimeRefreshTimeoutRef.current = setTimeout(() => {
-        loadInterviewsRef.current?.();
-      }, 300);
+      // Keep interview list stable while users are browsing/filtering.
+      setPendingRealtimeInterviewUpdates((prev) => Math.min(prev + 1, 99));
     },
   });
 
   useEffect(() => {
     loadInterviews();
   }, [loadInterviews]);
-
-  useEffect(() => () => {
-    if (realtimeRefreshTimeoutRef.current) {
-      clearTimeout(realtimeRefreshTimeoutRef.current);
-    }
-  }, []);
 
   const handleLogout = async () => {
     await logout();
@@ -189,6 +184,28 @@ const CompanyInterviews = () => {
                   Refresh
                 </Button>
               </div>
+
+              {pendingRealtimeInterviewUpdates > 0 && (
+                <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                  <div className="flex items-start gap-2">
+                    <Icon name="Bell" className="w-4 h-4 mt-0.5 text-blue-600 dark:text-blue-300" />
+                    <p className="text-sm text-blue-800 dark:text-blue-200">
+                      {pendingRealtimeInterviewUpdates} new interview update{pendingRealtimeInterviewUpdates === 1 ? '' : 's'} available.
+                      Refresh when you are ready.
+                    </p>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={loadInterviews}
+                    disabled={loading}
+                    className="border-blue-300 text-blue-700 hover:bg-blue-100 dark:border-blue-500/40 dark:text-blue-200 dark:hover:bg-blue-500/20"
+                  >
+                    <Icon name="RefreshCw" size={14} className="mr-1.5" />
+                    Refresh List
+                  </Button>
+                </div>
+              )}
 
               {/* Filters */}
               <motion.div

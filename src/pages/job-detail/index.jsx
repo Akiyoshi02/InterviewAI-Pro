@@ -9,6 +9,7 @@ import LoadingState from '../../components/ui/LoadingState';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
+import { CANDIDATE_FEED_EVENTS, PUBLIC_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
 import JobApplicationForm from '../jobs/components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -109,8 +110,11 @@ const JobDetailPage = () => {
   useRealtimePathFeed({
     path: 'publicFeeds/jobs',
     enabled: true,
-    onFeedUpdate: (_feed, { initial }) => {
+    eventTypes: PUBLIC_FEED_EVENTS.jobs,
+    onFeedUpdate: (feed, { initial }) => {
       if (initial || !id) return;
+      const eventJobId = typeof feed?.payload?.jobId === 'string' ? feed.payload.jobId : null;
+      if (eventJobId && eventJobId !== id) return;
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
       }
@@ -123,8 +127,11 @@ const JobDetailPage = () => {
   useRealtimePathFeed({
     path: user?.id ? `candidateFeeds/${user.id}` : null,
     enabled: Boolean(user?.id && user?.accountType?.toUpperCase() === 'CANDIDATE'),
-    onFeedUpdate: (_feed, { initial }) => {
+    eventTypes: CANDIDATE_FEED_EVENTS.applications,
+    onFeedUpdate: (feed, { initial }) => {
       if (initial) return;
+      const eventJobId = typeof feed?.payload?.jobId === 'string' ? feed.payload.jobId : null;
+      if (eventJobId && eventJobId !== id) return;
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
       }
@@ -284,7 +291,9 @@ const JobDetailPage = () => {
   };
 
   const daysLeft = job ? getDaysLeft(job) : null;
-  const advertImageUrl = getAssetUrl(job?.advertImageUrl);
+  const advertImageUrls = (Array.isArray(job?.advertImageUrls) ? job.advertImageUrls : (job?.advertImageUrl ? [job.advertImageUrl] : []))
+    .map((url) => getAssetUrl(url))
+    .filter(Boolean);
   const advertVideoUrl = getAssetUrl(job?.advertVideoUrl);
 
   return (
@@ -437,7 +446,7 @@ const JobDetailPage = () => {
                                 <span>{job.department}</span>
                               </div>
                             )}
-                            {job.advertImageUrl && (
+                            {advertImageUrls.length > 0 && (
                               <div className="flex items-center gap-1.5 text-blue-700 dark:text-blue-300">
                                 <Icon name="Image" size={16} className="text-blue-500 dark:text-blue-400" />
                                 <span>Image advert</span>
@@ -520,33 +529,43 @@ const JobDetailPage = () => {
                         </div>
                       )}
 
-                      {(advertImageUrl || advertVideoUrl) && (
-                        <div>
-                          <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
-                            <Icon name="Video" size={20} className="text-blue-600 dark:text-blue-400" />
-                            Job Advert Media
-                          </h3>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {advertImageUrl && (
-                              <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 overflow-hidden">
-                                <img
-                                  src={advertImageUrl}
-                                  alt={job.advertImageAlt || `${job.title} advert image`}
-                                  className="w-full h-56 object-cover"
-                                />
+                      {(advertImageUrls.length > 0 || advertVideoUrl) && (
+                        <div className="space-y-6">
+                          {advertImageUrls.length > 0 && (
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
+                                <Icon name="Image" size={20} className="text-blue-600 dark:text-blue-400" />
+                                Job Post Images
+                              </h3>
+                              <div className={`grid gap-4 ${advertImageUrls.length > 1 ? 'grid-cols-1 md:grid-cols-2' : 'grid-cols-1'}`}>
+                                {advertImageUrls.map((advertImageUrl, imageIndex) => (
+                                  <div key={`${advertImageUrl}-${imageIndex}`} className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 overflow-hidden">
+                                    <img
+                                      src={advertImageUrl}
+                                      alt={job.advertImageAlt || `${job.title} advert image ${imageIndex + 1}`}
+                                      className="w-full h-auto max-h-[520px] object-contain"
+                                    />
+                                  </div>
+                                ))}
                               </div>
-                            )}
-                            {advertVideoUrl && (
+                            </div>
+                          )}
+                          {advertVideoUrl && (
+                            <div>
+                              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-3 flex items-center gap-2">
+                                <Icon name="Video" size={20} className="text-blue-600 dark:text-blue-400" />
+                                Job Post Video
+                              </h3>
                               <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-black overflow-hidden">
                                 <video
                                   src={advertVideoUrl}
                                   controls
                                   preload="metadata"
-                                  className="w-full h-56 object-cover"
+                                  className="w-full h-auto max-h-[520px] bg-black object-contain"
                                 />
                               </div>
-                            )}
-                          </div>
+                            </div>
+                          )}
                         </div>
                       )}
 

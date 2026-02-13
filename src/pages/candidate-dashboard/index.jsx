@@ -18,6 +18,10 @@ import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
+import {
+  INTERVIEW_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
@@ -136,6 +140,11 @@ const CandidateDashboard = () => {
   useInterviewRealtimeFeed({
     userId: user?.id,
     enabled: Boolean(user?.id),
+    eventTypes: combineRealtimeEventTypes(
+      INTERVIEW_FEED_EVENTS.lifecycle,
+      INTERVIEW_FEED_EVENTS.pipeline,
+      INTERVIEW_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

@@ -1,4 +1,5 @@
 import { analyticsStore } from '../services/firebaseData.service.js';
+import { queueAnalyticsJob } from '../services/backgroundJobQueue.service.js';
 import logger from '../utils/logger.js';
 
 export class AnalyticsController {
@@ -52,9 +53,13 @@ export class AnalyticsController {
 
       const metrics = await analyticsStore.getDashboardMetricsWithComparison(organizationId);
 
-      // Also create a daily snapshot for historical tracking (fire-and-forget)
-      analyticsStore.createDailySnapshot(organizationId).catch((err) => {
-        logger.warn('Failed to create daily snapshot:', err.message);
+      // Create a daily snapshot in background to keep response latency stable.
+      queueAnalyticsJob({
+        type: 'ORG_DAILY_SNAPSHOT',
+        payload: { organizationId },
+        handler: async ({ organizationId: orgId }) => {
+          await analyticsStore.createDailySnapshot(orgId);
+        },
       });
 
       res.json({
@@ -115,9 +120,13 @@ export class AnalyticsController {
 
       const metrics = await analyticsStore.getCandidateDashboardMetricsWithComparison(candidateId);
 
-      // Also create a daily snapshot for historical tracking (fire-and-forget)
-      analyticsStore.createCandidateDailySnapshot(candidateId).catch((err) => {
-        logger.warn('Failed to create candidate daily snapshot:', err.message);
+      // Create candidate snapshot in background to avoid blocking dashboard responses.
+      queueAnalyticsJob({
+        type: 'CANDIDATE_DAILY_SNAPSHOT',
+        payload: { candidateId },
+        handler: async ({ candidateId: targetCandidateId }) => {
+          await analyticsStore.createCandidateDailySnapshot(targetCandidateId);
+        },
       });
 
       res.json({

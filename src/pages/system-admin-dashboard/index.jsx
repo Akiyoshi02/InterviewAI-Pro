@@ -16,6 +16,10 @@ import TrainingDataManager from './components/TrainingDataManager.jsx';
 import FairnessCalibrationPanel from './components/FairnessCalibrationPanel.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
+import {
+  ADMIN_FEED_EVENTS,
+  combineRealtimeEventTypes,
+} from '../../constants/realtimeFeedEvents.js';
 
 // Research Tools Components (lazy loaded for performance)
 const VideoRecorder = lazy(() => import('../../pages/research-tools/components/VideoRecorder.jsx'));
@@ -58,6 +62,13 @@ const SystemAdminDashboard = () => {
   useRealtimePathFeed({
     path: 'adminFeeds/global',
     enabled: true,
+    eventTypes: combineRealtimeEventTypes(
+      ADMIN_FEED_EVENTS.organizations,
+      ADMIN_FEED_EVENTS.settings,
+      ADMIN_FEED_EVENTS.datasets,
+      ADMIN_FEED_EVENTS.interviews,
+      ADMIN_FEED_EVENTS.reviews,
+    ),
     onFeedUpdate: (_feed, { initial }) => {
       if (initial) return;
       if (realtimeRefreshTimeoutRef.current) {

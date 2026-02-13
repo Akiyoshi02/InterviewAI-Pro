@@ -3,10 +3,20 @@ import {
   jobStore,
   organizationStore,
   jobApplicationStore,
+  userStore,
   isJobCurrentlyPublic,
   publishOrganizationRealtimeUpdate,
+  publishCandidateRealtimeUpdate,
   publishPublicRealtimeUpdate,
 } from '../services/firebaseData.service.js';
+import { buildJobSnapshot, buildOrganizationSnapshot } from '../utils/applicationSnapshot.util.js';
+import {
+  appendStatusHistory,
+  buildStatusHistoryEntry,
+  normalizeDisposition,
+} from '../utils/applicationLifecycle.util.js';
+import { emailNotifications } from '../services/email.service.js';
+import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
 import { unlink } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -16,7 +26,22 @@ const JOB_ADVERT_IMAGE_MAX_BYTES = 8 * 1024 * 1024;
 const JOB_ADVERT_VIDEO_MAX_BYTES = 50 * 1024 * 1024;
 const JOB_ADVERT_IMAGE_BASE_PATH = '/uploads/job-advert-images';
 const JOB_ADVERT_VIDEO_BASE_PATH = '/uploads/job-advert-videos';
+const TERMINAL_APPLICATION_STATUSES = new Set(['REJECTED', 'HIRED']);
+const RESOLUTION_REQUIRED_CODE = 'ACTIVE_APPLICATIONS_REQUIRE_RESOLUTION';
+const ARCHIVE_REQUIRED_CODE = 'JOB_MUST_BE_ARCHIVED_BEFORE_DELETE';
 const uploadsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'uploads');
+
+const isApplicationActive = (application) => {
+  const status = (application?.status || '').toString().toUpperCase();
+  return !TERMINAL_APPLICATION_STATUSES.has(status);
+};
+
+const buildJobClosureMessage = (customMessage = '') => {
+  const baseMessage = 'This role has been closed and removed, so we are no longer progressing this specific application.';
+  const trimmedCustomMessage = typeof customMessage === 'string' ? customMessage.trim() : '';
+  if (!trimmedCustomMessage) return baseMessage;
+  return `${baseMessage}\n\n${trimmedCustomMessage}`;
+};
 
 const buildUploadUrl = (basePath, filename) => (filename ? `${basePath}/${filename}` : null);
 
@@ -46,6 +71,46 @@ const cleanupUploadedFilePath = async (filePath) => {
   } catch {
     // Ignore cleanup failures.
   }
+};
+
+const normalizeAdvertImageUrls = (job) => {
+  if (!job) return [];
+  if (Array.isArray(job.advertImageUrls)) {
+    return job.advertImageUrls
+      .map((url) => (typeof url === 'string' ? url.trim() : ''))
+      .filter(Boolean);
+  }
+  if (typeof job.advertImageUrl === 'string' && job.advertImageUrl.trim()) {
+    return [job.advertImageUrl.trim()];
+  }
+  return [];
+};
+
+const normalizeAdvertImagePayload = (payload = {}) => {
+  const normalized = { ...payload };
+  const hasAdvertImageUrls = Object.prototype.hasOwnProperty.call(normalized, 'advertImageUrls');
+  const hasAdvertImageUrl = Object.prototype.hasOwnProperty.call(normalized, 'advertImageUrl');
+
+  if (hasAdvertImageUrls) {
+    const sanitizedAdvertImageUrls = Array.isArray(normalized.advertImageUrls)
+      ? normalized.advertImageUrls
+        .map((url) => (typeof url === 'string' ? url.trim() : ''))
+        .filter(Boolean)
+      : [];
+    normalized.advertImageUrls = sanitizedAdvertImageUrls;
+    normalized.advertImageUrl = sanitizedAdvertImageUrls[0] || null;
+    return normalized;
+  }
+
+  if (hasAdvertImageUrl) {
+    const sanitizedAdvertImageUrl = typeof normalized.advertImageUrl === 'string'
+      ? normalized.advertImageUrl.trim()
+      : '';
+    normalized.advertImageUrl = sanitizedAdvertImageUrl || null;
+    normalized.advertImageUrls = sanitizedAdvertImageUrl ? [sanitizedAdvertImageUrl] : [];
+  }
+
+  return normalized;
 };
 
 const publishJobVisibilityUpdate = async ({ organizationId, previousJob, updatedJob }) => {
@@ -87,6 +152,7 @@ const publishJobVisibilityUpdate = async ({ organizationId, previousJob, updated
 
 const sanitizeJob = (job) => {
   if (!job) return null;
+  const advertImageUrls = normalizeAdvertImageUrls(job);
   return {
     id: job.id,
     organizationId: job.organizationId,
@@ -100,7 +166,8 @@ const sanitizeJob = (job) => {
     requirements: job.requirements || [],
     responsibilities: job.responsibilities || [],
     skills: job.skills || [],
-    advertImageUrl: job.advertImageUrl || null,
+    advertImageUrls,
+    advertImageUrl: advertImageUrls[0] || null,
     advertImageAlt: job.advertImageAlt || null,
     advertVideoUrl: job.advertVideoUrl || null,
     status: job.status,
@@ -110,6 +177,9 @@ const sanitizeJob = (job) => {
     postingDuration: job.postingDuration || 30,
     scheduledPublishAt: job.scheduledPublishAt || null,
     expiresAt: job.expiresAt || null,
+    deletedAt: job.deletedAt || null,
+    deletedBy: job.deletedBy || null,
+    deletionMode: job.deletionMode || null,
     createdAt: job.createdAt,
     updatedAt: job.updatedAt,
     applicationsCount: job.applicationsCount || 0, // Include applications count if present
@@ -127,7 +197,7 @@ export class JobController {
       const job = await jobStore.create({
         organizationId,
         createdBy: req.user.id,
-        ...req.body,
+        ...normalizeAdvertImagePayload(req.body),
       });
 
       await activityLogStore.record({
@@ -170,7 +240,7 @@ export class JobController {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      const updated = await jobStore.update(jobId, req.body);
+      const updated = await jobStore.update(jobId, normalizeAdvertImagePayload(req.body));
       await activityLogStore.record({
         organizationId,
         actorId: req.user.id,
@@ -192,8 +262,13 @@ export class JobController {
         updatedJob: updated,
       });
 
-      if (existing.advertImageUrl && existing.advertImageUrl !== (updated.advertImageUrl || null)) {
-        await cleanupUploadByPublicUrl(existing.advertImageUrl);
+      const previousAdvertImageUrls = normalizeAdvertImageUrls(existing);
+      const nextAdvertImageUrls = normalizeAdvertImageUrls(updated);
+      const removedAdvertImageUrls = previousAdvertImageUrls.filter(
+        (imageUrl) => !nextAdvertImageUrls.includes(imageUrl),
+      );
+      for (const removedImageUrl of removedAdvertImageUrls) {
+        await cleanupUploadByPublicUrl(removedImageUrl);
       }
       if (existing.advertVideoUrl && existing.advertVideoUrl !== (updated.advertVideoUrl || null)) {
         await cleanupUploadByPublicUrl(existing.advertVideoUrl);
@@ -234,18 +309,13 @@ export class JobController {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
       const jobs = await jobStore.listByOrganization(organizationId);
-      
-      // Enrich jobs with application counts
-      const jobsWithCounts = await Promise.all(
-        jobs.map(async (job) => {
-          const applicationsCount = await jobApplicationStore.countByJob(job.id);
-          return {
-            ...sanitizeJob(job),
-            applicationsCount,
-          };
-        })
-      );
-      
+
+      const countsByJobId = await jobApplicationStore.countByJobIds(jobs.map((job) => job.id));
+      const jobsWithCounts = jobs.map((job) => ({
+        ...sanitizeJob(job),
+        applicationsCount: countsByJobId.get(job.id) || 0,
+      }));
+
       res.json({ success: true, jobs: jobsWithCounts });
     } catch (error) {
       logger.error('List jobs error:', error);
@@ -269,6 +339,7 @@ export class JobController {
             }
           }
           
+          const advertImageUrls = normalizeAdvertImageUrls(job);
           return {
             id: job.id,
             title: job.title,
@@ -280,7 +351,8 @@ export class JobController {
             requirements: job.requirements || [],
             responsibilities: job.responsibilities || [],
             skills: job.skills || [],
-            advertImageUrl: job.advertImageUrl || null,
+            advertImageUrls,
+            advertImageUrl: advertImageUrls[0] || null,
             advertImageAlt: job.advertImageAlt || null,
             advertVideoUrl: job.advertVideoUrl || null,
             compensationRange: job.compensationRange || null,
@@ -334,9 +406,11 @@ export class JobController {
         }
       }
 
+      const advertImageUrls = normalizeAdvertImageUrls(job);
       res.json({
         success: true,
         job: {
+          advertImageUrls,
           id: job.id,
           title: job.title,
           department: job.department,
@@ -347,7 +421,7 @@ export class JobController {
           requirements: job.requirements || [],
           responsibilities: job.responsibilities || [],
           skills: job.skills || [],
-          advertImageUrl: job.advertImageUrl || null,
+          advertImageUrl: advertImageUrls[0] || null,
           advertImageAlt: job.advertImageAlt || null,
           advertVideoUrl: job.advertVideoUrl || null,
           compensationRange: job.compensationRange || null,
@@ -409,9 +483,13 @@ export class JobController {
       const nextAdvertImageAlt = typeof req.body?.advertImageAlt === 'string'
         ? (req.body.advertImageAlt.trim() || null)
         : (existing.advertImageAlt || null);
+      const nextAdvertImageUrls = Array.from(
+        new Set([...normalizeAdvertImageUrls(existing), nextAdvertImageUrl].filter(Boolean)),
+      );
 
       const updated = await jobStore.update(jobId, {
-        advertImageUrl: nextAdvertImageUrl,
+        advertImageUrls: nextAdvertImageUrls,
+        advertImageUrl: nextAdvertImageUrls[0] || null,
         advertImageAlt: nextAdvertImageAlt,
       });
 
@@ -435,10 +513,6 @@ export class JobController {
         previousJob: existing,
         updatedJob: updated,
       });
-
-      if (existing.advertImageUrl && existing.advertImageUrl !== nextAdvertImageUrl) {
-        await cleanupUploadByPublicUrl(existing.advertImageUrl);
-      }
 
       res.json({ success: true, job: sanitizeJob(updated) });
     } catch (error) {
@@ -518,15 +592,179 @@ export class JobController {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
       const jobId = req.params.id;
+      const resolveActiveApplications = req.body?.resolveActiveApplications === true;
+      const notifyCandidates = req.body?.notifyCandidates !== false;
+      const resolutionMessage = typeof req.body?.resolutionMessage === 'string'
+        ? req.body.resolutionMessage.trim()
+        : '';
 
       const existing = await jobStore.getById(jobId);
       if (!existing || existing.organizationId !== organizationId) {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      await cleanupUploadByPublicUrl(existing.advertImageUrl);
+      const jobStatus = (existing.status || '').toString().toUpperCase();
+      if (jobStatus !== 'ARCHIVED' && jobStatus !== 'DRAFT') {
+        return res.status(409).json({
+          error: 'Archive this job before deleting it.',
+          code: ARCHIVE_REQUIRED_CODE,
+          details: {
+            currentStatus: jobStatus || 'UNKNOWN',
+            requiredAction: 'Set job status to ARCHIVED before deleting.',
+          },
+        });
+      }
+
+      const [applications, organization] = await Promise.all([
+        jobApplicationStore.listByJob(jobId),
+        organizationStore.getById(organizationId).catch((organizationError) => {
+          logger.warn(`Unable to fetch organization ${organizationId} for delete snapshot:`, organizationError);
+          return null;
+        }),
+      ]);
+      const activeApplications = applications.filter(isApplicationActive);
+
+      if (activeApplications.length > 0 && !resolveActiveApplications) {
+        return res.status(409).json({
+          error: 'This job has active applications. Resolve them before deleting.',
+          code: RESOLUTION_REQUIRED_CODE,
+          details: {
+            totalApplications: applications.length,
+            activeApplications: activeApplications.length,
+            requiredAction: 'Set resolveActiveApplications=true to auto-reject active applications before deletion.',
+          },
+        });
+      }
+
+      let resolvedApplicationsCount = 0;
+      let notifiedCandidatesCount = 0;
+      let notificationFailures = 0;
+      const deletedAt = new Date().toISOString();
+      const fallbackJobSnapshot = buildJobSnapshot(existing);
+      const fallbackOrganizationSnapshot = buildOrganizationSnapshot(organization, organizationId);
+      const candidateIds = [...new Set(activeApplications.map((application) => application.candidateId).filter(Boolean))];
+      const candidateMap = candidateIds.length > 0 ? await userStore.getSummaries(candidateIds) : new Map();
+      const closureMessage = buildJobClosureMessage(resolutionMessage);
+      const closureDisposition = normalizeDisposition({
+        dispositionCode: 'JOB_CLOSED',
+        dispositionReason: 'This role was closed before the application process was completed.',
+        dispositionNotes: resolutionMessage || null,
+      }, {
+        status: 'REJECTED',
+        jobDeletedAt: deletedAt,
+        fallbackCode: 'JOB_CLOSED',
+      });
+
+      if (applications.length > 0) {
+        for (const application of applications) {
+          const currentJobSnapshot = application?.jobSnapshot && typeof application.jobSnapshot === 'object'
+            ? application.jobSnapshot
+            : null;
+          const currentOrganizationSnapshot = application?.organizationSnapshot && typeof application.organizationSnapshot === 'object'
+            ? application.organizationSnapshot
+            : null;
+          const shouldResolveStatus = resolveActiveApplications && isApplicationActive(application);
+          const nextStatus = shouldResolveStatus ? 'REJECTED' : application.status;
+          const statusHistoryEntry = shouldResolveStatus
+            ? buildStatusHistoryEntry({
+              previousStatus: application.status,
+              status: nextStatus,
+              changedAt: deletedAt,
+              changedBy: req.user.id,
+              source: 'JOB_CLOSURE_AUTOMATION',
+              note: closureDisposition.notes || closureDisposition.reason || null,
+              dispositionCode: closureDisposition.code,
+              dispositionCategory: closureDisposition.category,
+            })
+            : null;
+
+          const updatedApplication = await jobApplicationStore.update(application.id, {
+            jobSnapshot: currentJobSnapshot || fallbackJobSnapshot,
+            organizationSnapshot: currentOrganizationSnapshot || fallbackOrganizationSnapshot,
+            jobDeletedAt: deletedAt,
+            ...(shouldResolveStatus
+              ? {
+                status: nextStatus,
+                reviewedAt: deletedAt,
+                reviewedBy: req.user.id,
+                statusSource: 'JOB_CLOSURE_AUTOMATION',
+                statusChangedAt: deletedAt,
+                dispositionCode: closureDisposition.code,
+                dispositionCategory: closureDisposition.category,
+                dispositionReason: closureDisposition.reason,
+                dispositionNotes: closureDisposition.notes,
+                dispositionTags: closureDisposition.tags,
+                dispositionAt: deletedAt,
+                dispositionBy: req.user.id,
+                statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
+              }
+              : {}),
+          });
+
+          if (!shouldResolveStatus) {
+            continue;
+          }
+
+          resolvedApplicationsCount++;
+
+          await publishOrganizationRealtimeUpdate(organizationId, 'application-status-updated', {
+            applicationId: updatedApplication.id,
+            jobId: updatedApplication.jobId || jobId,
+            candidateId: updatedApplication.candidateId || null,
+            status: nextStatus,
+          });
+          await publishCandidateRealtimeUpdate(updatedApplication.candidateId, 'application-status-updated', {
+            applicationId: updatedApplication.id,
+            jobId: updatedApplication.jobId || jobId,
+            organizationId,
+            status: nextStatus,
+          });
+
+          if (!notifyCandidates) {
+            continue;
+          }
+
+          const candidate = candidateMap.get(updatedApplication.candidateId);
+          if (!candidate?.email) {
+            continue;
+          }
+
+          const queuedJobId = queueEmailJob({
+            type: 'JOB_CLOSED_CANDIDATE_NOTIFICATION',
+            payload: {
+              applicationId: updatedApplication.id,
+              jobId,
+              candidateId: updatedApplication.candidateId,
+              recipient: candidate.email,
+            },
+            handler: async () => {
+              await emailNotifications.sendApplicationStatusUpdated(
+                updatedApplication,
+                candidate,
+                existing,
+                organization || { id: organizationId, name: 'Company' },
+                closureMessage,
+              );
+            },
+          });
+          if (queuedJobId) {
+            notifiedCandidatesCount++;
+          } else {
+            notificationFailures++;
+            logger.error(`Failed to queue candidate closure email for ${candidate.email} and job ${jobId}.`);
+          }
+        }
+      }
+
+      for (const imageUrl of normalizeAdvertImageUrls(existing)) {
+        await cleanupUploadByPublicUrl(imageUrl);
+      }
       await cleanupUploadByPublicUrl(existing.advertVideoUrl);
-      await jobStore.delete(jobId);
+      const deletedJob = await jobStore.delete(jobId, {
+        deletedAt,
+        deletedBy: req.user.id,
+        deleteReason: `ATS_SOFT_DELETE:${resolveActiveApplications ? 'RESOLVED_ACTIVE_APPLICATIONS' : 'NO_ACTIVE_APPLICATIONS'}`,
+      });
       await activityLogStore.record({
         organizationId,
         actorId: req.user.id,
@@ -534,7 +772,13 @@ export class JobController {
         action: 'JOB_DELETED',
         targetType: 'JOB',
         targetId: jobId,
-        metadata: { title: existing.title },
+        metadata: {
+          title: existing.title,
+          deletionMode: deletedJob?.deletionMode || 'SOFT',
+          resolvedApplicationsCount,
+          notifiedCandidatesCount,
+          notificationFailures,
+        },
       });
 
       await publishOrganizationRealtimeUpdate(organizationId, 'job-deleted', {
@@ -545,7 +789,14 @@ export class JobController {
         organizationId,
       });
 
-      res.json({ success: true, message: 'Job deleted successfully' });
+      res.json({
+        success: true,
+        message: 'Job removed from active ATS lists successfully',
+        deletionMode: deletedJob?.deletionMode || 'SOFT',
+        resolvedApplicationsCount,
+        notifiedCandidatesCount,
+        notificationFailures,
+      });
     } catch (error) {
       logger.error('Delete job error:', error);
       next(error);

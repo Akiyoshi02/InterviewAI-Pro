@@ -27,6 +27,8 @@ const jobValidations = [
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
   body('skills').optional().isArray(),
+  body('advertImageUrls').optional({ nullable: true }).isArray(),
+  body('advertImageUrls.*').optional().isString(),
   body('advertImageUrl').optional({ nullable: true }).isString(),
   body('advertImageAlt').optional({ nullable: true }).isString().isLength({ max: 160 }),
   body('advertVideoUrl').optional({ nullable: true }).isString(),
@@ -53,6 +55,8 @@ const jobUpdateValidations = [
   body('requirements').optional().isArray(),
   body('responsibilities').optional().isArray(),
   body('skills').optional().isArray(),
+  body('advertImageUrls').optional({ nullable: true }).isArray(),
+  body('advertImageUrls.*').optional().isString(),
   body('advertImageUrl').optional({ nullable: true }).isString(),
   body('advertImageAlt').optional({ nullable: true }).isString().isLength({ max: 160 }),
   body('advertVideoUrl').optional({ nullable: true }).isString(),
@@ -61,6 +65,13 @@ const jobUpdateValidations = [
   body('acceptingApplications').optional().isBoolean(),
   body('postingDuration').optional().isInt({ min: 1, max: 365 }).withMessage('Posting duration must be between 1 and 365 days'),
   body('scheduledPublishAt').optional({ nullable: true }).isISO8601().withMessage('Scheduled publish date must be a valid ISO 8601 date'),
+];
+
+const jobDeleteValidations = [
+  param('id').isString(),
+  body('resolveActiveApplications').optional().isBoolean(),
+  body('notifyCandidates').optional().isBoolean(),
+  body('resolutionMessage').optional().isString().isLength({ max: 1000 }),
 ];
 
 router.post(
@@ -128,7 +139,7 @@ router.delete(
   authenticate,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
-  param('id').isString(),
+  jobDeleteValidations,
   validateRequest,
   JobController.deleteJob,
 );

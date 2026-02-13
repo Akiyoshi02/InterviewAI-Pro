@@ -2,6 +2,8 @@ import { LLMService } from '../services/llm.service.js';
 import {
   hydrateInterviewParticipants,
   interviewStore,
+  jobApplicationStore,
+  jobStore,
   publishAdminRealtimeUpdate,
   publishOrganizationRealtimeUpdate,
   recordRealtimeEvent,
@@ -14,7 +16,17 @@ const ensureAccess = (interview, userId) => {
     return { allowed: false, status: 404, message: 'Interview not found' };
   }
 
-  if (interview.candidateId !== userId && interview.companyId !== userId) {
+  const normalizedUserId = typeof userId === 'string' ? userId : userId?.id;
+  const viewerAccountType = userId?.accountType || null;
+  const viewerOrganizationId = userId?.organizationContext?.organization?.id || null;
+
+  const isDirectParticipant = interview.candidateId === normalizedUserId || interview.companyId === normalizedUserId;
+  const isOrganizationMember =
+    viewerAccountType === 'COMPANY'
+    && Boolean(viewerOrganizationId)
+    && interview.organizationId === viewerOrganizationId;
+
+  if (!isDirectParticipant && !isOrganizationMember) {
     return { allowed: false, status: 403, message: 'Access denied' };
   }
 
@@ -32,34 +44,126 @@ const attachSingleInterviewParticipants = async (interview) => {
   };
 };
 
+const isTerminalInterviewStatus = (status) => {
+  const normalized = String(status || '').toUpperCase();
+  return normalized === 'COMPLETED' || normalized === 'CANCELLED';
+};
+
 export class InterviewController {
   static async createInterview(req, res, next) {
     try {
-      const { mode, jobRole, experienceLevel, industry, interviewTypes, skillFocus, duration, jobId, jobStage, invitationId, config, candidateId } = req.body;
+      const {
+        mode,
+        jobRole,
+        experienceLevel,
+        industry,
+        interviewTypes,
+        skillFocus,
+        duration,
+        jobId,
+        jobStage,
+        invitationId,
+        config,
+        candidateId,
+        status,
+        pipelineStatus,
+        reviewerAssignments,
+      } = req.body;
       const userId = req.user.id;
       const accountType = req.user.accountType;
       const organizationId = req.user.organizationContext?.organization?.id || null;
+      const normalizedMode = String(mode || '').toUpperCase();
+      const normalizedCandidateId = typeof candidateId === 'string' ? candidateId.trim() : null;
 
-      if (mode === 'HIRING' && accountType !== 'COMPANY') {
+      if (normalizedMode === 'PRACTICE' && accountType !== 'CANDIDATE') {
+        return res.status(403).json({ error: 'Only candidates can create practice interviews' });
+      }
+
+      if (normalizedMode === 'HIRING' && accountType !== 'COMPANY') {
         return res.status(403).json({ error: 'Only companies can create hiring interviews' });
       }
 
-      if (mode === 'HIRING' && !organizationId) {
+      if (normalizedMode === 'HIRING' && !organizationId) {
         return res.status(400).json({ error: 'Organization context required for hiring interviews' });
       }
 
-      // For HIRING mode, use provided candidateId if available, otherwise null
-      // For PRACTICE mode, use the current user's ID
-      const finalCandidateId = mode === 'PRACTICE' ? userId : (candidateId || null);
+      if (normalizedMode === 'HIRING' && !normalizedCandidateId) {
+        return res.status(400).json({
+          error: 'candidateId is required for hiring interviews',
+          code: 'HIRING_CANDIDATE_REQUIRED',
+        });
+      }
+
+      if (normalizedMode === 'HIRING') {
+        const candidateProfile = await userStore.getById(normalizedCandidateId);
+        if (!candidateProfile) {
+          return res.status(404).json({
+            error: 'Candidate not found',
+            code: 'CANDIDATE_NOT_FOUND',
+          });
+        }
+        if (String(candidateProfile.accountType || '').toUpperCase() !== 'CANDIDATE') {
+          return res.status(400).json({
+            error: 'candidateId must belong to a candidate account',
+            code: 'INVALID_HIRING_CANDIDATE',
+          });
+        }
+
+        if (jobId) {
+          const job = await jobStore.getById(jobId);
+          if (!job) {
+            return res.status(404).json({
+              error: 'Job not found',
+              code: 'JOB_NOT_FOUND',
+            });
+          }
+          if (job.organizationId !== organizationId) {
+            return res.status(403).json({
+              error: 'Job does not belong to your organization',
+              code: 'JOB_ORG_MISMATCH',
+            });
+          }
+
+          const linkedApplication = await jobApplicationStore.checkDuplicate(jobId, normalizedCandidateId);
+          if (!linkedApplication && !invitationId) {
+            return res.status(409).json({
+              error: 'Candidate must have an application or invitation before creating a hiring interview',
+              code: 'APPLICATION_OR_INVITATION_REQUIRED',
+            });
+          }
+
+          const jobInterviews = await interviewStore.listByJob(jobId, { limit: 200 });
+          const existingActiveInterview = jobInterviews.find((interview) =>
+            interview.candidateId === normalizedCandidateId
+            && !isTerminalInterviewStatus(interview.status),
+          );
+          if (existingActiveInterview) {
+            const hydratedExisting = await attachSingleInterviewParticipants(existingActiveInterview);
+            return res.json({
+              success: true,
+              interview: hydratedExisting,
+              message: 'Existing active interview found',
+              reusedExistingInterview: true,
+            });
+          }
+        }
+      }
+
+      // For HIRING mode, use provided candidateId.
+      // For PRACTICE mode, use the current user's ID.
+      const finalCandidateId = normalizedMode === 'PRACTICE' ? userId : normalizedCandidateId;
 
       const interview = await interviewStore.create({
-        mode,
+        mode: normalizedMode,
         candidateId: finalCandidateId,
-        companyId: mode === 'HIRING' ? userId : null,
-        organizationId: mode === 'HIRING' ? organizationId : null,
+        companyId: normalizedMode === 'HIRING' ? userId : null,
+        organizationId: normalizedMode === 'HIRING' ? organizationId : null,
         jobId: jobId || null,
         jobStage: jobStage || null,
         invitationId: invitationId || null,
+        status: status || 'SCHEDULED',
+        pipelineStatus: pipelineStatus || null,
+        reviewerAssignments: Array.isArray(reviewerAssignments) ? reviewerAssignments : [],
         jobRole,
         experienceLevel,
         industry,
@@ -103,10 +207,8 @@ export class InterviewController {
   static async getInterview(req, res, next) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -128,10 +230,8 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const { recordingConsentGivenAt, recordingConsentVersion } = req.body;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getById(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -154,10 +254,8 @@ export class InterviewController {
   static async startInterview(req, res, next) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
-
       let interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -192,7 +290,7 @@ export class InterviewController {
 
       try {
         await recordRealtimeEvent(id, 'interview-started', {
-          actor: userId,
+          actor: req.user.id,
           status: 'IN_PROGRESS',
           startedAt: updatedInterview.startedAt,
         });
@@ -228,10 +326,8 @@ export class InterviewController {
   static async endInterview(req, res, next) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -253,7 +349,7 @@ export class InterviewController {
 
       try {
         await recordRealtimeEvent(id, 'interview-ended', {
-          actor: userId,
+          actor: req.user.id,
           status: 'COMPLETED',
           endedAt: updatedInterview.endedAt,
           overallScore: updatedInterview.overallScore ?? null,
@@ -303,9 +399,18 @@ export class InterviewController {
     try {
       const userId = req.user.id;
       const accountType = req.user.accountType;
+      const organizationId = req.user.organizationContext?.organization?.id || null;
+      const requestedLimit = Number.parseInt(req.query.limit, 10);
+      const listLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 200)
+        : 100;
 
-      const candidateInterviews = await interviewStore.listByCandidate(userId);
-      const companyInterviews = accountType === 'COMPANY' ? await interviewStore.listByCompany(userId) : [];
+      const candidateInterviews = await interviewStore.listByCandidate(userId, { limit: listLimit });
+      const companyInterviews = accountType === 'COMPANY'
+        ? (organizationId
+          ? await interviewStore.listByOrganization(organizationId, { limit: listLimit })
+          : await interviewStore.listByCompany(userId, { limit: listLimit }))
+        : [];
 
       const combinedMap = new Map();
       [...candidateInterviews, ...companyInterviews].forEach((interview) => {
@@ -327,8 +432,15 @@ export class InterviewController {
 
   static async getCompanyInterviews(req, res, next) {
     try {
+      const organizationId = req.user.organizationContext?.organization?.id || null;
       const companyId = req.user.id;
-      const interviews = await interviewStore.listByCompany(companyId);
+      const requestedLimit = Number.parseInt(req.query.limit, 10);
+      const listLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
+        ? Math.min(requestedLimit, 200)
+        : 100;
+      const interviews = organizationId
+        ? await interviewStore.listByOrganization(organizationId, { limit: listLimit })
+        : await interviewStore.listByCompany(companyId, { limit: listLimit });
       const hydrated = await hydrateInterviewParticipants(interviews);
 
       res.json({ success: true, interviews: hydrated });
@@ -341,10 +453,8 @@ export class InterviewController {
   static async getEvaluation(req, res, next) {
     try {
       const { id } = req.params;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -374,10 +484,8 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const { questionId, answer, audioUrl } = req.body;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -425,7 +533,7 @@ export class InterviewController {
 
       try {
         await recordRealtimeEvent(id, 'answer-submitted', {
-          actor: userId,
+          actor: req.user.id,
           questionId,
           answeredAt: updatedQuestion.answeredAt || answeredAt.toISOString(),
           score: evaluation?.score ?? updatedQuestion?.score ?? null,
@@ -449,10 +557,8 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const { questionId } = req.body;
-      const userId = req.user.id;
-
       const interview = await interviewStore.getById(id);
-      const access = ensureAccess(interview, userId);
+      const access = ensureAccess(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -464,7 +570,7 @@ export class InterviewController {
 
       try {
         await recordRealtimeEvent(id, 'question-asked', {
-          actor: userId,
+          actor: req.user.id,
           questionId,
           askedAt,
         });

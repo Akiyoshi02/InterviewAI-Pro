@@ -21,12 +21,13 @@ router.get(
 router.patch(
   '/:interviewId',
   authenticate,
+  requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [
     param('interviewId').isString(),
     body('jobStage').optional().isString(),
-    body('pipelineStatus').optional().isString(),
-    body('status').optional().isString(),
+    body('pipelineStatus').optional().isIn(['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED']),
+    body('status').optional().isIn(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED']),
   ],
   validateRequest,
   PipelineController.moveCandidate,
