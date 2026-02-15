@@ -25,6 +25,7 @@ import {
   validationSchemas,
   LENGTH_LIMITS,
 } from '../middleware/inputValidation.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 
 const router = express.Router();
 
@@ -60,6 +61,7 @@ router.get('/config', AdminController.getPublicConfig);
  */
 router.get(
   '/jobs',
+  requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }),
   [
     query('limit')
       .optional()
@@ -80,6 +82,7 @@ router.get(
  */
 router.get(
   '/jobs/:id',
+  requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }),
   [
     param('id')
       .trim()
@@ -105,6 +108,7 @@ router.get(
  */
 router.get(
   '/invitations/:token',
+  requireFeatureFlag('enableInvitations', { allowSystemAdminBypass: false }),
   [
     param('token')
       .trim()
@@ -126,6 +130,7 @@ router.get(
  */
 router.get(
   '/team-invitations/:token',
+  requireFeatureFlag('enableInvitations', { allowSystemAdminBypass: false }),
   [
     param('token')
       .trim()

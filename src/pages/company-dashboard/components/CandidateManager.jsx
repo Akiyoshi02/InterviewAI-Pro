@@ -1,9 +1,19 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
@@ -11,15 +21,75 @@ import {
   ORGANIZATION_FEED_EVENTS,
   combineRealtimeEventTypes,
 } from '../../../constants/realtimeFeedEvents.js';
+import {
+  COMPANY_APPLICATION_DATE_PRESET_FILTER_OPTIONS,
+  COMPANY_APPLICATION_JOB_STATE_FILTER_OPTIONS,
+  COMPANY_APPLICATION_REVIEW_STATE_FILTER_OPTIONS,
+  COMPANY_APPLICATION_SORT_FILTER_OPTIONS,
+  COMPANY_APPLICATION_STATUS_FILTER_OPTIONS,
+  DEFAULT_COMPANY_APPLICATION_FILTERS,
+  buildCompanyApplicationFilterOptions,
+  countActiveCompanyFilters,
+  filterCompanyApplications,
+  getDerivedApplicationStatus,
+} from '../utils/companyApplicationFilters.js';
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const formatDate = (dateInput) => {
+  if (!dateInput) return 'N/A';
+  const parsed = new Date(dateInput);
+  if (Number.isNaN(parsed.getTime())) return 'N/A';
+  return parsed.toLocaleDateString();
+};
 
-const CandidateManager = ({ canStartReview = true }) => {
+const getStatusConfig = (application = {}) => {
+  const derivedStatus = getDerivedApplicationStatus(application);
+  const configs = {
+    SUBMITTED: {
+      label: 'Submitted',
+      className: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
+    },
+    SCREENING: {
+      label: 'Screening',
+      className: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
+    },
+    INTERVIEWING: {
+      label: 'Interviewing',
+      className: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
+    },
+    SHORTLISTED: {
+      label: 'Shortlisted',
+      className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
+    },
+    REJECTED: {
+      label: 'Not Selected',
+      className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+    },
+    WITHDRAWN: {
+      label: 'Withdrew',
+      className: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
+    },
+    POSITION_CLOSED: {
+      label: 'Position Closed',
+      className: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
+    },
+    HIRED: {
+      label: 'Hired',
+      className: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
+    },
+    UNKNOWN: {
+      label: 'Unknown',
+      className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+    },
+  };
+  return configs[derivedStatus] || configs.UNKNOWN;
+};
+
+const CandidateManager = () => {
   const { organization } = useAuth();
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [filterJob, setFilterJob] = useState('all');
-  const [filterStatus, setFilterStatus] = useState('all');
+  const [filters, setFilters] = useState(DEFAULT_COMPANY_APPLICATION_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [jobs, setJobs] = useState([]);
   const [selectedCandidate, setSelectedCandidate] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
@@ -31,6 +101,17 @@ const CandidateManager = ({ canStartReview = true }) => {
   useEffect(() => {
     loadData();
   }, []);
+
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_COMPANY_APPLICATION_FILTERS);
+  };
 
   const loadData = async () => {
     try {
@@ -93,11 +174,25 @@ const CandidateManager = ({ canStartReview = true }) => {
     setShowDetails(true);
   };
 
-  const filteredCandidates = candidates.filter((candidate) => {
-    if (filterJob !== 'all' && candidate.jobId !== filterJob) return false;
-    if (filterStatus !== 'all' && candidate.status !== filterStatus) return false;
-    return true;
-  });
+  const filteredCandidates = useMemo(
+    () => filterCompanyApplications(candidates, filters),
+    [candidates, filters],
+  );
+
+  const {
+    jobOptions,
+    companyOptions,
+    employmentTypeOptions,
+    dispositionOptions,
+  } = useMemo(
+    () => buildCompanyApplicationFilterOptions(candidates, jobs),
+    [candidates, jobs],
+  );
+
+  const activeFilterCount = useMemo(
+    () => countActiveCompanyFilters(filters),
+    [filters],
+  );
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredCandidates.length / itemsPerPage);
@@ -108,21 +203,7 @@ const CandidateManager = ({ canStartReview = true }) => {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [filterJob, filterStatus]);
-
-  const statusOptions = ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'];
-  
-  const getStatusBadge = (status) => {
-    const badges = {
-      SUBMITTED: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      SCREENING: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
-      INTERVIEWING: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-300',
-      SHORTLISTED: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-      REJECTED: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
-      HIRED: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
-    };
-    return badges[status] || badges.SUBMITTED;
-  };
+  }, [filters]);
 
   if (loading) {
     return (
@@ -155,55 +236,125 @@ const CandidateManager = ({ canStartReview = true }) => {
         </div>
 
         {/* Filters */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
-              Filter by Job
-            </label>
-            <div className="relative group">
-              <select
-                value={filterJob}
-                onChange={(e) => setFilterJob(e.target.value)}
-                className="w-full appearance-none px-3 pr-10 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
-              >
-                <option value="all">All Jobs</option>
-                {jobs.map((job) => (
-                  <option key={job.id} value={job.id}>
-                    {job.title}
-                  </option>
-                ))}
-              </select>
-              <Icon
-                name="ChevronDown"
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
-              />
-            </div>
+        <UnifiedFilterPanel
+          title="Candidate Filters"
+          description="Search and segment candidates by role, status, job state, review progress, and application date."
+          activeCount={activeFilterCount}
+          onClear={clearFilters}
+          headerActions={(
+            <UnifiedFilterToggleButton
+              active={showAdvancedFilters}
+              onClick={() => setShowAdvancedFilters((previous) => !previous)}
+              label={showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
+            />
+          )}
+        >
+          <div className={FILTER_GRID_CLASS}>
+            <UnifiedSearchField
+              label="Search"
+              className="sm:col-span-2 xl:col-span-3"
+              type="text"
+              placeholder="Candidate, role, outcome, location, or notes"
+              value={filters.searchQuery}
+              onChange={(event) => updateFilter('searchQuery', event.target.value)}
+            />
+            <UnifiedFilterSelect
+              label="Status"
+              value={filters.statusFilter}
+              onChange={(value) => updateFilter('statusFilter', value)}
+              options={COMPANY_APPLICATION_STATUS_FILTER_OPTIONS}
+              placeholder="All statuses"
+            />
           </div>
 
-          <div>
-            <label className="block text-xs font-medium text-gray-700 dark:text-slate-300 mb-1">
-              Filter by Status
-            </label>
-            <div className="relative group">
-              <select
-                value={filterStatus}
-                onChange={(e) => setFilterStatus(e.target.value)}
-                className="w-full appearance-none px-3 pr-10 py-2 text-sm border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100"
-              >
-                <option value="all">All Statuses</option>
-                {statusOptions.map((status) => (
-                  <option key={status} value={status}>
-                    {status.charAt(0) + status.slice(1).toLowerCase()}
-                  </option>
-                ))}
-              </select>
-              <Icon
-                name="ChevronDown"
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
-              />
+          {showAdvancedFilters && (
+            <div className={FILTER_SUBPANEL_CLASS}>
+              <div className={FILTER_GRID_CLASS}>
+                <UnifiedFilterSelect
+                  label="Job Role"
+                  value={filters.jobFilter}
+                  onChange={(value) => updateFilter('jobFilter', value)}
+                  options={jobOptions}
+                  placeholder="All roles"
+                />
+                <UnifiedFilterSelect
+                  label="Company"
+                  value={filters.companyFilter}
+                  onChange={(value) => updateFilter('companyFilter', value)}
+                  options={companyOptions}
+                  placeholder="All companies"
+                />
+                <UnifiedFilterSelect
+                  label="Employment Type"
+                  value={filters.employmentTypeFilter}
+                  onChange={(value) => updateFilter('employmentTypeFilter', value)}
+                  options={employmentTypeOptions}
+                  placeholder="All employment types"
+                />
+                <UnifiedFilterSelect
+                  label="Outcome"
+                  value={filters.dispositionFilter}
+                  onChange={(value) => updateFilter('dispositionFilter', value)}
+                  options={dispositionOptions}
+                  placeholder="All outcomes"
+                />
+                <UnifiedFilterSelect
+                  label="Review State"
+                  value={filters.reviewStateFilter}
+                  onChange={(value) => updateFilter('reviewStateFilter', value)}
+                  options={COMPANY_APPLICATION_REVIEW_STATE_FILTER_OPTIONS}
+                  placeholder="All review states"
+                />
+                <UnifiedFilterSelect
+                  label="Job State"
+                  value={filters.jobStateFilter}
+                  onChange={(value) => updateFilter('jobStateFilter', value)}
+                  options={COMPANY_APPLICATION_JOB_STATE_FILTER_OPTIONS}
+                  placeholder="All job states"
+                />
+                <UnifiedFilterSelect
+                  label="Date Range"
+                  value={filters.datePreset}
+                  onChange={(value) => {
+                    setFilters((previous) => ({
+                      ...previous,
+                      datePreset: value,
+                      ...(value === 'custom' ? {} : { appliedFrom: '', appliedTo: '' }),
+                    }));
+                  }}
+                  options={COMPANY_APPLICATION_DATE_PRESET_FILTER_OPTIONS}
+                  placeholder="All dates"
+                />
+                <UnifiedFilterSelect
+                  label="Sort By"
+                  value={filters.sortBy}
+                  onChange={(value) => updateFilter('sortBy', value)}
+                  options={COMPANY_APPLICATION_SORT_FILTER_OPTIONS}
+                  placeholder="Latest activity"
+                />
+              </div>
+
+              {filters.datePreset === 'custom' && (
+                <div className={FILTER_DATE_GRID_CLASS}>
+                  <UnifiedFilterField label="Applied From">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedFrom}
+                      onChange={(event) => updateFilter('appliedFrom', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                  <UnifiedFilterField label="Applied To">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedTo}
+                      onChange={(event) => updateFilter('appliedTo', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                </div>
+              )}
             </div>
-          </div>
-        </div>
+          )}
+        </UnifiedFilterPanel>
       </div>
 
       {/* Candidates List */}
@@ -214,75 +365,80 @@ const CandidateManager = ({ canStartReview = true }) => {
             <p className="text-gray-600 dark:text-slate-400">
               No candidates match the selected filters
             </p>
+            <Button variant="outline" onClick={clearFilters} className="mt-4">
+              Clear Filters
+            </Button>
           </div>
         </div>
       ) : (
         <>
         <div className="grid grid-cols-1 gap-3">
-          {paginatedCandidates.map((candidate, index) => (
-            <motion.div
-              key={candidate.id}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: index * 0.05 }}
-              className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/50 p-4 hover:shadow-md transition-shadow"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start gap-3 mb-3">
-                    <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 shrink-0">
-                      <Icon name="User" className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+          {paginatedCandidates.map((candidate, index) => {
+            const statusConfig = getStatusConfig(candidate);
+
+            return (
+              <motion.div
+                key={candidate.id}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.05 }}
+                className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/50 p-4 hover:shadow-md transition-shadow"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start gap-3 mb-3">
+                      <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 shrink-0">
+                        <Icon name="User" className="w-5 h-5 text-purple-600 dark:text-purple-400" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
+                          {candidate.candidate?.fullName || candidate.candidate?.email || 'Unknown Candidate'}
+                        </h3>
+                        <p className="text-sm text-gray-600 dark:text-slate-400 truncate">
+                          {candidate.job?.title || 'Position'}
+                        </p>
+                      </div>
                     </div>
-                    <div className="flex-1 min-w-0">
-                      <h3 className="font-semibold text-gray-900 dark:text-slate-100 truncate">
-                        {candidate.candidate?.fullName || candidate.candidate?.email || 'Unknown Candidate'}
-                      </h3>
-                      <p className="text-sm text-gray-600 dark:text-slate-400 truncate">
-                        {candidate.job?.title || 'Position'}
-                      </p>
+
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className={`px-2 py-1 rounded-full text-xs font-medium ${statusConfig.className}`}>
+                        {statusConfig.label}
+                      </div>
+                      
+                      {candidate.candidate?.experienceLevel && (
+                        <div className="px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
+                          {candidate.candidate.experienceLevel}
+                        </div>
+                      )}
+
+                      {candidate.candidate?.skills && candidate.candidate.skills.length > 0 && (
+                        <div className="px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-xs text-blue-700 dark:text-blue-300">
+                          {candidate.candidate.skills.length} skills
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-2 text-xs text-gray-500 dark:text-slate-500 flex flex-wrap gap-3">
+                      <span>Applied {formatDate(candidate.submittedAt || candidate.createdAt)}</span>
+                      {candidate.reviewedAt && <span>Reviewed {formatDate(candidate.reviewedAt)}</span>}
                     </div>
                   </div>
 
-                  <div className="flex flex-wrap items-center gap-2">
-                    <div className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusBadge(candidate.status)}`}>
-                      {candidate.status}
-                    </div>
-                    
-                    {candidate.candidate?.experienceLevel && (
-                      <div className="px-2 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-xs text-gray-700 dark:text-gray-300">
-                        {candidate.candidate.experienceLevel}
-                      </div>
-                    )}
-
-                    {candidate.candidate?.skills && candidate.candidate.skills.length > 0 && (
-                      <div className="px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-xs text-blue-700 dark:text-blue-300">
-                        {candidate.candidate.skills.length} skills
-                      </div>
-                    )}
-                  </div>
-
-                  <div className="mt-2 text-xs text-gray-500 dark:text-slate-500 flex flex-wrap gap-3">
-                    <span>Applied {new Date(candidate.submittedAt).toLocaleDateString()}</span>
-                    {candidate.reviewedAt && (
-                      <span>• Reviewed {new Date(candidate.reviewedAt).toLocaleDateString()}</span>
-                    )}
+                  <div className="flex flex-col gap-2 shrink-0">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleViewDetails(candidate)}
+                      className="min-w-[100px]"
+                    >
+                      <Icon name="Eye" className="w-4 h-4 mr-1" />
+                      View
+                    </Button>
                   </div>
                 </div>
-
-                <div className="flex flex-col gap-2 shrink-0">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => handleViewDetails(candidate)}
-                    className="min-w-[100px]"
-                  >
-                    <Icon name="Eye" className="w-4 h-4 mr-1" />
-                    View
-                  </Button>
-                </div>
-              </div>
-            </motion.div>
-          ))}
+              </motion.div>
+            );
+          })}
         </div>
 
         {/* Pagination Controls */}
@@ -409,9 +565,14 @@ const CandidateManager = ({ canStartReview = true }) => {
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                       Status
                     </h3>
-                    <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${getStatusBadge(selectedCandidate.status)}`}>
-                      {selectedCandidate.status}
-                    </div>
+                    {(() => {
+                      const statusConfig = getStatusConfig(selectedCandidate);
+                      return (
+                        <div className={`inline-flex px-3 py-1 rounded-full text-sm font-medium ${statusConfig.className}`}>
+                          {statusConfig.label}
+                        </div>
+                      );
+                    })()}
                   </div>
 
                   {selectedCandidate.candidate?.experienceLevel && (
@@ -442,7 +603,7 @@ const CandidateManager = ({ canStartReview = true }) => {
                         Application Date
                       </h3>
                       <p className="text-base text-gray-900 dark:text-slate-100">
-                        {new Date(selectedCandidate.submittedAt).toLocaleDateString()}
+                        {formatDate(selectedCandidate.submittedAt || selectedCandidate.createdAt)}
                       </p>
                     </div>
                   )}

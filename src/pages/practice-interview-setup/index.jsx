@@ -279,85 +279,93 @@ const PracticeInterviewSetup = () => {
       />
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
-      <div className="flex">
-        <UserContextNavigation
-          userType="candidate"
-          isCollapsed={isNavCollapsed}
-          onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
-        />
-        
-        <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${
-          isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'
-        }`}>
-          <motion.section
-            variants={sectionReveal}
-            initial="hidden"
-            whileInView="visible"
-            viewport={viewportConfig}
-            className="container-responsive py-4 xs:py-5 sm:py-6 md:py-8 max-w-4xl mx-auto"
-          >
-            {/* Header */}
-            <motion.div 
-              variants={fadeUpChild}
-              className="mb-4 xs:mb-5 sm:mb-6 md:mb-8"
+      <div className="relative z-10">
+        <div className="flex flex-col lg:flex-row">
+          <UserContextNavigation
+            userType="candidate"
+            isCollapsed={isNavCollapsed}
+            onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)}
+          />
+
+          <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${
+            isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'
+          }`}>
+            <motion.section
+              variants={sectionReveal}
+              initial="hidden"
+              whileInView="visible"
+              viewport={viewportConfig}
+              className="container-responsive py-4 xs:py-6 sm:py-8 min-h-[calc(100vh-3.5rem)] xs:min-h-[calc(100vh-4rem)]"
             >
-              <div className="card-base p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark">
-                <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-                <div className="relative z-10 flex items-center gap-2 xs:gap-3 mb-3 sm:mb-4">
-                  <div className="w-10 h-10 xs:w-11 xs:h-11 sm:w-12 sm:h-12 md:w-14 md:h-14 bg-gradient-to-br from-blue-600 to-purple-600 rounded-xl sm:rounded-2xl flex items-center justify-center shadow-lg shadow-blue-500/20 flex-shrink-0">
-                    <Icon name="Settings" size={18} className="xs:w-5 xs:h-5 sm:w-6 sm:h-6" color="white" />
+            {/* Header */}
+            <motion.div
+              variants={fadeUpChild}
+              className="mb-6 xs:mb-8"
+            >
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                    <Icon name="Settings" size={24} color="white" />
                   </div>
-                  <div className="min-w-0">
-                    <h1 className="text-lg xs:text-xl sm:text-2xl md:text-3xl font-bold text-gray-900 dark:text-slate-100 truncate">Practice Interview Setup</h1>
-                    <p className="text-[11px] xs:text-xs sm:text-sm md:text-base text-gray-600 dark:text-slate-300 line-clamp-2">
+                  <div>
+                    <h1 className="text-2xl xs:text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100">
+                      Practice Interview Setup
+                    </h1>
+                    <p className="text-sm xs:text-base text-gray-600 dark:text-slate-400 mt-1">
                       Configure your AI-powered interview session for optimal practice
                     </p>
                   </div>
                 </div>
+              </div>
+            </motion.div>
 
-                {/* Progress Steps */}
-                <div className="flex items-center justify-between mb-4 xs:mb-5 sm:mb-6 md:mb-8 gap-1">
-                  {steps?.map((step, index) => (
-                    <React.Fragment key={step?.id}>
-                      <div className="flex items-center gap-1 xs:gap-2 sm:gap-3">
-                        <button
-                          onClick={() => setCurrentStep(step?.id)}
-                          disabled={step?.id > currentStep && !isStepComplete(step?.id - 1)}
-                          className={`w-9 h-9 xs:w-10 xs:h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
-                            currentStep === step?.id
-                              ? 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
-                              : isStepComplete(step?.id)
-                              ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md' 
-                              : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
-                          } ${
-                            step?.id <= currentStep || isStepComplete(step?.id - 1)
-                              ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-not-allowed opacity-50'
-                          }`}
-                        >
-                          {isStepComplete(step?.id) && currentStep !== step?.id ? (
-                            <Icon name="Check" size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
-                          ) : (
-                            <Icon name={step?.icon} size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
-                          )}
-                        </button>
-                        <div className="hidden lg:block">
-                          <p className={`text-xs sm:text-sm font-medium ${
-                            currentStep === step?.id ? 'text-blue-600' : 
-                            isStepComplete(step?.id) ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'
-                          }`}>
-                            {step?.title}
-                          </p>
-                        </div>
+            {/* Progress Steps */}
+            <motion.div
+              variants={fadeUpChild}
+              className="card-base relative overflow-hidden p-4 xs:p-5 sm:p-6 md:p-8 shadow-glass dark:shadow-glass-dark mb-4 xs:mb-5 sm:mb-6 md:mb-8"
+            >
+              <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.1),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.1),transparent_40%)]" />
+              <div className="relative z-10 flex items-center justify-between gap-1">
+                {steps?.map((step, index) => (
+                  <React.Fragment key={step?.id}>
+                    <div className="flex items-center gap-1 xs:gap-2 sm:gap-3">
+                      <button
+                        onClick={() => setCurrentStep(step?.id)}
+                        disabled={step?.id > currentStep && !isStepComplete(step?.id - 1)}
+                        className={`w-9 h-9 xs:w-10 xs:h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-full flex items-center justify-center transition-all duration-200 flex-shrink-0 ${
+                          currentStep === step?.id
+                            ? 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
+                            : isStepComplete(step?.id)
+                            ? 'bg-gradient-to-br from-emerald-500 to-teal-600 text-white shadow-md'
+                            : 'bg-gray-100 dark:bg-slate-700 text-gray-400 dark:text-slate-500'
+                        } ${
+                          step?.id <= currentStep || isStepComplete(step?.id - 1)
+                            ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-not-allowed opacity-50'
+                        }`}
+                      >
+                        {isStepComplete(step?.id) && currentStep !== step?.id ? (
+                          <Icon name="Check" size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
+                        ) : (
+                          <Icon name={step?.icon} size={14} className="xs:w-4 xs:h-4 sm:w-5 sm:h-5" />
+                        )}
+                      </button>
+                      <div className="hidden lg:block">
+                        <p className={`text-xs sm:text-sm font-medium ${
+                          currentStep === step?.id ? 'text-blue-600' :
+                          isStepComplete(step?.id) ? 'text-emerald-600 dark:text-emerald-400' : 'text-gray-500 dark:text-slate-400'
+                        }`}>
+                          {step?.title}
+                        </p>
                       </div>
-                      
-                      {index < steps?.length - 1 && (
-                        <div className={`flex-1 h-1 mx-1 xs:mx-2 sm:mx-3 md:mx-4 rounded-full min-w-[16px] ${
-                          isStepComplete(step?.id) ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : 'bg-gray-200 dark:bg-slate-700'
-                        }`}></div>
-                      )}
-                    </React.Fragment>
-                  ))}
-                </div>
+                    </div>
+
+                    {index < steps?.length - 1 && (
+                      <div className={`flex-1 h-1 mx-1 xs:mx-2 sm:mx-3 md:mx-4 rounded-full min-w-[16px] ${
+                        isStepComplete(step?.id) ? 'bg-gradient-to-r from-emerald-500 to-teal-600' : 'bg-gray-200 dark:bg-slate-700'
+                      }`}></div>
+                    )}
+                  </React.Fragment>
+                ))}
               </div>
             </motion.div>
 
@@ -495,8 +503,9 @@ const PracticeInterviewSetup = () => {
                 </div>
               </div>
             </motion.div>
-          </motion.section>
-        </main>
+            </motion.section>
+          </main>
+        </div>
       </div>
     </div>
   );

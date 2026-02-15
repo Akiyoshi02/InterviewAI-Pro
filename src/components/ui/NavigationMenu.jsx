@@ -4,6 +4,31 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import Icon from '../AppIcon';
 import { cn } from '../../utils/cn';
 
+const normalizeRoute = (value = '') => {
+  const raw = typeof value === 'string' ? value : '';
+  const [pathnamePart = '', hashPart = ''] = raw.split('#');
+  const trimmedPathname = pathnamePart.replace(/\/+$/, '');
+  const pathname = trimmedPathname || '/';
+  const hash = hashPart ? `#${hashPart}` : '';
+  return { pathname, hash };
+};
+
+const isRouteMatch = (currentRoute, targetRoute, { exact = false } = {}) => {
+  if (!targetRoute || typeof targetRoute !== 'string') return false;
+
+  const current = normalizeRoute(currentRoute);
+  const target = normalizeRoute(targetRoute);
+
+  // Hash targets should only match exact section hash for that page.
+  if (target.hash) {
+    return current.pathname === target.pathname && current.hash === target.hash;
+  }
+
+  if (exact) return current.pathname === target.pathname;
+  if (target.pathname === '/') return current.pathname === '/';
+  return current.pathname === target.pathname || current.pathname.startsWith(`${target.pathname}/`);
+};
+
 /**
  * NavigationMenu - A collapsible menu component for navigation items with submenus
  * Used in both Header (as dropdown) and UserContextNavigation (as accordion)
@@ -22,10 +47,10 @@ export const NavigationMenu = ({
   const menuRef = useRef(null);
 
   // Determine if a path is active
-  const isActivePath = (path) => {
+  const isActivePath = (path, exact = false) => {
     if (!path) return false;
-    if (activeItem) return activeItem.startsWith(path);
-    return location.pathname.startsWith(path);
+    const current = activeItem || `${location.pathname || ''}${location.hash || ''}`;
+    return isRouteMatch(current, path, { exact });
   };
 
   // Handle group toggle
@@ -67,10 +92,10 @@ export const NavigationMenu = ({
   // Auto-expand groups that contain the active item
   useEffect(() => {
     if (variant === 'accordion') {
-      const activePath = activeItem || location.pathname;
+      const activePath = activeItem || `${location.pathname || ''}${location.hash || ''}`;
       const activeGroup = items.find((item) => {
         if (item.items && item.items.length > 0) {
-          return item.items.some((subItem) => activePath.startsWith(subItem.path));
+          return item.items.some((subItem) => isRouteMatch(activePath, subItem.path, { exact: subItem.exact === true }));
         }
         return false;
       });
@@ -78,7 +103,7 @@ export const NavigationMenu = ({
         setExpandedGroups((prev) => new Set([...prev, activeGroup.key]));
       }
     }
-  }, [location.pathname, activeItem, variant, items]);
+  }, [location.pathname, location.hash, activeItem, variant, items]);
 
   // Handle click outside for dropdown variant
   useEffect(() => {
@@ -101,7 +126,7 @@ export const NavigationMenu = ({
           {items.map((item, index) => {
             const hasSubmenu = item.items && item.items.length > 0;
             const isExpanded = expandedGroups.has(item.key);
-            const isActive = isActivePath(item.path) || (hasSubmenu && item.items.some((subItem) => isActivePath(subItem.path)));
+            const isActive = isActivePath(item.path, item.exact === true) || (hasSubmenu && item.items.some((subItem) => isActivePath(subItem.path, subItem.exact === true)));
             const itemKey = item.key || item.path || item.label || `nav-item-${index}`;
 
             if (!hasSubmenu) {
@@ -166,7 +191,7 @@ export const NavigationMenu = ({
                   <div className="absolute top-full left-0 mt-1 z-50 min-w-[180px] xl:min-w-[200px] bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border border-gray-200/50 dark:border-slate-800 rounded-xl shadow-lg shadow-black/10 dark:shadow-black/40 overflow-hidden">
                     <div className="py-1">
                       {item.items.map((subItem, subIndex) => {
-                        const isSubActive = isActivePath(subItem.path);
+                        const isSubActive = isActivePath(subItem.path, subItem.exact === true);
                         const subItemKey = subItem.path || subItem.key || subItem.label || `sub-item-${index}-${subIndex}`;
                         return (
                           <button
@@ -206,7 +231,7 @@ export const NavigationMenu = ({
       {items.map((item, index) => {
         const hasSubmenu = item.items && item.items.length > 0;
         const isExpanded = expandedGroups.has(item.key);
-        const isActive = isActivePath(item.path) || (hasSubmenu && item.items.some((subItem) => isActivePath(subItem.path)));
+        const isActive = isActivePath(item.path, item.exact === true) || (hasSubmenu && item.items.some((subItem) => isActivePath(subItem.path, subItem.exact === true)));
         const itemKey = item.key || item.path || item.label || `nav-item-${index}`;
 
         if (!hasSubmenu) {
@@ -290,7 +315,7 @@ export const NavigationMenu = ({
             {!isCollapsed && isExpanded && (
               <div className="pl-4 pr-3 space-y-1">
                 {item.items.map((subItem, subIndex) => {
-                  const isSubActive = isActivePath(subItem.path);
+                  const isSubActive = isActivePath(subItem.path, subItem.exact === true);
                   const subItemKey = subItem.path || subItem.key || subItem.label || `sub-item-${index}-${subIndex}`;
                   return (
                     <button

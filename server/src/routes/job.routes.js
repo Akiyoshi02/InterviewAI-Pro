@@ -7,6 +7,7 @@ import {
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization, allowPendingOrganization } from '../middleware/admin.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 import { jobAdvertUpload } from '../middleware/upload.middleware.js';
 
@@ -77,6 +78,7 @@ const jobDeleteValidations = [
 router.post(
   '/',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   jobValidations,
@@ -87,6 +89,7 @@ router.post(
 router.get(
   '/',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   allowPendingOrganization,
   requireOrganizationContext,
   JobController.listJobs,
@@ -95,6 +98,7 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   allowPendingOrganization,
   requireOrganizationContext,
   param('id').isString(),
@@ -105,6 +109,7 @@ router.get(
 router.patch(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   jobUpdateValidations,
@@ -115,6 +120,7 @@ router.patch(
 router.patch(
   '/:id/advert-image',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   param('id').isString(),
@@ -126,6 +132,7 @@ router.patch(
 router.patch(
   '/:id/advert-video',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   param('id').isString(),
@@ -137,6 +144,7 @@ router.patch(
 router.delete(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   jobDeleteValidations,

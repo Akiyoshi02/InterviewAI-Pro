@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../../utils/cn';
 
 const countries = [
@@ -33,7 +34,10 @@ const PhoneInput = ({
   const [selectedCountry, setSelectedCountry] = useState(countries[0]);
   const [phoneNumber, setPhoneNumber] = useState('');
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [dropdownPosition, setDropdownPosition] = useState({ top: 0, left: 0, width: 0 });
   const dropdownRef = useRef(null);
+  const triggerRef = useRef(null);
+  const menuRef = useRef(null);
 
   // Generate unique ID
   const inputId = `phone-input-${Math.random()?.toString(36)?.substr(2, 9)}`;
@@ -41,7 +45,11 @@ const PhoneInput = ({
   // Handle click outside to close dropdown
   useEffect(() => {
     const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(event.target) &&
+        !(menuRef.current && menuRef.current.contains(event.target))
+      ) {
         setIsDropdownOpen(false);
       }
     };
@@ -62,6 +70,32 @@ const PhoneInput = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('touchstart', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
+    };
+  }, [isDropdownOpen]);
+
+  useEffect(() => {
+    if (!isDropdownOpen || !triggerRef.current || typeof window === 'undefined') return undefined;
+
+    const updatePosition = () => {
+      const rect = triggerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      const padding = 8;
+      const width = Math.min(rect.width, window.innerWidth - (padding * 2));
+      const left = Math.min(
+        Math.max(padding, rect.left),
+        window.innerWidth - padding - width,
+      );
+      const top = Math.max(padding, rect.bottom + 6);
+      setDropdownPosition({ top, left, width });
+    };
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
     };
   }, [isDropdownOpen]);
 
@@ -117,6 +151,7 @@ const PhoneInput = ({
         <div className="flex">
           {/* Country Code Selector */}
           <button
+            ref={triggerRef}
             type="button"
             onClick={() => setIsDropdownOpen(!isDropdownOpen)}
             disabled={disabled}
@@ -143,29 +178,53 @@ const PhoneInput = ({
           </button>
 
           {/* Dropdown */}
-          {isDropdownOpen && (
-            <div className="absolute top-full left-0 mt-1 w-full bg-white dark:bg-slate-900 text-black dark:text-slate-100 border border-border dark:border-slate-700 rounded-xl shadow-lg ring-1 ring-black ring-opacity-5 z-50 overflow-hidden">
-              <div className="py-1">
-                {countries.map((country) => (
-                  <button
-                    key={country.code}
-                    type="button"
-                    onClick={() => {
-                      setSelectedCountry(country);
-                      setIsDropdownOpen(false);
-                      setPhoneNumber('');
-                      onChange?.('');
-                    }}
-                    className="relative flex cursor-pointer select-none items-center rounded-lg mx-1 w-full px-3 sm:px-3 py-1.5 sm:py-1 text-base sm:text-sm outline-none transition-colors min-h-[36px] sm:min-h-0 touch-manipulation hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700 text-gray-900 dark:text-slate-100"
-                  >
-                    <span className="text-lg mr-3">{country.flag}</span>
-                    <span className="flex-1 text-left">
-                      {country.name} ({country.code})
-                    </span>
-                  </button>
-                ))}
+          {isDropdownOpen && typeof document !== 'undefined' && createPortal(
+            <div
+              style={{
+                position: 'fixed',
+                inset: 0,
+                zIndex: 2147483000,
+              }}
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget) {
+                  setIsDropdownOpen(false);
+                }
+              }}
+            >
+              <div
+                ref={menuRef}
+                style={{
+                  position: 'absolute',
+                  top: dropdownPosition.top,
+                  left: dropdownPosition.left,
+                  width: dropdownPosition.width,
+                }}
+                className="isolate !bg-white dark:!bg-slate-900 text-black dark:text-slate-100 border border-border dark:border-slate-700 rounded-xl shadow-lg ring-1 ring-black/10 overflow-hidden"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                <div className="py-1 !bg-white dark:!bg-slate-900">
+                  {countries.map((country) => (
+                    <button
+                      key={country.code}
+                      type="button"
+                      onClick={() => {
+                        setSelectedCountry(country);
+                        setIsDropdownOpen(false);
+                        setPhoneNumber('');
+                        onChange?.('');
+                      }}
+                      className="relative flex cursor-pointer select-none items-center rounded-lg mx-1 w-full px-3 sm:px-3 py-1.5 sm:py-1 text-base sm:text-sm outline-none transition-colors min-h-[36px] sm:min-h-0 touch-manipulation hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700 text-gray-900 dark:text-slate-100"
+                    >
+                      <span className="text-lg mr-3">{country.flag}</span>
+                      <span className="flex-1 text-left">
+                        {country.name} ({country.code})
+                      </span>
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
+            </div>,
+            document.body,
           )}
 
           {/* Phone Number Input */}

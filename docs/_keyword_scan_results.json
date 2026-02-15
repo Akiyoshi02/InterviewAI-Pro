@@ -1,0 +1,1998 @@
+[
+  {
+    "keyword": "auth",
+    "count": 1285,
+    "topHits": [
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 15,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('ownerId').val() === auth.uid)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 16,
+        "snippet": "\".write\": \"auth != null && root.child('admins').child(auth.uid).exists()\""
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 21,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('participants').child(auth.uid).val() === true)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 22,
+        "snippet": "\".write\": \"auth != null && root.child('admins').child(auth.uid).exists()\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 25,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || auth.uid === $participantId)\","
+      }
+    ]
+  },
+  {
+    "keyword": "login",
+    "count": 163,
+    "topHits": [
+      {
+        "file": ".\\docs\\CURRENT_SESSION_STATUS.md",
+        "line": 228,
+        "snippet": "- [ ] Login as system admin"
+      },
+      {
+        "file": ".\\docs\\EMAIL_SETUP_GUIDE.md",
+        "line": 193,
+        "snippet": "**Error: \"Invalid login\"**"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_COMPLETE_SUMMARY.md",
+        "line": 286,
+        "snippet": "- [ ] Login as system admin"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 375,
+        "snippet": "2. Login with admin credentials"
+      },
+      {
+        "file": ".\\docs\\PROJECT_SUMMARY.md",
+        "line": 89,
+        "snippet": "1. User signs up/signs in with Firebase on the frontend (`src/config/firebase.js`, used by `src/pages/register/index.jsx` and `src/pages/login/index.jsx`)."
+      }
+    ]
+  },
+  {
+    "keyword": "signup",
+    "count": 5,
+    "topHits": [
+      {
+        "file": ".\\src\\config\\firebase.js",
+        "line": 40,
+        "snippet": "async signUp(email, password, metadata = {}) {"
+      },
+      {
+        "file": ".\\server\\src\\middleware\\rateLimiter.middleware.js",
+        "line": 74,
+        "snippet": "// Newsletter subscription - prevent spam signups"
+      },
+      {
+        "file": ".\\src\\pages\\accept-team-invite\\index.jsx",
+        "line": 117,
+        "snippet": "const { data: authData, error: authError } = await authHelpers.signUp("
+      },
+      {
+        "file": ".\\src\\pages\\register\\index.jsx",
+        "line": 656,
+        "snippet": "const { data: authData, error: authError } = await authHelpers.signUp("
+      },
+      {
+        "file": ".\\src\\pages\\register\\index.jsx",
+        "line": 1420,
+        "snippet": "const { data: authData, error: authError } = await authHelpers.signUp("
+      }
+    ]
+  },
+  {
+    "keyword": "role",
+    "count": 1166,
+    "topHits": [
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 2,
+        "snippet": "* Organization Role Permissions"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 4,
+        "snippet": "* Defines what features each organization role can access."
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 8,
+        "snippet": "export const ORG_ROLES = {"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 15,
+        "snippet": "* Feature permissions by role"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 17,
+        "snippet": "export const ROLE_PERMISSIONS = {"
+      }
+    ]
+  },
+  {
+    "keyword": "rbac",
+    "count": 10,
+    "topHits": [
+      {
+        "file": ".\\docs\\ROLE_BASED_ACCESS_IMPLEMENTATION.md",
+        "line": 1,
+        "snippet": "# Role-Based Access Control (RBAC) Implementation"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 83,
+        "snippet": "| NFR3 | Security and privacy: role-based access, personal data handling | ✅ **Yes** | RBAC; consent; secure storage. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 38,
+        "snippet": "| Practice and hiring modes with security and data control | ✅ | Practice vs hiring; RBAC; session/data controls. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 62,
+        "snippet": "| 7 | Privacy and security (consent, data) | ✅ | Recording consent; RBAC; secure storage. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 70,
+        "snippet": "| FR1 | Secure authentication and access control | ✅ | Auth; RBAC. |"
+      }
+    ]
+  },
+  {
+    "keyword": "admin",
+    "count": 1545,
+    "topHits": [
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 15,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('ownerId').val() === auth.uid)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 16,
+        "snippet": "\".write\": \"auth != null && root.child('admins').child(auth.uid).exists()\""
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 21,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('participants').child(auth.uid).val() === true)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 22,
+        "snippet": "\".write\": \"auth != null && root.child('admins').child(auth.uid).exists()\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 25,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || auth.uid === $participantId)\","
+      }
+    ]
+  },
+  {
+    "keyword": "practice",
+    "count": 250,
+    "topHits": [
+      {
+        "file": ".\\index.html",
+        "line": 9,
+        "snippet": "<meta name=\"description\" content=\"InterviewAI Pro - Master your interview skills with AI-powered practice sessions, real-time performance analytics, and personalized feedback.\" />"
+      },
+      {
+        "file": ".\\index.html",
+        "line": 20,
+        "snippet": "<meta property=\"og:description\" content=\"Master your interview skills with AI-powered practice sessions, real-time performance analytics, and personalized feedback.\" />"
+      },
+      {
+        "file": ".\\index.html",
+        "line": 25,
+        "snippet": "<meta property=\"twitter:description\" content=\"Master your interview skills with AI-powered practice sessions, real-time performance analytics, and personalized feedback.\" />"
+      },
+      {
+        "file": ".\\src\\Routes.jsx",
+        "line": 17,
+        "snippet": "import PracticeInterviewSetup from './pages/practice-interview-setup';"
+      },
+      {
+        "file": ".\\src\\Routes.jsx",
+        "line": 146,
+        "snippet": "path=\"/practice-interview-setup\""
+      }
+    ]
+  },
+  {
+    "keyword": "hiring",
+    "count": 244,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 38,
+        "snippet": "| Practice and hiring modes with security and data control | ✅ | Practice vs hiring; RBAC; session/data controls. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 63,
+        "snippet": "| 8 | Practice and hiring modes with controls | ✅ | Mode separation; access control. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 73,
+        "snippet": "| FR4 | Hiring mode: recruiters/SMEs, roles, rubrics | ✅ | Jobs; invitations; reviews. |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 9,
+        "snippet": "- **Candidate + Company Dashboards** – Personalized insights, progress tracking, and quick actions for both sides of the hiring loop."
+      },
+      {
+        "file": ".\\docs\\ats-scale-hardening.md",
+        "line": 182,
+        "snippet": "- Team-based ATS operations (recruiter, reviewer, hiring manager) behave correctly in multi-user organizations."
+      }
+    ]
+  },
+  {
+    "keyword": "interview",
+    "count": 3663,
+    "topHits": [
+      {
+        "file": ".\\package.json",
+        "line": 2,
+        "snippet": "\"name\": \"ai-interviewpro\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2,
+        "snippet": "\"name\": \"ai-interviewpro\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 8,
+        "snippet": "\"name\": \"ai-interviewpro\","
+      },
+      {
+        "file": ".\\docs\\EMAIL_TROUBLESHOOTING.md",
+        "line": 32,
+        "snippet": "- Email: `noreply@interviewai.pro` (or your FROM_EMAIL)"
+      },
+      {
+        "file": ".\\docs\\EMAIL_TROUBLESHOOTING.md",
+        "line": 33,
+        "snippet": "- From Name: `InterviewAI Pro`"
+      }
+    ]
+  },
+  {
+    "keyword": "star",
+    "count": 914,
+    "topHits": [
+      {
+        "file": ".\\package.json",
+        "line": 23,
+        "snippet": "\"start\","
+      },
+      {
+        "file": ".\\package.json",
+        "line": 63,
+        "snippet": "\"start\": \"vite\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2745,
+        "snippet": "\"lodash.castarray\": \"^4.4.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 6203,
+        "snippet": "\"node_modules/lodash.castarray\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 6205,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/lodash.castarray/-/lodash.castarray-4.4.0.tgz\","
+      }
+    ]
+  },
+  {
+    "keyword": "follow-up",
+    "count": 32,
+    "topHits": [
+      {
+        "file": ".\\docs\\hiring-platform-ats-interview-system-analysis-2026-02-14.md",
+        "line": 295,
+        "snippet": "6. Candidate no-show handling and configurable follow-up."
+      },
+      {
+        "file": ".\\docs\\practice-interview-fixes-summary.md",
+        "line": 57,
+        "snippet": "### 6. Follow-Up Questions Flag Not Enforced"
+      },
+      {
+        "file": ".\\docs\\practice-interview-fixes-summary.md",
+        "line": 62,
+        "snippet": "- Follow-up questions are now properly controlled based on user preference."
+      },
+      {
+        "file": ".\\docs\\practice-interview-fixes-summary.md",
+        "line": 108,
+        "snippet": "- Follow-up questions control"
+      },
+      {
+        "file": ".\\docs\\practice-interview-fixes-summary.md",
+        "line": 117,
+        "snippet": "✅ **Follow-Up Questions** - Controls whether AI asks follow-ups"
+      }
+    ]
+  },
+  {
+    "keyword": "rubric",
+    "count": 46,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 15,
+        "snippet": "| 1 | **STAR component scaffolding (2.6.4 i)** | `InterviewReviewEnhanced.jsx`: “Per-answer STAR component assessment” section; uses `EVALUATION_RUBRIC_CRITERIA` / STAR_COMPONENTS (Situation, Task, Action, Result); renders when `interview.questions[].feedback.starAnalysis` exists. Backend: `llm.service.js` produces `starAnalysis` in `analyzeAnswer`. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 33,
+        "snippet": "| STAR question banks and rubrics for limited jobs | ✅ | Question generation, rubric-based scoring, evaluation criteria. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 37,
+        "snippet": "| Fairness and transparency tools: dashboards, reports, bias analysis | ✅ | Fairness & Calibration panel; score distributions; rubric-tied explainability. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 46,
+        "snippet": "| iii. Multimodal and defensible feedback | ✅ | Audio/video, transcript, rubric scoring; optional nonverbal; configurable defensible limits. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 47,
+        "snippet": "| iv. Explanations tied to rubrics | ✅ | AI Evaluation tab: rubric criteria, strengths, weaknesses, recommendations. |"
+      }
+    ]
+  },
+  {
+    "keyword": "competency",
+    "count": 2,
+    "topHits": [
+      {
+        "file": ".\\docs\\hiring-platform-ats-interview-system-analysis-2026-02-14.md",
+        "line": 124,
+        "snippet": "5. Structured interview plan setup by stage/competency with assigned scorecards."
+      },
+      {
+        "file": ".\\src\\pages\\company-dashboard\\components\\AIChatAssistant.jsx",
+        "line": 195,
+        "snippet": "• Technical competency assessment"
+      }
+    ]
+  },
+  {
+    "keyword": "question bank",
+    "count": 5,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 27,
+        "snippet": "| STAR question banks and competent rubrics for limited jobs | ✅ **Yes** | Question generation, rubric-based scoring, evaluation criteria on questions. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 33,
+        "snippet": "| STAR question banks and rubrics for limited jobs | ✅ | Question generation, rubric-based scoring, evaluation criteria. |"
+      },
+      {
+        "file": ".\\docs\\end-to-end-implementation-plan.md",
+        "line": 461,
+        "snippet": "- Question bank with categories"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_TRACKER.md",
+        "line": 90,
+        "snippet": "| **Question bank management** | ❌ MISSING | No question library | **MEDIUM** |"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_TRACKER.md",
+        "line": 178,
+        "snippet": "4. Question bank management"
+      }
+    ]
+  },
+  {
+    "keyword": "score",
+    "count": 1048,
+    "topHits": [
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 36,
+        "snippet": "this.candidateScore = 0;"
+      },
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 178,
+        "snippet": "\"score\": 7,"
+      },
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 200,
+        "snippet": "// Update score"
+      },
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 201,
+        "snippet": "this.candidateScore += (parsed.score || 5);"
+      },
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 215,
+        "snippet": "evaluation: { score: parsed.score }"
+      }
+    ]
+  },
+  {
+    "keyword": "scoring",
+    "count": 65,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 27,
+        "snippet": "| STAR question banks and competent rubrics for limited jobs | ✅ **Yes** | Question generation, rubric-based scoring, evaluation criteria on questions. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 28,
+        "snippet": "| LLM-based interviewer: question generation, conduct interviews, structured scoring | ✅ **Yes** | LLM dialogue, question generation, structured evaluation (overall + criteria). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 40,
+        "snippet": "| **iii. Multimodal and defensible forms of feedback** | ✅ **Yes** | Audio/video capture, transcription, rubric-based scoring, structured feedback; optional nonverbal metrics. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 51,
+        "snippet": "| 2. Rubric scoring, rationales criterion-related, with feedback | ✅ **Yes** | Rubric criteria (technical, communication, etc.) with score + feedback in UI. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 70,
+        "snippet": "| FR7 | Structured scoring with justification based on identifiable response features | ✅ **Yes** | Rubric-based scoring; criterion-level feedback. |"
+      }
+    ]
+  },
+  {
+    "keyword": "json",
+    "count": 829,
+    "topHits": [
+      {
+        "file": ".\\firebase.json",
+        "line": 3,
+        "snippet": "\"indexes\": \"firestore.indexes.json\""
+      },
+      {
+        "file": ".\\firebase.json",
+        "line": 6,
+        "snippet": "\"rules\": \"firebase.database.rules.json\""
+      },
+      {
+        "file": ".\\index.html",
+        "line": 15,
+        "snippet": "<link rel=\"manifest\" href=\"/manifest.json\" />"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 194,
+        "snippet": "\"json5\": \"^2.2.3\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3041,
+        "snippet": "\"@types/json-schema\": \"*\""
+      }
+    ]
+  },
+  {
+    "keyword": "schema",
+    "count": 147,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 2011,
+        "snippet": "\"node_modules/@jest/schemas\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2013,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/@jest/schemas/-/schemas-29.6.3.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2029,
+        "snippet": "\"@jest/schemas\": \"^29.6.3\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2386,
+        "snippet": "\"@standard-schema/spec\": \"^1.0.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2387,
+        "snippet": "\"@standard-schema/utils\": \"^0.3.0\","
+      }
+    ]
+  },
+  {
+    "keyword": "zod",
+    "count": 4,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 4576,
+        "snippet": "\"integrity\": \"sha512-fmTRWbNMmsmWq6xJV8D19U/gw/bwrHfNXxrIN+HfZgnzqTHp9jOmKMhsTUjXOJnZOdZY9Q28y4yebKzqDKlxlQ==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 4817,
+        "snippet": "\"integrity\": \"sha512-m/C+AwOAr9/W1UOIZUo232ejMNnJAJtYQjUbHoNTBNTJSvqzzDh7vnrei3o3r3m9blf6ZoDkvcw0VmozNRFJxg==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 7656,
+        "snippet": "\"integrity\": \"sha512-uBHU3L3czsIyYXKX88fdrGovxdSCoTGDRZ6SYXtSRxLZUzHg5P/66Ht6uoUlHu9EZod+inXhKo3qQgwXUT/y1w==\","
+      },
+      {
+        "file": ".\\server\\package-lock.json",
+        "line": 4180,
+        "snippet": "\"integrity\": \"sha512-zz06S8t0ozoDXMG+ube26zeCTNXcKIPJZJi8hBrF4idCLms4CG9QtK7qBl1boi5ODzFpjswb5JPmHCbMpjaYzg==\","
+      }
+    ]
+  },
+  {
+    "keyword": "ajv",
+    "count": 22,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 1189,
+        "snippet": "\"integrity\": \"sha512-dzXALZeBI1U5TXt6619cv0+tgEhJiwlUtQ55WNZY7vGAjv7Q1QioV969iYwt1AQQ0ovHnEW0YW9TiBfefLvErg==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3548,
+        "snippet": "\"node_modules/ajv\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3550,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/ajv/-/ajv-8.17.1.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3565,
+        "snippet": "\"node_modules/ajv-formats\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3567,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/ajv-formats/-/ajv-formats-2.1.1.tgz\","
+      }
+    ]
+  },
+  {
+    "keyword": "calibration",
+    "count": 111,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 17,
+        "snippet": "| 3 | **Inter-rater reliability (Table 1, 2.7)** | `admin.controller.js`: `getFairnessCalibration` computes ICC(2,1) for AI vs SME; returns `interRaterReliabilityIcc`. `FairnessCalibrationPanel.jsx`: displays “Inter-rater reliability (ICC)” and sample note. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 36,
+        "snippet": "| Compare AI scores with SME ratings for alignment/calibration | ✅ | AI vs SME tab; Fairness & Calibration panel; ICC. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 37,
+        "snippet": "| Fairness and transparency tools: dashboards, reports, bias analysis | ✅ | Fairness & Calibration panel; score distributions; rubric-tied explainability. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 60,
+        "snippet": "| 5 | Fairness, transparency, explainable output | ✅ | Fairness & Calibration; rubric-tied explanations. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 61,
+        "snippet": "| 6 | SME calibration, review, override | ✅ | Implemented and verified. |"
+      }
+    ]
+  },
+  {
+    "keyword": "sme",
+    "count": 362,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 1138,
+        "snippet": "\"peerDependenciesMeta\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2356,
+        "snippet": "\"peerDependenciesMeta\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2374,
+        "snippet": "\"peerDependenciesMeta\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2397,
+        "snippet": "\"peerDependenciesMeta\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3576,
+        "snippet": "\"peerDependenciesMeta\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "review",
+    "count": 1066,
+    "topHits": [
+      {
+        "file": ".\\package.json",
+        "line": 65,
+        "snippet": "\"serve\": \"vite preview\","
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 11,
+        "snippet": "REVIEWER: 'REVIEWER',"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 22,
+        "snippet": "VIEW_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 25,
+        "snippet": "VIEW_APPLICATIONS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 29,
+        "snippet": "VIEW_CANDIDATES: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],"
+      }
+    ]
+  },
+  {
+    "keyword": "override",
+    "count": 117,
+    "topHits": [
+      {
+        "file": ".\\firestore.indexes.json",
+        "line": 256,
+        "snippet": "\"fieldOverrides\":  ["
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 15,
+        "snippet": "| **Override of AI scores by SME** | ✅ **Yes** | Stored and shown as override; final score = SME when override present; explicit checkbox in My Review; `finalOverallScore` / `finalScoreSource` on interview. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 16,
+        "snippet": "| **Fairness metrics and calibration in admin (FR10)** | ✅ **Yes** | Dedicated “Fairness & Calibration” tab in System Admin Dashboard: score distributions (AI and final), calibration stats (mean \\|AI−SME\\|, agreement %, override count). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 42,
+        "snippet": "| **v. Maintain human oversight by SME reviews and mechanisms to override AI scores** | ✅ **Yes** | SME review, override checkbox, final score = SME when override. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 55,
+        "snippet": "| 6. Calibration of SMEs, review and override mechanisms | ✅ **Yes** | Implemented and verified. |"
+      }
+    ]
+  },
+  {
+    "keyword": "inter-rater",
+    "count": 11,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 92,
+        "snippet": "| Review and calibration of SME judgments, **including tracking inter-rater reliability** and fairness | ⚠️ **Partial** | We have **proxy** metrics: mean \\|AI−SME\\|, agreement within 10 pts (%). **Gap:** No explicit “inter-rater reliability” statistic (e.g. Cohen’s kappa, ICC between multiple SMEs or between AI and multiple SMEs). Table 1 and report stress “inter-rater reliability”; current implementation gives alignment/agreement, not a formal IRR metric. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 104,
+        "snippet": "| 3 | **Inter-rater reliability tracking (Table 1, 2.7)** | ⚠️ Partial | Agreement and mean difference (AI vs SME) exist; no formal IRR metric (e.g. Cohen’s kappa, ICC). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 120,
+        "snippet": "| 3 | **Inter-rater reliability (Table 1, 2.7)** | Admin **Fairness & Calibration** panel now shows **Inter-rater reliability (ICC)** (ICC(2,1) for AI vs SME scores). Backend `getFairnessCalibration` computes and returns `interRaterReliabilityIcc`. |"
+      },
+      {
+        "file": ".\\server\\src\\controllers\\admin.controller.js",
+        "line": 1751,
+        "snippet": "// Inter-rater reliability: ICC(2,1) for AI vs SME (continuous scores, two-way random single measure)"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 17,
+        "snippet": "| 3 | **Inter-rater reliability (Table 1, 2.7)** | `admin.controller.js`: `getFairnessCalibration` computes ICC(2,1) for AI vs SME; returns `interRaterReliabilityIcc`. `FairnessCalibrationPanel.jsx`: displays “Inter-rater reliability (ICC)” and sample note. |"
+      }
+    ]
+  },
+  {
+    "keyword": "fairness",
+    "count": 88,
+    "topHits": [
+      {
+        "file": ".\\src\\services\\apiClient.js",
+        "line": 1042,
+        "snippet": "async getFairnessCalibration(limit = 500) {"
+      },
+      {
+        "file": ".\\src\\services\\apiClient.js",
+        "line": 1043,
+        "snippet": "const response = await fetch(`${API_URL}/api/admin/fairness-calibration?limit=${limit}`, {"
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 41,
+        "snippet": "- `/system-admin-dashboard/fairness`"
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 178,
+        "snippet": "6. `fairness`"
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 197,
+        "snippet": "- Fairness:"
+      }
+    ]
+  },
+  {
+    "keyword": "bias",
+    "count": 27,
+    "topHits": [
+      {
+        "file": ".\\src\\components\\layout\\PublicFooter.jsx",
+        "line": 150,
+        "snippet": "We blend adaptive AI, structured scoring, and bias-aware workflows so candidates and talent teams"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 37,
+        "snippet": "| Fairness and transparency tools: dashboards, reports, bias analysis | ✅ | Fairness & Calibration panel; score distributions; rubric-tied explainability. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 126,
+        "snippet": "| **Explicit “bias detection”** | “detect biases” (1.3) | Fairness & Calibration panel shows score distributions and AI vs SME alignment; no demographic stratification or disparate-impact metrics. | Report emphasizes “fairness and transparency” and “analyze scores”; current implementation supports analysis of score distributions and calibration. Formal bias detection (e.g. by protected group) is not explicitly specified; can be added later if required. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 138,
+        "snippet": "3. **Out of scope for current wording:** Explicit demographic bias detection; multi-SME IRR (e.g. Cohen’s kappa)."
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 31,
+        "snippet": "| Fairness and transparency tools: dashboards and reports to analyze scores and detect biases | ✅ **Yes** | Admin Fairness & Calibration panel; rubric-tied explainability. |"
+      }
+    ]
+  },
+  {
+    "keyword": "transparency",
+    "count": 17,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 31,
+        "snippet": "| Fairness and transparency tools: dashboards and reports to analyze scores and detect biases | ✅ **Yes** | Admin Fairness & Calibration panel; rubric-tied explainability. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 41,
+        "snippet": "| **iv. Explanations and transparency by connecting explanations to rubrics** | ✅ **Yes** | Rubric-tied explainability in AI Evaluation tab (see above). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 54,
+        "snippet": "| 5. Fairness and transparency with explainable output, distribution monitoring, ethical factors | ✅ **Yes** | Fairness & Calibration panel; rubric-tied explanations; score distributions. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 84,
+        "snippet": "| NFR4 | Fairness and transparency: explain in terms consistent with STAR and rubric; SMEs review or override | ✅ **Yes** | Rubric-tied explanations; SME review/override. **Note:** Per-answer STAR (S/T/A/R) terminology is not yet surfaced in recruiter explanations (see 2.2 i). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 94,
+        "snippet": "| Evaluation: Fairness and transparency (match distribution score among individuals per sample) | ✅ **Yes** | Fairness & Calibration panel shows score distributions. |"
+      }
+    ]
+  },
+  {
+    "keyword": "explain",
+    "count": 29,
+    "topHits": [
+      {
+        "file": ".\\src\\services\\aiInterviewer.js",
+        "line": 316,
+        "snippet": "3. Explain next steps in the hiring process"
+      },
+      {
+        "file": ".\\src\\services\\llmServices.js",
+        "line": 393,
+        "snippet": ": [{ role: 'user', content: \"Greet the candidate and explain how you'll assist with their interview prep.\" }])"
+      },
+      {
+        "file": ".\\src\\services\\llmServices.js",
+        "line": 448,
+        "snippet": ": [{ role: 'user', content: 'Introduce yourself and explain how you can help.' }])"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 475,
+        "snippet": "- [x] Architecture explained"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 17,
+        "snippet": "| **Explainable output tied to rubrics for recruiters/SMEs** | ✅ **Yes** | AI Evaluation tab: rubric-tied criterion cards (Technical, Communication, Problem Solving, Cultural Fit) with score + feedback; Strengths, Areas for Improvement, Recommendations, Detailed feedback; raw JSON collapsible (NFR4). |"
+      }
+    ]
+  },
+  {
+    "keyword": "xai",
+    "count": 8,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 1163,
+        "snippet": "\"integrity\": \"sha512-gm8EUEJE/fEac86AvHn8Z/QW8BvR56TBw3hMW0O838J/1mThYQXAIQBgUv75EqlCZfdawpWLrKt1uXvp9ciK3Q==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 1529,
+        "snippet": "\"node_modules/@firebase/vertexai-preview\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 1531,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/@firebase/vertexai-preview/-/vertexai-preview-0.0.4.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 5241,
+        "snippet": "\"@firebase/vertexai-preview\": \"0.0.4\""
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 5667,
+        "snippet": "\"integrity\": \"sha512-AXcZb6vzzrFAUE61HnN4mpLqd/cSIwNQjtNWR0euPm6y0iqx3G4gOXaIDdtdDwZmhwe82LA6+zinmW4UBWVePQ==\","
+      }
+    ]
+  },
+  {
+    "keyword": "dashboard",
+    "count": 655,
+    "topHits": [
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 267,
+        "snippet": "1. Navigate to **System Admin Dashboard**"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 1,
+        "snippet": "# Company Dashboard Dummy Data Cleanup Report"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 17,
+        "snippet": "In this project, dummy data was used extensively while building the Company Dashboard UI components. This allowed the frontend to be developed independently of the backend, enabling parallel development."
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 27,
+        "snippet": "| `index.jsx` | `src/pages/company-dashboard/` |"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 28,
+        "snippet": "| `OverviewPanel.jsx` | `src/pages/company-dashboard/components/` |"
+      }
+    ]
+  },
+  {
+    "keyword": "analytics",
+    "count": 513,
+    "topHits": [
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 313,
+        "snippet": "| `src/hooks/useInterviewAnalytics.js` | Combined analytics hook |"
+      },
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 314,
+        "snippet": "| `src/components/ui/InterviewAnalyticsPanel.jsx` | Display component |"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 48,
+        "snippet": "- **Reason:** The parent component fetches real data via `apiClient.analytics.getCompanyMetrics()` and `apiClient.interviews.getCompanyInterviews()` and passes it to this component"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 78,
+        "snippet": "- **Reason:** Backend provides `totalInterviews`, `completedInterviews`, `averageScore`, `inProgressInterviews` via `apiClient.analytics.getCompanyMetrics()`"
+      },
+      {
+        "file": ".\\docs\\COMPANY_DASHBOARD_DUMMY_DATA_CLEANUP.md",
+        "line": 91,
+        "snippet": "#### 1. **Advanced Analytics Metrics (HiringMetrics.jsx)**"
+      }
+    ]
+  },
+  {
+    "keyword": "charts",
+    "count": 13,
+    "topHits": [
+      {
+        "file": ".\\package.json",
+        "line": 55,
+        "snippet": "\"recharts\": \"^2.15.2\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 36,
+        "snippet": "\"recharts\": \"^2.15.2\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 7203,
+        "snippet": "\"node_modules/recharts\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 7205,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/recharts/-/recharts-2.15.3.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 7214,
+        "snippet": "\"recharts-scale\": \"^0.4.4\","
+      }
+    ]
+  },
+  {
+    "keyword": "export",
+    "count": 804,
+    "topHits": [
+      {
+        "file": ".\\vitest.config.js",
+        "line": 3,
+        "snippet": "export default defineConfig({"
+      },
+      {
+        "file": ".\\vite.config.mjs",
+        "line": 7,
+        "snippet": "export default defineConfig({"
+      },
+      {
+        "file": ".\\tailwind.config.js",
+        "line": 2,
+        "snippet": "export default {"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 8,
+        "snippet": "export const ORG_ROLES = {"
+      },
+      {
+        "file": ".\\src\\utils\\rolePermissions.js",
+        "line": 17,
+        "snippet": "export const ROLE_PERMISSIONS = {"
+      }
+    ]
+  },
+  {
+    "keyword": "csv",
+    "count": 117,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 75,
+        "snippet": "| FR12 | Exports and reporting: organized output for analysis | ⚠️ **Partial** | **Present:** Transcript download (per interview); raw evaluation JSON (collapsible); CandidateProgressDashboard PDF/CSV (company analytics); TrainingDataManager JSONL/JSON (research). **Gap:** No dedicated “export interview evaluations/reviews for recruiters” (e.g. export all reviews or evaluations for a job/period in a single report format for analysis). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 105,
+        "snippet": "| 4 | **FR12 – Exports and reporting for recruiters** | ⚠️ Partial | Transcript, raw JSON, company analytics PDF/CSV, and dataset exports exist; no dedicated export of interview evaluations/reviews for recruiters (e.g. by job or period). |"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 157,
+        "snippet": "- CSV export (placeholder)"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 718,
+        "snippet": "1. Export functionality (PDF/CSV) - Placeholders"
+      },
+      {
+        "file": ".\\docs\\MEDIAPIPE_RESEARCH_DOCUMENTATION.md",
+        "line": 64,
+        "snippet": "| Export | JSON/CSV | Research data export |"
+      }
+    ]
+  },
+  {
+    "keyword": "pdf",
+    "count": 93,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 75,
+        "snippet": "| FR12 | Exports and reporting: organized output for analysis | ⚠️ **Partial** | **Present:** Transcript download (per interview); raw evaluation JSON (collapsible); CandidateProgressDashboard PDF/CSV (company analytics); TrainingDataManager JSONL/JSON (research). **Gap:** No dedicated “export interview evaluations/reviews for recruiters” (e.g. export all reviews or evaluations for a job/period in a single report format for analysis). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 105,
+        "snippet": "| 4 | **FR12 – Exports and reporting for recruiters** | ⚠️ Partial | Transcript, raw JSON, company analytics PDF/CSV, and dataset exports exist; no dedicated export of interview evaluations/reviews for recruiters (e.g. by job or period). |"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 156,
+        "snippet": "- PDF export (placeholder)"
+      },
+      {
+        "file": ".\\docs\\FINAL_COMPLETION_REPORT.md",
+        "line": 718,
+        "snippet": "1. Export functionality (PDF/CSV) - Placeholders"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_COMPLETE_SUMMARY.md",
+        "line": 523,
+        "snippet": "4. Export functionality (CSV, PDF)"
+      }
+    ]
+  },
+  {
+    "keyword": "report",
+    "count": 177,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 2031,
+        "snippet": "\"@types/istanbul-reports\": \"^3.0.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2833,
+        "snippet": "\"@types/istanbul-reports\": \"^3.0.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3066,
+        "snippet": "\"node_modules/@types/istanbul-lib-report\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3068,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/@types/istanbul-lib-report/-/istanbul-lib-report-3.0.3.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 3075,
+        "snippet": "\"node_modules/@types/istanbul-reports\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "audio",
+    "count": 157,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 45,
+        "snippet": "│   ├── services/            # API, LLM, audio, pose helpers"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 87,
+        "snippet": "Transcribe audio file to text"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 88,
+        "snippet": "Expects: multipart/form-data with 'audio' field"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 92,
+        "snippet": "# Check if audio file is present"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 93,
+        "snippet": "if 'audio' not in request.files:"
+      }
+    ]
+  },
+  {
+    "keyword": "video",
+    "count": 451,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 3,
+        "snippet": "AI-first mock interview coach that blends live video practice, real‑time analytics, and personalized study plans into a single experience. The platform pairs a React/Vite front-end with an Express/Firebase backend, plus local LLM + Whisper pipelines for zero-cost coaching."
+      },
+      {
+        "file": ".\\src\\styles\\index.css",
+        "line": 51,
+        "snippet": "img, video {"
+      },
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 269,
+        "snippet": "3. Select **Video Recorder** sub-tab"
+      },
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 282,
+        "snippet": "### 7.3 Recording Reference Videos"
+      },
+      {
+        "file": ".\\docs\\COMPREHENSIVE_DETECTION_GUIDE.md",
+        "line": 312,
+        "snippet": "| `src/pages/research-tools/components/VideoRecorder.jsx` | Comprehensive detection UI |"
+      }
+    ]
+  },
+  {
+    "keyword": "record",
+    "count": 587,
+    "topHits": [
+      {
+        "file": ".\\src\\constants\\applicationDisposition.js",
+        "line": 10,
+        "snippet": "{ value: 'OTHER', label: 'Other', category: 'OTHER', reason: 'Application outcome recorded.' },"
+      },
+      {
+        "file": ".\\src\\hooks\\useAIInterviewer.js",
+        "line": 12,
+        "snippet": "import audioRecorderService from '../services/audioRecorderService';"
+      },
+      {
+        "file": ".\\src\\hooks\\useAIInterviewer.js",
+        "line": 22,
+        "snippet": "const [isListening, setIsListening] = useState(false); // active capture (browser STT or recording)"
+      },
+      {
+        "file": ".\\src\\hooks\\useAIInterviewer.js",
+        "line": 39,
+        "snippet": "audioRecorderService.abort?.();"
+      },
+      {
+        "file": ".\\src\\hooks\\useAIInterviewer.js",
+        "line": 81,
+        "snippet": "// If Whisper is available -> record raw audio, else fallback to browser STT"
+      }
+    ]
+  },
+  {
+    "keyword": "webcam",
+    "count": 2,
+    "topHits": [
+      {
+        "file": ".\\docs\\MEDIAPIPE_RESEARCH_DOCUMENTATION.md",
+        "line": 70,
+        "snippet": "│                      VIDEO INPUT (Webcam)                        │"
+      },
+      {
+        "file": ".\\docs\\RESEARCH_DATA_COLLECTION_GUIDE.md",
+        "line": 153,
+        "snippet": "- Webcam or smartphone camera (720p minimum, 1080p preferred)"
+      }
+    ]
+  },
+  {
+    "keyword": "microphone",
+    "count": 36,
+    "topHits": [
+      {
+        "file": ".\\docs\\PROJECT_SUMMARY.md",
+        "line": 152,
+        "snippet": "- Optionally records microphone audio and transcribes with local Whisper when enabled (`src/services/audioRecorderService.js`, `src/services/localWhisperService.js`)."
+      },
+      {
+        "file": ".\\src\\services\\audioRecorderService.js",
+        "line": 3,
+        "snippet": "* Wraps MediaRecorder to capture microphone audio into a Blob (webm/opus)"
+      },
+      {
+        "file": ".\\src\\services\\audioRecorderService.js",
+        "line": 22,
+        "snippet": "* Start microphone recording"
+      },
+      {
+        "file": ".\\src\\pages\\practice-interview-setup\\components\\PreparationChecklist.jsx",
+        "line": 10,
+        "snippet": "microphone: null,"
+      },
+      {
+        "file": ".\\src\\pages\\practice-interview-setup\\components\\PreparationChecklist.jsx",
+        "line": 85,
+        "snippet": "if (deviceType === 'camera' || deviceType === 'microphone') {"
+      }
+    ]
+  },
+  {
+    "keyword": "transcribe",
+    "count": 35,
+    "topHits": [
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 84,
+        "snippet": "@app.route('/transcribe', methods=['POST'])"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 85,
+        "snippet": "def transcribe():"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 87,
+        "snippet": "Transcribe audio file to text"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 115,
+        "snippet": "if task not in ('transcribe', 'translate'):"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 116,
+        "snippet": "task = 'transcribe'"
+      }
+    ]
+  },
+  {
+    "keyword": "whisper",
+    "count": 126,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 3,
+        "snippet": "AI-first mock interview coach that blends live video practice, real‑time analytics, and personalized study plans into a single experience. The platform pairs a React/Vite front-end with an Express/Firebase backend, plus local LLM + Whisper pipelines for zero-cost coaching."
+      },
+      {
+        "file": ".\\README.md",
+        "line": 12,
+        "snippet": "- **Voice + Pose Intelligence** – Local Whisper transcription, Ollama-powered scoring, and MediaPipe pose coaching."
+      },
+      {
+        "file": ".\\README.md",
+        "line": 23,
+        "snippet": "| AI/ML Services | Local inference with zero API spend | Ollama (LLM), Whisper server (Python), MediaPipe |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 33,
+        "snippet": "- **AI + Realtime**: Local Ollama, Faster-Whisper server, MediaPipe Tasks Vision"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 51,
+        "snippet": "│   └── whisper_server.py    # Optional local Whisper endpoint"
+      }
+    ]
+  },
+  {
+    "keyword": "speech-to-text",
+    "count": 6,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 29,
+        "snippet": "| Multimodal processing: speech-to-text, nonverbal analysis | ✅ **Yes** | ASR (Whisper), video capture; optional pose/body language (MediaPipe). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 35,
+        "snippet": "| Multimodal: speech-to-text, nonverbal analysis | ✅ | ASR (Whisper), video; optional pose (MediaPipe); configurable via `nonverbalFeedbackEnabled`. |"
+      },
+      {
+        "file": ".\\docs\\PROJECT_SUMMARY.md",
+        "line": 5,
+        "snippet": "InterviewAI Pro is a React/Vite single-page app plus an Express backend that uses Firebase (Auth + Firestore + Realtime DB) and optional local AI services (Ollama for LLM, Faster-Whisper for speech-to-text, MediaPipe for pose analysis). See `README.md`, `src/`, `server/`."
+      },
+      {
+        "file": ".\\docs\\PROJECT_SUMMARY.md",
+        "line": 61,
+        "snippet": "### Optional: Local Whisper (speech-to-text)"
+      },
+      {
+        "file": ".\\src\\services\\localWhisperService.js",
+        "line": 4,
+        "snippet": "* Interfaces with the local faster-whisper Flask server for speech-to-text transcription."
+      }
+    ]
+  },
+  {
+    "keyword": "asr",
+    "count": 29,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 7878,
+        "snippet": "\"integrity\": \"sha512-8EbVDiu9iN/nESwxeSxDKe0dunta1GOlHufmSSXxMD2z2/tMZpDMpvXQGsc+ajGo8y2uYUmixaSRUc/QPoQ0GA==\","
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 29,
+        "snippet": "| Multimodal processing: speech-to-text, nonverbal analysis | ✅ **Yes** | ASR (Whisper), video capture; optional pose/body language (MediaPipe). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 69,
+        "snippet": "| FR6 | Multimodal response capture (audio and video) | ✅ **Yes** | Audio/video capture; ASR. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 35,
+        "snippet": "| Multimodal: speech-to-text, nonverbal analysis | ✅ | ASR (Whisper), video; optional pose (MediaPipe); configurable via `nonverbalFeedbackEnabled`. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 75,
+        "snippet": "| FR6 | Multimodal response capture (audio/video) | ✅ | Capture; ASR. |"
+      }
+    ]
+  },
+  {
+    "keyword": "mediapipe",
+    "count": 118,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 35,
+        "snippet": "| Multimodal: speech-to-text, nonverbal analysis | ✅ | ASR (Whisper), video; optional pose (MediaPipe); configurable via `nonverbalFeedbackEnabled`. |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 12,
+        "snippet": "- **Voice + Pose Intelligence** – Local Whisper transcription, Ollama-powered scoring, and MediaPipe pose coaching."
+      },
+      {
+        "file": ".\\README.md",
+        "line": 21,
+        "snippet": "| Frontend (`src/`) | Vite/React SPA, dashboards, live interview UI, AI assistant, pose overlays | React 18, Vite, Tailwind CSS, Lucide, MediaPipe |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 23,
+        "snippet": "| AI/ML Services | Local inference with zero API spend | Ollama (LLM), Whisper server (Python), MediaPipe |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 33,
+        "snippet": "- **AI + Realtime**: Local Ollama, Faster-Whisper server, MediaPipe Tasks Vision"
+      }
+    ]
+  },
+  {
+    "keyword": "pose",
+    "count": 428,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 10,
+        "snippet": "- **Live AI Interview Session** – Real-time question flow, pose analysis, interviewer chat, and feedback panel."
+      },
+      {
+        "file": ".\\README.md",
+        "line": 12,
+        "snippet": "- **Voice + Pose Intelligence** – Local Whisper transcription, Ollama-powered scoring, and MediaPipe pose coaching."
+      },
+      {
+        "file": ".\\README.md",
+        "line": 21,
+        "snippet": "| Frontend (`src/`) | Vite/React SPA, dashboards, live interview UI, AI assistant, pose overlays | React 18, Vite, Tailwind CSS, Lucide, MediaPipe |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 45,
+        "snippet": "│   ├── services/            # API, LLM, audio, pose helpers"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2347,
+        "snippet": "\"node_modules/@radix-ui/react-compose-refs\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "face",
+    "count": 556,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 7887,
+        "snippet": "\"ts-interface-checker\": \"^0.1.9\""
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 8321,
+        "snippet": "\"node_modules/ts-interface-checker\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 8323,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/ts-interface-checker/-/ts-interface-checker-0.1.13.tgz\","
+      },
+      {
+        "file": ".\\index.html",
+        "line": 17,
+        "snippet": "<!-- Open Graph / Facebook -->"
+      },
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 12,
+        "snippet": "* 2. FaceLandmarker - 478 facial landmarks (468 face + 10 iris)"
+      }
+    ]
+  },
+  {
+    "keyword": "gesture",
+    "count": 44,
+    "topHits": [
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 671,
+        "snippet": "// === HAND GESTURES ==="
+      },
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 672,
+        "snippet": "gestures: {"
+      },
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 767,
+        "snippet": "handGestures: 0.15,      // 15%"
+      },
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 793,
+        "snippet": "handGestures: {"
+      },
+      {
+        "file": ".\\src\\config\\mediapipeReferenceData.js",
+        "line": 796,
+        "snippet": "appropriateGestures: 0.30,"
+      }
+    ]
+  },
+  {
+    "keyword": "consent",
+    "count": 97,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 13,
+        "snippet": "| **Explicit consent for recording (audio/video)** | ✅ **Yes** | Session-specific “I consent to this session being recorded (audio and video)” step before interview; persisted to interview document; main UI only after consent (FR2). |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 43,
+        "snippet": "| **vi. Provide privacy and consent** | ✅ **Yes** | Recording consent (FR2); privacy policy links. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 56,
+        "snippet": "| 7. Privacy and security (consent and storing data) | ✅ **Yes** | Recording consent; role-based access; secure storage. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 65,
+        "snippet": "| FR2 | Consent and user controls (profiles, consent for recorded interviews/text/audio/video) | ✅ **Yes** | Recording consent; profile controls. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 83,
+        "snippet": "| NFR3 | Security and privacy: role-based access, personal data handling | ✅ **Yes** | RBAC; consent; secure storage. |"
+      }
+    ]
+  },
+  {
+    "keyword": "privacy",
+    "count": 62,
+    "topHits": [
+      {
+        "file": ".\\src\\Routes.jsx",
+        "line": 22,
+        "snippet": "import Privacy from './pages/privacy';"
+      },
+      {
+        "file": ".\\src\\Routes.jsx",
+        "line": 181,
+        "snippet": "<Route path=\"/privacy\" element={<Privacy />} />"
+      },
+      {
+        "file": ".\\src\\components\\PageTitleManager.jsx",
+        "line": 19,
+        "snippet": "{ pattern: /^\\/privacy$/, title: 'Privacy Policy - InterviewAI Pro' },"
+      },
+      {
+        "file": ".\\src\\components\\layout\\PublicHeader.jsx",
+        "line": 76,
+        "snippet": "{ label: 'Privacy', href: '/privacy', icon: 'Shield', description: 'Data and security' },"
+      },
+      {
+        "file": ".\\src\\components\\layout\\PublicFooter.jsx",
+        "line": 51,
+        "snippet": "{ name: 'Privacy Policy', path: '/privacy' }"
+      }
+    ]
+  },
+  {
+    "keyword": "retention",
+    "count": 131,
+    "topHits": [
+      {
+        "file": ".\\docs\\ats-scale-hardening.md",
+        "line": 316,
+        "snippet": "- Retention automation/anonymization jobs from configured policy values."
+      },
+      {
+        "file": ".\\docs\\ats-core-completion-report.md",
+        "line": 81,
+        "snippet": "- Data retention/anonymization scheduled jobs by policy"
+      },
+      {
+        "file": ".\\docs\\CURRENT_IMPLEMENTATION_STATUS.md",
+        "line": 135,
+        "snippet": "- Manage system settings (feature flags, AI config, data retention)"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_TRACKER.md",
+        "line": 56,
+        "snippet": "| **Data retention global settings** | ❌ MISSING | Compliance | **MEDIUM** |"
+      },
+      {
+        "file": ".\\docs\\IMPLEMENTATION_TRACKER.md",
+        "line": 75,
+        "snippet": "| **Company data retention policies** | ⚠️ PARTIAL | Field exists, no enforcement | **MEDIUM** |"
+      }
+    ]
+  },
+  {
+    "keyword": "delete",
+    "count": 340,
+    "topHits": [
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 102,
+        "snippet": "with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as temp_file:"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 74,
+        "snippet": "| FR11 | Managing sessions and data: only allowed users can view/delete | ✅ **Yes** | Role-based access; session/data controls. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 80,
+        "snippet": "| FR11 | Session/data management (allowed users only) | ✅ | RBAC; view/delete controls. |"
+      },
+      {
+        "file": ".\\src\\utils\\loadingScreenState.js",
+        "line": 22,
+        "snippet": "return () => listeners.delete(listener);"
+      },
+      {
+        "file": ".\\server\\src\\__tests__\\atsLifecycle.integration.test.js",
+        "line": 33,
+        "snippet": "if (!job || job.deletedAt) return false;"
+      }
+    ]
+  },
+  {
+    "keyword": "rate limit",
+    "count": 102,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 13,
+        "snippet": "- **Secure Backend APIs** – Express server with JWT auth, Firebase integrations, rate limiting, validation, and Socket.IO."
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 88,
+        "snippet": "| NFR2 | Reliability: redo, steadiness, fault management | ⚠️ Unverified | Retries/fallbacks in rate limiter and Firebase; not re-verified. |"
+      },
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_COMPLETE_CHECK.md",
+        "line": 119,
+        "snippet": "| **NFR2 – Reliability** | 4.2.2 | Rate limiter retry headers; Firebase fallbacks; async-retry in deps. | Verify retries and fault handling for external APIs (e.g. LLM, Whisper). |"
+      },
+      {
+        "file": ".\\docs\\EMAIL_SETUP_GUIDE.md",
+        "line": 13,
+        "snippet": "- **Free Tier**: Unlimited (with rate limits ~500/day)"
+      },
+      {
+        "file": ".\\docs\\EMAIL_SETUP_GUIDE.md",
+        "line": 18,
+        "snippet": "- **Free Tier**: Unlimited (with rate limits)"
+      }
+    ]
+  },
+  {
+    "keyword": "helmet",
+    "count": 72,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 32,
+        "snippet": "- **Server**: Express 4, Firebase Admin, JWT, CORS/Helmet, Socket.IO, Winston"
+      },
+      {
+        "file": ".\\docs\\SECURITY_IMPLEMENTATION.md",
+        "line": 175,
+        "snippet": "Security headers are configured using Helmet in `server/src/middleware/security.middleware.js`."
+      },
+      {
+        "file": ".\\package.json",
+        "line": 51,
+        "snippet": "\"react-helmet\": \"^6.1.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 32,
+        "snippet": "\"react-helmet\": \"^6.1.0\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 7055,
+        "snippet": "\"node_modules/react-helmet\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "cors",
+    "count": 30,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 32,
+        "snippet": "- **Server**: Express 4, Firebase Admin, JWT, CORS/Helmet, Socket.IO, Winston"
+      },
+      {
+        "file": ".\\docs\\SECURITY_IMPLEMENTATION.md",
+        "line": 190,
+        "snippet": "### CORS Configuration"
+      },
+      {
+        "file": ".\\docs\\SECURITY_IMPLEMENTATION.md",
+        "line": 238,
+        "snippet": "- [ ] CORS is restricted to production frontend URL"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 29,
+        "snippet": "from flask_cors import CORS"
+      },
+      {
+        "file": ".\\server\\whisper_server.py",
+        "line": 35,
+        "snippet": "# Enable CORS for all origins (development mode)"
+      }
+    ]
+  },
+  {
+    "keyword": "csrf",
+    "count": 4,
+    "topHits": [
+      {
+        "file": ".\\server\\src\\middleware\\security.middleware.js",
+        "line": 97,
+        "snippet": "'X-CSRF-Token',"
+      },
+      {
+        "file": ".\\server\\src\\middleware\\security.middleware.js",
+        "line": 264,
+        "snippet": "// CSRF Protection Note"
+      },
+      {
+        "file": ".\\server\\src\\middleware\\security.middleware.js",
+        "line": 266,
+        "snippet": "// For JWT-based authentication (tokens in Authorization header), CSRF protection"
+      },
+      {
+        "file": ".\\server\\src\\middleware\\security.middleware.js",
+        "line": 269,
+        "snippet": "// If you need CSRF protection later, implement a custom solution compatible with ES modules."
+      }
+    ]
+  },
+  {
+    "keyword": "docker",
+    "count": 4,
+    "topHits": [
+      {
+        "file": ".\\docs\\CONTEXTUAL_REPORT_GAPS_CHECK.md",
+        "line": 130,
+        "snippet": "Report specifies: Next.js/React, PostgreSQL/Prisma, Docker."
+      },
+      {
+        "file": ".\\src\\pages\\company-jobs\\index.jsx",
+        "line": 42,
+        "snippet": "'Docker',"
+      },
+      {
+        "file": ".\\src\\pages\\register\\components\\CandidateFields.jsx",
+        "line": 153,
+        "snippet": "{ value: 'docker', label: 'Docker' },"
+      },
+      {
+        "file": ".\\src\\pages\\register\\components\\CandidateFields.jsx",
+        "line": 172,
+        "snippet": "{ value: 'docker-dca', label: 'Docker DCA' },"
+      }
+    ]
+  },
+  {
+    "keyword": "github actions",
+    "count": 3,
+    "topHits": [
+      {
+        "file": ".\\README.md",
+        "line": 24,
+        "snippet": "| Deployment | Static app via GitHub Pages + API hosted separately | GitHub Actions Pages workflow, ENV-based API URL |"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 34,
+        "snippet": "- **Tooling**: ESLint (CRA base), npm, GitHub Actions (Pages), Nodemon"
+      },
+      {
+        "file": ".\\README.md",
+        "line": 140,
+        "snippet": "- Remember to enable GitHub Pages → “GitHub Actions” in repo settings after the first successful workflow run."
+      }
+    ]
+  },
+  {
+    "keyword": "ci",
+    "count": 2437,
+    "topHits": [
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 21,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || !data.exists() || data.child('participants').child(auth.uid).val() === true)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 23,
+        "snippet": "\"participants\": {"
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 24,
+        "snippet": "\"$participantId\": {"
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 25,
+        "snippet": "\".read\": \"auth != null && (root.child('admins').child(auth.uid).exists() || auth.uid === $participantId)\","
+      },
+      {
+        "file": ".\\firebase.database.rules.json",
+        "line": 30,
+        "snippet": "\"$participantId\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "cd",
+    "count": 136,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 99,
+        "snippet": "\"integrity\": \"sha512-9xiBAtLn4aNsa4mDnpovJvBn72tNEIACyvlqaNJ+ADemR+yeMJWnBudOi2qGDviJa7SwcDOU/TRh5dnET7qk0w==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 307,
+        "snippet": "\"integrity\": \"sha512-muE8Tt8M22638HU31A3CgfSUciwz1fhATfoVai05aPXGor//CdWDCbnlY1yvBPo07njuVOCNGCSp/GTt12lIug==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 320,
+        "snippet": "\"integrity\": \"sha512-OsQd175SxWkGlzbny8J3K8TnnDD0N3lrIUtB92xwyRpzaenGZhxDvxN/JgU00U3CDZNj9tPuDJ5H0WS4Nt3vKg==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 639,
+        "snippet": "\"integrity\": \"sha512-qg/Lj1mu3CdQlDEEiWrlC4eaPZ1KztwGJ9B6J+/6G+/4ewxJg7gqj8eVYWvao1bXrqGiW2rsBZFSX3q2lcW05w==\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 687,
+        "snippet": "\"integrity\": \"sha512-B6IeSgZgtEzGC42jsI+YYu9Z3HKRxp8ZT3cqhvliEHovq8HSX2YX8lNocDn79gCKJXOSaEot9MVYky7AKjCs8g==\","
+      }
+    ]
+  },
+  {
+    "keyword": "test",
+    "count": 643,
+    "topHits": [
+      {
+        "file": ".\\vitest.config.js",
+        "line": 1,
+        "snippet": "import { defineConfig } from 'vitest/config';"
+      },
+      {
+        "file": ".\\vitest.config.js",
+        "line": 4,
+        "snippet": "test: {"
+      },
+      {
+        "file": ".\\docs\\ats-core-completion-report.md",
+        "line": 68,
+        "snippet": "- backend ATS lifecycle integration tests for submit/transition/closure + invitation idempotency + analytics queueing"
+      },
+      {
+        "file": ".\\docs\\ats-core-completion-report.md",
+        "line": 70,
+        "snippet": "- Status: **Complete for research/testing scope**"
+      },
+      {
+        "file": ".\\package.json",
+        "line": 35,
+        "snippet": "\"@testing-library/jest-dom\": \"^5.15.1\","
+      }
+    ]
+  },
+  {
+    "keyword": "jest",
+    "count": 425,
+    "topHits": [
+      {
+        "file": ".\\package-lock.json",
+        "line": 16,
+        "snippet": "\"@testing-library/jest-dom\": \"^5.15.1\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 1999,
+        "snippet": "\"node_modules/@jest/expect-utils\": {"
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2001,
+        "snippet": "\"resolved\": \"https://registry.npmjs.org/@jest/expect-utils/-/expect-utils-29.7.0.tgz\","
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2005,
+        "snippet": "\"jest-get-type\": \"^29.6.3\""
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 2011,
+        "snippet": "\"node_modules/@jest/schemas\": {"
+      }
+    ]
+  },
+  {
+    "keyword": "vitest",
+    "count": 53,
+    "topHits": [
+      {
+        "file": ".\\vitest.config.js",
+        "line": 1,
+        "snippet": "import { defineConfig } from 'vitest/config';"
+      },
+      {
+        "file": ".\\src\\utils\\__tests__\\organizationAccess.test.js",
+        "line": 1,
+        "snippet": "import { describe, it, expect } from 'vitest';"
+      },
+      {
+        "file": ".\\package.json",
+        "line": 66,
+        "snippet": "\"test\": \"vitest\""
+      },
+      {
+        "file": ".\\package.json",
+        "line": 98,
+        "snippet": "\"vitest\": \"^1.6.0\""
+      },
+      {
+        "file": ".\\package-lock.json",
+        "line": 55,
+        "snippet": "\"vitest\": \"^1.6.0\""
+      }
+    ]
+  },
+  {
+    "keyword": "playwright",
+    "count": 23,
+    "topHits": [
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 32,
+        "snippet": "2. Live browser validation (Playwright CLI, Microsoft Edge channel)"
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 46,
+        "snippet": "- Evidence saved under `.playwright-cli/` as `.yml` snapshots and `.png` screenshots."
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 246,
+        "snippet": "## 8. Evidence Artifacts (Playwright)"
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 248,
+        "snippet": "Artifacts are in `.playwright-cli/`."
+      },
+      {
+        "file": ".\\docs\\DASHBOARD_UI_STYLE_AUDIT.md",
+        "line": 251,
+        "snippet": "- `.playwright-cli/page-2026-02-14T05-12-21-901Z.png`"
+      }
+    ]
+  },
+  {
+    "keyword": "cypress",
+    "count": 0,
+    "topHits": []
+  }
+]

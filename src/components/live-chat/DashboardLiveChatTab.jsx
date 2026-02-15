@@ -554,7 +554,7 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
                 {shouldShowSuggestions && (
                 <div className="flex flex-wrap items-center gap-2">
                   {suggestionsLoading ? (
-                    <span className="text-[11px] text-gray-500 dark:text-slate-400">
+                    <span className="text-xs text-gray-500 dark:text-slate-400">
                       Generating suggestions...
                     </span>
                   ) : (
@@ -565,7 +565,7 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
                         onClick={() => handleSuggestionClick(suggestion)}
                         variant="outline"
                         size="xs"
-                        className="max-w-full whitespace-normal break-words text-left rounded-full border border-gray-200 dark:border-slate-700 text-[11px] leading-snug text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                        className="max-w-full whitespace-normal break-words text-left rounded-full border border-gray-200 dark:border-slate-700 text-xs leading-snug text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
                       >
                         {suggestion}
                       </Button>

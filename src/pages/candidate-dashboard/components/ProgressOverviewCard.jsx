@@ -160,7 +160,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
           </div>
           <div className="text-xs text-gray-500 dark:text-slate-400">Avg Score</div>
           {scoreMetrics?.changeText && (
-            <div className={`text-[10px] font-medium mt-0.5 ${getChangeColor(scoreMetrics.changeType)}`}>
+            <div className={`text-xs font-medium mt-0.5 ${getChangeColor(scoreMetrics.changeType)}`}>
               {scoreMetrics.changeText}
             </div>
           )}
@@ -169,7 +169,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
           <div className="text-base sm:text-lg font-semibold text-purple-600 dark:text-purple-400">{currentGrade}</div>
           <div className="text-xs text-gray-500 dark:text-slate-400">Grade</div>
           {gradeMetrics?.changeText && gradeMetrics.changeText !== 'Maintained' && (
-            <div className={`text-[10px] font-medium mt-0.5 ${getChangeColor(gradeMetrics.changeType)}`}>
+            <div className={`text-xs font-medium mt-0.5 ${getChangeColor(gradeMetrics.changeType)}`}>
               {gradeMetrics.changeText}
             </div>
           )}

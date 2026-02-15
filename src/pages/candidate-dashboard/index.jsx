@@ -166,11 +166,14 @@ const CandidateDashboard = () => {
     fetchDashboardData();
   }, [fetchDashboardData]);
 
-  if (status === 'loading' || !user) {
+  const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const showInitialLoader = dataLoading && !safeInterviews.length && !analytics;
+
+  if (status === 'loading' || !user || showInitialLoader) {
     return (
       <LoadingState
-        title="Loading your dashboard"
-        message="Pulling your latest interview insights and progress."
+        title="Checking your session and syncing your user data"
+        message="Verifying secure access and loading your analytics and recent sessions."
         variant="fullscreen"
         tone="primary"
       />
@@ -201,9 +204,6 @@ const CandidateDashboard = () => {
     );
   }
 
-  // Ensure interviews is always an array
-  const safeInterviews = Array.isArray(interviews) ? interviews : [];
-  
   // Use comparison metrics if available, otherwise fall back to calculated values
   const scoreMetrics = dashboardMetrics?.averageScore;
   const completedMetrics = dashboardMetrics?.completedInterviews;
@@ -244,10 +244,8 @@ const CandidateDashboard = () => {
     }
   ];
 
-  const showInitialLoader = dataLoading && !safeInterviews.length && !analytics;
-
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
+    <div className="dashboard-shell">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden z-0"
@@ -285,19 +283,8 @@ const CandidateDashboard = () => {
               variants={sectionReveal}
               initial="hidden"
               animate="visible"
-              className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
+              className="dashboard-layout"
             >
-              {showInitialLoader && (
-                <motion.div variants={fadeUpChild}>
-                  <LoadingState
-                    title="Syncing your interview data"
-                    message="Updating your analytics and recent sessions."
-                    variant="card"
-                    tone="primary"
-                  />
-                </motion.div>
-              )}
-              
               {/* Hero Welcome Section */}
               <motion.div
                 variants={fadeUpChild}
@@ -306,7 +293,7 @@ const CandidateDashboard = () => {
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
                 <div className="relative z-10 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-1 sm:space-y-1.5">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>Realtime performance intelligence</span>
                     </div>
@@ -319,7 +306,7 @@ const CandidateDashboard = () => {
                     </p>
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
-                    <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Live status</p>
+                    <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Live status</p>
                     <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">{latestCompanyName}</div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
                       {latestInterviewDate ? `Next interview - ${latestInterviewDate}` : 'Pipeline ready'}
@@ -332,9 +319,9 @@ const CandidateDashboard = () => {
                       key={item.label}
                       className="rounded-lg border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-2 py-1.5 xs:px-2.5 xs:py-2 shadow-sm"
                     >
-                      <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
+                      <p className="text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
                       <p className="text-base xs:text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
-                      <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
                 </div>
@@ -447,7 +434,7 @@ const CandidateDashboard = () => {
                 <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
                   <div className="flex items-center justify-between mb-3 sm:mb-4">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">AI-Powered Insights</h2>
-                    <span className="text-[10px] xs:text-xs uppercase tracking-widest sm:tracking-[0.3em] text-blue-600 dark:text-blue-400">Live feed</span>
+                    <span className="text-xs uppercase tracking-widest sm:tracking-[0.3em] text-blue-600 dark:text-blue-400">Live feed</span>
                   </div>
                   <div className="space-y-2.5">
                     <div className="flex items-start gap-2">
@@ -456,7 +443,7 @@ const CandidateDashboard = () => {
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Communication confidence +23%
                         </p>
-                        <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400">
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
                           Based on your last 5 practice sessions
                         </p>
                       </div>
@@ -467,7 +454,7 @@ const CandidateDashboard = () => {
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Technical problem-solving in top quartile
                         </p>
-                        <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400">
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
                           Ready for senior-level technical interviews
                         </p>
                       </div>
@@ -478,7 +465,7 @@ const CandidateDashboard = () => {
                         <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
                           Opportunity: deepen system design answers
                         </p>
-                        <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400">
+                        <p className="text-xs text-gray-500 dark:text-slate-400">
                           Recommended focus: 2-3 hours per week
                         </p>
                       </div>

@@ -40,6 +40,7 @@ const sanitizeUser = (user) => {
     companyWebsite: user.companyWebsite || null,
     companyLocation: user.companyLocation || null,
     phoneNumber: user.phoneNumber || null,
+    timezone: user.timezone || null,
     // Candidate education fields
     highestQualification: user.highestQualification || null,
     fieldOfStudy: user.fieldOfStudy || null,
@@ -693,6 +694,7 @@ export class AuthController {
         'companyWebsite',
         'companyLocation',
         'phoneNumber',
+        'timezone',
         // Candidate education fields
         'highestQualification',
         'fieldOfStudy',

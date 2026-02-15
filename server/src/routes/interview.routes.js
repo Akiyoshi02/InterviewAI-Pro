@@ -14,7 +14,12 @@
 
 import express from 'express';
 import { param, body, query } from 'express-validator';
-import { authenticate, requireCandidate, requireCompany } from '../middleware/auth.middleware.js';
+import {
+  authenticate,
+  requireCandidate,
+  requireCompany,
+  requireOrgRole,
+} from '../middleware/auth.middleware.js';
 import { 
   validateRequest, 
   stripUnexpectedFields,
@@ -73,6 +78,7 @@ router.get(
   authenticate,
   requireCompany,
   requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   [query('limit').optional().toInt().isInt({ min: 1, max: 200 })],
   validateRequest,
   InterviewController.getCompanyInterviews

@@ -57,10 +57,19 @@ export async function loadUser(req, res, next) {
       return res.status(404).json({ error: 'User not found in database' });
     }
 
+    const accountStatus = (user.accountStatus || 'ACTIVE').toString().toUpperCase();
+    if (accountStatus === 'SUSPENDED') {
+      return res.status(403).json({
+        error: 'Your account has been suspended. Please contact support.',
+        code: 'ACCOUNT_SUSPENDED',
+      });
+    }
+
     req.user = {
       ...req.user,
       id: user.id,
       accountType: user.accountType,
+      accountStatus,
       fullName: user.fullName,
       profile: user,
     };
@@ -217,6 +226,7 @@ export async function optionalAuth(req, res, next) {
         metadata: userData.metadata,
         id: user.id,
         accountType: user.accountType,
+        accountStatus: (user.accountStatus || 'ACTIVE').toString().toUpperCase(),
         fullName: user.fullName,
         profile: user,
       };

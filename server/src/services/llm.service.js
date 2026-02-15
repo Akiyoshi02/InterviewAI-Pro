@@ -42,6 +42,30 @@ const buildGenerationOptions = (options = {}) => ({
   num_predict: options.max_tokens ?? QWEN_GENERATION_DEFAULTS.num_predict,
 });
 
+const resolveLlmOptions = (llmOptions, defaults = {}) => {
+  const source = llmOptions && typeof llmOptions === 'object' ? llmOptions : {};
+  const model = typeof source.model === 'string' && source.model.trim()
+    ? source.model.trim()
+    : defaults.model;
+
+  const parsedTemperature = Number(source.temperature);
+  const temperature = Number.isFinite(parsedTemperature)
+    ? Math.min(1, Math.max(0, parsedTemperature))
+    : defaults.temperature;
+
+  const rawMaxTokens = source.maxTokens ?? source.max_tokens;
+  const parsedMaxTokens = Number(rawMaxTokens);
+  const maxTokens = Number.isFinite(parsedMaxTokens)
+    ? Math.round(Math.min(32768, Math.max(256, parsedMaxTokens)))
+    : defaults.maxTokens;
+
+  return {
+    model: model || DEFAULT_MODEL,
+    temperature: Number.isFinite(temperature) ? temperature : QWEN_GENERATION_DEFAULTS.temperature,
+    max_tokens: Number.isFinite(maxTokens) ? maxTokens : QWEN_GENERATION_DEFAULTS.num_predict,
+  };
+};
+
 /**
  * Call Ollama API for chat completions
  */
@@ -115,6 +139,11 @@ export class LLMService {
       const difficulty = config.difficulty || 'medium';
       const personalityId = config.personality;
       const interviewerName = config.interviewerName || 'Your Interviewer';
+      const llmOptions = resolveLlmOptions(config?.llmOptions, {
+        model: DEFAULT_MODEL,
+        temperature: 0.8,
+        maxTokens: 4000,
+      });
       
       // Build personality context if available
       let personalityContext = '';
@@ -163,7 +192,7 @@ Important:
         { role: 'user', content: 'Generate the interview questions now.' },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 4000, temperature: 0.8 });
+      const response = await callOllama(messages, llmOptions);
       const parsed = parseJSONResponse(response);
       
       return parsed.questions || [];
@@ -176,8 +205,13 @@ Important:
   /**
    * Generate interview summary and evaluation
    */
-  static async generateInterviewSummary({ interview, questions }) {
+  static async generateInterviewSummary({ interview, questions, llmOptions = null }) {
     try {
+      const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
+        model: DEFAULT_MODEL,
+        temperature: 0.7,
+        maxTokens: 3000,
+      });
       const qaPairs = questions.map(q => ({
         question: q.question,
         answer: q.answer || 'Not answered',
@@ -219,7 +253,7 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
         { role: 'user', content: 'Generate the comprehensive evaluation report.' },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 3000, temperature: 0.7 });
+      const response = await callOllama(messages, resolvedLlmOptions);
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error generating interview summary:', error);
@@ -230,8 +264,13 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
   /**
    * Analyze individual answer with STAR method evaluation
    */
-  static async analyzeAnswer({ question, answer, criteria, difficulty }) {
+  static async analyzeAnswer({ question, answer, criteria, difficulty, llmOptions = null }) {
     try {
+      const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
+        model: DEFAULT_MODEL,
+        temperature: 0.6,
+        maxTokens: 2000,
+      });
       const systemPrompt = `You are an expert interview evaluator. Analyze the candidate's answer using the STAR method (Situation, Task, Action, Result).
 
 Question: ${question}
@@ -268,7 +307,7 @@ Return ONLY valid JSON (no markdown):
         { role: 'user', content: 'Analyze this answer and provide structured feedback.' },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 2000, temperature: 0.6 });
+      const response = await callOllama(messages, resolvedLlmOptions);
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error analyzing answer:', error);

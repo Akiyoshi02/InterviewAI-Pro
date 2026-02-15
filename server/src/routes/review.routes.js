@@ -6,6 +6,7 @@ import {
   requireOrganizationContext,
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -13,6 +14,7 @@ const router = express.Router();
 router.get(
   '/:interviewId/me',
   authenticate,
+  requireFeatureFlag('enableReviews'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   [param('interviewId').isString()],
@@ -23,6 +25,7 @@ router.get(
 router.get(
   '/:interviewId',
   authenticate,
+  requireFeatureFlag('enableReviews'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   [param('interviewId').isString()],
@@ -33,6 +36,7 @@ router.get(
 router.post(
   '/:interviewId',
   authenticate,
+  requireFeatureFlag('enableReviews'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   [
@@ -55,4 +59,3 @@ router.post(
 );
 
 export default router;
-

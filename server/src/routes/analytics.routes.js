@@ -1,23 +1,29 @@
 import express from 'express';
-import { authenticate, requireCompany } from '../middleware/auth.middleware.js';
+import {
+  authenticate,
+  requireCandidate,
+  requireCompany,
+  requireOrgRole,
+} from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { AnalyticsController } from '../controllers/analytics.controller.js';
 
 const router = express.Router();
 
-router.get('/dashboard', authenticate, AnalyticsController.getDashboard);
-router.get('/company/metrics', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getCompanyMetrics);
+router.get('/dashboard', authenticate, requireFeatureFlag('enableAnalytics'), AnalyticsController.getDashboard);
+router.get('/company/metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getCompanyMetrics);
 
 // Company: Dashboard metrics with historical comparison
-router.get('/dashboard-metrics', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getDashboardMetrics);
+router.get('/dashboard-metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getDashboardMetrics);
 
 // Company: Historical metrics snapshots for trend analysis
-router.get('/historical', authenticate, requireCompany, requireApprovedOrganization, AnalyticsController.getHistoricalMetrics);
+router.get('/historical', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getHistoricalMetrics);
 
 // Candidate: Dashboard metrics with historical comparison
-router.get('/candidate/dashboard-metrics', authenticate, AnalyticsController.getCandidateDashboardMetrics);
+router.get('/candidate/dashboard-metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateDashboardMetrics);
 
 // Candidate: Historical metrics snapshots for trend analysis
-router.get('/candidate/historical', authenticate, AnalyticsController.getCandidateHistoricalMetrics);
+router.get('/candidate/historical', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateHistoricalMetrics);
 
 export default router;

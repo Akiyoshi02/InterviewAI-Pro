@@ -128,6 +128,7 @@ const ALLOWED_VALUES = {
   INTERVIEW_STATUS: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED'],
   PIPELINE_STATUS: ['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED'],
   MEMBER_STATUS: ['ACTIVE', 'INACTIVE'],
+  USER_ACCOUNT_STATUS: ['ACTIVE', 'SUSPENDED'],
   PLAN_ID: ['free', 'starter', 'professional', 'enterprise'],
   EMPLOYMENT_TYPE: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'TEMPORARY'],
   WORK_TYPE: ['REMOTE', 'ONSITE', 'HYBRID'],
@@ -1016,6 +1017,29 @@ export const validationSchemas = {
         commonValidators.longText('reason', true),
       ],
     },
+
+    updateUserStatus: {
+      allowedFields: ['status', 'reason'],
+      validators: [
+        body('status')
+          .trim()
+          .toUpperCase()
+          .isIn(ALLOWED_VALUES.USER_ACCOUNT_STATUS)
+          .withMessage('Invalid user status'),
+        body('reason')
+          .optional()
+          .trim()
+          .isLength({ min: 5, max: LENGTH_LIMITS.LONG_TEXT })
+          .withMessage('Reason must be between 5 and 2000 characters'),
+        body('reason').custom((value, { req }) => {
+          const status = (req.body?.status || '').toString().trim().toUpperCase();
+          if (status === 'SUSPENDED' && (!value || !String(value).trim())) {
+            throw new Error('Suspension reason is required');
+          }
+          return true;
+        }),
+      ],
+    },
     
     updateSettings: {
       allowedFields: ['featureFlags', 'maintenanceMode', 'nonverbalFeedbackEnabled', 'defaultAIConfig', 'dataRetention'],
@@ -1025,6 +1049,18 @@ export const validationSchemas = {
         body('nonverbalFeedbackEnabled').optional().isBoolean(),
         body('defaultAIConfig').optional().isObject(),
         body('dataRetention').optional().isObject(),
+      ],
+    },
+
+    runDataRetentionCleanup: {
+      allowedFields: ['dryRun', 'maxDocuments'],
+      validators: [
+        body('dryRun').optional().isBoolean(),
+        body('maxDocuments')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 1000 })
+          .withMessage('maxDocuments must be between 1 and 1000'),
       ],
     },
   },

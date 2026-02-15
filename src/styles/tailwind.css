@@ -164,6 +164,17 @@
     @apply w-full mx-auto px-4 sm:px-6 lg:px-8;
     max-width: min(100%, 1440px);
   }
+
+  /* Shared dashboard shell across candidate, company, and system admin */
+  .dashboard-shell {
+    @apply relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50
+           dark:from-slate-900 dark:via-slate-900 dark:to-slate-950
+           transition-colors duration-300 font-sans text-sm;
+  }
+
+  .dashboard-layout {
+    @apply container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4;
+  }
   
   /* Card component base */
   .card-base {

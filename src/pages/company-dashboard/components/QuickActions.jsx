@@ -140,7 +140,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
               <div className="w-8 h-8 bg-white/80 dark:bg-slate-900/70 rounded-lg flex items-center justify-center group-hover:bg-gradient-to-br group-hover:from-blue-600 group-hover:to-purple-600 group-hover:text-white transition-all duration-200">
                 <Icon name={shortcut?.icon} size={16} />
               </div>
-              <span className="text-[10px] font-medium text-gray-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200 text-center">
+              <span className="text-xs font-medium text-gray-700 dark:text-slate-300 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200 text-center">
                 {shortcut?.title}
               </span>
             </button>
@@ -157,7 +157,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
           
           <div className="flex-1 min-w-0">
             <h4 className="font-medium text-gray-900 dark:text-slate-100 text-sm">Need Help?</h4>
-            <p className="text-[10px] text-gray-600 dark:text-slate-400 mb-2">
+            <p className="text-xs text-gray-600 dark:text-slate-400 mb-2">
               Guides and tutorials for interviews and candidates.
             </p>
             

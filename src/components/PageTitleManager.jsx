@@ -41,7 +41,7 @@ const TITLE_RULES = [
   { pattern: /^\/company-candidates$/, title: 'Candidates - InterviewAI Pro' },
   { pattern: /^\/company-analytics$/, title: 'Analytics - InterviewAI Pro' },
   { pattern: /^\/company-team-members$/, title: 'Team Members - InterviewAI Pro' },
-  { pattern: /^\/system-admin-dashboard$/, title: 'System Admin Dashboard - InterviewAI Pro' }
+  { pattern: /^\/system-admin-dashboard(?:\/[^/]+)?$/, title: 'System Admin Dashboard - InterviewAI Pro' }
 ];
 
 const normalizePathname = (pathname) => {

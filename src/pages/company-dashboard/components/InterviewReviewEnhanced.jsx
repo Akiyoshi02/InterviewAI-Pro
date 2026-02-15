@@ -658,7 +658,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                       <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">
                         Overall Score
                       </p>
-                      <div className="text-5xl font-bold text-purple-600 dark:text-purple-400">
+                      <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
                         {interview.overallScore != null ? interview.overallScore : 'N/A'}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">

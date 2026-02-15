@@ -7,30 +7,40 @@ import {
   publishAdminRealtimeUpdate,
   publishOrganizationRealtimeUpdate,
   recordRealtimeEvent,
+  systemSettingsStore,
   userStore,
 } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
-const ensureAccess = (interview, userId) => {
+const ensureAccess = (interview, user, { allowOrganizationMembers = true } = {}) => {
   if (!interview) {
     return { allowed: false, status: 404, message: 'Interview not found' };
   }
 
-  const normalizedUserId = typeof userId === 'string' ? userId : userId?.id;
-  const viewerAccountType = userId?.accountType || null;
-  const viewerOrganizationId = userId?.organizationContext?.organization?.id || null;
+  const normalizedUserId = typeof user === 'string' ? user : user?.id;
+  const viewerAccountType = user?.accountType || null;
+  const viewerOrganizationId = user?.organizationContext?.organization?.id || null;
 
   const isDirectParticipant = interview.candidateId === normalizedUserId || interview.companyId === normalizedUserId;
-  const isOrganizationMember =
-    viewerAccountType === 'COMPANY'
+  if (isDirectParticipant) {
+    return { allowed: true };
+  }
+
+  const isOrganizationMember = allowOrganizationMembers
+    && viewerAccountType === 'COMPANY'
     && Boolean(viewerOrganizationId)
     && interview.organizationId === viewerOrganizationId;
 
-  if (!isDirectParticipant && !isOrganizationMember) {
+  if (!isOrganizationMember) {
     return { allowed: false, status: 403, message: 'Access denied' };
   }
 
   return { allowed: true };
+};
+
+const canCreateHiringInterview = (role) => {
+  const normalizedRole = String(role || '').toUpperCase();
+  return normalizedRole === 'ADMIN' || normalizedRole === 'RECRUITER';
 };
 
 const attachSingleInterviewParticipants = async (interview) => {
@@ -47,6 +57,72 @@ const attachSingleInterviewParticipants = async (interview) => {
 const isTerminalInterviewStatus = (status) => {
   const normalized = String(status || '').toUpperCase();
   return normalized === 'COMPLETED' || normalized === 'CANCELLED';
+};
+
+const DEFAULT_SYSTEM_AI_CONFIG = Object.freeze({
+  model: process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct',
+  temperature: 0.7,
+  maxTokens: 2000,
+});
+
+const clampNumber = (value, fallback, min, max) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, parsed));
+};
+
+const normalizeAiConfig = (value, fallback = DEFAULT_SYSTEM_AI_CONFIG) => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    model: typeof source.model === 'string' && source.model.trim()
+      ? source.model.trim()
+      : fallback.model,
+    temperature: clampNumber(source.temperature, fallback.temperature, 0, 1),
+    maxTokens: Math.round(clampNumber(source.maxTokens, fallback.maxTokens, 256, 32768)),
+  };
+};
+
+const mergeInterviewConfigWithSystemDefaults = (rawConfig, systemDefaultAIConfig) => {
+  const sourceConfig = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
+  const advancedSettings =
+    sourceConfig.advancedSettings && typeof sourceConfig.advancedSettings === 'object'
+      ? sourceConfig.advancedSettings
+      : {};
+
+  const baselineAiConfig = normalizeAiConfig(systemDefaultAIConfig || DEFAULT_SYSTEM_AI_CONFIG);
+  const mergedAiConfig = normalizeAiConfig(
+    sourceConfig.aiConfig || advancedSettings.aiConfig || {
+      model: advancedSettings.model,
+      temperature: advancedSettings.temperature,
+      maxTokens: advancedSettings.maxTokens,
+    },
+    baselineAiConfig,
+  );
+
+  return {
+    ...sourceConfig,
+    aiConfig: mergedAiConfig,
+    advancedSettings: {
+      ...advancedSettings,
+      aiConfig: mergedAiConfig,
+    },
+    systemDefaultAIConfig: baselineAiConfig,
+  };
+};
+
+const resolveInterviewLlmOptions = (interviewConfig) => {
+  const config = interviewConfig && typeof interviewConfig === 'object' ? interviewConfig : {};
+  const advancedSettings =
+    config.advancedSettings && typeof config.advancedSettings === 'object'
+      ? config.advancedSettings
+      : {};
+  return normalizeAiConfig(
+    config.aiConfig || advancedSettings.aiConfig || {
+      model: advancedSettings.model,
+      temperature: advancedSettings.temperature,
+      maxTokens: advancedSettings.maxTokens,
+    },
+  );
 };
 
 export class InterviewController {
@@ -71,9 +147,13 @@ export class InterviewController {
       } = req.body;
       const userId = req.user.id;
       const accountType = req.user.accountType;
-      const organizationId = req.user.organizationContext?.organization?.id || null;
+      const organizationContext = req.user.organizationContext || null;
+      const organizationId = organizationContext?.organization?.id || null;
+      const organizationStatus = String(organizationContext?.organization?.status || '').toUpperCase();
+      const organizationRole = String(organizationContext?.membership?.role || '').toUpperCase();
       const normalizedMode = String(mode || '').toUpperCase();
       const normalizedCandidateId = typeof candidateId === 'string' ? candidateId.trim() : null;
+      let systemSettings = null;
 
       if (normalizedMode === 'PRACTICE' && accountType !== 'CANDIDATE') {
         return res.status(403).json({ error: 'Only candidates can create practice interviews' });
@@ -87,11 +167,50 @@ export class InterviewController {
         return res.status(400).json({ error: 'Organization context required for hiring interviews' });
       }
 
+      if (normalizedMode === 'HIRING' && organizationStatus !== 'APPROVED') {
+        return res.status(403).json({
+          error: 'Organization approval is required to create hiring interviews',
+          code: 'ORG_APPROVAL_REQUIRED',
+        });
+      }
+
+      if (normalizedMode === 'HIRING' && !canCreateHiringInterview(organizationRole)) {
+        return res.status(403).json({
+          error: 'Insufficient organization permissions to create hiring interviews',
+          code: 'INSUFFICIENT_ORG_PERMISSIONS',
+        });
+      }
+
       if (normalizedMode === 'HIRING' && !normalizedCandidateId) {
         return res.status(400).json({
           error: 'candidateId is required for hiring interviews',
           code: 'HIRING_CANDIDATE_REQUIRED',
         });
+      }
+
+      let mergedInterviewConfig = null;
+      if (config || normalizedMode === 'PRACTICE' || normalizedMode === 'HIRING') {
+        try {
+          systemSettings = await systemSettingsStore.get();
+          mergedInterviewConfig = mergeInterviewConfigWithSystemDefaults(
+            config,
+            systemSettings?.defaultAIConfig,
+          );
+        } catch (settingsError) {
+          logger.warn('Failed to load system AI defaults; using fallback defaults.', settingsError);
+          mergedInterviewConfig = mergeInterviewConfigWithSystemDefaults(config, DEFAULT_SYSTEM_AI_CONFIG);
+        }
+      }
+
+      if (normalizedMode === 'HIRING') {
+        const featureFlags = systemSettings?.featureFlags || {};
+        if (featureFlags.enableInvitations === false || featureFlags.enableJobPosting === false) {
+          return res.status(503).json({
+            error: 'Hiring interview creation is currently disabled by system administration.',
+            code: 'FEATURE_DISABLED',
+            feature: featureFlags.enableInvitations === false ? 'enableInvitations' : 'enableJobPosting',
+          });
+        }
       }
 
       if (normalizedMode === 'HIRING') {
@@ -170,7 +289,7 @@ export class InterviewController {
         interviewTypes,
         skillFocus,
         duration,
-        config: config || null, // Store full config object (personality, voice, interviewerName, advancedSettings)
+        config: mergedInterviewConfig || null, // Store full config object (personality, voice, interviewerName, advancedSettings)
       });
 
       const hydrated = await attachSingleInterviewParticipants({ ...interview, questions: [] });
@@ -231,7 +350,7 @@ export class InterviewController {
       const { id } = req.params;
       const { recordingConsentGivenAt, recordingConsentVersion } = req.body;
       const interview = await interviewStore.getById(id);
-      const access = ensureAccess(interview, req.user);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -255,7 +374,7 @@ export class InterviewController {
     try {
       const { id } = req.params;
       let interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, req.user);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -276,6 +395,7 @@ export class InterviewController {
           personality: interview.config?.personality || null,
           difficulty: interview.config?.advancedSettings?.difficulty || 'medium',
           interviewerName: interview.config?.interviewerName || null,
+          llmOptions: resolveInterviewLlmOptions(interview.config),
         };
 
         const generatedQuestions = await LLMService.generateInterviewQuestions(config);
@@ -327,7 +447,7 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, req.user);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -337,6 +457,7 @@ export class InterviewController {
       const evaluation = await LLMService.generateInterviewSummary({
         interview,
         questions: answeredQuestions,
+        llmOptions: resolveInterviewLlmOptions(interview.config),
       });
 
       const updatedInterview = await interviewStore.update(id, {
@@ -485,7 +606,7 @@ export class InterviewController {
       const { id } = req.params;
       const { questionId, answer, audioUrl } = req.body;
       const interview = await interviewStore.getWithQuestions(id);
-      const access = ensureAccess(interview, req.user);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }
@@ -518,6 +639,7 @@ export class InterviewController {
           answer,
           criteria: question.evaluationCriteria,
           difficulty: question.difficulty,
+          llmOptions: resolveInterviewLlmOptions(interview.config),
         });
 
         await interviewStore.updateQuestion(id, questionId, {
@@ -558,7 +680,7 @@ export class InterviewController {
       const { id } = req.params;
       const { questionId } = req.body;
       const interview = await interviewStore.getById(id);
-      const access = ensureAccess(interview, req.user);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
       }

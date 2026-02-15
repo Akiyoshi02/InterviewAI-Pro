@@ -70,6 +70,12 @@ export const ADMIN_FEED_EVENTS = Object.freeze({
   settings: Object.freeze([
     'system-settings-updated',
   ]),
+  users: Object.freeze([
+    'user-status-updated',
+  ]),
+  operations: Object.freeze([
+    'data-retention-cleanup-run',
+  ]),
   datasets: Object.freeze([
     'dataset-updated',
   ]),

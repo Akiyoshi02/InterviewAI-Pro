@@ -13,8 +13,9 @@
  */
 
 import express from 'express';
+import { timingSafeEqual } from 'crypto';
 import { param, query } from 'express-validator';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, optionalAuth } from '../middleware/auth.middleware.js';
 import { requireSystemAdmin } from '../middleware/admin.middleware.js';
 import { 
   validateRequest, 
@@ -27,6 +28,35 @@ import {
 import { AdminController } from '../controllers/admin.controller.js';
 
 const router = express.Router();
+
+const secureCompare = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const requireAdminSetupToken = (req, res, next) => {
+  const expectedToken = process.env.ADMIN_SETUP_TOKEN;
+  if (!expectedToken) {
+    return res.status(503).json({
+      success: false,
+      error: 'Admin bootstrap is not configured on this environment.',
+      code: 'ADMIN_SETUP_DISABLED',
+    });
+  }
+
+  const providedToken = req.headers['x-admin-setup-token'];
+  if (!providedToken || !secureCompare(providedToken, expectedToken)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Invalid setup token.',
+      code: 'INVALID_SETUP_TOKEN',
+    });
+  }
+
+  return next();
+};
 
 // =============================================================================
 // ADMIN BOOTSTRAP ENDPOINTS (Rate limited: 3 per day)
@@ -41,6 +71,8 @@ const router = express.Router();
  */
 router.post(
   '/auth/bootstrap-admin',
+  optionalAuth,
+  requireAdminSetupToken,
   stripUnexpectedFields(validationSchemas.admin.bootstrapAdmin.allowedFields),
   validationSchemas.admin.bootstrapAdmin.validators,
   validateRequest,
@@ -56,6 +88,8 @@ router.post(
  */
 router.post(
   '/auth/seed-admin',
+  optionalAuth,
+  requireAdminSetupToken,
   stripUnexpectedFields(validationSchemas.admin.seedAdmin.allowedFields),
   validationSchemas.admin.seedAdmin.validators,
   validateRequest,
@@ -275,10 +309,59 @@ router.get(
       .optional()
       .isIn(['CANDIDATE', 'COMPANY', 'SYSTEM_ADMIN'])
       .withMessage('Invalid account type'),
+    query('status')
+      .optional()
+      .isIn(['ACTIVE', 'SUSPENDED'])
+      .withMessage('Invalid status'),
+    query('q')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search query must be 200 characters or fewer'),
     commonValidators.queryParam.limit(100, 500),
+    commonValidators.queryParam.offset(),
   ],
   validateRequest,
   AdminController.listUsers,
+);
+
+router.patch(
+  '/users/:id/status',
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('User ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.admin.updateUserStatus.allowedFields),
+  validationSchemas.admin.updateUserStatus.validators,
+  validateRequest,
+  AdminController.updateUserStatus,
+);
+
+router.post(
+  '/users/:id/promote-system-admin',
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('User ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  AdminController.promoteToSystemAdmin,
+);
+
+router.get('/billing-overview', AdminController.getBillingOverview);
+router.get('/newsletter-stats', AdminController.getNewsletterStats);
+router.get('/data-retention/summary', AdminController.getDataRetentionSummary);
+router.post(
+  '/data-retention/run',
+  stripUnexpectedFields(validationSchemas.admin.runDataRetentionCleanup.allowedFields),
+  validationSchemas.admin.runDataRetentionCleanup.validators,
+  validateRequest,
+  AdminController.runDataRetentionCleanup,
 );
 
 export default router;

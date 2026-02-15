@@ -1,0 +1,423 @@
+[
+  {
+    "file": "src/Routes.jsx",
+    "line": 62,
+    "routePath": "/",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/\" element={<HomePage />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 63,
+    "routePath": "/live-interview-session",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/live-interview-session\" element={( <ProtectedRoute roles={['CANDIDATE']}> <LiveInterviewSession />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 71,
+    "routePath": "/interview-lobby/:interviewId",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/interview-lobby/:interviewId\" element={( <ProtectedRoute roles={['CANDIDATE']}> <InterviewLobby />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 79,
+    "routePath": "/company-dashboard",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/company-dashboard\" element={( <ProtectedRoute roles={['COMPANY']}> <CompanyDashboard />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 87,
+    "routePath": "/company-jobs",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_JOBS_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-jobs\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_JOBS_PAGE']}> <CompanyJobsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 95,
+    "routePath": "/company-applications",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_APPLICATIONS_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-applications\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_APPLICATIONS_PAGE']}> <CompanyApplicationsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 103,
+    "routePath": "/company-interviews",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_INTERVIEWS_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-interviews\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INTERVIEWS_PAGE']}> <CompanyInterviewsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 111,
+    "routePath": "/company-invitations",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_INVITATIONS_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-invitations\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INVITATIONS_PAGE']}> <CompanyInvitationsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 119,
+    "routePath": "/company-candidates",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_CANDIDATES_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-candidates\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_CANDIDATES_PAGE']}> <CompanyCandidatesPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 127,
+    "routePath": "/company-analytics",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "ACCESS_ANALYTICS_PAGE"
+    ],
+    "snippet": "<Route path=\"/company-analytics\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_ANALYTICS_PAGE']}> <CompanyAnalyticsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 135,
+    "routePath": "/company-team-members",
+    "protectedRoute": true,
+    "roles": [
+      "COMPANY"
+    ],
+    "orgPermissions": [
+      "MANAGE_MEMBERS"
+    ],
+    "snippet": "<Route path=\"/company-team-members\" element={( <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_MEMBERS']}> <CompanyTeamMembersPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 143,
+    "routePath": "/login",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/login\" element={<Login />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 144,
+    "routePath": "/admin",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/admin\" element={<AdminLogin />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 145,
+    "routePath": "/practice-interview-setup",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/practice-interview-setup\" element={( <ProtectedRoute roles={['CANDIDATE']}> <PracticeInterviewSetup />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 153,
+    "routePath": "/register",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/register\" element={<Register />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 154,
+    "routePath": "/reset-password",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/reset-password\" element={<ResetPassword />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 155,
+    "routePath": "/accept-team-invite/:token",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/accept-team-invite/:token\" element={<AcceptTeamInvitePage />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 156,
+    "routePath": "/candidate-dashboard",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/candidate-dashboard\" element={( <ProtectedRoute roles={['CANDIDATE']}> <CandidateDashboard />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 164,
+    "routePath": "/my-applications",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/my-applications\" element={( <ProtectedRoute roles={['CANDIDATE']}> <MyApplicationsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 172,
+    "routePath": "/verify-email",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/verify-email\" element={<VerifyEmail />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 173,
+    "routePath": "/onboarding",
+    "protectedRoute": true,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/onboarding\" element={( <ProtectedRoute> <Onboarding />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 181,
+    "routePath": "/privacy",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/privacy\" element={<Privacy />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 182,
+    "routePath": "/terms",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/terms\" element={<Terms />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 183,
+    "routePath": "/contact",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/contact\" element={<Contact />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 184,
+    "routePath": "/help-center",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/help-center\" element={<HelpCenter />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 185,
+    "routePath": "/learning-center",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/learning-center\" element={<LearningCenter />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 186,
+    "routePath": "/success-stories",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/success-stories\" element={<SuccessStories />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 187,
+    "routePath": "/interview-guides",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/interview-guides\" element={<InterviewGuides />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 188,
+    "routePath": "/help-articles",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/help-articles\" element={<HelpArticles />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 189,
+    "routePath": "/about",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/about\" element={<About />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 190,
+    "routePath": "/careers",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/careers\" element={<Careers />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 191,
+    "routePath": "/press",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/press\" element={<Press />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 192,
+    "routePath": "/api-docs",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/api-docs\" element={<APIDocsPage />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 193,
+    "routePath": "/status",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/status\" element={<StatusPage />} />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 194,
+    "routePath": "/jobs",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/jobs\" element={( <ProtectedRoute roles={['CANDIDATE']}> <JobsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 202,
+    "routePath": "/jobs/:id",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/jobs/:id\" element={( <ProtectedRoute roles={['CANDIDATE']}> <JobDetailPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 210,
+    "routePath": "/invite",
+    "protectedRoute": true,
+    "roles": [
+      "CANDIDATE"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/invite\" element={( <ProtectedRoute roles={['CANDIDATE']}> <InvitePage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 218,
+    "routePath": "/system-admin-dashboard",
+    "protectedRoute": true,
+    "roles": [
+      "SYSTEM_ADMIN"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/system-admin-dashboard\" element={( <ProtectedRoute roles={['SYSTEM_ADMIN']}> <SystemAdminDashboard />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 226,
+    "routePath": "/system-admin-dashboard/:section",
+    "protectedRoute": true,
+    "roles": [
+      "SYSTEM_ADMIN"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/system-admin-dashboard/:section\" element={( <ProtectedRoute roles={['SYSTEM_ADMIN']}> <SystemAdminDashboard />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 234,
+    "routePath": "/research-tools",
+    "protectedRoute": true,
+    "roles": [
+      "SYSTEM_ADMIN"
+    ],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"/research-tools\" element={( <ProtectedRoute roles={['SYSTEM_ADMIN']}> <ResearchToolsPage />"
+  },
+  {
+    "file": "src/Routes.jsx",
+    "line": 242,
+    "routePath": "*",
+    "protectedRoute": false,
+    "roles": [],
+    "orgPermissions": [],
+    "snippet": "<Route path=\"*\" element={<NotFound />} />"
+  }
+]

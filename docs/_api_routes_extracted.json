@@ -1,0 +1,1519 @@
+[
+  {
+    "file": "server/src/routes/activity.routes.js",
+    "line": 12,
+    "method": "GET",
+    "base": "/api/activity",
+    "routePath": "/",
+    "fullPath": "/api/activity/",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableAnalytics'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), ActivityController.listOrganizationActivity, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 72,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/auth/bootstrap-admin",
+    "fullPath": "/api/admin/auth/bootstrap-admin",
+    "middlewares": [
+      "optionalAuth"
+    ],
+    "snippet": "router.post( '/auth/bootstrap-admin', optionalAuth, requireAdminSetupToken, stripUnexpectedFields(validationSchemas.admin.bootstrapAdmin.allowedFields), validationSchemas.admin.bootstrapAdmin.validators, validateRequest, AdminController.bootstrapAdmin, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 89,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/auth/seed-admin",
+    "fullPath": "/api/admin/auth/seed-admin",
+    "middlewares": [
+      "optionalAuth"
+    ],
+    "snippet": "router.post( '/auth/seed-admin', optionalAuth, requireAdminSetupToken, stripUnexpectedFields(validationSchemas.admin.seedAdmin.allowedFields), validationSchemas.admin.seedAdmin.validators, validateRequest, AdminController.seedAdmin, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 115,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/organizations",
+    "fullPath": "/api/admin/organizations",
+    "middlewares": [],
+    "snippet": "router.get( '/organizations', [ commonValidators.queryParam.status(ALLOWED_VALUES.ORGANIZATION_STATUS), commonValidators.queryParam.limit(100, 500), commonValidators.queryParam.offset(), ], validateRequest, AdminController.listOrganizations, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 130,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/organizations/pending",
+    "fullPath": "/api/admin/organizations/pending",
+    "middlewares": [],
+    "snippet": "router.get( '/organizations/pending', [commonValidators.queryParam.limit(50, 100)], validateRequest, AdminController.listPendingOrganizations, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 141,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/organizations/:id",
+    "fullPath": "/api/admin/organizations/:id",
+    "middlewares": [],
+    "snippet": "router.get( '/organizations/:id', [ param('id') .trim() .notEmpty() .withMessage('Organization ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, AdminController.getOrganization, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 158,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/organizations/:id/approve",
+    "fullPath": "/api/admin/organizations/:id/approve",
+    "middlewares": [],
+    "snippet": "router.post( '/organizations/:id/approve', [ param('id') .trim() .notEmpty() .withMessage('Organization ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, AdminController.approveOrganization, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 177,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/organizations/:id/reject",
+    "fullPath": "/api/admin/organizations/:id/reject",
+    "middlewares": [],
+    "snippet": "router.post( '/organizations/:id/reject', [ param('id') .trim() .notEmpty() .withMessage('Organization ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], stripUnexpectedFields(validationSchemas.admin.rejectOrganization.allowedFields), validationSchemas.admin.rejectOrganization.validators, validateRequest, AdminController.rejectOrganization, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 198,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/organizations/:id/suspend",
+    "fullPath": "/api/admin/organizations/:id/suspend",
+    "middlewares": [],
+    "snippet": "router.post( '/organizations/:id/suspend', [ param('id') .trim() .notEmpty() .withMessage('Organization ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], stripUnexpectedFields(validationSchemas.admin.suspendOrganization.allowedFields), validationSchemas.admin.suspendOrganization.validators, validateRequest, AdminController.suspendOrganization, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 217,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/organizations/:id/activate",
+    "fullPath": "/api/admin/organizations/:id/activate",
+    "middlewares": [],
+    "snippet": "router.post( '/organizations/:id/activate', [ param('id') .trim() .notEmpty() .withMessage('Organization ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, AdminController.activateOrganization, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 238,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/settings",
+    "fullPath": "/api/admin/settings",
+    "middlewares": [],
+    "snippet": "router.get('/settings', AdminController.getSettings);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 244,
+    "method": "PATCH",
+    "base": "/api/admin",
+    "routePath": "/settings",
+    "fullPath": "/api/admin/settings",
+    "middlewares": [],
+    "snippet": "router.patch( '/settings', stripUnexpectedFields(validationSchemas.admin.updateSettings.allowedFields), validationSchemas.admin.updateSettings.validators, validateRequest, AdminController.updateSettings, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 260,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/audit-logs",
+    "fullPath": "/api/admin/audit-logs",
+    "middlewares": [],
+    "snippet": "router.get( '/audit-logs', [ commonValidators.queryParam.limit(100, 500), commonValidators.queryParam.offset(), query('cursor') .optional() .trim() .isLength({ max: 512 }) .withMessage('Cursor must be 512 characters or fewer'), ], validateRequest, AdminController.getAuditLogs, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 279,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/stats",
+    "fullPath": "/api/admin/stats",
+    "middlewares": [],
+    "snippet": "router.get('/stats', AdminController.getStats);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 285,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/fairness-calibration",
+    "fullPath": "/api/admin/fairness-calibration",
+    "middlewares": [],
+    "snippet": "router.get('/fairness-calibration', AdminController.getFairnessCalibration);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 295,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/live-chat/register",
+    "fullPath": "/api/admin/live-chat/register",
+    "middlewares": [],
+    "snippet": "router.post('/live-chat/register', AdminController.registerLiveChatAdmin);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 305,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/users",
+    "fullPath": "/api/admin/users",
+    "middlewares": [],
+    "snippet": "router.get( '/users', [ query('accountType') .optional() .isIn(['CANDIDATE', 'COMPANY', 'SYSTEM_ADMIN']) .withMessage('Invalid account type'), query('status') .optional() .isIn(['ACTIVE', 'SUSPENDED']) .withMessage('Invalid status'), query('q') .optional() .trim() .isLength({ max: 200 }) .withMessage('Search query must be 200 characters or fewer'), commonValidators.queryParam.limit(100, 500), comm"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 328,
+    "method": "PATCH",
+    "base": "/api/admin",
+    "routePath": "/users/:id/status",
+    "fullPath": "/api/admin/users/:id/status",
+    "middlewares": [],
+    "snippet": "router.patch( '/users/:id/status', [ param('id') .trim() .notEmpty() .withMessage('User ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], stripUnexpectedFields(validationSchemas.admin.updateUserStatus.allowedFields), validationSchemas.admin.updateUserStatus.validators, validateRequest, AdminController.updateUserStatus, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 343,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/users/:id/promote-system-admin",
+    "fullPath": "/api/admin/users/:id/promote-system-admin",
+    "middlewares": [],
+    "snippet": "router.post( '/users/:id/promote-system-admin', [ param('id') .trim() .notEmpty() .withMessage('User ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, AdminController.promoteToSystemAdmin, );"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 356,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/billing-overview",
+    "fullPath": "/api/admin/billing-overview",
+    "middlewares": [],
+    "snippet": "router.get('/billing-overview', AdminController.getBillingOverview);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 357,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/newsletter-stats",
+    "fullPath": "/api/admin/newsletter-stats",
+    "middlewares": [],
+    "snippet": "router.get('/newsletter-stats', AdminController.getNewsletterStats);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 358,
+    "method": "GET",
+    "base": "/api/admin",
+    "routePath": "/data-retention/summary",
+    "fullPath": "/api/admin/data-retention/summary",
+    "middlewares": [],
+    "snippet": "router.get('/data-retention/summary', AdminController.getDataRetentionSummary);"
+  },
+  {
+    "file": "server/src/routes/admin.routes.js",
+    "line": 359,
+    "method": "POST",
+    "base": "/api/admin",
+    "routePath": "/data-retention/run",
+    "fullPath": "/api/admin/data-retention/run",
+    "middlewares": [],
+    "snippet": "router.post( '/data-retention/run', stripUnexpectedFields(validationSchemas.admin.runDataRetentionCleanup.allowedFields), validationSchemas.admin.runDataRetentionCleanup.validators, validateRequest, AdminController.runDataRetentionCleanup, );"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 14,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/dashboard",
+    "fullPath": "/api/analytics/dashboard",
+    "middlewares": [
+      "authenticate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/dashboard', authenticate, requireFeatureFlag('enableAnalytics'), AnalyticsController.getDashboard);"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 15,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/company/metrics",
+    "fullPath": "/api/analytics/company/metrics",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/company/metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getCompanyMetrics);"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 18,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/dashboard-metrics",
+    "fullPath": "/api/analytics/dashboard-metrics",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/dashboard-metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getDashboardMetrics);"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 21,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/historical",
+    "fullPath": "/api/analytics/historical",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/historical', authenticate, requireFeatureFlag('enableAnalytics'), requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), AnalyticsController.getHistoricalMetrics);"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 24,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/candidate/dashboard-metrics",
+    "fullPath": "/api/analytics/candidate/dashboard-metrics",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/candidate/dashboard-metrics', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateDashboardMetrics);"
+  },
+  {
+    "file": "server/src/routes/analytics.routes.js",
+    "line": 27,
+    "method": "GET",
+    "base": "/api/analytics",
+    "routePath": "/candidate/historical",
+    "fullPath": "/api/analytics/candidate/historical",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get('/candidate/historical', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateHistoricalMetrics);"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 21,
+    "method": "POST",
+    "base": "/api",
+    "routePath": "/jobs/:jobId/apply",
+    "fullPath": "/api/jobs/:jobId/apply",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/jobs/:jobId/apply', authenticate, requireFeatureFlag('enableJobPosting'), requireCandidate, [ param('jobId').isString().notEmpty(), body('resumeUrl').optional({ nullable: true, checkFalsy: true }).isString(), body('coverLetter').optional({ nullable: true, checkFalsy: true }).isString(), body('answers') .optional({ nullable: true }) .isArray() .withMessage('Answers must be an array')"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 42,
+    "method": "GET",
+    "base": "/api",
+    "routePath": "/candidates/applications",
+    "fullPath": "/api/candidates/applications",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/candidates/applications', authenticate, requireFeatureFlag('enableJobPosting'), requireCandidate, [ query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'), query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('Limit must be between 1 and 200'), query('cursor').optional().isString().isLength({ max: 80 }), ], validateRequest, Application"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 57,
+    "method": "GET",
+    "base": "/api",
+    "routePath": "/applications/:id",
+    "fullPath": "/api/applications/:id",
+    "middlewares": [
+      "authenticate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/applications/:id', authenticate, requireFeatureFlag('enableJobPosting'), [param('id').isString().notEmpty()], validateRequest, ApplicationController.getApplication, );"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 67,
+    "method": "DELETE",
+    "base": "/api",
+    "routePath": "/applications/:id",
+    "fullPath": "/api/applications/:id",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.delete( '/applications/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireCandidate, [param('id').isString().notEmpty()], validateRequest, ApplicationController.withdrawApplication, );"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 78,
+    "method": "GET",
+    "base": "/api",
+    "routePath": "/jobs/:jobId/applications",
+    "fullPath": "/api/jobs/:jobId/applications",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/jobs/:jobId/applications', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ param('jobId').isString().notEmpty(), query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'), query('limit').optional().isInt({ min: 1, max: 200 }).withMessage('Limit must be between 1 and 200'), qu"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 95,
+    "method": "GET",
+    "base": "/api",
+    "routePath": "/organizations/applications",
+    "fullPath": "/api/organizations/applications",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/organizations/applications', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'), query('limit').optional().isInt({ min: 1, max: 200 }), query('cursor').optional().isString().isLength({ max: 80 }), ], validateRequest, Appl"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 111,
+    "method": "PATCH",
+    "base": "/api",
+    "routePath": "/applications/bulk/status",
+    "fullPath": "/api/applications/bulk/status",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/applications/bulk/status', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ body('applicationIds') .isArray({ min: 1, max: 200 }) .withMessage('applicationIds must contain between 1 and 200 items'), body('applicationIds.*').isString().notEmpty(), body('status') .isIn(APPLICATION_STATUSES) .withMessage('Inva"
+  },
+  {
+    "file": "server/src/routes/application.routes.js",
+    "line": 140,
+    "method": "PATCH",
+    "base": "/api",
+    "routePath": "/applications/:id",
+    "fullPath": "/api/applications/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/applications/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ param('id').isString().notEmpty(), body('status') .isIn(APPLICATION_STATUSES) .withMessage('Invalid status'), body('dispositionCode') .optional({ nullable: true }) .isIn(DISPOSITION_CODES) .withMessage('Invalid disposition code'), body('dis"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 45,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/register",
+    "fullPath": "/api/auth/register",
+    "middlewares": [],
+    "snippet": "router.post( '/register', verifyFirebaseAuth, // Only verify token - user doesn't exist in DB yet registrationUploadHandler, stripUnexpectedFields(validationSchemas.auth.register.allowedFields), validationSchemas.auth.register.validators, validateRequest, AuthController.register );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 62,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/check-email",
+    "fullPath": "/api/auth/check-email",
+    "middlewares": [],
+    "snippet": "router.post( '/check-email', stripUnexpectedFields(validationSchemas.auth.checkEmail.allowedFields), validationSchemas.auth.checkEmail.validators, validateRequest, AuthController.checkEmailAvailability );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 81,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/email-verification/start",
+    "fullPath": "/api/auth/email-verification/start",
+    "middlewares": [],
+    "snippet": "router.post( '/email-verification/start', verifyFirebaseAuth, stripUnexpectedFields(validationSchemas.auth.emailVerificationStart.allowedFields), validationSchemas.auth.emailVerificationStart.validators, validateRequest, AuthController.startEmailVerification );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 97,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/email-verification/verify-code",
+    "fullPath": "/api/auth/email-verification/verify-code",
+    "middlewares": [],
+    "snippet": "router.post( '/email-verification/verify-code', verifyFirebaseAuth, stripUnexpectedFields(validationSchemas.auth.verifyEmailCode.allowedFields), validationSchemas.auth.verifyEmailCode.validators, validateRequest, AuthController.verifyEmailCode );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 114,
+    "method": "GET",
+    "base": "/api/auth",
+    "routePath": "/me",
+    "fullPath": "/api/auth/me",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get('/me', authenticate, AuthController.getMe);"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 120,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/me/organization/request-rereview",
+    "fullPath": "/api/auth/me/organization/request-rereview",
+    "middlewares": [
+      "authenticate",
+      "requireCompany"
+    ],
+    "snippet": "router.post( '/me/organization/request-rereview', authenticate, requireCompany, stripUnexpectedFields(validationSchemas.auth.requestOrganizationReReview.allowedFields), validationSchemas.auth.requestOrganizationReReview.validators, validateRequest, AuthController.requestOrganizationReReview );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 136,
+    "method": "PATCH",
+    "base": "/api/auth",
+    "routePath": "/me",
+    "fullPath": "/api/auth/me",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.patch( '/me', authenticate, AuthController.updateMe );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 149,
+    "method": "PATCH",
+    "base": "/api/auth",
+    "routePath": "/me/profile-photo",
+    "fullPath": "/api/auth/me/profile-photo",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate"
+    ],
+    "snippet": "router.patch( '/me/profile-photo', authenticate, requireCandidate, registrationUpload.single('profilePhoto'), AuthController.updateProfilePhoto );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 164,
+    "method": "PATCH",
+    "base": "/api/auth",
+    "routePath": "/me/company-logo",
+    "fullPath": "/api/auth/me/company-logo",
+    "middlewares": [
+      "authenticate",
+      "requireCompany"
+    ],
+    "snippet": "router.patch( '/me/company-logo', authenticate, requireCompany, registrationUpload.single('companyLogo'), AuthController.updateCompanyLogo );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 179,
+    "method": "PATCH",
+    "base": "/api/auth",
+    "routePath": "/me/company-proof",
+    "fullPath": "/api/auth/me/company-proof",
+    "middlewares": [
+      "authenticate",
+      "requireCompany"
+    ],
+    "snippet": "router.patch( '/me/company-proof', authenticate, requireCompany, registrationUpload.single('companyProof'), AuthController.updateCompanyVerificationDocument );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 194,
+    "method": "PATCH",
+    "base": "/api/auth",
+    "routePath": "/me/resume",
+    "fullPath": "/api/auth/me/resume",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate"
+    ],
+    "snippet": "router.patch( '/me/resume', authenticate, requireCandidate, registrationUpload.single('resumeFile'), AuthController.updateResume );"
+  },
+  {
+    "file": "server/src/routes/auth.routes.js",
+    "line": 213,
+    "method": "POST",
+    "base": "/api/auth",
+    "routePath": "/delete-unregistered-auth-user",
+    "fullPath": "/api/auth/delete-unregistered-auth-user",
+    "middlewares": [],
+    "snippet": "router.post( '/delete-unregistered-auth-user', verifyFirebaseAuth, stripUnexpectedFields(validationSchemas.auth.deleteUnregisteredUser.allowedFields), validationSchemas.auth.deleteUnregisteredUser.validators, validateRequest, AuthController.deleteUnregisteredAuthUser );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 14,
+    "method": "GET",
+    "base": "/api/billing",
+    "routePath": "/plans",
+    "fullPath": "/api/billing/plans",
+    "middlewares": [],
+    "snippet": "router.get('/plans', BillingController.getPlans);"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 17,
+    "method": "GET",
+    "base": "/api/billing",
+    "routePath": "/subscription",
+    "fullPath": "/api/billing/subscription",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.get( '/subscription', authenticate, requireOrganizationContext, requireOrgRole(['ADMIN']), BillingController.getSubscription, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 26,
+    "method": "PUT",
+    "base": "/api/billing",
+    "routePath": "/subscription",
+    "fullPath": "/api/billing/subscription",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.put( '/subscription', authenticate, requireOrganizationContext, requireOrgRole(['ADMIN']), [ body('planId') .isString() .trim() .notEmpty() .isIn(['free', 'starter', 'professional', 'enterprise']) .withMessage('Invalid plan ID'), ], validateRequest, BillingController.updateSubscription, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 44,
+    "method": "DELETE",
+    "base": "/api/billing",
+    "routePath": "/subscription",
+    "fullPath": "/api/billing/subscription",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.delete( '/subscription', authenticate, requireOrganizationContext, requireOrgRole(['ADMIN']), [body('cancelAtPeriodEnd').optional().isBoolean()], validateRequest, BillingController.cancelSubscription, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 55,
+    "method": "GET",
+    "base": "/api/billing",
+    "routePath": "/usage",
+    "fullPath": "/api/billing/usage",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/usage', authenticate, requireOrganizationContext, BillingController.getUsage, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 63,
+    "method": "GET",
+    "base": "/api/billing",
+    "routePath": "/history",
+    "fullPath": "/api/billing/history",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.get( '/history', authenticate, requireOrganizationContext, requireOrgRole(['ADMIN']), [query('limit').optional().isInt({ min: 1, max: 200 })], validateRequest, BillingController.getBillingHistory, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 74,
+    "method": "GET",
+    "base": "/api/billing",
+    "routePath": "/check/:feature",
+    "fullPath": "/api/billing/check/:feature",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/check/:feature', authenticate, requireOrganizationContext, [param('feature').isString().notEmpty()], validateRequest, BillingController.checkFeatureAccess, );"
+  },
+  {
+    "file": "server/src/routes/billing.routes.js",
+    "line": 84,
+    "method": "POST",
+    "base": "/api/billing",
+    "routePath": "/checkout",
+    "fullPath": "/api/billing/checkout",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.post( '/checkout', authenticate, requireOrganizationContext, requireOrgRole(['ADMIN']), [body('planId').isString().trim().notEmpty()], validateRequest, BillingController.createCheckoutSession, );"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 36,
+    "method": "POST",
+    "base": "/api/datasets",
+    "routePath": "/interview",
+    "fullPath": "/api/datasets/interview",
+    "middlewares": [
+      "optionalAuth"
+    ],
+    "snippet": "router.post('/interview', optionalAuth, saveInterviewDataset);"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 43,
+    "method": "POST",
+    "base": "/api/datasets",
+    "routePath": "/analytics",
+    "fullPath": "/api/datasets/analytics",
+    "middlewares": [
+      "optionalAuth"
+    ],
+    "snippet": "router.post('/analytics', optionalAuth, saveAnalyticsDataset);"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 53,
+    "method": "GET",
+    "base": "/api/datasets",
+    "routePath": "/",
+    "fullPath": "/api/datasets/",
+    "middlewares": [
+      "authenticate",
+      "requireSystemAdmin"
+    ],
+    "snippet": "router.get('/', authenticate, requireSystemAdmin, listDatasets);"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 60,
+    "method": "GET",
+    "base": "/api/datasets",
+    "routePath": "/statistics",
+    "fullPath": "/api/datasets/statistics",
+    "middlewares": [
+      "authenticate",
+      "requireSystemAdmin"
+    ],
+    "snippet": "router.get('/statistics', authenticate, requireSystemAdmin, getDatasetStatistics);"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 70,
+    "method": "GET",
+    "base": "/api/datasets",
+    "routePath": "/export/:type",
+    "fullPath": "/api/datasets/export/:type",
+    "middlewares": [
+      "authenticate",
+      "requireSystemAdmin"
+    ],
+    "snippet": "router.get('/export/:type', authenticate, requireSystemAdmin, exportDatasets);"
+  },
+  {
+    "file": "server/src/routes/dataset.routes.js",
+    "line": 78,
+    "method": "DELETE",
+    "base": "/api/datasets",
+    "routePath": "/:id",
+    "fullPath": "/api/datasets/:id",
+    "middlewares": [
+      "authenticate",
+      "requireSystemAdmin"
+    ],
+    "snippet": "router.delete('/:id', authenticate, requireSystemAdmin, deleteDataset);"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 45,
+    "method": "POST",
+    "base": "/api/interviews",
+    "routePath": "/create",
+    "fullPath": "/api/interviews/create",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/create', authenticate, stripUnexpectedFields(validationSchemas.interview.create.allowedFields), validationSchemas.interview.create.validators, validateRequest, InterviewController.createInterview );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 64,
+    "method": "GET",
+    "base": "/api/interviews",
+    "routePath": "/user/my-interviews",
+    "fullPath": "/api/interviews/user/my-interviews",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/user/my-interviews', authenticate, [query('limit').optional().toInt().isInt({ min: 1, max: 200 })], validateRequest, InterviewController.getMyInterviews );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 76,
+    "method": "GET",
+    "base": "/api/interviews",
+    "routePath": "/company/all",
+    "fullPath": "/api/interviews/company/all",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireApprovedOrganization",
+      "requireOrgRole"
+    ],
+    "snippet": "router.get( '/company/all', authenticate, requireCompany, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']), [query('limit').optional().toInt().isInt({ min: 1, max: 200 })], validateRequest, InterviewController.getCompanyInterviews );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 91,
+    "method": "GET",
+    "base": "/api/interviews",
+    "routePath": "/:id",
+    "fullPath": "/api/interviews/:id",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/:id', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, InterviewController.getInterview );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 109,
+    "method": "GET",
+    "base": "/api/interviews",
+    "routePath": "/:id/evaluation",
+    "fullPath": "/api/interviews/:id/evaluation",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/:id/evaluation', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, InterviewController.getEvaluation );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 132,
+    "method": "PATCH",
+    "base": "/api/interviews",
+    "routePath": "/:id/recording-consent",
+    "fullPath": "/api/interviews/:id/recording-consent",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.patch( '/:id/recording-consent', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], stripUnexpectedFields(validationSchemas.interview.recordingConsent.allowedFields), validationSchemas.interview.recordingConsent.validators, validateRequest, InterviewController.recordRecordingConsent );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 152,
+    "method": "POST",
+    "base": "/api/interviews",
+    "routePath": "/:id/start",
+    "fullPath": "/api/interviews/:id/start",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/:id/start', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, InterviewController.startInterview );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 170,
+    "method": "POST",
+    "base": "/api/interviews",
+    "routePath": "/:id/end",
+    "fullPath": "/api/interviews/:id/end",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/:id/end', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, InterviewController.endInterview );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 192,
+    "method": "POST",
+    "base": "/api/interviews",
+    "routePath": "/:id/question/asked",
+    "fullPath": "/api/interviews/:id/question/asked",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/:id/question/asked', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), body('questionId') .trim() .notEmpty() .withMessage('Question ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], validateRequest, InterviewController.markQuestionAsked );"
+  },
+  {
+    "file": "server/src/routes/interview.routes.js",
+    "line": 215,
+    "method": "POST",
+    "base": "/api/interviews",
+    "routePath": "/:id/question/answer",
+    "fullPath": "/api/interviews/:id/question/answer",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/:id/question/answer', authenticate, [ param('id') .trim() .notEmpty() .withMessage('Interview ID is required') .isLength({ max: LENGTH_LIMITS.ID }), ], stripUnexpectedFields(validationSchemas.interview.submitAnswer.allowedFields), validationSchemas.interview.submitAnswer.validators, validateRequest, InterviewController.submitAnswer );"
+  },
+  {
+    "file": "server/src/routes/invitation.routes.js",
+    "line": 16,
+    "method": "POST",
+    "base": "/api/invitations",
+    "routePath": "/",
+    "fullPath": "/api/invitations/",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/', authenticate, requireFeatureFlag('enableInvitations'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ body('jobId').isString().withMessage('Job ID is required'), body('email').isEmail().withMessage('Valid candidate email required'), body('stage').optional().isString(), body('expiresAt').optional().isISO8601(), ], validateRequest, InvitationController.creat"
+  },
+  {
+    "file": "server/src/routes/invitation.routes.js",
+    "line": 32,
+    "method": "GET",
+    "base": "/api/invitations",
+    "routePath": "/",
+    "fullPath": "/api/invitations/",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableInvitations'), allowPendingOrganization, requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), InvitationController.listInvitations, );"
+  },
+  {
+    "file": "server/src/routes/invitation.routes.js",
+    "line": 42,
+    "method": "POST",
+    "base": "/api/invitations",
+    "routePath": "/accept",
+    "fullPath": "/api/invitations/accept",
+    "middlewares": [
+      "authenticate",
+      "requireCandidate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/accept', authenticate, requireFeatureFlag('enableInvitations'), requireCandidate, [body('token').isString().withMessage('Invitation token is required')], validateRequest, InvitationController.acceptInvitation, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 78,
+    "method": "POST",
+    "base": "/api/jobs",
+    "routePath": "/",
+    "fullPath": "/api/jobs/",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), jobValidations, validateRequest, JobController.createJob, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 89,
+    "method": "GET",
+    "base": "/api/jobs",
+    "routePath": "/",
+    "fullPath": "/api/jobs/",
+    "middlewares": [
+      "authenticate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableJobPosting'), allowPendingOrganization, requireOrganizationContext, JobController.listJobs, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 98,
+    "method": "GET",
+    "base": "/api/jobs",
+    "routePath": "/:id",
+    "fullPath": "/api/jobs/:id",
+    "middlewares": [
+      "authenticate",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), allowPendingOrganization, requireOrganizationContext, param('id').isString(), validateRequest, JobController.getJob, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 109,
+    "method": "PATCH",
+    "base": "/api/jobs",
+    "routePath": "/:id",
+    "fullPath": "/api/jobs/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), jobUpdateValidations, validateRequest, JobController.updateJob, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 120,
+    "method": "PATCH",
+    "base": "/api/jobs",
+    "routePath": "/:id/advert-image",
+    "fullPath": "/api/jobs/:id/advert-image",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/:id/advert-image', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), param('id').isString(), validateRequest, jobAdvertUpload.single('jobAdvertImage'), JobController.uploadAdvertImage, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 132,
+    "method": "PATCH",
+    "base": "/api/jobs",
+    "routePath": "/:id/advert-video",
+    "fullPath": "/api/jobs/:id/advert-video",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/:id/advert-video', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), param('id').isString(), validateRequest, jobAdvertUpload.single('jobAdvertVideo'), JobController.uploadAdvertVideo, );"
+  },
+  {
+    "file": "server/src/routes/job.routes.js",
+    "line": 144,
+    "method": "DELETE",
+    "base": "/api/jobs",
+    "routePath": "/:id",
+    "fullPath": "/api/jobs/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.delete( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), jobDeleteValidations, validateRequest, JobController.deleteJob, );"
+  },
+  {
+    "file": "server/src/routes/newsletter.routes.js",
+    "line": 38,
+    "method": "POST",
+    "base": "/api/newsletter",
+    "routePath": "/subscribe",
+    "fullPath": "/api/newsletter/subscribe",
+    "middlewares": [],
+    "snippet": "router.post( '/subscribe', stripUnexpectedFields(validationSchemas.newsletter.subscribe.allowedFields), validationSchemas.newsletter.subscribe.validators, validateRequest, NewsletterController.subscribe );"
+  },
+  {
+    "file": "server/src/routes/newsletter.routes.js",
+    "line": 53,
+    "method": "POST",
+    "base": "/api/newsletter",
+    "routePath": "/unsubscribe",
+    "fullPath": "/api/newsletter/unsubscribe",
+    "middlewares": [],
+    "snippet": "router.post( '/unsubscribe', stripUnexpectedFields(validationSchemas.newsletter.unsubscribe.allowedFields), validationSchemas.newsletter.unsubscribe.validators, validateRequest, NewsletterController.unsubscribe );"
+  },
+  {
+    "file": "server/src/routes/newsletter.routes.js",
+    "line": 72,
+    "method": "GET",
+    "base": "/api/newsletter",
+    "routePath": "/stats",
+    "fullPath": "/api/newsletter/stats",
+    "middlewares": [
+      "authenticate",
+      "requireSystemAdmin"
+    ],
+    "snippet": "router.get( '/stats', authenticate, requireSystemAdmin, NewsletterController.getStats );"
+  },
+  {
+    "file": "server/src/routes/objectStorage.routes.js",
+    "line": 7,
+    "method": "GET",
+    "base": "/api/object-storage",
+    "routePath": "/signed-url",
+    "fullPath": "/api/object-storage/signed-url",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get('/signed-url', authenticate, ObjectStorageController.getSignedDownloadUrl);"
+  },
+  {
+    "file": "server/src/routes/objectStorage.routes.js",
+    "line": 8,
+    "method": "GET",
+    "base": "/api/object-storage",
+    "routePath": "/download",
+    "fullPath": "/api/object-storage/download",
+    "middlewares": [],
+    "snippet": "router.get('/download', ObjectStorageController.download);"
+  },
+  {
+    "file": "server/src/routes/organization.routes.js",
+    "line": 15,
+    "method": "GET",
+    "base": "/api/organizations",
+    "routePath": "/me",
+    "fullPath": "/api/organizations/me",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/me', authenticate, allowPendingOrganization, requireOrganizationContext, OrganizationController.getMyOrganization, );"
+  },
+  {
+    "file": "server/src/routes/organization.routes.js",
+    "line": 24,
+    "method": "PATCH",
+    "base": "/api/organizations",
+    "routePath": "/me",
+    "fullPath": "/api/organizations/me",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole"
+    ],
+    "snippet": "router.patch( '/me', authenticate, requireApprovedOrganization, requireOrgRole(['ADMIN']), [ body('name').optional().isString().isLength({ min: 2 }).withMessage('Name must be at least 2 characters'), body('displayName').optional().isString().isLength({ min: 2 }).withMessage('Display name must be at least 2 characters'), body('industry').optional().isString(), body('companySize').optional().isStrin"
+  },
+  {
+    "file": "server/src/routes/organization.routes.js",
+    "line": 42,
+    "method": "GET",
+    "base": "/api/organizations",
+    "routePath": "/me/members",
+    "fullPath": "/api/organizations/me/members",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole"
+    ],
+    "snippet": "router.get( '/me/members', authenticate, allowPendingOrganization, requireOrgRole(['ADMIN']), OrganizationController.listMembers, );"
+  },
+  {
+    "file": "server/src/routes/organization.routes.js",
+    "line": 51,
+    "method": "POST",
+    "base": "/api/organizations",
+    "routePath": "/me/members",
+    "fullPath": "/api/organizations/me/members",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole"
+    ],
+    "snippet": "router.post( '/me/members', authenticate, requireApprovedOrganization, requireOrgRole(['ADMIN']), [ body('userId').isString().withMessage('userId is required'), body('role').optional().isIn(['ADMIN', 'RECRUITER', 'REVIEWER']), body('status').optional().isIn(['ACTIVE', 'INACTIVE']), body('permissions').optional().isArray(), ], validateRequest, OrganizationController.upsertMember, );"
+  },
+  {
+    "file": "server/src/routes/pipeline.routes.js",
+    "line": 14,
+    "method": "GET",
+    "base": "/api/pipeline",
+    "routePath": "/",
+    "fullPath": "/api/pipeline/",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']), PipelineController.getPipeline, );"
+  },
+  {
+    "file": "server/src/routes/pipeline.routes.js",
+    "line": 23,
+    "method": "PATCH",
+    "base": "/api/pipeline",
+    "routePath": "/:interviewId",
+    "fullPath": "/api/pipeline/:interviewId",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.patch( '/:interviewId', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), [ param('interviewId').isString(), body('jobStage').optional().isString(), body('pipelineStatus').optional().isIn(['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED']), body('status').optional().isIn(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', '"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 43,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/maintenance-status",
+    "fullPath": "/api/public/maintenance-status",
+    "middlewares": [],
+    "snippet": "router.get('/maintenance-status', AdminController.getMaintenanceStatus);"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 49,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/config",
+    "fullPath": "/api/public/config",
+    "middlewares": [],
+    "snippet": "router.get('/config', AdminController.getPublicConfig);"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 62,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/jobs",
+    "fullPath": "/api/public/jobs",
+    "middlewares": [
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/jobs', requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }), [ query('limit') .optional() .toInt() .isInt({ min: 1, max: 100 }) .withMessage('Limit must be between 1 and 100'), ], validateRequest, JobController.listPublicJobs, );"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 83,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/jobs/:id",
+    "fullPath": "/api/public/jobs/:id",
+    "middlewares": [
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/jobs/:id', requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }), [ param('id') .trim() .notEmpty() .withMessage('Job ID is required') .isLength({ max: LENGTH_LIMITS.ID }) .withMessage('Invalid job ID format'), ], validateRequest, JobController.getPublicJob, );"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 109,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/invitations/:token",
+    "fullPath": "/api/public/invitations/:token",
+    "middlewares": [
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/invitations/:token', requireFeatureFlag('enableInvitations', { allowSystemAdminBypass: false }), [ param('token') .trim() .notEmpty() .withMessage('Invitation token is required') .isLength({ max: LENGTH_LIMITS.TOKEN }) .withMessage('Invalid token format'), ], validateRequest, InvitationController.previewInvitation, );"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 131,
+    "method": "GET",
+    "base": "/api/public",
+    "routePath": "/team-invitations/:token",
+    "fullPath": "/api/public/team-invitations/:token",
+    "middlewares": [
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/team-invitations/:token', requireFeatureFlag('enableInvitations', { allowSystemAdminBypass: false }), [ param('token') .trim() .notEmpty() .withMessage('Team invitation token is required') .isLength({ max: LENGTH_LIMITS.TOKEN }) .withMessage('Invalid token format'), ], validateRequest, TeamInvitationController.getInvitationByToken, );"
+  },
+  {
+    "file": "server/src/routes/public.routes.js",
+    "line": 158,
+    "method": "POST",
+    "base": "/api/public",
+    "routePath": "/contact",
+    "fullPath": "/api/public/contact",
+    "middlewares": [],
+    "snippet": "router.post( '/contact', stripUnexpectedFields(validationSchemas.contact.submit.allowedFields), validationSchemas.contact.submit.validators, validateRequest, ContactController.submit, );"
+  },
+  {
+    "file": "server/src/routes/review.routes.js",
+    "line": 14,
+    "method": "GET",
+    "base": "/api/reviews",
+    "routePath": "/:interviewId/me",
+    "fullPath": "/api/reviews/:interviewId/me",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/:interviewId/me', authenticate, requireFeatureFlag('enableReviews'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']), [param('interviewId').isString()], validateRequest, ReviewController.getMyReview, );"
+  },
+  {
+    "file": "server/src/routes/review.routes.js",
+    "line": 25,
+    "method": "GET",
+    "base": "/api/reviews",
+    "routePath": "/:interviewId",
+    "fullPath": "/api/reviews/:interviewId",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/:interviewId', authenticate, requireFeatureFlag('enableReviews'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']), [param('interviewId').isString()], validateRequest, ReviewController.listReviews, );"
+  },
+  {
+    "file": "server/src/routes/review.routes.js",
+    "line": 36,
+    "method": "POST",
+    "base": "/api/reviews",
+    "routePath": "/:interviewId",
+    "fullPath": "/api/reviews/:interviewId",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/:interviewId', authenticate, requireFeatureFlag('enableReviews'), requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']), [ param('interviewId').isString(), body('score').optional().isNumeric(), body('decision').optional().isString(), body('strengths').optional().isArray(), body('weaknesses').optional().isArray(), body('notes').optional().isString(), body('ra"
+  },
+  {
+    "file": "server/src/routes/teamInvitation.routes.js",
+    "line": 16,
+    "method": "POST",
+    "base": "/api/organizations/me/team-invitations",
+    "routePath": "/",
+    "fullPath": "/api/organizations/me/team-invitations/",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/', authenticate, requireFeatureFlag('enableInvitations'), requireApprovedOrganization, requireOrganizationContext, requireOrgRole(['ADMIN']), [ body('email').isEmail().withMessage('Valid email is required'), body('role').isIn(['ADMIN', 'RECRUITER', 'REVIEWER']).withMessage('Valid role is required'), ], validateRequest, TeamInvitationController.sendInvitation, );"
+  },
+  {
+    "file": "server/src/routes/teamInvitation.routes.js",
+    "line": 32,
+    "method": "GET",
+    "base": "/api/organizations/me/team-invitations",
+    "routePath": "/",
+    "fullPath": "/api/organizations/me/team-invitations/",
+    "middlewares": [
+      "authenticate",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableInvitations'), requireOrganizationContext, requireOrgRole(['ADMIN']), TeamInvitationController.listInvitations, );"
+  },
+  {
+    "file": "server/src/routes/teamInvitation.routes.js",
+    "line": 42,
+    "method": "DELETE",
+    "base": "/api/organizations/me/team-invitations",
+    "routePath": "/:id",
+    "fullPath": "/api/organizations/me/team-invitations/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.delete( '/:id', authenticate, requireFeatureFlag('enableInvitations'), requireApprovedOrganization, requireOrganizationContext, requireOrgRole(['ADMIN']), [param('id').isString().withMessage('Invitation ID is required')], validateRequest, TeamInvitationController.revokeInvitation, );"
+  },
+  {
+    "file": "server/src/routes/teamInvitation.routes.js",
+    "line": 55,
+    "method": "POST",
+    "base": "/api/organizations/me/team-invitations",
+    "routePath": "/:id/resend",
+    "fullPath": "/api/organizations/me/team-invitations/:id/resend",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/:id/resend', authenticate, requireFeatureFlag('enableInvitations'), requireApprovedOrganization, requireOrganizationContext, requireOrgRole(['ADMIN']), [param('id').isString().withMessage('Invitation ID is required')], validateRequest, TeamInvitationController.resendInvitation, );"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 17,
+    "method": "POST",
+    "base": "/api/templates",
+    "routePath": "/",
+    "fullPath": "/api/templates/",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ body('name').isString().trim().notEmpty().withMessage('Template name is required'), body('jobRole').isString().trim().notEmpty().withMessage('Job role is required'), body('description').optional().isString(), body('experienceLeve"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 42,
+    "method": "GET",
+    "base": "/api/templates",
+    "routePath": "/",
+    "fullPath": "/api/templates/",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/', authenticate, requireFeatureFlag('enableJobPosting'), requireCompany, requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), TemplateController.listTemplates, );"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 53,
+    "method": "GET",
+    "base": "/api/templates",
+    "routePath": "/public",
+    "fullPath": "/api/templates/public",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/public', authenticate, requireFeatureFlag('enableJobPosting'), requireCompany, requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), TemplateController.listPublicTemplates, );"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 64,
+    "method": "GET",
+    "base": "/api/templates",
+    "routePath": "/:id",
+    "fullPath": "/api/templates/:id",
+    "middlewares": [
+      "authenticate",
+      "requireCompany",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.get( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireCompany, requireOrganizationContext, requireOrgRole(['ADMIN', 'RECRUITER']), [param('id').isString().notEmpty()], validateRequest, TemplateController.getTemplate, );"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 77,
+    "method": "PUT",
+    "base": "/api/templates",
+    "routePath": "/:id",
+    "fullPath": "/api/templates/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.put( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [ param('id').isString().notEmpty(), body('name').optional().isString().trim().notEmpty(), body('description').optional().isString(), body('jobRole').optional().isString().trim().notEmpty(), body('experienceLevel').optional().isS"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 103,
+    "method": "POST",
+    "base": "/api/templates",
+    "routePath": "/:id/duplicate",
+    "fullPath": "/api/templates/:id/duplicate",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.post( '/:id/duplicate', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [param('id').isString().notEmpty()], validateRequest, TemplateController.duplicateTemplate, );"
+  },
+  {
+    "file": "server/src/routes/template.routes.js",
+    "line": 116,
+    "method": "DELETE",
+    "base": "/api/templates",
+    "routePath": "/:id",
+    "fullPath": "/api/templates/:id",
+    "middlewares": [
+      "authenticate",
+      "requireApprovedOrganization",
+      "requireOrgRole",
+      "requireFeatureFlag"
+    ],
+    "snippet": "router.delete( '/:id', authenticate, requireFeatureFlag('enableJobPosting'), requireOrganizationContext, requireApprovedOrganization, requireOrgRole(['ADMIN', 'RECRUITER']), [param('id').isString().notEmpty()], validateRequest, TemplateController.deleteTemplate, );"
+  },
+  {
+    "file": "server/src/routes/upload.routes.js",
+    "line": 39,
+    "method": "POST",
+    "base": "/api/uploads",
+    "routePath": "/moderate/profile-photo",
+    "fullPath": "/api/uploads/moderate/profile-photo",
+    "middlewares": [],
+    "snippet": "router.post( '/moderate/profile-photo', registrationUpload.single('file'), moderateProfilePhoto );"
+  },
+  {
+    "file": "server/src/routes/upload.routes.js",
+    "line": 53,
+    "method": "POST",
+    "base": "/api/uploads",
+    "routePath": "/moderate/company-logo",
+    "fullPath": "/api/uploads/moderate/company-logo",
+    "middlewares": [],
+    "snippet": "router.post( '/moderate/company-logo', registrationUpload.single('file'), moderateCompanyLogo );"
+  },
+  {
+    "file": "server/src/routes/upload.routes.js",
+    "line": 71,
+    "method": "POST",
+    "base": "/api/uploads",
+    "routePath": "/moderate/resume",
+    "fullPath": "/api/uploads/moderate/resume",
+    "middlewares": [],
+    "snippet": "router.post( '/moderate/resume', registrationUpload.single('resumeFile'), moderateResumeDocument );"
+  },
+  {
+    "file": "server/src/routes/upload.routes.js",
+    "line": 85,
+    "method": "POST",
+    "base": "/api/uploads",
+    "routePath": "/moderate/company-proof",
+    "fullPath": "/api/uploads/moderate/company-proof",
+    "middlewares": [],
+    "snippet": "router.post( '/moderate/company-proof', registrationUpload.single('companyProof'), moderateCompanyProof );"
+  },
+  {
+    "file": "server/src/routes/video.routes.js",
+    "line": 10,
+    "method": "GET",
+    "base": "/api/video",
+    "routePath": "/config",
+    "fullPath": "/api/video/config",
+    "middlewares": [],
+    "snippet": "router.get('/config', VideoController.getWebRTCConfig);"
+  },
+  {
+    "file": "server/src/routes/video.routes.js",
+    "line": 13,
+    "method": "POST",
+    "base": "/api/video",
+    "routePath": "/session/:interviewId",
+    "fullPath": "/api/video/session/:interviewId",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.post( '/session/:interviewId', authenticate, param('interviewId').isString(), validateRequest, VideoController.createSession );"
+  },
+  {
+    "file": "server/src/routes/video.routes.js",
+    "line": 22,
+    "method": "GET",
+    "base": "/api/video",
+    "routePath": "/session/:interviewId",
+    "fullPath": "/api/video/session/:interviewId",
+    "middlewares": [
+      "authenticate"
+    ],
+    "snippet": "router.get( '/session/:interviewId', authenticate, param('interviewId').isString(), validateRequest, VideoController.getSession );"
+  }
+]

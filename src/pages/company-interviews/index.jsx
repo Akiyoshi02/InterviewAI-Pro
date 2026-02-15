@@ -1,13 +1,20 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
-import Input from '../../components/ui/Input';
-import Select from '../../components/ui/Select';
 import LoadingState from '../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
@@ -16,6 +23,86 @@ import {
   combineRealtimeEventTypes,
 } from '../../constants/realtimeFeedEvents.js';
 
+const COMPANY_INTERVIEW_DATE_PRESET_OPTIONS = [
+  { value: 'all', label: 'All Dates' },
+  { value: 'last7', label: 'Last 7 Days' },
+  { value: 'last30', label: 'Last 30 Days' },
+  { value: 'last90', label: 'Last 90 Days' },
+  { value: 'custom', label: 'Custom Range' },
+];
+
+const COMPANY_INTERVIEW_SCHEDULE_OPTIONS = [
+  { value: 'all', label: 'All Schedule States' },
+  { value: 'upcoming', label: 'Upcoming' },
+  { value: 'today', label: 'Today' },
+  { value: 'past', label: 'Past' },
+  { value: 'unscheduled', label: 'Unscheduled' },
+];
+
+const COMPANY_INTERVIEW_SCORE_OPTIONS = [
+  { value: 'all', label: 'All Score Bands' },
+  { value: 'scored', label: 'Scored Interviews' },
+  { value: 'unscored', label: 'No Score Yet' },
+  { value: '80+', label: '80 and Above' },
+  { value: '60-79', label: '60 to 79' },
+  { value: '<60', label: 'Below 60' },
+];
+
+const COMPANY_INTERVIEW_SORT_OPTIONS = [
+  { value: 'recent', label: 'Most Recent' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'scheduledSoon', label: 'Scheduled Soonest' },
+  { value: 'candidateAsc', label: 'Candidate Name (A-Z)' },
+  { value: 'scoreDesc', label: 'Highest Score' },
+];
+
+const DEFAULT_COMPANY_INTERVIEW_FILTERS = {
+  searchQuery: '',
+  statusFilter: 'all',
+  jobRoleFilter: 'all',
+  scheduleFilter: 'all',
+  scoreFilter: 'all',
+  datePreset: 'all',
+  from: '',
+  to: '',
+  sortBy: 'recent',
+};
+
+const normalizeFilterText = (value) => (value || '').toString().trim().toLowerCase();
+
+const getCompanyInterviewDateWindow = (filters = {}) => {
+  const preset = normalizeFilterText(filters.datePreset || 'all');
+  if (preset === 'all') return { from: null, to: null };
+  if (preset === 'custom') {
+    const from = filters.from ? new Date(filters.from) : null;
+    const to = filters.to ? new Date(filters.to) : null;
+    if (from && !Number.isNaN(from.getTime())) from.setHours(0, 0, 0, 0);
+    if (to && !Number.isNaN(to.getTime())) to.setHours(23, 59, 59, 999);
+    return {
+      from: from && !Number.isNaN(from.getTime()) ? from : null,
+      to: to && !Number.isNaN(to.getTime()) ? to : null,
+    };
+  }
+  const from = new Date();
+  if (preset === 'last7') from.setDate(from.getDate() - 7);
+  if (preset === 'last30') from.setDate(from.getDate() - 30);
+  if (preset === 'last90') from.setDate(from.getDate() - 90);
+  from.setHours(0, 0, 0, 0);
+  return { from, to: null };
+};
+
+const countActiveCompanyInterviewFilters = (filters = {}) => {
+  let count = 0;
+  if (normalizeFilterText(filters.searchQuery)) count += 1;
+  if ((filters.statusFilter || 'all') !== 'all') count += 1;
+  if ((filters.jobRoleFilter || 'all') !== 'all') count += 1;
+  if ((filters.scheduleFilter || 'all') !== 'all') count += 1;
+  if ((filters.scoreFilter || 'all') !== 'all') count += 1;
+  if ((filters.datePreset || 'all') !== 'all') count += 1;
+  if ((filters.sortBy || 'recent') !== 'recent') count += 1;
+  return count;
+};
+
 const CompanyInterviews = () => {
   const navigate = useNavigate();
   const { user, logout, status } = useAuth();
@@ -23,8 +110,8 @@ const CompanyInterviews = () => {
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [filters, setFilters] = useState(DEFAULT_COMPANY_INTERVIEW_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedInterview, setSelectedInterview] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
@@ -92,17 +179,121 @@ const CompanyInterviews = () => {
     );
   };
 
-  const filteredInterviews = interviews.filter((interview) => {
-    const matchesSearch = !searchQuery || 
-      interview.candidate?.fullName?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      interview.candidate?.email?.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      interview.jobRole?.toLowerCase().includes(searchQuery.toLowerCase());
-    
-    const matchesStatus = statusFilter === 'all' || 
-      interview.status?.toUpperCase() === statusFilter.toUpperCase();
-    
-    return matchesSearch && matchesStatus;
-  });
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_COMPANY_INTERVIEW_FILTERS);
+    setShowAdvancedFilters(false);
+  };
+
+  const interviewFilterOptions = useMemo(
+    () => ({
+      jobRoleOptions: [
+        { value: 'all', label: 'All Roles' },
+        ...Array.from(
+          new Set(
+            interviews
+              .map((interview) => interview?.jobRole)
+              .map((value) => value?.toString?.().trim())
+              .filter(Boolean),
+          ),
+        ).map((value) => ({ value, label: value })),
+      ],
+    }),
+    [interviews],
+  );
+
+  const activeFilterCount = countActiveCompanyInterviewFilters(filters);
+
+  const filteredInterviews = useMemo(
+    () => {
+      const interviewDateWindow = getCompanyInterviewDateWindow(filters);
+      const searchTokens = normalizeFilterText(filters.searchQuery).split(' ').filter(Boolean);
+      return interviews
+        .filter((interview) => {
+        const status = (interview?.status || '').toString().toUpperCase();
+        const jobRole = (interview?.jobRole || '').toString();
+        const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
+        const createdDate = interview?.createdAt ? new Date(interview.createdAt) : null;
+        const primaryDate = scheduledDate && !Number.isNaN(scheduledDate.getTime())
+          ? scheduledDate
+          : (createdDate && !Number.isNaN(createdDate.getTime()) ? createdDate : null);
+        const score = Number(interview?.overallScore);
+        const hasScore = Number.isFinite(score);
+        const now = new Date();
+        const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+
+        if (filters.statusFilter !== 'all' && status !== filters.statusFilter) return false;
+        if (filters.jobRoleFilter !== 'all' && jobRole !== filters.jobRoleFilter) return false;
+
+        if (filters.scheduleFilter !== 'all') {
+          if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
+            if (filters.scheduleFilter !== 'unscheduled') return false;
+          } else {
+            if (filters.scheduleFilter === 'unscheduled') return false;
+            if (filters.scheduleFilter === 'upcoming' && scheduledDate < now) return false;
+            if (filters.scheduleFilter === 'past' && scheduledDate >= now) return false;
+            if (filters.scheduleFilter === 'today' && (scheduledDate < startOfToday || scheduledDate > endOfToday)) return false;
+          }
+        }
+
+        if (filters.scoreFilter === 'scored' && !hasScore) return false;
+        if (filters.scoreFilter === 'unscored' && hasScore) return false;
+        if (filters.scoreFilter === '80+' && !(hasScore && score >= 80)) return false;
+        if (filters.scoreFilter === '60-79' && !(hasScore && score >= 60 && score < 80)) return false;
+        if (filters.scoreFilter === '<60' && !(hasScore && score < 60)) return false;
+
+        if (interviewDateWindow.from || interviewDateWindow.to) {
+          if (!primaryDate) return false;
+          if (interviewDateWindow.from && primaryDate < interviewDateWindow.from) return false;
+          if (interviewDateWindow.to && primaryDate > interviewDateWindow.to) return false;
+        }
+
+        if (searchTokens.length) {
+          const searchableText = [
+            interview?.candidate?.fullName || '',
+            interview?.candidate?.email || '',
+            interview?.jobRole || '',
+            interview?.status || '',
+            interview?.pipelineStatus || '',
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!searchTokens.every((token) => searchableText.includes(token))) return false;
+        }
+
+        return true;
+      })
+      .sort((left, right) => {
+        const leftScheduled = left?.scheduledFor ? new Date(left.scheduledFor).getTime() : 0;
+        const rightScheduled = right?.scheduledFor ? new Date(right.scheduledFor).getTime() : 0;
+        const leftCreated = left?.createdAt ? new Date(left.createdAt).getTime() : 0;
+        const rightCreated = right?.createdAt ? new Date(right.createdAt).getTime() : 0;
+
+        if (filters.sortBy === 'oldest') return leftCreated - rightCreated;
+        if (filters.sortBy === 'scheduledSoon') {
+          if (!leftScheduled && !rightScheduled) return rightCreated - leftCreated;
+          if (!leftScheduled) return 1;
+          if (!rightScheduled) return -1;
+          return leftScheduled - rightScheduled;
+        }
+        if (filters.sortBy === 'candidateAsc') {
+          const leftName = left?.candidate?.fullName || left?.candidate?.email || '';
+          const rightName = right?.candidate?.fullName || right?.candidate?.email || '';
+          return leftName.localeCompare(rightName);
+        }
+        if (filters.sortBy === 'scoreDesc') return Number(right?.overallScore || 0) - Number(left?.overallScore || 0);
+        return rightCreated - leftCreated;
+      });
+    },
+    [filters, interviews],
+  );
 
   // Pagination calculations
   const totalPages = Math.ceil(filteredInterviews.length / itemsPerPage);
@@ -113,7 +304,7 @@ const CompanyInterviews = () => {
   // Reset to page 1 when filters change
   React.useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
+  }, [filters]);
 
   const handleViewDetails = (interview) => {
     setSelectedInterview(interview);
@@ -212,19 +403,33 @@ const CompanyInterviews = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.1 }}
-                className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur relative z-10"
               >
-                <div className="flex flex-col sm:flex-row gap-3 sm:items-end">
-                  <div className="flex-1">
-                    <Input
-                      placeholder="Search by candidate name, email, or job role..."
-                      value={searchQuery}
-                      onChange={(e) => setSearchQuery(e.target.value)}
-                      iconName="Search"
+                <UnifiedFilterPanel
+                  title="Interview Filters"
+                  description="Refine interviews by candidate, role, status, scheduling state, score, and date range."
+                  activeCount={activeFilterCount}
+                  onClear={clearFilters}
+                  headerActions={(
+                    <UnifiedFilterToggleButton
+                      active={showAdvancedFilters}
+                      onClick={() => setShowAdvancedFilters((previous) => !previous)}
+                      label="Advanced Filters"
                     />
-                  </div>
-                  <div className="sm:w-48 relative z-20">
-                    <Select
+                  )}
+                >
+                  <div className={FILTER_GRID_CLASS}>
+                    <UnifiedSearchField
+                      label="Search"
+                      className="sm:col-span-2 xl:col-span-2"
+                      type="text"
+                      value={filters.searchQuery}
+                      onChange={(event) => updateFilter('searchQuery', event.target.value)}
+                      placeholder="Candidate name, email, role, status, or pipeline stage"
+                    />
+                    <UnifiedFilterSelect
+                      label="Status"
+                      value={filters.statusFilter}
+                      onChange={(value) => updateFilter('statusFilter', value)}
                       options={[
                         { value: 'all', label: 'All Statuses' },
                         { value: 'SCHEDULED', label: 'Scheduled' },
@@ -232,11 +437,67 @@ const CompanyInterviews = () => {
                         { value: 'COMPLETED', label: 'Completed' },
                         { value: 'CANCELLED', label: 'Cancelled' },
                       ]}
-                      value={statusFilter}
-                      onChange={setStatusFilter}
+                    />
+                    <UnifiedFilterSelect
+                      label="Job Role"
+                      value={filters.jobRoleFilter}
+                      onChange={(value) => updateFilter('jobRoleFilter', value)}
+                      options={interviewFilterOptions.jobRoleOptions}
                     />
                   </div>
-                </div>
+
+                  {showAdvancedFilters && (
+                    <div className={FILTER_SUBPANEL_CLASS}>
+                      <div className={FILTER_GRID_CLASS}>
+                        <UnifiedFilterSelect
+                          label="Schedule State"
+                          value={filters.scheduleFilter}
+                          onChange={(value) => updateFilter('scheduleFilter', value)}
+                          options={COMPANY_INTERVIEW_SCHEDULE_OPTIONS}
+                        />
+                        <UnifiedFilterSelect
+                          label="Score Band"
+                          value={filters.scoreFilter}
+                          onChange={(value) => updateFilter('scoreFilter', value)}
+                          options={COMPANY_INTERVIEW_SCORE_OPTIONS}
+                        />
+                        <UnifiedFilterSelect
+                          label="Date Range"
+                          value={filters.datePreset}
+                          onChange={(value) => updateFilter('datePreset', value)}
+                          options={COMPANY_INTERVIEW_DATE_PRESET_OPTIONS}
+                        />
+                        <UnifiedFilterSelect
+                          label="Sort By"
+                          value={filters.sortBy}
+                          onChange={(value) => updateFilter('sortBy', value)}
+                          options={COMPANY_INTERVIEW_SORT_OPTIONS}
+                        />
+                      </div>
+
+                      {filters.datePreset === 'custom' && (
+                        <div className={FILTER_DATE_GRID_CLASS}>
+                          <label className="space-y-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">From</span>
+                            <UnifiedTextInput
+                              type="date"
+                              value={filters.from}
+                              onChange={(event) => updateFilter('from', event.target.value)}
+                            />
+                          </label>
+                          <label className="space-y-1.5">
+                            <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">To</span>
+                            <UnifiedTextInput
+                              type="date"
+                              value={filters.to}
+                              onChange={(event) => updateFilter('to', event.target.value)}
+                            />
+                          </label>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </UnifiedFilterPanel>
               </motion.div>
 
               {/* Error Message */}
@@ -266,7 +527,7 @@ const CompanyInterviews = () => {
                 >
                   <Icon name="FileText" className="w-12 h-12 text-gray-400 mx-auto mb-3" />
                   <p className="text-sm text-gray-500 dark:text-slate-400">
-                    {searchQuery || statusFilter !== 'all' 
+                    {activeFilterCount > 0
                       ? 'No interviews match your filters.' 
                       : 'No interviews found. Create an invitation to schedule an interview.'}
                   </p>

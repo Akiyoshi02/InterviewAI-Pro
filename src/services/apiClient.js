@@ -1152,6 +1152,72 @@ export const apiClient = {
       });
       return handleResponse(response);
     },
+
+    async listUsers(options = {}) {
+      const params = new URLSearchParams();
+      if (options.accountType) params.set('accountType', options.accountType);
+      if (options.status) params.set('status', options.status);
+      if (options.q) params.set('q', options.q);
+      if (options.limit) params.set('limit', String(options.limit));
+      if (options.offset) params.set('offset', String(options.offset));
+
+      const query = params.toString();
+      const response = await fetch(`${API_URL}/api/admin/users${query ? `?${query}` : ''}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateUserStatus(id, payload) {
+      const response = await fetch(`${API_URL}/api/admin/users/${id}/status`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload || {}),
+      });
+      return handleResponse(response);
+    },
+
+    async promoteToSystemAdmin(id) {
+      const response = await fetch(`${API_URL}/api/admin/users/${id}/promote-system-admin`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getBillingOverview() {
+      const response = await fetch(`${API_URL}/api/admin/billing-overview`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getNewsletterStats() {
+      const response = await fetch(`${API_URL}/api/admin/newsletter-stats`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getDataRetentionSummary() {
+      const response = await fetch(`${API_URL}/api/admin/data-retention/summary`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async runDataRetentionCleanup(payload = {}) {
+      const response = await fetch(`${API_URL}/api/admin/data-retention/run`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
   },
 
   /**

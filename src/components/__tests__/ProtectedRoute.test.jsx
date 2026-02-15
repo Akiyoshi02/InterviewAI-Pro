@@ -38,6 +38,33 @@ const renderWithRoutes = (initialPath) =>
           )}
         />
         <Route
+          path="/company-jobs"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_JOBS_PAGE']}>
+              <div>Company Jobs</div>
+              <LocationEcho />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-analytics"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_ANALYTICS_PAGE']}>
+              <div>Company Analytics</div>
+              <LocationEcho />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/jobs"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <div>Candidate Jobs</div>
+              <LocationEcho />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/register"
           element={(
             <>
@@ -173,5 +200,97 @@ describe('ProtectedRoute organization lock behavior', () => {
 
     expect(screen.queryByText('Login Screen')).not.toBeNull();
     expect(screen.getByTestId('location').textContent).toBe('/login');
+  });
+
+  it('blocks reviewer role from company jobs direct URL access', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_analytics',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'REVIEWER',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/company-jobs');
+
+    expect(screen.queryByText('Company Dashboard')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-dashboard');
+  });
+
+  it('allows recruiter role to access company jobs direct URL', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_jobs',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'RECRUITER',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/company-jobs');
+
+    expect(screen.queryByText('Company Jobs')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-jobs');
+  });
+
+  it('blocks reviewer role from company analytics direct URL access', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_analytics',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'REVIEWER',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/company-analytics');
+
+    expect(screen.queryByText('Company Dashboard')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-dashboard');
+  });
+
+  it('blocks company accounts from candidate jobs route', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_company',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'ADMIN',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/jobs');
+
+    expect(screen.queryByText('Company Dashboard')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-dashboard');
   });
 });

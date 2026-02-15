@@ -289,6 +289,107 @@ export const userStore = {
     });
     return map;
   },
+
+  async hasAccountType(accountType) {
+    if (!accountType) return false;
+    const normalizedType = accountType.toString().toUpperCase();
+    try {
+      const snapshot = await usersCollection
+        .where('accountType', '==', normalizedType)
+        .limit(1)
+        .get();
+      return !snapshot.empty;
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('User accountType index still building; falling back to in-memory scan.');
+      const snapshot = await usersCollection.get();
+      return snapshot.docs.some((doc) => {
+        const user = docToData(doc);
+        return (user?.accountType || '').toString().toUpperCase() === normalizedType;
+      });
+    }
+  },
+
+  async list(options = {}) {
+    const {
+      accountType = null,
+      accountStatus = null,
+      query = '',
+      limit = 100,
+      offset = 0,
+    } = options;
+
+    const normalizedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 500));
+    const normalizedOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+    const normalizedType = accountType ? accountType.toString().toUpperCase() : null;
+    const normalizedStatus = accountStatus ? accountStatus.toString().toUpperCase() : null;
+    const normalizedQuery = (query || '').toString().trim().toLowerCase();
+
+    const applyFilters = (users = []) =>
+      users.filter((user) => {
+        if (normalizedType && (user.accountType || '').toString().toUpperCase() !== normalizedType) {
+          return false;
+        }
+        if (normalizedStatus) {
+          const userStatus = (user.accountStatus || 'ACTIVE').toString().toUpperCase();
+          if (userStatus !== normalizedStatus) return false;
+        }
+        if (!normalizedQuery) return true;
+        const email = (user.email || '').toString().toLowerCase();
+        const fullName = (user.fullName || '').toString().toLowerCase();
+        const companyName = (user.companyName || '').toString().toLowerCase();
+        return (
+          email.includes(normalizedQuery)
+          || fullName.includes(normalizedQuery)
+          || companyName.includes(normalizedQuery)
+          || (user.id || '').toString().toLowerCase().includes(normalizedQuery)
+        );
+      });
+
+    try {
+      let firestoreQuery = usersCollection.orderBy('createdAt', 'desc');
+      if (normalizedType) {
+        firestoreQuery = firestoreQuery.where('accountType', '==', normalizedType);
+      }
+
+      // When search/status filters are present we still fetch a bounded window and refine in-memory.
+      const fetchLimit = normalizedQuery || normalizedStatus
+        ? Math.min(normalizedLimit + normalizedOffset + 300, 500)
+        : normalizedLimit;
+
+      const snapshot = await firestoreQuery
+        .limit(fetchLimit)
+        .offset(normalizedQuery || normalizedStatus ? 0 : normalizedOffset)
+        .get();
+
+      const all = snapshot.docs.map((doc) => docToData(doc));
+      const filtered = applyFilters(all);
+      const paged = normalizedQuery || normalizedStatus
+        ? filtered.slice(normalizedOffset, normalizedOffset + normalizedLimit)
+        : filtered;
+
+      return {
+        users: paged,
+        total: filtered.length,
+      };
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('User listing index still building; falling back to in-memory sort/filter.');
+      const snapshot = await usersCollection.get();
+      const allUsers = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      const filtered = applyFilters(allUsers);
+      return {
+        users: filtered.slice(normalizedOffset, normalizedOffset + normalizedLimit),
+        total: filtered.length,
+      };
+    }
+  },
 };
 
 const mapQuestionsSnapshot = (snapshot) => snapshot.docs.map((doc) => docToData(doc));
@@ -3040,36 +3141,112 @@ export const platformAuditLogStore = {
   },
 };
 
+const SYSTEM_FEATURE_FLAG_DEFAULTS = Object.freeze({
+  enableJobPosting: true,
+  enableInvitations: true,
+  enableReviews: true,
+  enableAnalytics: true,
+});
+
+const SYSTEM_DEFAULT_AI_CONFIG = Object.freeze({
+  model: 'qwen2.5:7b-instruct',
+  temperature: 0.7,
+  maxTokens: 2000,
+});
+
+const SYSTEM_DATA_RETENTION_DEFAULTS = Object.freeze({
+  interviewDataDays: 365,
+  activityLogDays: 90,
+});
+
+const SYSTEM_DATA_RETENTION_LIMITS = Object.freeze({
+  interviewDataDays: Object.freeze({ min: 30, max: 3650 }),
+  activityLogDays: Object.freeze({ min: 7, max: 3650 }),
+});
+
+const clampNumericSetting = (value, fallback, min, max) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(max, Math.max(min, parsed));
+};
+
+const normalizeFeatureFlags = (featureFlags = {}) => ({
+  ...SYSTEM_FEATURE_FLAG_DEFAULTS,
+  ...(featureFlags && typeof featureFlags === 'object' ? featureFlags : {}),
+});
+
+const normalizeDefaultAIConfig = (config = {}) => {
+  const source = config && typeof config === 'object' ? config : {};
+  return {
+    model: typeof source.model === 'string' && source.model.trim()
+      ? source.model.trim()
+      : SYSTEM_DEFAULT_AI_CONFIG.model,
+    temperature: clampNumericSetting(
+      source.temperature,
+      SYSTEM_DEFAULT_AI_CONFIG.temperature,
+      0,
+      1,
+    ),
+    maxTokens: Math.round(clampNumericSetting(
+      source.maxTokens,
+      SYSTEM_DEFAULT_AI_CONFIG.maxTokens,
+      256,
+      32768,
+    )),
+  };
+};
+
+const normalizeDataRetention = (dataRetention = {}) => {
+  const source = dataRetention && typeof dataRetention === 'object' ? dataRetention : {};
+  return {
+    interviewDataDays: Math.round(clampNumericSetting(
+      source.interviewDataDays,
+      SYSTEM_DATA_RETENTION_DEFAULTS.interviewDataDays,
+      SYSTEM_DATA_RETENTION_LIMITS.interviewDataDays.min,
+      SYSTEM_DATA_RETENTION_LIMITS.interviewDataDays.max,
+    )),
+    activityLogDays: Math.round(clampNumericSetting(
+      source.activityLogDays,
+      SYSTEM_DATA_RETENTION_DEFAULTS.activityLogDays,
+      SYSTEM_DATA_RETENTION_LIMITS.activityLogDays.min,
+      SYSTEM_DATA_RETENTION_LIMITS.activityLogDays.max,
+    )),
+  };
+};
+
+const normalizeSystemSettings = (settings = {}) => {
+  const source = settings && typeof settings === 'object' ? settings : {};
+  return {
+    ...source,
+    id: 'main',
+    featureFlags: normalizeFeatureFlags(source.featureFlags),
+    maintenanceMode: Boolean(source.maintenanceMode),
+    nonverbalFeedbackEnabled: source.nonverbalFeedbackEnabled !== false,
+    defaultAIConfig: normalizeDefaultAIConfig(source.defaultAIConfig),
+    dataRetention: normalizeDataRetention(source.dataRetention),
+  };
+};
+
+const createDefaultSystemSettings = (adminId = null) => ({
+  id: 'main',
+  featureFlags: normalizeFeatureFlags(),
+  maintenanceMode: false,
+  nonverbalFeedbackEnabled: true,
+  defaultAIConfig: normalizeDefaultAIConfig(),
+  dataRetention: normalizeDataRetention(),
+  createdAt: now(),
+  updatedAt: now(),
+  initializedBy: adminId || null,
+});
+
 export const systemSettingsStore = {
   async initialize(adminId) {
     const settingsDoc = await systemSettingsCollection.doc('main').get();
     if (settingsDoc.exists) {
-      return docToData(settingsDoc);
+      return normalizeSystemSettings(docToData(settingsDoc));
     }
 
-    const defaultSettings = {
-      id: 'main',
-      featureFlags: {
-        enableJobPosting: true,
-        enableInvitations: true,
-        enableReviews: true,
-        enableAnalytics: true,
-      },
-      maintenanceMode: false,
-      nonverbalFeedbackEnabled: true,
-      defaultAIConfig: {
-        model: 'llama3.2',
-        temperature: 0.7,
-        maxTokens: 2000,
-      },
-      dataRetention: {
-        interviewDataDays: 365,
-        activityLogDays: 90,
-      },
-      createdAt: now(),
-      updatedAt: now(),
-      initializedBy: adminId,
-    };
+    const defaultSettings = createDefaultSystemSettings(adminId);
 
     await systemSettingsCollection.doc('main').set(defaultSettings);
     await syncPublicSystemSettings(defaultSettings);
@@ -3079,42 +3256,28 @@ export const systemSettingsStore = {
   async get() {
     const doc = await systemSettingsCollection.doc('main').get();
     if (!doc.exists) {
-      // Return defaults if not initialized
-      return {
-        id: 'main',
-        featureFlags: {
-          enableJobPosting: true,
-          enableInvitations: true,
-          enableReviews: true,
-          enableAnalytics: true,
-        },
-        maintenanceMode: false,
-        nonverbalFeedbackEnabled: true,
-        defaultAIConfig: {
-          model: 'llama3.2',
-          temperature: 0.7,
-          maxTokens: 2000,
-        },
-        dataRetention: {
-          interviewDataDays: 365,
-          activityLogDays: 90,
-        },
-      };
+      return normalizeSystemSettings(createDefaultSystemSettings());
     }
-    return docToData(doc);
+    return normalizeSystemSettings(docToData(doc));
   },
 
   async update(updates, updatedBy) {
     const current = await this.get();
-    const merged = {
+    const merged = normalizeSystemSettings({
       ...current,
-      ...updates,
+      ...(updates && typeof updates === 'object' ? updates : {}),
+    });
+    const persisted = {
+      ...merged,
+      createdAt: current.createdAt || now(),
       updatedAt: now(),
-      updatedBy: updatedBy || current.updatedBy,
+      updatedBy: updatedBy || current.updatedBy || null,
+      initializedBy: current.initializedBy || null,
     };
-    await systemSettingsCollection.doc('main').set(merged, { merge: true });
-    await syncPublicSystemSettings(merged);
-    return merged;
+
+    await systemSettingsCollection.doc('main').set(persisted, { merge: true });
+    await syncPublicSystemSettings(persisted);
+    return persisted;
   },
 };
 

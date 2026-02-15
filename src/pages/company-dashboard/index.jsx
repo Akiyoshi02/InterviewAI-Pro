@@ -240,21 +240,22 @@ const CompanyDashboard = () => {
     };
   }, []);
 
-  if (status === 'loading' || !user) {
+  // Calculate derived data before conditional returns.
+  const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const showInitialLoader = dataLoading && !safeInterviews.length && !metrics;
+
+  if (status === 'loading' || !user || showInitialLoader) {
     return (
       <LoadingState
-        title="Loading your dashboard"
-        message="Gathering hiring metrics, interviews, and pipeline health."
+        title="Checking your session and syncing your company data"
+        message="Verifying secure access and loading interviews, jobs, and hiring metrics."
         variant="fullscreen"
         tone="primary"
       />
     );
   }
 
-  // Calculate derived data - must be before conditional returns (Rules of Hooks)
-  const safeInterviews = Array.isArray(interviews) ? interviews : [];
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
-  
   // Count active (published) job postings
   const activeJobPostings = safeJobs.filter(job => job?.status === 'PUBLISHED').length;
   
@@ -330,8 +331,6 @@ const CompanyDashboard = () => {
     );
   }
 
-  const showInitialLoader = dataLoading && !safeInterviews.length && !metrics;
-
   const handleViewRecording = (candidateId) => {
     console.log('Viewing recording for candidate:', candidateId);
     // Navigate to recording viewer
@@ -383,7 +382,7 @@ const CompanyDashboard = () => {
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
+    <div className="dashboard-shell">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden z-0"
@@ -422,21 +421,10 @@ const CompanyDashboard = () => {
               variants={sectionReveal}
               initial="hidden"
               animate="visible"
-              className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
+              className="dashboard-layout"
             >
-              {showInitialLoader && (
-                <motion.div variants={fadeUpChild}>
-                  <LoadingState
-                    title="Syncing your company data"
-                    message="Updating pipeline insights and latest interviews."
-                    variant="card"
-                    tone="primary"
-                  />
-                </motion.div>
-              )}
-
               {/* Pending Approval Banner */}
-              {!showInitialLoader && user?.organizationContext?.organization && (
+              {user?.organizationContext?.organization && (
                 <PendingApprovalBanner organization={user.organizationContext.organization} />
               )}
               
@@ -448,7 +436,7 @@ const CompanyDashboard = () => {
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
                 <div className="relative z-10 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-1 sm:space-y-1.5">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>AI-powered hiring control center</span>
                     </div>
@@ -461,7 +449,7 @@ const CompanyDashboard = () => {
                     </p>
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
-                    <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
+                    <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
                     <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
                       {latestCompanyName}
                     </div>
@@ -476,9 +464,9 @@ const CompanyDashboard = () => {
                       key={item.label}
                       className="rounded-lg border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-2 py-1.5 xs:px-2.5 xs:py-2 shadow-sm"
                     >
-                      <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
+                      <p className="text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
                       <p className="text-base xs:text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
-                      <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
                 </div>
