@@ -39,14 +39,14 @@
 | Evaluation retrieval by reviewer | Yes | same file (STEP 10), `server/src/routes/interview.routes.js:111` | Reviewer token returned evaluation payload. |
 | Full authenticated journey summary | Yes | `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt` | `10/10` checks passed. |
 
-## 4) Delta vs ATS Analysis “MUST” list
+## 4) Delta vs ATS Analysis "MUST" list
 | MUST item | Implemented/Partial/Missing | Evidence | Minimal fix recommendation |
 |---|---|---|---|
 | Scheduling source of truth + APIs | Implemented | `server/src/routes/interview.routes.js:150`, `server/src/controllers/interview.controller.js:508`, journey STEPs 2-3 | Keep this path covered by integration tests for regressions. |
 | Durable full-session recording storage + retrieval | Implemented | `server/src/routes/interview.routes.js:210`, `server/src/controllers/interview.controller.js:704`, journey STEPs 8-9 | Add media integrity validation if production playback quality is required. |
 | Ollama hard dependency causing start/end failure | Implemented | `server/src/controllers/interview.controller.js:853`, `server/src/controllers/interview.controller.js:935`, journey STEPs 4 and 7 | Keep fallback flags (`llmUnavailable`, `pendingEvaluation`) in downstream analytics/reporting logic. |
 | Backend tests green | Implemented | `docs/_runtime_outputs/gapclosure_AUTH_13_npm_test_server.txt` | Keep CI pinned to this test path. |
-| Placeholder dashboard quick actions | Partial | Previous code wiring in `src/pages/company-dashboard/index.jsx` plus this run’s API-level validation | Add explicit UI automation coverage for quick-action click paths. |
+| Placeholder dashboard quick actions | Partial | Previous code wiring in `src/pages/company-dashboard/index.jsx` plus this run's API-level validation | Add explicit UI automation coverage for quick-action click paths. |
 | Account-level self-service deletion/export | Partial | Existing routes still centered on application withdraw/admin retention (`server/src/routes/application.routes.js:67`, `server/src/routes/admin.routes.js:358`) | Add scoped self-service delete/export endpoints if required by product policy. |
 
 ## 5) Concrete bug list (prioritized)
@@ -55,7 +55,7 @@
 | Medium | UI-level flow is not browser-verified in this pack | Run only API scripts, no Playwright/manual UI walkthrough | Current pack validates authenticated APIs, not end-user click-paths | Add Playwright scenario for login + journey using same seeded users/tokens. |
 | Low | Uploaded recording in test flow is dummy bytes | Journey script uploads tiny synthetic `session_dummy.webm` | Test intent was pipeline verification, not media content fidelity (`scripts/authenticated_journey.mjs:245`) | Add optional real MediaRecorder artifact capture in a browser-driven test. |
 
-## 6) “What to demo” script (10–15 minutes, verified-only)
+## 6) "What to demo" script (10-15 minutes, verified-only)
 1. Show commit and branch (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`, `docs/_runtime_outputs/gapclosure_AUTH_02_git_status.txt`).
 2. Show command readiness files (install/tests/build/start): `gapclosure_AUTH_10` through `gapclosure_AUTH_17`.
 3. Show base probes and auth gate: `docs/_runtime_outputs/gapclosure_AUTH_51_runtime_base_and_auth_gate_probes.txt`.
