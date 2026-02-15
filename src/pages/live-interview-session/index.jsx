@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { onValue, ref as realtimeRef } from 'firebase/database';
@@ -53,6 +53,11 @@ const LiveInterviewSession = () => {
     searchParams.get('interviewId') || searchParams.get('id') || `interview_${Date.now()}`
   );
   const snapshotIntervalRef = useRef(null);
+  const mediaStreamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const recordingChunksRef = useRef([]);
+  const [isUploadingRecording, setIsUploadingRecording] = useState(false);
+  const [sessionNotice, setSessionNotice] = useState('');
 
   // Explicit recording consent (FR2). Restore from session so refresh doesn't re-prompt.
   const [recordingConsentGiven, setRecordingConsentGiven] = useState(() => {
@@ -300,6 +305,100 @@ const LiveInterviewSession = () => {
     return () => clearInterval(interval);
   }, [sessionState?.isActive, sessionState?.isPaused]);
 
+  const handleMediaStreamReady = useCallback((stream) => {
+    mediaStreamRef.current = stream || null;
+  }, []);
+
+  const startSessionRecording = useCallback(() => {
+    const stream = mediaStreamRef.current;
+    if (!stream || typeof window === 'undefined' || typeof window.MediaRecorder === 'undefined') {
+      return;
+    }
+
+    if (mediaRecorderRef.current?.state === 'recording') return;
+
+    try {
+      const preferredTypes = [
+        'video/webm;codecs=vp9,opus',
+        'video/webm;codecs=vp8,opus',
+        'video/webm',
+        'audio/webm',
+      ];
+      const supportedType = preferredTypes.find((type) => window.MediaRecorder.isTypeSupported?.(type));
+      const recorder = supportedType
+        ? new window.MediaRecorder(stream, { mimeType: supportedType })
+        : new window.MediaRecorder(stream);
+
+      recordingChunksRef.current = [];
+      recorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          recordingChunksRef.current.push(event.data);
+        }
+      };
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+    } catch (error) {
+      console.error('Failed to start session recorder:', error);
+    }
+  }, []);
+
+  const stopSessionRecording = useCallback(async () => {
+    const recorder = mediaRecorderRef.current;
+    if (!recorder) return null;
+
+    return new Promise((resolve) => {
+      const finalize = () => {
+        const chunks = recordingChunksRef.current || [];
+        recordingChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        if (!chunks.length) {
+          resolve(null);
+          return;
+        }
+        const blobType = chunks[0]?.type || recorder.mimeType || 'video/webm';
+        resolve(new Blob(chunks, { type: blobType }));
+      };
+
+      if (recorder.state === 'inactive') {
+        finalize();
+        return;
+      }
+
+      recorder.onstop = finalize;
+      recorder.stop();
+    });
+  }, []);
+
+  useEffect(() => {
+    if (recordingConsentGiven && sessionState?.isActive && sessionState?.isRecording) {
+      startSessionRecording();
+      return;
+    }
+
+    if (!sessionState?.isRecording && mediaRecorderRef.current?.state === 'recording') {
+      void stopSessionRecording();
+    }
+  }, [
+    recordingConsentGiven,
+    sessionState?.isActive,
+    sessionState?.isRecording,
+    startSessionRecording,
+    stopSessionRecording,
+  ]);
+
+  useEffect(() => () => {
+    const recorder = mediaRecorderRef.current;
+    if (recorder && recorder.state !== 'inactive') {
+      try {
+        recorder.stop();
+      } catch {
+        // ignore cleanup errors
+      }
+    }
+    mediaRecorderRef.current = null;
+    recordingChunksRef.current = [];
+  }, []);
+
   const handlePauseSession = () => {
     setSessionState(prev => ({ ...prev, isPaused: true }));
   };
@@ -315,13 +414,46 @@ const LiveInterviewSession = () => {
     if (snapshotIntervalRef.current) {
       clearInterval(snapshotIntervalRef.current);
     }
+
+    let recordingBlob = null;
+    try {
+      recordingBlob = await stopSessionRecording();
+    } catch (recordingError) {
+      console.error('Failed to stop session recording:', recordingError);
+    }
     
     // Conclude AI interview and get summary
     try {
       const interviewSummary = await concludeAIInterview();
+      const backendInterview = interviewSummary?.backendInterview || null;
       
       // Store interview summary
       localStorage.setItem('lastInterviewSummary', JSON.stringify(interviewSummary));
+
+      if (backendInterview?.pendingEvaluation || backendInterview?.llmUnavailable) {
+        const pendingMessage = 'AI scoring unavailable; session saved, scoring pending.';
+        setSessionNotice(pendingMessage);
+        localStorage.setItem('lastInterviewNotice', pendingMessage);
+        window.alert(pendingMessage);
+      }
+
+      if (isBackendInterviewId(interviewId.current) && recordingBlob && recordingBlob.size > 0) {
+        try {
+          setIsUploadingRecording(true);
+          const extension = 'webm';
+          const recordingFile = new File(
+            [recordingBlob],
+            `session_${Date.now()}.${extension}`,
+            { type: recordingBlob.type || `video/${extension}` },
+          );
+          await apiClient.interviews.uploadRecording(interviewId.current, recordingFile);
+        } catch (uploadError) {
+          console.error('Failed to upload full-session recording:', uploadError);
+          setSessionNotice('Session ended, but recording upload failed.');
+        } finally {
+          setIsUploadingRecording(false);
+        }
+      }
       
       // Finalize pose analytics and save to localStorage
       const poseSummary = finalizePoseAnalytics(interviewId.current, {
@@ -346,6 +478,8 @@ const LiveInterviewSession = () => {
     if (snapshotIntervalRef.current) {
       clearInterval(snapshotIntervalRef.current);
     }
+
+    void stopSessionRecording();
     
     navigate('/candidate-dashboard');
   };
@@ -534,6 +668,15 @@ const LiveInterviewSession = () => {
       />
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
+      {(isUploadingRecording || sessionNotice) && (
+        <div className="relative z-20 mx-auto max-w-[1200px] px-3 sm:px-4 mb-3">
+          <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 text-sm text-blue-800 dark:text-blue-200">
+            {isUploadingRecording
+              ? 'Finalizing interview recording upload...'
+              : sessionNotice}
+          </div>
+        </div>
+      )}
 
       {/* Explicit recording consent (FR2) – must agree before interview UI and recording */}
       <AnimatePresence mode="wait">
@@ -591,6 +734,7 @@ const LiveInterviewSession = () => {
               onToggleVideo={handleToggleVideo}
               onToggleAudio={handleToggleAudio}
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
+              onMediaStreamReady={handleMediaStreamReady}
               enablePoseDetection={nonverbalFeedbackEnabled}
             />
             <div className="flex-1 min-h-[400px]">
@@ -692,6 +836,7 @@ const LiveInterviewSession = () => {
               onToggleVideo={handleToggleVideo}
               onToggleAudio={handleToggleAudio}
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
+              onMediaStreamReady={handleMediaStreamReady}
               enablePoseDetection={nonverbalFeedbackEnabled}
             />
             <QuestionProgressIndicator
@@ -747,6 +892,7 @@ const LiveInterviewSession = () => {
             onToggleVideo={handleToggleVideo}
             onToggleAudio={handleToggleAudio}
             onPoseMetricsUpdate={handlePoseMetricsUpdate}
+            onMediaStreamReady={handleMediaStreamReady}
             enablePoseDetection={nonverbalFeedbackEnabled}
           />
 

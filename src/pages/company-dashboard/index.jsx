@@ -10,6 +10,7 @@ import CandidateTable from './components/CandidateTable';
 import HiringMetrics from './components/HiringMetrics';
 import QuickActions from './components/QuickActions';
 import ReviewerPanel from './components/ReviewerPanel';
+import InterviewReviewEnhanced from './components/InterviewReviewEnhanced';
 import PendingApprovalBanner from './components/PendingApprovalBanner';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
@@ -38,6 +39,8 @@ const CompanyDashboard = () => {
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedReviewInterviewId, setSelectedReviewInterviewId] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
   const realtimeRefreshTimeoutRef = useRef(null);
   const fetchCompanyDataRef = useRef(null);
 
@@ -331,14 +334,50 @@ const CompanyDashboard = () => {
     );
   }
 
-  const handleViewRecording = (candidateId) => {
-    console.log('Viewing recording for candidate:', candidateId);
-    // Navigate to recording viewer
+  const findInterviewForCandidate = (candidateId) => {
+    const matches = safeInterviews.filter((interview) => (
+      interview?.candidate?.id === candidateId || interview?.candidateId === candidateId
+    ));
+    if (!matches.length) return null;
+    return [...matches].sort((left, right) => {
+      const leftTs = new Date(left?.endedAt || left?.updatedAt || left?.createdAt || 0).getTime();
+      const rightTs = new Date(right?.endedAt || right?.updatedAt || right?.createdAt || 0).getTime();
+      return rightTs - leftTs;
+    })[0];
   };
 
-  const handleViewAnalysis = (candidateId) => {
-    console.log('Viewing analysis for candidate:', candidateId);
-    // Navigate to analysis report
+  const handleViewRecording = async (candidateId) => {
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+
+    try {
+      await apiClient.interviews.getRecordingUrl(interview.id);
+      setSelectedReviewInterviewId(interview.id);
+      setActionMessage('');
+    } catch (error) {
+      setActionMessage(error?.message || 'Recording is not available for this interview.');
+      setSelectedReviewInterviewId(interview.id);
+    }
+  };
+
+  const handleViewAnalysis = async (candidateId) => {
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+
+    try {
+      await apiClient.interviews.getEvaluation(interview.id);
+      setSelectedReviewInterviewId(interview.id);
+      setActionMessage('');
+    } catch (error) {
+      setActionMessage(error?.message || 'Evaluation not available yet.');
+      setSelectedReviewInterviewId(interview.id);
+    }
   };
 
   const handleUpdateStatus = (candidateId) => {
@@ -355,13 +394,11 @@ const CompanyDashboard = () => {
   };
 
   const handleGenerateReport = () => {
-    console.log('Generating hiring report...');
-    // Generate and download report
+    navigate('/company-analytics');
   };
 
   const handleExportReport = () => {
-    console.log('Exporting metrics report...');
-    // Export metrics data
+    navigate('/company-analytics');
   };
 
   const handleActionClick = (action) => {
@@ -472,6 +509,12 @@ const CompanyDashboard = () => {
                 </div>
               </motion.div>
 
+              {actionMessage && (
+                <motion.div variants={fadeUpChild} className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">
+                  {actionMessage}
+                </motion.div>
+              )}
+
               {/* Quick Actions */}
               <motion.div variants={fadeUpChild}>
                 <DashboardQuickActions
@@ -541,6 +584,13 @@ const CompanyDashboard = () => {
             </motion.section>
           </main>
         </div>
+
+        {selectedReviewInterviewId && (
+          <InterviewReviewEnhanced
+            interviewId={selectedReviewInterviewId}
+            onClose={() => setSelectedReviewInterviewId(null)}
+          />
+        )}
 
         {/* Floating Action Button - Mobile Only - ADMIN and RECRUITER only */}
         {hasPermission(organizationRole, 'SEND_INVITATIONS') && (

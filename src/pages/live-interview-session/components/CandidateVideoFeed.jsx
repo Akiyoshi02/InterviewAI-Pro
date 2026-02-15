@@ -11,6 +11,7 @@ const CandidateVideoFeed = ({
   onToggleVideo,
   onToggleAudio,
   onPoseMetricsUpdate,
+  onMediaStreamReady,
   enablePoseDetection = true,
   className = ''
 }) => {
@@ -44,6 +45,7 @@ const CandidateVideoFeed = ({
           audio: true
         });
         setStream(mediaStream);
+        onMediaStreamReady?.(mediaStream);
         
         // Wait for video ref to be available
         if (videoRef?.current) {
@@ -63,6 +65,7 @@ const CandidateVideoFeed = ({
     initializeCamera();
 
     return () => {
+      onMediaStreamReady?.(null);
       if (stream) {
         stream?.getTracks()?.forEach(track => track?.stop());
       }

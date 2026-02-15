@@ -1,0 +1,80 @@
+                    Download
+                  </Button>
+                )}
+              </div>
+
+              {interview.transcript ? (
+                <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 max-h-[600px] overflow-y-auto">
+                  <pre className="text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap font-sans leading-relaxed">
+                    {interview.transcript}
+                  </pre>
+                </div>
+              ) : (
+                <div className="p-12 text-center rounded-xl bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
+                  <Icon name="FileText" className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600 dark:text-slate-400">
+                    Transcript not available for this interview
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Video Tab */}
+          {activeTab === 'video' && (
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
+                Interview Recording
+              </h3>
+
+              {interview.recordingUrl ? (
+                <div className="rounded-xl overflow-hidden bg-black">
+                  <video
+                    controls
+                    className="w-full"
+                    src={interview.recordingUrl}
+                  >
+                    Your browser does not support video playback.
+                  </video>
+                </div>
+              ) : (
+                <div className="p-12 text-center rounded-xl bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
+                  <Icon name="Video" className="w-12 h-12 text-gray-400 mx-auto mb-3" />
+                  <p className="text-gray-600 dark:text-slate-400 mb-2">
+                    Video recording not available
+                  </p>
+                  <p className="text-xs text-gray-500 dark:text-slate-500">
+                    This interview may not have been recorded or the recording is still processing
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* AI Evaluation Tab — rubric-tied explainability for recruiters/SMEs */}
+          {activeTab === 'evaluation' && (
+            <div className="space-y-6">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
+                AI-Generated Evaluation
+              </h3>
+
+              {interview.evaluation ? (
+                <>
+                  {/* Overall Score */}
+                  <div className="p-6 rounded-xl bg-gradient-to-r from-purple-50 to-blue-50 dark:from-purple-900/20 dark:to-blue-900/20 border border-purple-200 dark:border-purple-800">
+                    <div className="text-center">
+                      <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">
+                        Overall Score
+                      </p>
+                      <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
+                        {interview.overallScore != null ? interview.overallScore : 'N/A'}
+                      </div>
+                      <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">
+                        Readiness: {interview.readinessLevel || 'Not assessed'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Rubric-tied criteria: score + feedback per criterion */}
+                  {typeof interview.evaluation === 'object' && interview.evaluation !== null && (
+                    <>

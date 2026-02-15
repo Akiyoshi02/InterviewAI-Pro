@@ -28,6 +28,7 @@ import {
 } from '../middleware/inputValidation.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
 import { InterviewController } from '../controllers/interview.controller.js';
+import { interviewRecordingUpload } from '../middleware/upload.middleware.js';
 
 const router = express.Router();
 
@@ -143,6 +144,103 @@ router.patch(
   validationSchemas.interview.recordingConsent.validators,
   validateRequest,
   InterviewController.recordRecordingConsent
+);
+
+/**
+ * POST /api/interviews/:id/schedule
+ * Schedule interview timing and meeting link.
+ */
+router.post(
+  '/:id/schedule',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.schedule.allowedFields),
+  validationSchemas.interview.schedule.validators,
+  validateRequest,
+  InterviewController.scheduleInterview,
+);
+
+/**
+ * PATCH /api/interviews/:id/reschedule
+ * Reschedule existing interview.
+ */
+router.patch(
+  '/:id/reschedule',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.reschedule.allowedFields),
+  validationSchemas.interview.reschedule.validators,
+  validateRequest,
+  InterviewController.rescheduleInterview,
+);
+
+/**
+ * POST /api/interviews/:id/cancel
+ * Cancel an interview schedule.
+ */
+router.post(
+  '/:id/cancel',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.cancel.allowedFields),
+  validationSchemas.interview.cancel.validators,
+  validateRequest,
+  InterviewController.cancelInterview,
+);
+
+/**
+ * POST /api/interviews/:id/recording
+ * Upload full-session recording file for an interview.
+ */
+router.post(
+  '/:id/recording',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  interviewRecordingUpload.single('recording'),
+  InterviewController.uploadRecording,
+);
+
+/**
+ * GET /api/interviews/:id/recording-url
+ * Retrieve authorized playback URL for full-session recording.
+ */
+router.get(
+  '/:id/recording-url',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.getRecordingUrl,
 );
 
 /**

@@ -1,5 +1,8 @@
 import { LLMService } from '../services/llm.service.js';
+import fs from 'fs/promises';
+import path from 'path';
 import {
+  activityLogStore,
   hydrateInterviewParticipants,
   interviewStore,
   jobApplicationStore,
@@ -10,6 +13,8 @@ import {
   systemSettingsStore,
   userStore,
 } from '../services/firebaseData.service.js';
+import { createSignedDownloadPath } from '../services/localObjectStorage.service.js';
+import { uploadsPaths } from '../middleware/upload.middleware.js';
 import logger from '../utils/logger.js';
 
 const ensureAccess = (interview, user, { allowOrganizationMembers = true } = {}) => {
@@ -41,6 +46,126 @@ const ensureAccess = (interview, user, { allowOrganizationMembers = true } = {})
 const canCreateHiringInterview = (role) => {
   const normalizedRole = String(role || '').toUpperCase();
   return normalizedRole === 'ADMIN' || normalizedRole === 'RECRUITER';
+};
+
+const SCHEDULING_ROLES = new Set(['ADMIN', 'RECRUITER']);
+const RECORDING_VIEW_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+const DEFAULT_TIMEZONE = process.env.DEFAULT_INTERVIEW_TIMEZONE || 'UTC';
+
+const buildAbsoluteApiUrl = (req, relativePath) => {
+  if (!relativePath || typeof relativePath !== 'string') return null;
+  if (/^https?:\/\//i.test(relativePath)) return relativePath;
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return `${origin}${relativePath.startsWith('/') ? relativePath : `/${relativePath}`}`;
+};
+
+const toUploadsPublicPath = (absolutePath) => {
+  const uploadsRoot = path.resolve(uploadsPaths.root);
+  const resolved = path.resolve(absolutePath || '');
+  if (!resolved.startsWith(`${uploadsRoot}${path.sep}`)) return null;
+  const relative = path.relative(uploadsRoot, resolved).replaceAll('\\', '/');
+  if (!relative || relative.includes('..')) return null;
+  return `/uploads/${relative}`;
+};
+
+const isLikelyOllamaUnavailableError = (error) => {
+  const message = String(error?.message || '').toLowerCase();
+  const code = String(error?.code || '').toLowerCase();
+  return [
+    'econnrefused',
+    'fetch failed',
+    'failed to fetch',
+    'ollama',
+    'socket hang up',
+    'connect',
+    'timed out',
+    'timeout',
+  ].some((token) => message.includes(token) || code.includes(token));
+};
+
+const buildFallbackQuestions = (interview) => {
+  const role = interview?.jobRole || 'this role';
+  const focus = Array.isArray(interview?.skillFocus) && interview.skillFocus.length
+    ? interview.skillFocus[0]
+    : 'core responsibilities';
+
+  return [
+    {
+      id: 'fallback_q1',
+      type: 'behavioral',
+      difficulty: 'medium',
+      question: `Tell me about yourself and why you are interested in ${role}.`,
+      expectedDuration: 3,
+      evaluationCriteria: ['clarity', 'motivation', 'role alignment'],
+    },
+    {
+      id: 'fallback_q2',
+      type: 'behavioral',
+      difficulty: 'medium',
+      question: `Describe a situation where you solved a difficult problem related to ${focus}.`,
+      expectedDuration: 4,
+      evaluationCriteria: ['STAR structure', 'problem solving', 'impact'],
+    },
+    {
+      id: 'fallback_q3',
+      type: 'behavioral',
+      difficulty: 'medium',
+      question: 'Describe a time you received critical feedback. What changed afterward?',
+      expectedDuration: 3,
+      evaluationCriteria: ['self-awareness', 'growth mindset', 'communication'],
+    },
+    {
+      id: 'fallback_q4',
+      type: 'behavioral',
+      difficulty: 'medium',
+      question: 'How do you prioritize work when multiple deadlines conflict?',
+      expectedDuration: 3,
+      evaluationCriteria: ['prioritization', 'decision quality', 'execution'],
+    },
+    {
+      id: 'fallback_q5',
+      type: 'behavioral',
+      difficulty: 'medium',
+      question: 'Do you have any questions for the team or role?',
+      expectedDuration: 2,
+      evaluationCriteria: ['engagement', 'preparation', 'clarity'],
+    },
+  ];
+};
+
+const canManageSchedule = (interview, user) => {
+  const access = ensureAccess(interview, user, { allowOrganizationMembers: true });
+  if (!access.allowed) return access;
+
+  // Candidate can manage only their own practice interview scheduling.
+  if (user?.accountType === 'CANDIDATE') {
+    if (interview?.mode === 'PRACTICE' && interview?.candidateId === user?.id) {
+      return { allowed: true };
+    }
+    return { allowed: false, status: 403, message: 'Only company scheduling members can manage this interview' };
+  }
+
+  if (user?.accountType === 'COMPANY') {
+    const organizationRole = String(user?.organizationContext?.membership?.role || '').toUpperCase();
+    if (SCHEDULING_ROLES.has(organizationRole)) return { allowed: true };
+    return { allowed: false, status: 403, message: 'Insufficient organization role for scheduling' };
+  }
+
+  return { allowed: false, status: 403, message: 'Access denied' };
+};
+
+const canViewRecording = (interview, user) => {
+  const access = ensureAccess(interview, user, { allowOrganizationMembers: true });
+  if (!access.allowed) return access;
+
+  if (user?.accountType === 'COMPANY') {
+    const organizationRole = String(user?.organizationContext?.membership?.role || '').toUpperCase();
+    if (!RECORDING_VIEW_ROLES.has(organizationRole)) {
+      return { allowed: false, status: 403, message: 'Insufficient organization role for recording access' };
+    }
+  }
+
+  return { allowed: true };
 };
 
 const attachSingleInterviewParticipants = async (interview) => {
@@ -144,6 +269,10 @@ export class InterviewController {
         status,
         pipelineStatus,
         reviewerAssignments,
+        scheduledFor,
+        timezone,
+        meetingLink,
+        scheduleStatus,
       } = req.body;
       const userId = req.user.id;
       const accountType = req.user.accountType;
@@ -281,6 +410,12 @@ export class InterviewController {
         jobStage: jobStage || null,
         invitationId: invitationId || null,
         status: status || 'SCHEDULED',
+        scheduledFor: scheduledFor || null,
+        timezone: timezone || DEFAULT_TIMEZONE,
+        meetingLink: meetingLink || null,
+        scheduleStatus: scheduleStatus || (scheduledFor ? 'SCHEDULED' : null),
+        scheduledBy: scheduledFor ? userId : null,
+        scheduledAt: scheduledFor ? new Date().toISOString() : null,
         pipelineStatus: pipelineStatus || null,
         reviewerAssignments: Array.isArray(reviewerAssignments) ? reviewerAssignments : [],
         jobRole,
@@ -370,10 +505,320 @@ export class InterviewController {
     }
   }
 
+  static async scheduleInterview(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { scheduledFor, timezone, meetingLink } = req.body;
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (isTerminalInterviewStatus(interview.status)) {
+        return res.status(409).json({ error: 'Cannot schedule a completed or cancelled interview' });
+      }
+
+      const scheduledAt = new Date().toISOString();
+      const updatedInterview = await interviewStore.update(id, {
+        status: 'SCHEDULED',
+        scheduledFor,
+        timezone: timezone || interview.timezone || DEFAULT_TIMEZONE,
+        meetingLink: typeof meetingLink === 'string' && meetingLink.trim() ? meetingLink.trim() : null,
+        scheduleStatus: 'SCHEDULED',
+        scheduledBy: req.user.id,
+        scheduledAt,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_SCHEDULED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            scheduledFor: updatedInterview.scheduledFor || null,
+            timezone: updatedInterview.timezone || null,
+            meetingLink: updatedInterview.meetingLink || null,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-scheduled', {
+          actor: req.user.id,
+          status: 'SCHEDULED',
+          scheduledFor: updatedInterview.scheduledFor || null,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-scheduled', {
+            interviewId: updatedInterview.id,
+            status: 'SCHEDULED',
+            scheduledFor: updatedInterview.scheduledFor || null,
+            candidateId: updatedInterview.candidateId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-scheduled realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({ success: true, interview: hydrated });
+    } catch (error) {
+      logger.error('Schedule interview error:', error);
+      return next(error);
+    }
+  }
+
+  static async rescheduleInterview(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { scheduledFor, timezone, meetingLink } = req.body;
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (isTerminalInterviewStatus(interview.status)) {
+        return res.status(409).json({ error: 'Cannot reschedule a completed or cancelled interview' });
+      }
+
+      const scheduledAt = new Date().toISOString();
+      const updatedInterview = await interviewStore.update(id, {
+        status: 'SCHEDULED',
+        scheduledFor,
+        timezone: timezone || interview.timezone || DEFAULT_TIMEZONE,
+        meetingLink: typeof meetingLink === 'string' && meetingLink.trim()
+          ? meetingLink.trim()
+          : (interview.meetingLink || null),
+        scheduleStatus: 'RESCHEDULED',
+        scheduledBy: req.user.id,
+        scheduledAt,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_RESCHEDULED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            scheduledFor: updatedInterview.scheduledFor || null,
+            timezone: updatedInterview.timezone || null,
+            meetingLink: updatedInterview.meetingLink || null,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-rescheduled', {
+          actor: req.user.id,
+          status: 'SCHEDULED',
+          scheduledFor: updatedInterview.scheduledFor || null,
+          scheduleStatus: 'RESCHEDULED',
+        });
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-rescheduled realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({ success: true, interview: hydrated });
+    } catch (error) {
+      logger.error('Reschedule interview error:', error);
+      return next(error);
+    }
+  }
+
+  static async cancelInterview(req, res, next) {
+    try {
+      const { id } = req.params;
+      const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (isTerminalInterviewStatus(interview.status)) {
+        return res.status(409).json({ error: 'Interview is already completed or cancelled' });
+      }
+
+      const cancelledAt = new Date().toISOString();
+      const updatedInterview = await interviewStore.update(id, {
+        status: 'CANCELLED',
+        scheduleStatus: 'CANCELLED',
+        cancelledAt,
+        cancelledBy: req.user.id,
+        cancellationReason: reason || null,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_CANCELLED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            reason: reason || null,
+            scheduledFor: updatedInterview.scheduledFor || null,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-cancelled', {
+          actor: req.user.id,
+          status: 'CANCELLED',
+          cancelledAt,
+          reason: reason || null,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-cancelled', {
+            interviewId: updatedInterview.id,
+            status: 'CANCELLED',
+            cancelledAt,
+            candidateId: updatedInterview.candidateId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-cancelled realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({ success: true, interview: hydrated });
+    } catch (error) {
+      logger.error('Cancel interview error:', error);
+      return next(error);
+    }
+  }
+
+  static async uploadRecording(req, res, next) {
+    try {
+      const { id } = req.params;
+      const interview = await interviewStore.getById(id);
+      const access = canViewRecording(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (!req.file?.path) {
+        return res.status(400).json({ error: 'Recording file is required' });
+      }
+
+      const publicPath = toUploadsPublicPath(req.file.path);
+      if (!publicPath) {
+        return res.status(400).json({ error: 'Invalid recording storage path' });
+      }
+
+      const recordingMetadata = {
+        path: publicPath,
+        size: req.file.size || null,
+        mimeType: req.file.mimetype || null,
+        createdAt: new Date().toISOString(),
+        createdBy: req.user.id,
+        originalName: req.file.originalname || null,
+      };
+
+      const updatedInterview = await interviewStore.update(id, {
+        recordingUrl: publicPath,
+        recording: recordingMetadata,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_RECORDING_UPLOADED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            path: publicPath,
+            size: recordingMetadata.size,
+            mimeType: recordingMetadata.mimeType,
+          },
+        });
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.status(201).json({
+        success: true,
+        interview: hydrated,
+        recordingUrl: publicPath,
+        recording: recordingMetadata,
+      });
+    } catch (error) {
+      logger.error('Upload recording error:', error);
+      return next(error);
+    }
+  }
+
+  static async getRecordingUrl(req, res, next) {
+    try {
+      const { id } = req.params;
+      const interview = await interviewStore.getById(id);
+      const access = canViewRecording(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      const recordingPath = interview?.recordingUrl || interview?.recording?.path || null;
+      if (!recordingPath) {
+        return res.status(404).json({
+          error: 'Recording not available for this interview',
+          code: 'RECORDING_NOT_FOUND',
+        });
+      }
+
+      const relativePath = recordingPath.replace(/^\/?uploads\//, '');
+      const absolutePath = path.resolve(uploadsPaths.root, relativePath);
+      const uploadsRoot = path.resolve(uploadsPaths.root);
+      if (!absolutePath.startsWith(`${uploadsRoot}${path.sep}`)) {
+        return res.status(400).json({ error: 'Invalid recording path' });
+      }
+
+      try {
+        await fs.access(absolutePath);
+      } catch {
+        return res.status(404).json({
+          error: 'Recording file not found on storage',
+          code: 'RECORDING_FILE_MISSING',
+        });
+      }
+
+      const signedRelativeUrl = createSignedDownloadPath({
+        publicPath: recordingPath,
+        expiresInSeconds: 600,
+      });
+      const resolvedUrl = signedRelativeUrl
+        ? buildAbsoluteApiUrl(req, signedRelativeUrl)
+        : buildAbsoluteApiUrl(req, recordingPath);
+
+      return res.json({
+        success: true,
+        recordingUrl: resolvedUrl,
+        recordingPath,
+      });
+    } catch (error) {
+      logger.error('Get recording URL error:', error);
+      return next(error);
+    }
+  }
+
   static async startInterview(req, res, next) {
     try {
       const { id } = req.params;
       let interview = await interviewStore.getWithQuestions(id);
+      let llmUnavailable = Boolean(interview?.llmUnavailable);
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
@@ -398,7 +843,24 @@ export class InterviewController {
           llmOptions: resolveInterviewLlmOptions(interview.config),
         };
 
-        const generatedQuestions = await LLMService.generateInterviewQuestions(config);
+        let generatedQuestions = [];
+        try {
+          generatedQuestions = await LLMService.generateInterviewQuestions(config);
+        } catch (generationError) {
+          if (!isLikelyOllamaUnavailableError(generationError)) {
+            throw generationError;
+          }
+          llmUnavailable = true;
+          generatedQuestions = buildFallbackQuestions(interview);
+          await interviewStore.update(id, {
+            llmUnavailable: true,
+            llmUnavailableAt: new Date().toISOString(),
+            pendingEvaluation: true,
+            llmFallbackReason: String(generationError?.message || 'OLLAMA_UNAVAILABLE').slice(0, 500),
+          });
+          logger.warn('Ollama unavailable at interview start; fallback question pack applied.');
+        }
+
         await interviewStore.addQuestions(id, generatedQuestions);
         interview = await interviewStore.getWithQuestions(id);
       }
@@ -406,6 +868,7 @@ export class InterviewController {
       const updatedInterview = await interviewStore.update(id, {
         status: 'IN_PROGRESS',
         startedAt: new Date().toISOString(),
+        ...(llmUnavailable ? { llmUnavailable: true, pendingEvaluation: true } : {}),
       });
 
       try {
@@ -436,6 +899,8 @@ export class InterviewController {
       res.json({
         success: true,
         interview: responseInterview,
+        llmUnavailable: Boolean(responseInterview?.llmUnavailable),
+        pendingEvaluation: Boolean(responseInterview?.pendingEvaluation),
       });
     } catch (error) {
       logger.error('Start interview error:', error);
@@ -453,19 +918,40 @@ export class InterviewController {
       }
 
       const answeredQuestions = (interview.questions || []).filter((q) => q.answer);
+      let evaluation = null;
+      let llmUnavailable = Boolean(interview?.llmUnavailable);
+      let pendingEvaluation = Boolean(interview?.pendingEvaluation);
 
-      const evaluation = await LLMService.generateInterviewSummary({
-        interview,
-        questions: answeredQuestions,
-        llmOptions: resolveInterviewLlmOptions(interview.config),
-      });
+      try {
+        evaluation = await LLMService.generateInterviewSummary({
+          interview,
+          questions: answeredQuestions,
+          llmOptions: resolveInterviewLlmOptions(interview.config),
+        });
+      } catch (summaryError) {
+        if (!isLikelyOllamaUnavailableError(summaryError)) {
+          throw summaryError;
+        }
+        llmUnavailable = true;
+        pendingEvaluation = true;
+        evaluation = {
+          status: 'PENDING_EVALUATION',
+          source: 'FALLBACK',
+          llmUnavailable: true,
+          message: 'AI scoring unavailable; session saved, scoring pending.',
+          generatedAt: new Date().toISOString(),
+        };
+        logger.warn('Ollama unavailable at interview end; evaluation marked pending.');
+      }
 
       const updatedInterview = await interviewStore.update(id, {
         status: 'COMPLETED',
         endedAt: new Date().toISOString(),
         evaluation,
-        overallScore: evaluation.overallScore,
-        readinessLevel: evaluation.readinessLevel,
+        overallScore: pendingEvaluation ? null : evaluation?.overallScore ?? null,
+        readinessLevel: pendingEvaluation ? null : evaluation?.readinessLevel ?? null,
+        llmUnavailable,
+        pendingEvaluation,
       });
 
       try {
@@ -509,6 +995,11 @@ export class InterviewController {
       res.json({
         success: true,
         interview: hydrated,
+        pendingEvaluation: Boolean(hydrated?.pendingEvaluation),
+        llmUnavailable: Boolean(hydrated?.llmUnavailable),
+        message: hydrated?.pendingEvaluation
+          ? 'AI scoring unavailable; session saved, scoring pending.'
+          : undefined,
       });
     } catch (error) {
       logger.error('End interview error:', error);

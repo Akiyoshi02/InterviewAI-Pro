@@ -355,6 +355,10 @@ const analyticsStore = {
   getCandidateSnapshots: jest.fn(async () => []),
 };
 
+const systemSettingsStore = {
+  get: jest.fn(async () => null),
+};
+
 const emailNotifications = {
   sendInvitationReceived: jest.fn(async () => {}),
   sendApplicationReceived: jest.fn(async () => {}),
@@ -394,6 +398,7 @@ jest.unstable_mockModule('../services/firebaseData.service.js', () => ({
   invitationStore,
   interviewStore,
   analyticsStore,
+  systemSettingsStore,
   hydrateInterviewParticipants: jest.fn(async (items = []) => items),
   isJobCurrentlyPublic,
   publishOrganizationRealtimeUpdate: realtimeMocks.publishOrganizationRealtimeUpdate,
@@ -464,6 +469,7 @@ const createRecruiterUser = (id, organizationId, email = 'recruiter@example.com'
   organizationContext: {
     organization: {
       id: organizationId,
+      status: 'APPROVED',
     },
     membership: {
       role: 'ADMIN',

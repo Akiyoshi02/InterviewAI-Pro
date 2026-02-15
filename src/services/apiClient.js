@@ -25,6 +25,7 @@ const normalizeUploadsPath = (value) => {
     'company-verifications/',
     'job-advert-images/',
     'job-advert-videos/',
+    'interviews/',
   ];
   const lower = normalized.toLowerCase();
   const hasKnownPrefix = knownPrefixes.some((prefix) => lower.startsWith(prefix));
@@ -558,6 +559,55 @@ export const apiClient = {
           recordingConsentGivenAt: recordingConsentGivenAt || new Date().toISOString(),
           recordingConsentVersion: recordingConsentVersion || null,
         }),
+      });
+      return handleResponse(response);
+    },
+
+    async schedule(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/schedule`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async reschedule(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async cancel(interviewId, payload = {}) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/cancel`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async uploadRecording(interviewId, recordingFile) {
+      const formData = new FormData();
+      formData.append('recording', recordingFile);
+      const token = await getAuthToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async getRecordingUrl(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-url`, {
+        method: 'GET',
+        headers: await getHeaders(),
       });
       return handleResponse(response);
     },

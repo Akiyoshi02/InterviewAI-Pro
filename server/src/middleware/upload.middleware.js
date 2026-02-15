@@ -11,6 +11,7 @@ const companyLogosDir = path.join(uploadsRoot, 'company-logos');
 const companyProofsDir = path.join(uploadsRoot, 'company-verifications');
 const jobAdvertImagesDir = path.join(uploadsRoot, 'job-advert-images');
 const jobAdvertVideosDir = path.join(uploadsRoot, 'job-advert-videos');
+const interviewRecordingsDir = path.join(uploadsRoot, 'interviews');
 
 const ensureDir = (dirPath) => {
   if (!fs.existsSync(dirPath)) {
@@ -26,6 +27,7 @@ const ensureDir = (dirPath) => {
   companyProofsDir,
   jobAdvertImagesDir,
   jobAdvertVideosDir,
+  interviewRecordingsDir,
 ].forEach(ensureDir);
 
 const fileDestinationMap = {
@@ -112,6 +114,57 @@ export const jobAdvertUpload = multer({
   },
 });
 
+const sanitizePathSegment = (value) => String(value || '')
+  .replace(/[^a-zA-Z0-9_-]/g, '')
+  .slice(0, 120);
+
+const recordingStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const interviewId = sanitizePathSegment(req.params?.id) || 'unknown-interview';
+    const recordingDir = path.join(interviewRecordingsDir, interviewId, 'recordings');
+    ensureDir(recordingDir);
+    cb(null, recordingDir);
+  },
+  filename: (req, file, cb) => {
+    const extension = path.extname(file.originalname || '').toLowerCase() || '.webm';
+    const uniqueName = `session_${Date.now()}-${randomUUID()}${extension}`;
+    cb(null, uniqueName);
+  },
+});
+
+const recordingFileFilter = (req, file, cb) => {
+  const allowed = [
+    'video/webm',
+    'video/mp4',
+    'video/quicktime',
+    'video/x-matroska',
+    'video/ogg',
+    'audio/webm',
+    'audio/ogg',
+    'audio/mpeg',
+    'audio/wav',
+  ];
+
+  if (!allowed.includes(file.mimetype)) {
+    const error = new MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
+    error.message = 'Recording must be a supported audio/video format (WEBM, MP4, MOV, MKV, OGG, MP3, WAV).';
+    return cb(error);
+  }
+
+  return cb(null, true);
+};
+
+const RECORDING_MAX_MB = Math.max(10, Number.parseInt(process.env.RECORDING_MAX_MB || '200', 10) || 200);
+
+export const interviewRecordingUpload = multer({
+  storage: recordingStorage,
+  fileFilter: recordingFileFilter,
+  limits: {
+    fileSize: RECORDING_MAX_MB * 1024 * 1024,
+    files: 1,
+  },
+});
+
 export const uploadsPaths = {
   root: uploadsRoot,
   profilePhotosDir,
@@ -120,5 +173,6 @@ export const uploadsPaths = {
   companyProofsDir,
   jobAdvertImagesDir,
   jobAdvertVideosDir,
+  interviewRecordingsDir,
 };
 

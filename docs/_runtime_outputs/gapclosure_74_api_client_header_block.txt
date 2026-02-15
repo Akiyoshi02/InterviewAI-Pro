@@ -1,0 +1,120 @@
+/**
+ * Centralized API client for backend communication
+ * Handles authentication, error handling, and API calls
+ */
+
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+const API_BASE = API_URL.replace(/\/$/, '');
+
+const isAbsoluteHttpUrl = (value) => /^https?:\/\//i.test(String(value || ''));
+
+const normalizeUploadsPath = (value) => {
+  if (!value || typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.startsWith('/uploads/')) return trimmed;
+  if (trimmed.startsWith('uploads/')) return `/${trimmed}`;
+
+  const normalized = trimmed.replaceAll('\\', '/');
+  if (normalized.includes('..')) return null;
+
+  const knownPrefixes = [
+    'profile-photos/',
+    'resumes/',
+    'company-logos/',
+    'company-verifications/',
+    'job-advert-images/',
+    'job-advert-videos/',
+  ];
+  const lower = normalized.toLowerCase();
+  const hasKnownPrefix = knownPrefixes.some((prefix) => lower.startsWith(prefix));
+  if (!hasKnownPrefix) return null;
+  return `/uploads/${normalized}`;
+};
+
+const toApiAbsoluteUrl = (pathValue) => `${API_BASE}${pathValue.startsWith('/') ? pathValue : `/${pathValue}`}`;
+
+/**
+ * Get authentication token from Firebase
+ */
+async function getAuthToken() {
+  try {
+    const { authHelpers } = await import('../config/firebase.js');
+    const token = await authHelpers.getAccessToken();
+    if (!token) {
+      console.warn('No auth token available from Firebase client');
+    }
+    return token;
+  } catch (error) {
+    console.error('Failed to get auth token from Firebase client:', error);
+    return null;
+  }
+}
+
+/**
+ * Get headers with authentication
+ */
+async function getHeaders(includeAuth = true) {
+  const headers = {
+    'Content-Type': 'application/json',
+  };
+
+  if (includeAuth) {
+    const token = await getAuthToken();
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  return headers;
+}
+
+/**
+ * Handle API response
+ */
+async function handleResponse(response) {
+  // Read response as text first (can always be converted to text)
+  const text = await response.text();
+  
+  // Check if response is JSON
+  const contentType = response.headers.get('content-type');
+  let data;
+  
+  // If content-type indicates JSON, try to parse it
+  if (contentType && contentType.includes('application/json')) {
+    try {
+      // Try to parse as JSON
+      data = JSON.parse(text);
+    } catch (jsonError) {
+      // If JSON parsing fails, content-type was misleading
+      // Use text as error message (e.g., rate limiter plain text)
+      if (!response.ok) {
+        throw new Error(text || `API Error: ${response.statusText}`);
+      }
+      // If response is ok but not valid JSON, return as message
+      return { message: text, success: true };
+    }
+  } else {
+    // Response is not JSON (e.g., plain text from rate limiter)
+    // If no content-type or content-type doesn't indicate JSON,
+    // try to parse as JSON anyway (in case it's missing header but is JSON)
+    // but if it fails, use as plain text
+    if (text.trim().startsWith('{') || text.trim().startsWith('[')) {
+      try {
+        data = JSON.parse(text);
+      } catch (jsonError) {
+        // Not JSON, treat as plain text
+        data = null;
+      }
+    }
+    
+    if (!data) {
+      // Not JSON, treat as plain text
+      if (!response.ok) {
+        throw new Error(text || `API Error: ${response.statusText}`);
+      }
+      return { message: text, success: true };
+    }
+  }
+
+  if (!response.ok) {

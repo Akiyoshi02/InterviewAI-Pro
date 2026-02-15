@@ -2,10 +2,17 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import apiClient from '../../../services/apiClient';
 
 const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   const navigate = useNavigate();
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [selectedInterviewId, setSelectedInterviewId] = useState('');
+  const [scheduledFor, setScheduledFor] = useState('');
+  const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
+  const [meetingLink, setMeetingLink] = useState('');
+  const [savingSchedule, setSavingSchedule] = useState(false);
+  const [scheduleError, setScheduleError] = useState('');
 
   // Transform real interview data into the display format
   const transformInterviews = (interviews) => {
@@ -15,7 +22,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
     return interviews
       .filter(interview => {
         const status = interview?.status?.toUpperCase();
-        return status === 'SCHEDULED' || status === 'PENDING';
+        return status === 'SCHEDULED';
       })
       .map(interview => {
         const companyName = interview?.company?.companyName || 
@@ -25,6 +32,9 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                            'Interview Session';
         const companyLogo = interview?.company?.logo || interview?.company?.logoUrl || null;
         const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
+        const scheduledTimestamp = scheduledDate && !Number.isNaN(scheduledDate.getTime())
+          ? scheduledDate.getTime()
+          : 0;
         
         // Calculate time left
         let timeLeft = '';
@@ -55,13 +65,15 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           interviewerAvatar: interview?.interviewer?.avatar || null,
           status: interview?.status?.toLowerCase() === 'scheduled' ? 'confirmed' : 'pending',
           meetingLink: interview?.meetingLink || null,
-          timeLeft
+          timeLeft,
+          scheduledForRaw: interview?.scheduledFor || null,
+          scheduledTimestamp,
         };
       })
       .sort((a, b) => {
-        // Sort by date, earliest first
-        const dateA = new Date(a.date);
-        const dateB = new Date(b.date);
+        // Sort by datetime, earliest first
+        const dateA = a?.scheduledTimestamp || Number.MAX_SAFE_INTEGER;
+        const dateB = b?.scheduledTimestamp || Number.MAX_SAFE_INTEGER;
         return dateA - dateB;
       });
   };
@@ -88,6 +100,77 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
     return 'text-emerald-600 dark:text-emerald-400';
   };
 
+  const toDateTimeLocal = (isoValue) => {
+    if (!isoValue) return '';
+    const date = new Date(isoValue);
+    if (Number.isNaN(date.getTime())) return '';
+    const pad = (num) => String(num).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const resetScheduleForm = () => {
+    setSelectedInterviewId('');
+    setScheduledFor('');
+    setMeetingLink('');
+    setScheduleError('');
+  };
+
+  const openScheduleFormFor = (interview = null) => {
+    const target = interview || interviewData?.[0] || null;
+    if (target) {
+      setSelectedInterviewId(target.id || '');
+      setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
+      setMeetingLink(target?.meetingLink || '');
+    } else {
+      resetScheduleForm();
+    }
+    setShowScheduleForm(true);
+  };
+
+  const handleScheduleSubmit = async () => {
+    try {
+      setScheduleError('');
+      if (!selectedInterviewId) {
+        setScheduleError('Select an interview first.');
+        return;
+      }
+      if (!scheduledFor) {
+        setScheduleError('Select date and time.');
+        return;
+      }
+      const payload = {
+        scheduledFor: new Date(scheduledFor).toISOString(),
+        timezone,
+        meetingLink: meetingLink?.trim() ? meetingLink.trim() : null,
+      };
+      const current = interviewData.find((item) => item.id === selectedInterviewId);
+      setSavingSchedule(true);
+      if (current?.scheduledForRaw) {
+        await apiClient.interviews.reschedule(selectedInterviewId, payload);
+      } else {
+        await apiClient.interviews.schedule(selectedInterviewId, payload);
+      }
+      setShowScheduleForm(false);
+      resetScheduleForm();
+      window.location.reload();
+    } catch (error) {
+      setScheduleError(error?.message || 'Failed to save schedule');
+    } finally {
+      setSavingSchedule(false);
+    }
+  };
+
+  const handleViewCalendar = () => {
+    const withMeetingLink = interviewData.find((item) => item?.meetingLink);
+    if (withMeetingLink?.meetingLink) {
+      window.open(withMeetingLink.meetingLink, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    if (interviewData?.[0]?.id) {
+      navigate(`/live-interview-session?interviewId=${encodeURIComponent(interviewData[0].id)}`);
+    }
+  };
+
   return (
     <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
       <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3">
@@ -100,12 +183,74 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           size="sm"
           iconName="Plus"
           iconPosition="left"
-          onClick={() => setShowScheduleForm(!showScheduleForm)}
+          onClick={() => openScheduleFormFor()}
           className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
         >
           Schedule
         </Button>
       </div>
+      {showScheduleForm && (
+        <div className="mb-3 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/60 space-y-2">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <select
+              value={selectedInterviewId}
+              onChange={(event) => setSelectedInterviewId(event.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+            >
+              <option value="">Select interview</option>
+              {interviewData.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.company} - {item.position}
+                </option>
+              ))}
+            </select>
+            <input
+              type="datetime-local"
+              value={scheduledFor}
+              onChange={(event) => setScheduledFor(event.target.value)}
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+            />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            <input
+              type="text"
+              value={timezone}
+              onChange={(event) => setTimezone(event.target.value)}
+              placeholder="Timezone (IANA)"
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+            />
+            <input
+              type="url"
+              value={meetingLink}
+              onChange={(event) => setMeetingLink(event.target.value)}
+              placeholder="Meeting link (optional)"
+              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+            />
+          </div>
+          {scheduleError && <p className="text-xs text-rose-600 dark:text-rose-400">{scheduleError}</p>}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setShowScheduleForm(false);
+                resetScheduleForm();
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="default"
+              size="sm"
+              onClick={handleScheduleSubmit}
+              disabled={savingSchedule}
+              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white"
+            >
+              {savingSchedule ? 'Saving...' : 'Save Schedule'}
+            </Button>
+          </div>
+        </div>
+      )}
       {interviewData?.length > 0 ?
       <div className="space-y-3">
           {interviewData?.map((interview) =>
@@ -174,6 +319,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     size="sm"
                     iconName="Calendar"
                     iconPosition="left"
+                    onClick={() => openScheduleFormFor(interview)}
                     className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                         Reschedule
@@ -184,7 +330,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
                     size="sm"
                     iconName="Video"
                     iconPosition="left"
-                    onClick={() => navigate('/live-interview-session')}
+                    onClick={() => navigate(`/live-interview-session?interviewId=${encodeURIComponent(interview.id)}`)}
                     className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm flex-1 xs:flex-none"
                   >
                           Join
@@ -210,7 +356,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           variant="default"
           iconName="Plus"
           iconPosition="left"
-          onClick={() => setShowScheduleForm(true)}
+          onClick={() => openScheduleFormFor()}
           className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
         >
             Schedule Interview
@@ -223,6 +369,8 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           variant="outline"
           iconName="Calendar"
           iconPosition="left"
+          onClick={handleViewCalendar}
+          disabled={!interviewData?.length}
           fullWidth
           className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
         >

@@ -126,6 +126,7 @@ const ALLOWED_VALUES = {
   JOB_STATUS: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
   INTERVIEW_MODE: ['PRACTICE', 'HIRING'],
   INTERVIEW_STATUS: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED'],
+  INTERVIEW_SCHEDULE_STATUS: ['SCHEDULED', 'RESCHEDULED', 'CANCELLED'],
   PIPELINE_STATUS: ['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED'],
   MEMBER_STATUS: ['ACTIVE', 'INACTIVE'],
   USER_ACCOUNT_STATUS: ['ACTIVE', 'SUSPENDED'],
@@ -764,6 +765,7 @@ export const validationSchemas = {
         'duration', 'difficulty', 'personality', 'totalQuestions', 'skillFocus',
         'candidateId', 'jobId', 'jobStage', 'invitationId', 'status',
         'pipelineStatus', 'reviewerAssignments', 'config',
+        'scheduledFor', 'timezone', 'meetingLink', 'scheduleStatus',
       ],
       validators: [
         commonValidators.enum('mode', ALLOWED_VALUES.INTERVIEW_MODE, true),
@@ -793,10 +795,68 @@ export const validationSchemas = {
           .isLength({ min: 1, max: LENGTH_LIMITS.ID })
           .withMessage('invitationId must be a valid identifier'),
         commonValidators.enum('status', ALLOWED_VALUES.INTERVIEW_STATUS),
+        commonValidators.enum('scheduleStatus', ALLOWED_VALUES.INTERVIEW_SCHEDULE_STATUS),
         commonValidators.enum('pipelineStatus', ALLOWED_VALUES.PIPELINE_STATUS),
         body('reviewerAssignments').optional().isArray({ max: 20 }),
         body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
         body('config').optional().isObject(),
+        body('scheduledFor')
+          .optional()
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    schedule: {
+      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      validators: [
+        body('scheduledFor')
+          .trim()
+          .notEmpty()
+          .withMessage('scheduledFor is required')
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    reschedule: {
+      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      validators: [
+        body('scheduledFor')
+          .trim()
+          .notEmpty()
+          .withMessage('scheduledFor is required')
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    cancel: {
+      allowedFields: ['reason'],
+      validators: [
+        body('reason')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.SHORT_TEXT })
+          .withMessage('reason must be at most 200 characters'),
       ],
     },
     

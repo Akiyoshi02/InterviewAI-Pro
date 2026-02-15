@@ -43,6 +43,9 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     overrideOverall: false,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [recordingPlaybackUrl, setRecordingPlaybackUrl] = useState('');
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
   const loadInterviewRef = useRef(null);
   const realtimeRefreshTimeoutRef = useRef(null);
 
@@ -69,6 +72,48 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   useEffect(() => {
     loadInterviewRef.current = loadInterview;
   }, [loadInterview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateRecordingUrl = async () => {
+      if (!interview?.id || !interview?.recordingUrl) {
+        setRecordingPlaybackUrl('');
+        setRecordingError('');
+        return;
+      }
+
+      setRecordingLoading(true);
+      setRecordingError('');
+      try {
+        const signed = await apiClient.interviews.getRecordingUrl(interview.id);
+        if (!cancelled && signed?.success && signed?.recordingUrl) {
+          setRecordingPlaybackUrl(signed.recordingUrl);
+          return;
+        }
+
+        const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+        if (!cancelled) {
+          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRecordingError(error?.message || 'Unable to resolve recording playback URL.');
+          const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+        }
+      } finally {
+        if (!cancelled) {
+          setRecordingLoading(false);
+        }
+      }
+    };
+
+    void hydrateRecordingUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [interview?.id, interview?.recordingUrl]);
 
   useInterviewRealtimeFeed({
     userId: user?.id,
@@ -621,10 +666,20 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
 
               {interview.recordingUrl ? (
                 <div className="rounded-xl overflow-hidden bg-black">
+                  {recordingLoading && (
+                    <div className="px-4 py-3 text-sm text-blue-200 bg-blue-900/40">
+                      Resolving secure recording URL...
+                    </div>
+                  )}
+                  {recordingError && (
+                    <div className="px-4 py-3 text-xs text-amber-200 bg-amber-900/50 border-b border-amber-700/40">
+                      {recordingError}
+                    </div>
+                  )}
                   <video
                     controls
                     className="w-full"
-                    src={interview.recordingUrl}
+                    src={recordingPlaybackUrl || interview.recordingUrl}
                   >
                     Your browser does not support video playback.
                   </video>
