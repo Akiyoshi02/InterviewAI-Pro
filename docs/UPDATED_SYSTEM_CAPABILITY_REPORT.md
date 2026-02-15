@@ -5,7 +5,7 @@
 - Auditor: `Codex (GPT-5)`
 - Branch: `gap-closure/2026-02-15`
 - Step-0 snapshot commit: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
-- Current commit after report/script updates: `af458fc67dad0205764da7d7afe85e27961d0eee` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
+- Post-report snapshot commit: see `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
 - Working tree contained additional uncommitted audit artifacts/scripts during this run (`docs/_runtime_outputs/gapclosure_AUTH_02_git_status.txt`).
 
 ## 2) Runtime Readiness (Commands + Probes)

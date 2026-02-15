@@ -5,7 +5,7 @@
 - Auditor: `Codex (GPT-5)`
 - Branch: `gap-closure/2026-02-15`
 - Step-0 snapshot commit: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
-- Current commit after this update pack: `af458fc67dad0205764da7d7afe85e27961d0eee` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
+- Post-report snapshot commit: see `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
 - Context docs reviewed:
   - `docs/IMPLEMENTATION_EVIDENCE_PACK.md`
   - `docs/hiring-platform-ats-interview-system-analysis-2026-02-14.md`
