@@ -1,69 +1,55 @@
-# UPDATED RUNTIME VERIFICATION DELTA PACK
+# UPDATED_RUNTIME_VERIFICATION_DELTA_PACK
 
-## 1) Audit metadata
-- Date: `2026-02-15`
-- Auditor: `Codex (GPT-5)`
-- Branch: `gap-closure/2026-02-15`
-- Step-0 snapshot commit: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
-- Post-report snapshot commit: see `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
-- Context docs reviewed:
-  - `docs/IMPLEMENTATION_EVIDENCE_PACK.md`
-  - `docs/hiring-platform-ats-interview-system-analysis-2026-02-14.md`
-  - Prior runtime/system reports (`docs/SYSTEM_CAPABILITY_REPORT.md`, `docs/RUNTIME_VERIFICATION_DELTA_PACK.md`, `docs/_audit_outputs/UPDATED_*.md`)
+## 1) Audit Metadata
+- Timestamp: `2026-02-16T00:02:25.9067590+05:30` (`docs/_runtime_outputs/demo_98_timestamp.txt`)
+- Repo HEAD: `6ba42904805ca679dd6d551f9f0ce6a2668c45f5` (`docs/_runtime_outputs/demo_90_git_rev_after_changes.txt`)
+- Environment: Node `v24.11.0`, npm `11.6.1` (`docs/_runtime_outputs/demo_96_node_version.txt`, `docs/_runtime_outputs/demo_97_npm_version.txt`)
 
-## 2) Runtime readiness checklist (what ran / what failed)
-| Item | Status | Evidence |
-|---|---|---|
-| `npm install` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_10_npm_install_root.txt` |
-| `npm install --prefix server` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_11_npm_install_server.txt` |
-| `npm test -- --run` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_12_npm_test_root_run.txt` |
-| `npm --prefix server test` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_13_npm_test_server.txt` |
-| `npm run build` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_14_npm_run_build_root.txt` |
-| Backend start (`npm run dev --prefix server`) | PASS | `docs/_runtime_outputs/gapclosure_AUTH_16_server_dev_start.txt` |
-| Frontend start (`npm start`) | PASS | `docs/_runtime_outputs/gapclosure_AUTH_17_frontend_start.txt` |
-| Base probes (`/health`, `/api/public/config`) | PASS | `docs/_runtime_outputs/gapclosure_AUTH_18_base_probes.txt` |
-| Protected endpoint without token | PASS (`401`) | `docs/_runtime_outputs/gapclosure_AUTH_51_runtime_base_and_auth_gate_probes.txt` |
-| Forced-Ollama runtime backend boot | PASS | `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt` |
+## 2) Runtime Readiness Checklist
+- [x] Root tests pass: `docs/_runtime_outputs/demo_12_npm_test_root_run.txt`
+- [x] Server tests pass: `docs/_runtime_outputs/demo_13_npm_test_server.txt`
+- [x] Build passes: `docs/_runtime_outputs/demo_14_npm_build_root.txt`
+- [x] Health endpoints respond: `docs/_runtime_outputs/demo_33_runtime_probes_fresh.txt`
+- [x] AI health endpoint returns Ollama readiness fields: `docs/_runtime_outputs/demo_43_ai_health_fresh_server_with_ollama.txt`
+- [x] Auth gate verified (`401` without token): `docs/_runtime_outputs/demo_95_auth_gate_probe.txt`
 
-## 3) Verified feature table
-| Feature | Verified (Yes/No/Partial) | Evidence | Notes |
+## 3) Verified Feature Table
+
+| Feature | Verified | Evidence | Notes |
 |---|---|---|---|
-| Token acquisition for candidate/company/reviewer | Yes | `scripts/acquire_runtime_tokens.mjs:87`, `scripts/acquire_runtime_tokens.mjs:273`, `docs/_runtime_outputs/gapclosure_AUTH_41_token_acquisition_command_output.txt` | Programmatic; no manual browser extraction required. |
-| Company creates interview | Yes | `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt` (STEP 1) | `POST /api/interviews/create` returned `201`. |
-| Schedule interview | Yes | same file (STEP 2) | `POST /api/interviews/:id/schedule` returned `200`. |
-| Reschedule interview | Yes | same file (STEP 3) | `PATCH /api/interviews/:id/reschedule` returned `200`. |
-| Start with Ollama unavailable fallback | Yes | same file (STEP 4), `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt` | `llmUnavailable=true`, fallback questions used. |
-| End with Ollama unavailable fallback | Yes | same file (STEP 7), server log file above | `pendingEvaluation=true`; no hard failure. |
-| Recording upload persistence path | Yes | same file (STEP 8), `server/src/controllers/interview.controller.js:732` | `recordingUrl` returned and persisted in interview update path. |
-| Recording URL retrieval by reviewer | Yes | same file (STEP 9), `server/src/controllers/interview.controller.js:765` | Reviewer token successfully fetched authorized URL. |
-| Evaluation retrieval by reviewer | Yes | same file (STEP 10), `server/src/routes/interview.routes.js:111` | Reviewer token returned evaluation payload. |
-| Full authenticated journey summary | Yes | `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt` | `10/10` checks passed. |
+| Durable full-session recording persistence | Yes | Upload + persistence (`server/src/controllers/interview.controller.js:832`), data model fields (`server/src/services/firebaseData.service.js:429`), runtime upload success in journey trace (`docs/_runtime_outputs/demo_api_journey_requests_and_responses.txt`) | Persists both `recordingUrl` and `recording` metadata (`size`, `mimeType`, `createdAt`, `createdBy`) |
+| Scheduling source of truth (`scheduledFor/timezone/meetingLink`) | Yes | Scheduling handlers (`server/src/controllers/interview.controller.js:618`, `server/src/controllers/interview.controller.js:686`), validated input (`server/src/middleware/inputValidation.middleware.js:816`), runtime schedule/reschedule pass (`docs/_runtime_outputs/demo_api_journey_summary.txt`) | Stored in interview document |
+| Scheduling UI actions | Partial | Candidate scheduling widget invokes schedule/reschedule and meeting-link calendar action (`src/pages/candidate-dashboard/components/SchedulingWidget.jsx:137`, `src/pages/candidate-dashboard/components/SchedulingWidget.jsx:164`) | UI for cancel action is not present in this widget; cancel exists as API |
+| Run-evaluation endpoint | Yes | Route/controller (`server/src/routes/interview.routes.js:287`, `server/src/controllers/interview.controller.js:1105`), exercised in trace (`docs/_runtime_outputs/demo_api_journey_requests_and_responses.txt`) | Idempotent return path included |
+| Ollama graceful fallback | Yes | Fallback helper path (`server/src/controllers/interview.controller.js:328`, `server/src/controllers/interview.controller.js:1049`), pending-evaluation behavior in runtime (`docs/_runtime_outputs/demo_50_api_journey_command_output.txt`) | Does not hard-fail end flow |
+| Live scoring with Ollama ON | Yes | AI health shows reachable/model ready (`docs/_runtime_outputs/demo_43_ai_health_fresh_server_with_ollama.txt`), journey scoring fields non-null (`docs/_runtime_outputs/demo_api_journey_summary.txt`) | Verified after starting `ollama serve` |
+| Reviewer playback UX | Yes | Playback + metadata panel (`src/pages/company-dashboard/components/InterviewReviewEnhanced.jsx:687`, `src/pages/company-dashboard/components/InterviewReviewEnhanced.jsx:719`) | API URL retrieval verified |
+| Placeholder quick actions | Partial | `Generate Reports` wired in dashboard (`src/pages/company-dashboard/index.jsx:396`), but component still has no-op default fallback if handler missing (`src/pages/company-dashboard/components/QuickActions.jsx:33`) | Safe in current dashboard wiring, but fallback remains placeholder |
+| Status taxonomy alignment | Partial | Application statuses include `INTERVIEWING/SHORTLISTED` (`server/src/middleware/inputValidation.middleware.js:125`), pipeline statuses include `INTERVIEW/FINAL` (`server/src/middleware/inputValidation.middleware.js:130`), interview pending state represented in evaluation payload as `PENDING_EVALUATION` (`server/src/controllers/interview.controller.js:279`) | Mapping still implicit; no explicit normalization layer |
+| Candidate/company self-service data deletion/export | Not Verified | Deletion/retention scan (`docs/_runtime_outputs/demo_75_deletion_retention_scan.txt`) | Admin retention endpoints exist; candidate/company self-service full data-delete/export path not confirmed |
 
-## 4) Delta vs ATS Analysis "MUST" list
-| MUST item | Implemented/Partial/Missing | Evidence | Minimal fix recommendation |
+## 4) Delta vs Prior MUST Items
+
+| MUST Item | Current Status | Evidence | Minimal Fix Recommendation |
 |---|---|---|---|
-| Scheduling source of truth + APIs | Implemented | `server/src/routes/interview.routes.js:150`, `server/src/controllers/interview.controller.js:508`, journey STEPs 2-3 | Keep this path covered by integration tests for regressions. |
-| Durable full-session recording storage + retrieval | Implemented | `server/src/routes/interview.routes.js:210`, `server/src/controllers/interview.controller.js:704`, journey STEPs 8-9 | Add media integrity validation if production playback quality is required. |
-| Ollama hard dependency causing start/end failure | Implemented | `server/src/controllers/interview.controller.js:853`, `server/src/controllers/interview.controller.js:935`, journey STEPs 4 and 7 | Keep fallback flags (`llmUnavailable`, `pendingEvaluation`) in downstream analytics/reporting logic. |
-| Backend tests green | Implemented | `docs/_runtime_outputs/gapclosure_AUTH_13_npm_test_server.txt` | Keep CI pinned to this test path. |
-| Placeholder dashboard quick actions | Partial | Previous code wiring in `src/pages/company-dashboard/index.jsx` plus this run's API-level validation | Add explicit UI automation coverage for quick-action click paths. |
-| Account-level self-service deletion/export | Partial | Existing routes still centered on application withdraw/admin retention (`server/src/routes/application.routes.js:67`, `server/src/routes/admin.routes.js:358`) | Add scoped self-service delete/export endpoints if required by product policy. |
+| Scheduling end-to-end | Implemented | Backend schedule/reschedule/cancel endpoints + runtime journey pass | Add explicit schedule-cancel UI action where needed |
+| Durable recording URL persisted | Implemented | `recordingUrl`/`recording` update in controller + runtime upload/retrieval pass | Add real-browser media artifact capture to evidence pack |
+| Ollama hard dependency on start/end | Addressed | Fallback logic keeps flow alive and marks pending (`server/src/controllers/interview.controller.js:328`) | Keep `/api/ai/health` pre-check in demo checklist |
+| Placeholder “View Analysis/Generate Reports” | Improved | Dashboard handlers wired (`src/pages/company-dashboard/index.jsx:366`, `src/pages/company-dashboard/index.jsx:396`) | Remove component-level no-op defaults or guard with explicit disabled state |
+| Status mismatch handling | Partial | Enum differences still present (`docs/_runtime_outputs/demo_74_status_taxonomy_refs.txt`) | Add explicit mapping helper used in dashboard filters and API responses |
 
-## 5) Concrete bug list (prioritized)
-| Severity | Symptom | Repro steps | Root cause (with file path) | Fix suggestion |
+## 5) Concrete Bug List (Prioritized)
+
+| Severity | Symptom | Repro | Root Cause | Fix |
 |---|---|---|---|---|
-| Medium | UI-level flow is not browser-verified in this pack | Run only API scripts, no Playwright/manual UI walkthrough | Current pack validates authenticated APIs, not end-user click-paths | Add Playwright scenario for login + journey using same seeded users/tokens. |
-| Low | Uploaded recording in test flow is dummy bytes | Journey script uploads tiny synthetic `session_dummy.webm` | Test intent was pipeline verification, not media content fidelity (`scripts/authenticated_journey.mjs:245`) | Add optional real MediaRecorder artifact capture in a browser-driven test. |
+| High (fixed) | `POST /start` returned `500` when Ollama generated numeric question IDs | Journey run before fix (`docs/_runtime_outputs/demo_44_api_journey_with_ollama_command_output.txt`) | Firestore doc path expected non-empty string in `addQuestions` | Coerce IDs to strings / fallback UUID (`server/src/services/firebaseData.service.js:486`) |
+| Medium | High-run trial batches fail under rate limiting | 30-run batch (`docs/_runtime_outputs/demo_60_trials_command_output.txt`) | Global/public limiter thresholds exceeded during stress loops (`server/src/middleware/rateLimiter.middleware.js`) | Use trial batching with cooldown/restart or dedicated test-only limiter profile |
+| Low | PowerShell/curl wrapper emits `RemoteException` text in captured logs | Multiple curl output files | Shell wrapper formatting noise | Keep raw logs but parse HTTP status/body lines in reporting scripts |
 
-## 6) "What to demo" script (10-15 minutes, verified-only)
-1. Show commit and branch (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`, `docs/_runtime_outputs/gapclosure_AUTH_02_git_status.txt`).
-2. Show command readiness files (install/tests/build/start): `gapclosure_AUTH_10` through `gapclosure_AUTH_17`.
-3. Show base probes and auth gate: `docs/_runtime_outputs/gapclosure_AUTH_51_runtime_base_and_auth_gate_probes.txt`.
-4. Show token acquisition proof (redacted): `docs/_runtime_outputs/gapclosure_AUTH_40_token_acquisition.txt`.
-5. Show forced Ollama unavailability logs proving fallback: `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt`.
-6. Show authenticated journey summary (`10/10 PASS`): `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt`.
-7. Show selected request/response records from STEPs 1, 4, 7, 8, 9, 10 in `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt`.
-
-## Current blocker status
-The prior **NOT VERIFIED** blocker for authenticated candidate/company/reviewer runtime flow is **cleared** at API level.  
-Remaining narrow NOT VERIFIED scope: browser UI click-path automation and real-media playback fidelity.
+## 6) What to Demo (Verified Paths)
+1. Start Ollama and verify `/api/ai/health` ready (`docs/_runtime_outputs/demo_43_ai_health_fresh_server_with_ollama.txt`).
+2. Seed demo users/tokens (`docs/_runtime_outputs/demo_seed_redacted.txt`).
+3. Run authenticated journey (`docs/_runtime_outputs/demo_api_journey_summary.txt`).
+4. Show scoring evidence (`overallScore/readinessLevel`) in journey trace.
+5. Show recording upload + reviewer retrieval (`recordingUrl` + signed URL in trace).
+6. Optionally show repeated-run reliability (`docs/_runtime_outputs/demo_trials_summary.txt`).

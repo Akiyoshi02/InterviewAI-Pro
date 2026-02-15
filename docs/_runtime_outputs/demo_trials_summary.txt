@@ -1,0 +1,22 @@
+Demo Trials Summary
+Runs: 7
+Passes: 7
+Failures: 0
+Success rate: 100.00%
+Wilson 95% CI: [64.57%, 100.00%]
+
+Checkpoint Pass Rates:
+- AI health endpoint reachable: 7/7 (100.00%)
+- Ollama reachable for live scoring: 7/7 (100.00%)
+- Create interview: 7/7 (100.00%)
+- Schedule interview: 7/7 (100.00%)
+- Reschedule interview: 7/7 (100.00%)
+- Start interview: 7/7 (100.00%)
+- Mark first question asked: 7/7 (100.00%)
+- Submit first answer: 7/7 (100.00%)
+- End interview: 7/7 (100.00%)
+- Evaluation completed with score/readiness: 7/7 (100.00%)
+- Upload recording: 7/7 (100.00%)
+- Fetch recording URL: 7/7 (100.00%)
+- Fetch evaluation payload: 7/7 (100.00%)
+

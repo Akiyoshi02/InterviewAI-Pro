@@ -1,0 +1,50 @@
+### src/pages/company-dashboard/index.jsx
+33:  const { user, logout, status } = useAuth();
+118:      if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
+124:      if (metricsResult.status === 'fulfilled' && metricsResult.value.success) {
+130:      if (jobsResult.status === 'fulfilled' && jobsResult.value.success) {
+136:      if (dashboardMetricsResult.status === 'fulfilled' && dashboardMetricsResult.value.success) {
+251:  if (status === 'loading' || !user || showInitialLoader) {
+263:  const activeJobPostings = safeJobs.filter(job => job?.status === 'PUBLISHED').length;
+266:    .filter(i => i && ['COMPLETED', 'IN_PROGRESS'].includes(i.status))
+269:      type: interview.status === 'COMPLETED' ? 'interview_completed' : 'live_session',
+271:      description: interview.status === 'COMPLETED' 
+366:  const handleViewAnalysis = async (candidateId) => {
+384:    console.log('Updating status for candidate:', candidateId);
+385:    // Open status update modal
+396:  const handleGenerateReport = () => {
+397:    navigate('/company-analytics');
+401:    navigate('/company-analytics');
+527:                      ? Math.round((safeInterviews.filter(i => i?.status === 'COMPLETED').length / safeInterviews.length) * 100)
+529:                    activeSessions: safeInterviews.filter(i => i?.status === 'IN_PROGRESS').length,
+544:                    pendingReviews={safeInterviews?.filter(i => i && i.status === 'COMPLETED' && !i.evaluation)?.length || 0}
+545:                    upcomingInterviews={safeInterviews?.filter(i => i && i.status === 'SCHEDULED')?.length || 0}
+566:                    onScheduleInterview={handleScheduleInterview}
+568:                    onGenerateReport={handleGenerateReport}
+580:                  onViewAnalysis={handleViewAnalysis}
+
+### src/pages/company-dashboard/components/QuickActions.jsx
+6:const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole }) => {
+15:        onClick: onScheduleInterview || (() => window.location.href = '/practice-interview-setup'),
+33:        onClick: onGenerateReport || (() => {}),
+42:  }, [onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole]);
+
+### src/pages/candidate-dashboard/components/SchedulingWidget.jsx
+13:  const [meetingLink, setMeetingLink] = useState('');
+24:        const status = interview?.status?.toUpperCase();
+25:        return status === 'SCHEDULED';
+66:          status: interview?.status?.toLowerCase() === 'scheduled' ? 'confirmed' : 'pending',
+67:          meetingLink: interview?.meetingLink || null,
+84:  const getStatusColor = (status) => {
+91:      colorMap?.[status] ||
+123:      setMeetingLink(target?.meetingLink || '');
+144:        meetingLink: meetingLink?.trim() ? meetingLink.trim() : null,
+164:    const withMeetingLink = interviewData.find((item) => item?.meetingLink);
+165:    if (withMeetingLink?.meetingLink) {
+166:      window.open(withMeetingLink.meetingLink, '_blank', 'noopener,noreferrer');
+224:              value={meetingLink}
+286:                    <span className={`text-xs font-medium px-2 py-1 rounded-full border whitespace-nowrap flex-shrink-0 ${getStatusColor(interview?.status)}`}>
+287:                      {interview?.status}
+327:                      {interview?.status === 'confirmed' &&
+377:          View Calendar
+

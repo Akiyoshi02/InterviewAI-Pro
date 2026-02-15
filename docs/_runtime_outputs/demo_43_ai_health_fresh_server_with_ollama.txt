@@ -1,0 +1,37 @@
+  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current
+                                 Dload  Upload   Total   Spent    Left  Speed
+System.Management.Automation.RemoteException
+  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0
+100   336  100   336    0     0  21044      0 --:--:-- --:--:-- --:--:-- 22400
+HTTP/1.1 200 OK
+Content-Security-Policy: default-src 'self';style-src 'self' 'unsafe-inline';script-src 'self';img-src 'self' data: https: blob:;connect-src 'self' https://api.openai.com https://firestore.googleapis.com https://firebase.googleapis.com https://identitytoolkit.googleapis.com wss:;font-src 'self' https: data:;object-src 'none';media-src 'self' blob:;frame-src 'none';base-uri 'self';form-action 'self';frame-ancestors 'none';upgrade-insecure-requests;script-src-attr 'none'
+Cross-Origin-Opener-Policy: same-origin
+Cross-Origin-Resource-Policy: cross-origin
+Origin-Agent-Cluster: ?1
+Referrer-Policy: strict-origin-when-cross-origin
+Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+X-Content-Type-Options: nosniff
+X-DNS-Prefetch-Control: off
+X-Download-Options: noopen
+X-Frame-Options: DENY
+X-Permitted-Cross-Domain-Policies: none
+X-XSS-Protection: 1; mode=block
+Vary: Origin
+Access-Control-Allow-Credentials: true
+Access-Control-Expose-Headers: RateLimit-Limit,RateLimit-Remaining,RateLimit-Reset,Retry-After
+RateLimit-Policy: 100;w=900
+RateLimit-Limit: 100
+RateLimit-Remaining: 99
+RateLimit-Reset: 900
+Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate
+Pragma: no-cache
+Expires: 0
+Surrogate-Control: no-store
+Content-Type: application/json; charset=utf-8
+Content-Length: 336
+ETag: W/"150-3PWNpxvQH6xjWHCSufYT9UFJXDw"
+Date: Sun, 15 Feb 2026 18:19:35 GMT
+Connection: keep-alive
+Keep-Alive: timeout=5
+
+{"success":true,"timestamp":"2026-02-15T18:19:35.032Z","model":"qwen2.5:7b-instruct","ollamaReachable":true,"modelReady":true,"ollama":{"healthy":true,"modelReady":true,"expectedModel":"qwen2.5:7b-instruct","models":["qwen2.5:7b-instruct","llama3.1:8b"],"url":"http://localhost:11434"},"whisperReachable":null,"whisperConfigured":false}

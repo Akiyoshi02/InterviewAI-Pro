@@ -1,111 +1,50 @@
-# UPDATED SYSTEM CAPABILITY REPORT
+# UPDATED_SYSTEM_CAPABILITY_REPORT
 
-## 1) Audit Metadata
-- Audit date: `2026-02-15`
-- Auditor: `Codex (GPT-5)`
-- Branch: `gap-closure/2026-02-15`
-- Step-0 snapshot commit: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
-- Post-report snapshot commit: see `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
-- Working tree contained additional uncommitted audit artifacts/scripts during this run (`docs/_runtime_outputs/gapclosure_AUTH_02_git_status.txt`).
+## 1) Scope and Evidence Basis
+This report reflects the current working tree and runtime checks executed in this audit pass.  
+All claims are backed by:
+- command/runtime outputs under `docs/_runtime_outputs/`
+- code references with path + line numbers
 
-## 2) Runtime Readiness (Commands + Probes)
-| Command/Probe | Result | Evidence |
+Baseline repo identity:
+- HEAD: `6ba42904805ca679dd6d551f9f0ce6a2668c45f5` (`docs/_runtime_outputs/demo_00_git_rev_before.txt`)
+- Branch: `demo/finalization-2026-02-15` (`docs/_runtime_outputs/demo_91_git_status_after_changes.txt`)
+
+## 2) Runtime Command Results
+- `npm install` (root): completed (`docs/_runtime_outputs/demo_10_npm_install_root.txt`)
+- `npm install --prefix server`: completed (`docs/_runtime_outputs/demo_11_npm_install_server.txt`)
+- `npm test -- --run` (root): pass (`docs/_runtime_outputs/demo_12_npm_test_root_run.txt`)
+- `npm --prefix server test`: pass (`docs/_runtime_outputs/demo_13_npm_test_server.txt`)
+- `npm run build` (root): pass (`docs/_runtime_outputs/demo_14_npm_build_root.txt`)
+- Backend/frontend startup evidence: `docs/_runtime_outputs/demo_30_server_dev_stdout.txt`, `docs/_runtime_outputs/demo_31_frontend_start_stdout.txt`
+- Health probes: `docs/_runtime_outputs/demo_33_runtime_probes_fresh.txt`
+
+## 3) Capability Matrix (Current Truth)
+
+| Capability | Status | Evidence |
 |---|---|---|
-| `npm install` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_10_npm_install_root.txt` |
-| `npm install --prefix server` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_11_npm_install_server.txt` |
-| `npm test -- --run` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_12_npm_test_root_run.txt` |
-| `npm --prefix server test` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_13_npm_test_server.txt` |
-| `npm run build` | PASS | `docs/_runtime_outputs/gapclosure_AUTH_14_npm_run_build_root.txt` |
-| `npm run dev --prefix server` | PASS (startup logs captured) | `docs/_runtime_outputs/gapclosure_AUTH_16_server_dev_start.txt` |
-| `npm start` | PASS (startup logs captured) | `docs/_runtime_outputs/gapclosure_AUTH_17_frontend_start.txt` |
-| `curl -i http://localhost:3000/health` | PASS (`200`) | `docs/_runtime_outputs/gapclosure_AUTH_18_base_probes.txt` |
-| `curl -i http://localhost:3000/api/public/config` | PASS (`200`) | `docs/_runtime_outputs/gapclosure_AUTH_18_base_probes.txt` |
-| Protected endpoint auth gate (no token) | PASS (`401`) | `docs/_runtime_outputs/gapclosure_AUTH_51_runtime_base_and_auth_gate_probes.txt` |
+| Auth-protected API surface | Implemented | Auth middleware and protected routes (`server/src/middleware/auth.middleware.js`, `server/src/routes/interview.routes.js:45`), unauthenticated probe returns `401` (`docs/_runtime_outputs/demo_95_auth_gate_probe.txt`) |
+| Scheduling (`schedule/reschedule/cancel`) | Implemented + runtime verified | Routes (`server/src/routes/interview.routes.js:154`, `server/src/routes/interview.routes.js:174`, `server/src/routes/interview.routes.js:194`), controller logic (`server/src/controllers/interview.controller.js:618`, `server/src/controllers/interview.controller.js:686`, `server/src/controllers/interview.controller.js:748`), runtime API pass (`docs/_runtime_outputs/demo_api_journey_summary.txt`) |
+| Durable full-session recording persistence | Implemented + runtime verified | Upload endpoint (`server/src/routes/interview.routes.js:214`), persistence (`server/src/controllers/interview.controller.js:832`), interview data fields (`server/src/services/firebaseData.service.js:429`), runtime upload success (`docs/_runtime_outputs/demo_api_journey_requests_and_responses.txt`) |
+| Authorized recording retrieval | Implemented + runtime verified | Endpoint and authorization path (`server/src/routes/interview.routes.js:233`, `server/src/controllers/interview.controller.js:884`), reviewer retrieval pass (`docs/_runtime_outputs/demo_api_journey_summary.txt`) |
+| Reviewer recording playback UI + metadata | Implemented | Video player + metadata panel (`src/pages/company-dashboard/components/InterviewReviewEnhanced.jsx:687`, `src/pages/company-dashboard/components/InterviewReviewEnhanced.jsx:719`) |
+| AI health endpoint | Implemented + runtime verified | `/api/ai/health` route (`server/src/routes/index.js:63`), Ollama/Whisper health methods (`server/src/services/llm.service.js:634`), runtime probe (`docs/_runtime_outputs/demo_43_ai_health_fresh_server_with_ollama.txt`) |
+| Ollama warm-up on boot | Implemented | Warm-up invocation (`server/src/server.js:92`), warm-up method (`server/src/services/llm.service.js:699`) |
+| End-interview scoring with fallback | Implemented + runtime verified | Fallback evaluation helper path (`server/src/controllers/interview.controller.js:328`, `server/src/controllers/interview.controller.js:1049`), fallback observed in earlier run (`docs/_runtime_outputs/demo_50_api_journey_command_output.txt`), scoring success with Ollama ON (`docs/_runtime_outputs/demo_47_api_journey_with_ollama_after_fix_command_output.txt`) |
+| Manual `run-evaluation` recovery endpoint | Implemented + runtime verified | Route (`server/src/routes/interview.routes.js:287`), controller (`server/src/controllers/interview.controller.js:1105`), endpoint exercised in traces (`docs/_runtime_outputs/demo_api_journey_requests_and_responses.txt`) |
+| Structured scoring output validation + repair attempt | Implemented | Validation/repair code (`server/src/services/llm.service.js:348`, `server/src/services/llm.service.js:448`), explicit invalid-output error code (`server/src/services/llm.service.js:181`) |
+| Live-session recording minimum-size guard | Implemented | Frontend threshold + upload gate (`src/pages/live-interview-session/index.jsx:29`, `src/pages/live-interview-session/index.jsx:446`) |
+| Stability fix for LLM question IDs | Implemented + tested | Numeric/non-string ID coercion before Firestore doc creation (`server/src/services/firebaseData.service.js:486`), regression fixed after observed runtime error (`docs/_runtime_outputs/demo_44_api_journey_with_ollama_command_output.txt` then pass at `docs/_runtime_outputs/demo_47_api_journey_with_ollama_after_fix_command_output.txt`) |
+| Company dashboard quick actions (`View Analysis`, `Generate Reports`) | Implemented (non-placeholder) | `handleViewAnalysis` and analytics navigation (`src/pages/company-dashboard/index.jsx:366`, `src/pages/company-dashboard/index.jsx:396`) |
+| Security middleware (Helmet/CORS/rate limits) | Implemented | Security stack (`server/src/middleware/security.middleware.js:133`, `server/src/middleware/security.middleware.js:159`, `server/src/middleware/rateLimiter.middleware.js:216`) |
+| CI workflows | Implemented | GitHub Actions workflows found (`.github/workflows/ci.yml`, `.github/workflows/deploy.yml`), test/build jobs (`docs/_runtime_outputs/demo_72_security_ci_line_refs.txt`) |
+| Dockerization | Missing | No Dockerfile found (`docs/_runtime_outputs/demo_73_docker_scan.txt`) |
 
-## 3) Authenticated Verification Blocker Status
-Previous blocker: multi-role authenticated runtime flow was **NOT VERIFIED**.
+## 4) Runtime E2E Verification Summary
+- Authenticated API journey with Ollama ON: PASS (`docs/_runtime_outputs/demo_api_journey_summary.txt`)
+- Trial runs (Ollama ON batch): `7/7` PASS, Wilson 95% CI `[64.57%, 100.00%]` (`docs/_runtime_outputs/demo_trials_summary.txt`)
 
-Current status: **CLEARED (API-level runtime verified)** using token-backed candidate/company/reviewer calls.
-
-### 3.1 Token acquisition (programmatic)
-- Method used: Firebase Admin custom token -> Identity Toolkit ID token exchange.
-- Implementation script: `scripts/acquire_runtime_tokens.mjs:87`, `scripts/acquire_runtime_tokens.mjs:185`, `scripts/acquire_runtime_tokens.mjs:273`
-- Role fixtures provisioned in Firebase Auth + Firestore:
-  - Candidate UID: `gapclosure-candidate-runtime`
-  - Company UID: `gapclosure-company-runtime`
-  - Reviewer UID: `gapclosure-reviewer-runtime`
-  - Org ID: `gapclosure-runtime-org`
-  - Evidence: `docs/_runtime_outputs/gapclosure_AUTH_40_token_acquisition.txt`, `docs/_runtime_outputs/gapclosure_AUTH_41_token_acquisition_command_output.txt`
-- Secret handling:
-  - Tokens stored only in untracked `.env.local` (`.gitignore` excludes `.env.local`: `.gitignore:8`)
-  - Runtime logs redact bearer tokens (`scripts/authenticated_journey.mjs:33`, `scripts/authenticated_journey.mjs:75`)
-
-## 4) Authenticated End-to-End API Journey (Verified)
-Execution script: `scripts/authenticated_journey.mjs`
-
-- Script location and flow steps:
-  - Reads base URL + tokens from env: `scripts/authenticated_journey.mjs:18`, `scripts/authenticated_journey.mjs:19`
-  - Create interview: `scripts/authenticated_journey.mjs:165`
-  - Schedule: `scripts/authenticated_journey.mjs:185`
-  - Reschedule: `scripts/authenticated_journey.mjs:196`
-  - Start (candidate): `scripts/authenticated_journey.mjs:206`
-  - End (candidate): `scripts/authenticated_journey.mjs:236`
-  - Upload recording: `scripts/authenticated_journey.mjs:253`
-  - Fetch recording URL (reviewer): `scripts/authenticated_journey.mjs:263`
-  - Fetch evaluation (reviewer): `scripts/authenticated_journey.mjs:272`
-- Summary output: `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt`
-- Full request/response trace output: `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt`
-
-### 4.1 Verified results
-| Verified item | Result | Evidence |
-|---|---|---|
-| Company creates hiring interview | PASS (`201`) | `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt` (STEP 1) |
-| Company schedules interview | PASS (`200`) | same file (STEP 2) |
-| Company reschedules interview | PASS (`200`) | same file (STEP 3) |
-| Candidate starts interview with Ollama unavailable fallback | PASS (`200`, `llmUnavailable=true`) | same file (STEP 4), summary check 4 in `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt` |
-| Candidate submits answer | PASS (`200`) | same file (STEP 6) |
-| Candidate ends interview without hard fail | PASS (`200`, `pendingEvaluation=true`, `llmUnavailable=true`) | same file (STEP 7), summary check 7 |
-| Company uploads recording | PASS (`201`, `recordingUrl` present) | same file (STEP 8), summary check 8 |
-| Reviewer fetches recording URL | PASS (`200`) | same file (STEP 9), summary check 9 |
-| Reviewer fetches evaluation | PASS (`200`) | same file (STEP 10), summary check 10 |
-
-## 5) Forced Ollama-Unavailable Proof
-- Backend was started with invalid Ollama URL to force fallback behavior:
-  - Startup process/logs: `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt`
-- Runtime fallback evidence in backend logs:
-  - `ECONNREFUSED` against `127.0.0.1:65534`
-  - `Ollama unavailable at interview start; fallback question pack applied.`
-  - `Ollama unavailable at interview end; evaluation marked pending.`
-  - Evidence file: `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt`
-- Corresponding code paths:
-  - Start fallback flags: `server/src/controllers/interview.controller.js:853`, `server/src/controllers/interview.controller.js:858`
-  - End fallback flags: `server/src/controllers/interview.controller.js:935`, `server/src/controllers/interview.controller.js:954`
-
-## 6) Capability Matrix (Focused Delta)
-| Feature | Status | Evidence |
-|---|---|---|
-| Multi-role authenticated token flow | Implemented + runtime verified | `scripts/acquire_runtime_tokens.mjs:222`, `docs/_runtime_outputs/gapclosure_AUTH_41_token_acquisition_command_output.txt` |
-| Interview scheduling API (`schedule`/`reschedule`) | Implemented + runtime verified | `server/src/routes/interview.routes.js:150`, `server/src/routes/interview.routes.js:170`, `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt` |
-| Durable recording upload + persisted `recordingUrl` | Implemented + runtime verified | `server/src/controllers/interview.controller.js:704`, `server/src/controllers/interview.controller.js:732`, trace STEP 8 |
-| Authorized recording retrieval | Implemented + runtime verified | `server/src/routes/interview.routes.js:229`, `server/src/controllers/interview.controller.js:765`, trace STEP 9 |
-| Reviewer evaluation retrieval | Implemented + runtime verified | `server/src/routes/interview.routes.js:111`, trace STEP 10 |
-| Ollama graceful fallback start/end | Implemented + runtime verified | `server/src/controllers/interview.controller.js:848`, `server/src/controllers/interview.controller.js:926`, server stdout + journey summary |
-| Backend tests green | Implemented + runtime verified | `docs/_runtime_outputs/gapclosure_AUTH_13_npm_test_server.txt` |
-
-## 7) Remaining NOT VERIFIED (Narrowed)
-- Browser UI click-through for this same flow (manual UI interaction) is **NOT VERIFIED** in this pack; verification is API-level via authenticated scripts.
-- Playback integrity of uploaded dummy `session_dummy.webm` content is **NOT VERIFIED** as media quality; storage/retrieval pipeline is verified.
-
-## 8) New Evidence Files Added
-- `docs/_runtime_outputs/gapclosure_AUTH_40_token_acquisition.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_41_token_acquisition_command_output.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_pid.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stdout.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_50_server_dev_ollama_unavailable_stderr.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_51_runtime_base_and_auth_gate_probes.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_53_server_shutdown_info.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_92_authenticated_journey_command_output.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`
-- `docs/_runtime_outputs/gapclosure_AUTH_94_git_show_after_reports.txt`
+## 5) Not Verified / Remaining Limits
+- Full browser-click E2E artifact (Playwright): NOT VERIFIED
+- Proof artifact for real webcam/microphone captured media playback in this batch: NOT VERIFIED (automated run used sample upload asset)
+- Whisper runtime positive-path (`whisperReachable=true`): NOT VERIFIED (`whisperConfigured=false` in `docs/_runtime_outputs/demo_43_ai_health_fresh_server_with_ollama.txt`)

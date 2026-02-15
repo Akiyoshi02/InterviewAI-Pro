@@ -1,0 +1,596 @@
+{
+  "generatedAt": "2026-02-15T18:29:38.210Z",
+  "runs": 7,
+  "overallPasses": 7,
+  "successRate": 1,
+  "wilson95": {
+    "low": 0.6456611570247934,
+    "high": 1
+  },
+  "checkpointSummary": [
+    {
+      "name": "AI health endpoint reachable",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Ollama reachable for live scoring",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Create interview",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Schedule interview",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Reschedule interview",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Start interview",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Mark first question asked",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Submit first answer",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "End interview",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Evaluation completed with score/readiness",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Upload recording",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Fetch recording URL",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    },
+    {
+      "name": "Fetch evaluation payload",
+      "pass": 7,
+      "total": 7,
+      "rate": 1
+    }
+  ],
+  "trialResults": [
+    {
+      "trial": 1,
+      "pass": true,
+      "interviewId": "nFomjM3gu2bgdbcPokZo",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=nFomjM3gu2bgdbcPokZo"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 2,
+      "pass": true,
+      "interviewId": "HF1gdkTbDiuwcrq4VeEy",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=HF1gdkTbDiuwcrq4VeEy"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 3,
+      "pass": true,
+      "interviewId": "6yIiDRLdXIBf5K6UR24T",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=6yIiDRLdXIBf5K6UR24T"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 4,
+      "pass": true,
+      "interviewId": "5wEOwnkfYXY228kVwp3Q",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=5wEOwnkfYXY228kVwp3Q"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 5,
+      "pass": true,
+      "interviewId": "3rKZkBrBIA2pSsj4F7Ui",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=3rKZkBrBIA2pSsj4F7Ui"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 6,
+      "pass": true,
+      "interviewId": "v1yb9wvBJUAqu718ZOcA",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=v1yb9wvBJUAqu718ZOcA"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    },
+    {
+      "trial": 7,
+      "pass": true,
+      "interviewId": "Wgl4LCdG7KIlG1YEUNoB",
+      "checks": [
+        {
+          "name": "AI health endpoint reachable",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Ollama reachable for live scoring",
+          "pass": true,
+          "details": "ollamaReachable=true, modelReady=true"
+        },
+        {
+          "name": "Create interview",
+          "pass": true,
+          "details": "status=201, interviewId=Wgl4LCdG7KIlG1YEUNoB"
+        },
+        {
+          "name": "Schedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Reschedule interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Start interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Mark first question asked",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Submit first answer",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "End interview",
+          "pass": true,
+          "details": "status=200"
+        },
+        {
+          "name": "Evaluation completed with score/readiness",
+          "pass": true,
+          "details": "overallScore=75, readiness=Intermediate, pending=false"
+        },
+        {
+          "name": "Upload recording",
+          "pass": true,
+          "details": "status=201, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch recording URL",
+          "pass": true,
+          "details": "status=200, recordingUrlPresent=true"
+        },
+        {
+          "name": "Fetch evaluation payload",
+          "pass": true,
+          "details": "status=200, evaluationPresent=true"
+        }
+      ]
+    }
+  ]
+}

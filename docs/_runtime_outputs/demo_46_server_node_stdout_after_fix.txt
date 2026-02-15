@@ -1,0 +1,22 @@
+[32minfo[39m: Loading Firebase service account from: D:\Campus Work\Projects\Interviewer\server\firebase-service-account.json {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.642Z"}
+[32minfo[39m: Firebase Admin initialized successfully {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.665Z"}
+[32minfo[39m: 📧 Email service initialized {"__dirname":"D:\\Campus Work\\Projects\\Interviewer\\server\\src\\services","cwd":"D:\\Campus Work\\Projects\\Interviewer\\server","logoExists":true,"logoPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","resolvedPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.917Z"}
+[32minfo[39m: ✅ Email logo loaded successfully {"base64Length":241960,"path":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","size":181470,"timestamp":"2026-02-15T18:21:08.918Z"}
+[32minfo[39m: ✅ Environment validation passed {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.938Z"}
+[32minfo[39m: 📝 API Key Rotation Reminders: {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.939Z"}
+[32minfo[39m:    Consider rotating sensitive keys regularly for security. {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.939Z"}
+[32minfo[39m: Socket.IO setup complete {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.942Z"}
+[32minfo[39m: 🚀 Server running on port 3000 {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.944Z"}
+[32minfo[39m: 📡 Socket.IO server ready {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:08.944Z"}
+[32minfo[39m: 🤖 Ollama warm-up complete for model qwen2.5:7b-instruct {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:21:09.172Z"}
+GET /api/ai/health
+POST /api/interviews/create
+POST /api/interviews/5mupfToMRJFywrhINeCk/schedule
+PATCH /api/interviews/5mupfToMRJFywrhINeCk/reschedule
+POST /api/interviews/5mupfToMRJFywrhINeCk/start
+POST /api/interviews/5mupfToMRJFywrhINeCk/question/asked
+POST /api/interviews/5mupfToMRJFywrhINeCk/question/answer
+POST /api/interviews/5mupfToMRJFywrhINeCk/end
+POST /api/interviews/5mupfToMRJFywrhINeCk/recording
+GET /api/interviews/5mupfToMRJFywrhINeCk/recording-url
+GET /api/interviews/5mupfToMRJFywrhINeCk/evaluation

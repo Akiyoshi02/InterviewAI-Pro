@@ -1,0 +1,7 @@
+before port=3000 pid=47616
+stopped port=3000 pid=47616
+before port=4028 pid=49724
+stopped port=4028 pid=49724
+post-check:
+  TCP    [::1]:54556            [::1]:3000             TIME_WAIT       0
+  TCP    [::1]:59689            [::1]:3000             TIME_WAIT       0

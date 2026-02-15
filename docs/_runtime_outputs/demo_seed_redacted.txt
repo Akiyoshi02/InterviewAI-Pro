@@ -1,0 +1,10 @@
+Demo token seeding completed.
+Base URL: http://localhost:3000
+Organization ID: demo-runtime-org
+Candidate UID: demo-candidate-runtime
+Company UID: demo-company-runtime
+Reviewer UID: demo-reviewer-runtime
+Candidate token: eyJhbGciOi...<REDACTED>
+Company token: eyJhbGciOi...<REDACTED>
+Reviewer token: eyJhbGciOi...<REDACTED>
+Secrets written to (local/untracked): .env.local

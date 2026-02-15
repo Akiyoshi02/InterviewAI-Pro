@@ -1,0 +1,29 @@
+
+> ai-interviewer-backend@1.0.0 dev
+> nodemon src/server.js
+
+[33m[nodemon] 3.1.10[39m
+[33m[nodemon] to restart at any time, enter `rs`[39m
+[33m[nodemon] watching path(s): *.*[39m
+[33m[nodemon] watching extensions: js,mjs,cjs,json[39m
+[32m[nodemon] starting `node src/server.js`[39m
+[32minfo[39m: Loading Firebase service account from: D:\Campus Work\Projects\Interviewer\server\firebase-service-account.json {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.522Z"}
+[32minfo[39m: Firebase Admin initialized successfully {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.549Z"}
+[32minfo[39m: 📧 Email service initialized {"__dirname":"D:\\Campus Work\\Projects\\Interviewer\\server\\src\\services","cwd":"D:\\Campus Work\\Projects\\Interviewer\\server","logoExists":true,"logoPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","resolvedPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.828Z"}
+[32minfo[39m: ✅ Email logo loaded successfully {"base64Length":241960,"path":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","size":181470,"timestamp":"2026-02-15T18:10:24.829Z"}
+[32minfo[39m: ✅ Environment validation passed {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.850Z"}
+[32minfo[39m: 📝 API Key Rotation Reminders: {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.851Z"}
+[32minfo[39m:    Consider rotating sensitive keys regularly for security. {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.851Z"}
+[32minfo[39m: Socket.IO setup complete {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:10:24.855Z"}
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m
+[32m[nodemon] restarting due to changes...[39m
+[32m[nodemon] starting `node src/server.js`[39m
+[32minfo[39m: Loading Firebase service account from: D:\Campus Work\Projects\Interviewer\server\firebase-service-account.json {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:43.647Z"}
+[32minfo[39m: Firebase Admin initialized successfully {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:43.674Z"}
+[32minfo[39m: 📧 Email service initialized {"__dirname":"D:\\Campus Work\\Projects\\Interviewer\\server\\src\\services","cwd":"D:\\Campus Work\\Projects\\Interviewer\\server","logoExists":true,"logoPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","resolvedPath":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:43.999Z"}
+[32minfo[39m: ✅ Email logo loaded successfully {"base64Length":241960,"path":"D:\\Campus Work\\Projects\\Interviewer\\public\\assets\\images\\logo-text.png","service":"ai-interviewer-backend","size":181470,"timestamp":"2026-02-15T18:20:44.000Z"}
+[32minfo[39m: ✅ Environment validation passed {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:44.023Z"}
+[32minfo[39m: 📝 API Key Rotation Reminders: {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:44.024Z"}
+[32minfo[39m:    Consider rotating sensitive keys regularly for security. {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:44.024Z"}
+[32minfo[39m: Socket.IO setup complete {"service":"ai-interviewer-backend","timestamp":"2026-02-15T18:20:44.029Z"}
+[31m[nodemon] app crashed - waiting for file changes before starting...[39m

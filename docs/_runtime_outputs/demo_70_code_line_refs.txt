@@ -1,0 +1,281 @@
+### server/src/services/llm.service.js
+181:  error.code = 'LLM_STRUCTURED_OUTPUT_INVALID';
+348:  static async repairInterviewSummaryJson({ rawResponse, validationErrors, llmOptions }) {
+448:      const repaired = await this.repairInterviewSummaryJson({
+634:  static async healthCheck({ expectedModel = DEFAULT_MODEL } = {}) {
+644:          modelReady: false,
+651:      const modelReady = models.includes(expectedModel);
+654:        modelReady,
+662:        modelReady: false,
+699:  static async warmUp({ model = DEFAULT_MODEL } = {}) {
+
+### server/src/controllers/interview.controller.js
+164:      return { allowed: false, status: 403, message: 'Insufficient organization role for recording access' };
+328:      : (error?.code === 'LLM_STRUCTURED_OUTPUT_INVALID'
+382:        scheduledFor,
+385:        scheduleStatus,
+523:        scheduledFor: scheduledFor || null,
+526:        scheduleStatus: scheduleStatus || (scheduledFor ? 'SCHEDULED' : null),
+527:        scheduledBy: scheduledFor ? userId : null,
+528:        scheduledAt: scheduledFor ? new Date().toISOString() : null,
+590:   * Record explicit consent for recording (audio/video) for this interview.
+596:      const { recordingConsentGivenAt, recordingConsentVersion } = req.body;
+604:        recordingConsentGivenAt: recordingConsentGivenAt || new Date().toISOString(),
+605:        recordingConsentVersion: recordingConsentVersion || null,
+613:      logger.error('Record recording consent error:', error);
+618:  static async scheduleInterview(req, res, next) {
+621:      const { scheduledFor, timezone, meetingLink } = req.body;
+629:        return res.status(409).json({ error: 'Cannot schedule a completed or cancelled interview' });
+632:      const scheduledAt = new Date().toISOString();
+635:        scheduledFor,
+638:        scheduleStatus: 'SCHEDULED',
+639:        scheduledBy: req.user.id,
+640:        scheduledAt,
+652:            scheduledFor: updatedInterview.scheduledFor || null,
+660:        await recordRealtimeEvent(id, 'interview-scheduled', {
+663:          scheduledFor: updatedInterview.scheduledFor || null,
+666:          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-scheduled', {
+669:            scheduledFor: updatedInterview.scheduledFor || null,
+675:        logger.warn('Failed to publish interview-scheduled realtime event:', eventError);
+686:  static async rescheduleInterview(req, res, next) {
+689:      const { scheduledFor, timezone, meetingLink } = req.body;
+697:        return res.status(409).json({ error: 'Cannot reschedule a completed or cancelled interview' });
+700:      const scheduledAt = new Date().toISOString();
+703:        scheduledFor,
+708:        scheduleStatus: 'RESCHEDULED',
+709:        scheduledBy: req.user.id,
+710:        scheduledAt,
+722:            scheduledFor: updatedInterview.scheduledFor || null,
+730:        await recordRealtimeEvent(id, 'interview-rescheduled', {
+733:          scheduledFor: updatedInterview.scheduledFor || null,
+734:          scheduleStatus: 'RESCHEDULED',
+737:        logger.warn('Failed to publish interview-rescheduled realtime event:', eventError);
+743:      logger.error('Reschedule interview error:', error);
+748:  static async cancelInterview(req, res, next) {
+759:        return res.status(409).json({ error: 'Interview is already completed or cancelled' });
+762:      const cancelledAt = new Date().toISOString();
+765:        scheduleStatus: 'CANCELLED',
+766:        cancelledAt,
+767:        cancelledBy: req.user.id,
+768:        cancellationReason: reason || null,
+781:            scheduledFor: updatedInterview.scheduledFor || null,
+787:        await recordRealtimeEvent(id, 'interview-cancelled', {
+790:          cancelledAt,
+794:          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-cancelled', {
+797:            cancelledAt,
+803:        logger.warn('Failed to publish interview-cancelled realtime event:', eventError);
+829:        return res.status(400).json({ error: 'Invalid recording storage path' });
+832:      const recordingMetadata = {
+842:        recordingUrl: publicPath,
+843:        recording: recordingMetadata,
+856:            size: recordingMetadata.size,
+857:            mimeType: recordingMetadata.mimeType,
+866:        recordingUrl: publicPath,
+867:        recording: recordingMetadata,
+870:      logger.error('Upload recording error:', error);
+884:      const recordingPath = interview?.recordingUrl || interview?.recording?.path || null;
+885:      if (!recordingPath) {
+892:      const relativePath = recordingPath.replace(/^\/?uploads\//, '');
+896:        return res.status(400).json({ error: 'Invalid recording path' });
+909:        publicPath: recordingPath,
+914:        : buildAbsoluteApiUrl(req, recordingPath);
+918:        recordingUrl: resolvedUrl,
+919:        recordingPath,
+922:      logger.error('Get recording URL error:', error);
+1049:        evaluationMetadata: metadata,
+1105:  static async runEvaluation(req, res, next) {
+1160:        evaluationMetadata: metadata,
+1293:        evaluationMetadata: interview.evaluationMetadata || null,
+
+### server/src/routes/interview.routes.js
+129: * PATCH /api/interviews/:id/recording-consent
+130: * Record explicit consent for recording (audio/video) before starting session.
+134:  '/:id/recording-consent',
+143:  stripUnexpectedFields(validationSchemas.interview.recordingConsent.allowedFields),
+144:  validationSchemas.interview.recordingConsent.validators,
+150: * POST /api/interviews/:id/schedule
+154:  '/:id/schedule',
+163:  stripUnexpectedFields(validationSchemas.interview.schedule.allowedFields),
+164:  validationSchemas.interview.schedule.validators,
+166:  InterviewController.scheduleInterview,
+170: * PATCH /api/interviews/:id/reschedule
+171: * Reschedule existing interview.
+174:  '/:id/reschedule',
+183:  stripUnexpectedFields(validationSchemas.interview.reschedule.allowedFields),
+184:  validationSchemas.interview.reschedule.validators,
+186:  InterviewController.rescheduleInterview,
+190: * POST /api/interviews/:id/cancel
+191: * Cancel an interview schedule.
+194:  '/:id/cancel',
+203:  stripUnexpectedFields(validationSchemas.interview.cancel.allowedFields),
+204:  validationSchemas.interview.cancel.validators,
+206:  InterviewController.cancelInterview,
+210: * POST /api/interviews/:id/recording
+211: * Upload full-session recording file for an interview.
+214:  '/:id/recording',
+224:  interviewRecordingUpload.single('recording'),
+229: * GET /api/interviews/:id/recording-url
+230: * Retrieve authorized playback URL for full-session recording.
+233:  '/:id/recording-url',
+283: * POST /api/interviews/:id/run-evaluation
+287:  '/:id/run-evaluation',
+297:  InterviewController.runEvaluation,
+
+### server/src/routes/index.js
+63:        LLMService.healthCheck({ expectedModel }),
+71:        ollamaReachable: Boolean(ollama.healthy),
+72:        modelReady: Boolean(ollama.modelReady),
+
+### server/src/server.js
+92:    void LLMService.warmUp()
+
+### server/src/services/firebaseData.service.js
+98:  // Scheduled jobs stay non-public until publishedAt is set by the scheduler.
+420:      scheduledFor: data.scheduledFor || null,
+423:      scheduleStatus: data.scheduleStatus || (data.scheduledFor ? 'SCHEDULED' : null),
+424:      scheduledBy: data.scheduledBy || null,
+425:      scheduledAt: data.scheduledAt || null,
+429:      recordingUrl: data.recordingUrl || null,
+430:      recording: data.recording && typeof data.recording === 'object' ? data.recording : null,
+486:      const questionId = typeof rawId === 'string' && rawId.trim()
+877:          if (typeof payload?.questionId === 'string' && payload.questionId.trim()) {
+1156:    const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
+1158:    // Get upcoming interviews (scheduled for today or future)
+1161:    const upcomingInterviews = scheduledInterviews.filter(i => {
+1162:      const scheduledDate = i?.scheduledFor ? new Date(i.scheduledFor) : null;
+1163:      return scheduledDate && scheduledDate >= today;
+1334:    const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
+1358:      scheduledInterviews: scheduledInterviews.length,
+1446:        scheduledInterviews: calculateChange(
+1447:          currentMetrics.scheduledInterviews,
+1448:          previousMetrics?.scheduledInterviews
+1469:        scheduledInterviews: { value: current.scheduledInterviews, changeText: '', changeType: 'neutral' },
+2092:      scheduledPublishAt: data.scheduledPublishAt || null,
+2105:      if (data.scheduledPublishAt) {
+2106:        const scheduledDate = new Date(data.scheduledPublishAt);
+2108:        if (scheduledDate > nowDate) {
+2147:      // If scheduledPublishAt is set and in the future, don't publish yet
+2148:      if (data.scheduledPublishAt) {
+2149:        const scheduledDate = new Date(data.scheduledPublishAt);
+2151:        if (scheduledDate > nowDate) {
+2199:    // Auto-publish any scheduled jobs before listing
+2208:    // First, check and auto-publish any scheduled jobs whose time has come
+2251:      // Query for jobs with scheduledPublishAt <= now (jobs ready to publish)
+2252:      // Note: This requires a Firestore index on scheduledPublishAt
+2254:      let scheduledJobsSnapshot;
+2256:        scheduledJobsSnapshot = await jobsCollection
+2257:          .where('scheduledPublishAt', '<=', nowISO)
+2272:        scheduledJobsSnapshot = {
+2277:            if (!job?.scheduledPublishAt || job?.publishedAt) return false;
+2278:            const scheduledDate = new Date(job.scheduledPublishAt);
+2279:            if (Number.isNaN(scheduledDate.getTime())) return false;
+2280:            return scheduledDate <= nowDate;
+2286:      const jobsToPublish = scheduledJobsSnapshot.docs
+2291:          if (!job.scheduledPublishAt) return false;
+2292:          const scheduledDate = new Date(job.scheduledPublishAt);
+2293:          if (Number.isNaN(scheduledDate.getTime())) return false;
+2294:          // Include jobs whose scheduled time has passed and haven't been published yet
+2295:          return scheduledDate <= nowDate && !job.publishedAt;
+2298:      // Auto-publish each scheduled job
+2324:        logger.info(`Auto-published scheduled job ${job.id} (${job.title})`);
+2329:      logger.error('Error auto-publishing scheduled jobs:', error);
+
+### src/pages/live-interview-session/index.jsx
+29:const RECORDING_MIN_BYTES = Math.max(
+31:  Number.parseInt(import.meta.env.VITE_RECORDING_MIN_BYTES || '51200', 10) || 51200,
+62:  const recordingChunksRef = useRef([]);
+66:  // Explicit recording consent (FR2). Restore from session so refresh doesn't re-prompt.
+67:  const [recordingConsentGiven, setRecordingConsentGiven] = useState(() => {
+71:      const stored = sessionStorage.getItem(`recording_consent_${id}`);
+74:      return Boolean(parsed?.recordingConsentGivenAt);
+84:    let cancelled = false;
+91:        if (!cancelled && data.success && typeof data.nonverbalFeedbackEnabled === 'boolean') {
+106:            if (!cancelled && data && typeof data.nonverbalFeedbackEnabled === 'boolean') {
+124:      cancelled = true;
+322:    if (mediaRecorderRef.current?.state === 'recording') return;
+336:      recordingChunksRef.current = [];
+339:          recordingChunksRef.current.push(event.data);
+355:        const chunks = recordingChunksRef.current || [];
+356:        recordingChunksRef.current = [];
+377:    if (recordingConsentGiven && sessionState?.isActive && sessionState?.isRecording) {
+382:    if (!sessionState?.isRecording && mediaRecorderRef.current?.state === 'recording') {
+386:    recordingConsentGiven,
+403:    recordingChunksRef.current = [];
+422:    let recordingBlob = null;
+424:      recordingBlob = await stopSessionRecording();
+425:    } catch (recordingError) {
+426:      console.error('Failed to stop session recording:', recordingError);
+444:      if (isBackendInterviewId(interviewId.current) && recordingBlob && recordingBlob.size > 0) {
+446:          if (recordingBlob.size < RECORDING_MIN_BYTES) {
+450:            const mimeType = recordingBlob.type || 'video/webm';
+456:            const recordingFile = new File(
+457:              [recordingBlob],
+461:            await apiClient.interviews.uploadRecording(interviewId.current, recordingFile);
+464:          console.error('Failed to upload full-session recording:', uploadError);
+465:          setSessionNotice('Session ended, but recording upload failed.');
+611:    const key = `recording_consent_${interviewId.current}`;
+613:      recordingConsentGivenAt: data.recordingConsentGivenAt,
+614:      recordingConsentVersion: data.recordingConsentVersion,
+620:          recordingConsentGivenAt: data.recordingConsentGivenAt,
+621:          recordingConsentVersion: data.recordingConsentVersion,
+624:        console.error('Failed to persist recording consent to server:', err);
+688:              ? 'Finalizing interview recording upload...'
+694:      {/* Explicit recording consent (FR2) – must agree before interview UI and recording */}
+696:        {!recordingConsentGiven && (
+702:      {recordingConsentGiven && (
+
+### src/pages/company-dashboard/components/InterviewReviewEnhanced.jsx
+46:  const [recordingPlaybackUrl, setRecordingPlaybackUrl] = useState('');
+47:  const [recordingLoading, setRecordingLoading] = useState(false);
+48:  const [recordingError, setRecordingError] = useState('');
+78:    let cancelled = false;
+81:      if (!interview?.id || !interview?.recordingUrl) {
+91:        if (!cancelled && signed?.success && signed?.recordingUrl) {
+92:          setRecordingPlaybackUrl(signed.recordingUrl);
+96:        const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+97:        if (!cancelled) {
+98:          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+101:        if (!cancelled) {
+102:          setRecordingError(error?.message || 'Unable to resolve recording playback URL.');
+103:          const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+104:          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+107:        if (!cancelled) {
+115:      cancelled = true;
+117:  }, [interview?.id, interview?.recordingUrl]);
+198:      const result = await apiClient.interviews.runEvaluation(interviewId);
+687:              {interview.recordingUrl ? (
+689:                  {recordingLoading && (
+691:                      Resolving secure recording URL...
+694:                  {recordingError && (
+696:                      {recordingError}
+702:                    src={recordingPlaybackUrl || interview.recordingUrl}
+711:                    Video recording not available
+714:                    This interview may not have been recorded or the recording is still processing
+719:              {interview.recording && (
+725:                      <span className="break-all">{interview.recording.path || interview.recordingUrl}</span>
+729:                      {interview.recording.mimeType || 'UNKNOWN'}
+733:                      {Number.isFinite(Number(interview.recording.size))
+734:                        ? `${Math.round(Number(interview.recording.size) / 1024)} KB`
+739:                      {interview.recording.createdAt
+740:                        ? new Date(interview.recording.createdAt).toLocaleString()
+764:                    {runningEvaluation ? 'Running...' : 'Run Evaluation Now'}
+
+### src/services/apiClient.js
+554:    async recordRecordingConsent(interviewId, { recordingConsentGivenAt, recordingConsentVersion }) {
+555:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-consent`, {
+559:          recordingConsentGivenAt: recordingConsentGivenAt || new Date().toISOString(),
+560:          recordingConsentVersion: recordingConsentVersion || null,
+566:    async schedule(interviewId, payload) {
+567:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/schedule`, {
+575:    async reschedule(interviewId, payload) {
+576:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule`, {
+584:    async cancel(interviewId, payload = {}) {
+585:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/cancel`, {
+593:    async uploadRecording(interviewId, recordingFile) {
+595:      formData.append('recording', recordingFile);
+599:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording`, {
+608:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-url`, {
+631:    async runEvaluation(interviewId) {
+632:      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/run-evaluation`, {
+729:     * Returns metrics like completedInterviews, scheduledInterviews, averageScore, currentGrade
+

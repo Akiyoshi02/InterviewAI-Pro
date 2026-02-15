@@ -1,0 +1,6 @@
+  TCP    0.0.0.0:3000           0.0.0.0:0              LISTENING       49308
+  TCP    0.0.0.0:4028           0.0.0.0:0              LISTENING       51500
+  TCP    [::]:3000              [::]:0                 LISTENING       49308
+  TCP    [::1]:61400            [::1]:3000             TIME_WAIT       0
+  TCP    [::1]:61401            [::1]:3000             TIME_WAIT       0
+  TCP    [::1]:61405            [::1]:3000             TIME_WAIT       0
