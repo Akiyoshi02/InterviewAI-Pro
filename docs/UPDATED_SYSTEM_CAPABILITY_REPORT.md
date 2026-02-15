@@ -4,7 +4,8 @@
 - Audit date: `2026-02-15`
 - Auditor: `Codex (GPT-5)`
 - Branch: `gap-closure/2026-02-15`
-- Commit at runtime pack generation: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
+- Step-0 snapshot commit: `c785c088c6abeae45fe7e7dc59c4dd5ccb2dbe62` (`docs/_runtime_outputs/gapclosure_AUTH_01_git_rev_parse_head.txt`)
+- Current commit after report/script updates: `06615a3462b0b374679937c14bdc5946be2f3d7b` (`docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`)
 - Working tree contained additional uncommitted audit artifacts/scripts during this run (`docs/_runtime_outputs/gapclosure_AUTH_02_git_status.txt`).
 
 ## 2) Runtime Readiness (Commands + Probes)
@@ -106,3 +107,5 @@ Execution script: `scripts/authenticated_journey.mjs`
 - `docs/_runtime_outputs/gapclosure_AUTH_90_authenticated_journey_summary.txt`
 - `docs/_runtime_outputs/gapclosure_AUTH_91_authenticated_journey_requests_and_responses.txt`
 - `docs/_runtime_outputs/gapclosure_AUTH_92_authenticated_journey_command_output.txt`
+- `docs/_runtime_outputs/gapclosure_AUTH_93_git_rev_after_reports.txt`
+- `docs/_runtime_outputs/gapclosure_AUTH_94_git_show_after_reports.txt`
