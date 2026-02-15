@@ -1,0 +1,11 @@
+Token acquisition method: PROGRAMMATIC (Firebase Admin custom token exchange).
+Base URL: http://localhost:3000
+Organization ID: gapclosure-runtime-org
+Candidate UID: gapclosure-candidate-runtime
+Company UID: gapclosure-company-runtime
+Reviewer UID: gapclosure-reviewer-runtime
+Candidate token: eyJhbGciOi...<REDACTED>
+Company token: eyJhbGciOi...<REDACTED>
+Reviewer token: eyJhbGciOi...<REDACTED>
+Secrets storage file (untracked): .env.local
+Token extraction from UI/devtools: NOT REQUIRED (programmatic path succeeded).

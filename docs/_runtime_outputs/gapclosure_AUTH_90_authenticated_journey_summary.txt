@@ -1,0 +1,18 @@
+Authenticated Journey: PASS
+Base URL: http://localhost:3000
+Interview ID: RKaPqk46lLL0z42cyzGU
+Total checks: 10
+Passed checks: 10
+Failed checks: 0
+
+Checks:
+1. [PASS] Create interview - status=201, interviewId=RKaPqk46lLL0z42cyzGU
+2. [PASS] Schedule interview - status=200
+3. [PASS] Reschedule interview - status=200
+4. [PASS] Start interview with Ollama fallback - status=200, llmUnavailable=true
+5. [PASS] Mark question asked - status=200
+6. [PASS] Submit answer - status=200
+7. [PASS] End interview fallback (pending evaluation) - status=200, pendingEvaluation=true, llmUnavailable=true
+8. [PASS] Upload recording - status=201, recordingUrlPresent=true
+9. [PASS] Fetch recording URL (reviewer) - status=200, recordingUrlPresent=true
+10. [PASS] Fetch evaluation (reviewer) - status=200, evaluationPresent=true
