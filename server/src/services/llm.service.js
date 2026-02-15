@@ -1,13 +1,13 @@
 /**
  * FREE Local LLM Service using Ollama
  * No API costs - runs completely locally on your GPU
- * 
+ *
  * Setup Instructions:
  * 1. Download Ollama: https://ollama.ai/download
  * 2. Install and start Ollama service
  * 3. Pull a model: `ollama pull qwen2.5:7b-instruct`
  * 4. Server runs at: http://localhost:11434
- * 
+ *
  * Recommended Models (FREE):
  * - qwen2.5:7b-instruct (Best mix of quality + speed, 5.4GB)
  * - llama3.1:8b (Generalist, 4.7GB)
@@ -18,6 +18,20 @@ import logger from '../utils/logger.js';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+const OLLAMA_REQUEST_TIMEOUT_MS = Math.max(
+  2000,
+  Number.parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '45000', 10) || 45000,
+);
+const OLLAMA_HEALTH_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.OLLAMA_HEALTH_TIMEOUT_MS || '5000', 10) || 5000,
+);
+const OLLAMA_WARMUP_TIMEOUT_MS = Math.max(
+  3000,
+  Number.parseInt(process.env.OLLAMA_WARMUP_TIMEOUT_MS || '60000', 10) || 60000,
+);
+const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
+
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
   top_p: 0.9,
@@ -66,30 +80,161 @@ const resolveLlmOptions = (llmOptions, defaults = {}) => {
   };
 };
 
+const normalizeStringArray = (value, fallback = []) => {
+  if (!Array.isArray(value)) return fallback;
+  const cleaned = value
+    .map((item) => (typeof item === 'string' ? item.trim() : ''))
+    .filter(Boolean);
+  return cleaned.length ? cleaned : fallback;
+};
+
+const normalizeScore = (value, { min = 0, max = 100, fallback = null } = {}) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(parsed)));
+};
+
+const normalizeFeedbackBlock = (value, fallbackLabel) => {
+  const source = value && typeof value === 'object' ? value : {};
+  const score = normalizeScore(source.score, { min: 0, max: 100, fallback: null });
+  const feedback = typeof source.feedback === 'string' && source.feedback.trim()
+    ? source.feedback.trim()
+    : `${fallbackLabel} assessment unavailable.`;
+  return { score, feedback };
+};
+
+const normalizeInterviewSummary = (value) => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    overallScore: normalizeScore(source.overallScore, { min: 0, max: 100, fallback: null }),
+    readinessLevel: typeof source.readinessLevel === 'string' && source.readinessLevel.trim()
+      ? source.readinessLevel.trim()
+      : 'Not Assessed',
+    strengths: normalizeStringArray(source.strengths, []),
+    weaknesses: normalizeStringArray(source.weaknesses, []),
+    technicalSkills: normalizeFeedbackBlock(source.technicalSkills, 'Technical skills'),
+    communicationSkills: normalizeFeedbackBlock(source.communicationSkills, 'Communication skills'),
+    recommendations: normalizeStringArray(source.recommendations, []),
+    detailedFeedback: typeof source.detailedFeedback === 'string' && source.detailedFeedback.trim()
+      ? source.detailedFeedback.trim()
+      : 'Detailed feedback unavailable.',
+  };
+};
+
+const validateInterviewSummary = (value) => {
+  const errors = [];
+  if (!value || typeof value !== 'object') {
+    return { valid: false, errors: ['Response must be an object'] };
+  }
+
+  const overallScore = Number(value.overallScore);
+  if (!Number.isFinite(overallScore) || overallScore < 0 || overallScore > 100) {
+    errors.push('overallScore must be a number between 0 and 100');
+  }
+
+  if (typeof value.readinessLevel !== 'string' || !value.readinessLevel.trim()) {
+    errors.push('readinessLevel must be a non-empty string');
+  }
+
+  if (!Array.isArray(value.strengths)) {
+    errors.push('strengths must be an array of strings');
+  }
+
+  if (!Array.isArray(value.weaknesses)) {
+    errors.push('weaknesses must be an array of strings');
+  }
+
+  const validateFeedbackBlock = (fieldName) => {
+    const block = value[fieldName];
+    if (!block || typeof block !== 'object') {
+      errors.push(`${fieldName} must be an object`);
+      return;
+    }
+    const blockScore = Number(block.score);
+    if (!Number.isFinite(blockScore) || blockScore < 0 || blockScore > 100) {
+      errors.push(`${fieldName}.score must be a number between 0 and 100`);
+    }
+    if (typeof block.feedback !== 'string' || !block.feedback.trim()) {
+      errors.push(`${fieldName}.feedback must be a non-empty string`);
+    }
+  };
+
+  validateFeedbackBlock('technicalSkills');
+  validateFeedbackBlock('communicationSkills');
+
+  if (!Array.isArray(value.recommendations)) {
+    errors.push('recommendations must be an array of strings');
+  }
+
+  if (typeof value.detailedFeedback !== 'string' || !value.detailedFeedback.trim()) {
+    errors.push('detailedFeedback must be a non-empty string');
+  }
+
+  return {
+    valid: errors.length === 0,
+    errors,
+  };
+};
+
+const createStructuredOutputError = (errors = []) => {
+  const error = new Error(`Invalid structured interview summary output: ${errors.join('; ')}`);
+  error.code = 'LLM_STRUCTURED_OUTPUT_INVALID';
+  error.validationErrors = errors;
+  return error;
+};
+
+const fetchWithTimeout = async (url, init = {}, timeoutMs = OLLAMA_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error(`Request timed out after ${timeoutMs}ms`);
+      timeoutError.code = 'ETIMEDOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * Call Ollama API for chat completions
  */
 async function callOllama(messages, options = {}) {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetchWithTimeout(
+      `${OLLAMA_BASE_URL}/api/chat`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: options.model || DEFAULT_MODEL,
+          messages,
+          stream: false,
+          options: buildGenerationOptions(options),
+        }),
       },
-      body: JSON.stringify({
-        model: options.model || DEFAULT_MODEL,
-        messages: messages,
-        stream: false,
-        options: buildGenerationOptions(options),
-      }),
-    });
+      options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS,
+    );
 
     if (!response.ok) {
       throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
     }
 
     const data = await response.json();
-    return data.message.content;
+    const content = data?.message?.content;
+    if (typeof content !== 'string' || !content.trim()) {
+      throw new Error('Ollama API returned empty content');
+    }
+    return content;
   } catch (error) {
     logger.error('Ollama API call failed:', error);
     throw error;
@@ -101,8 +246,8 @@ async function callOllama(messages, options = {}) {
  */
 function parseJSONResponse(text) {
   try {
-    // Remove markdown code blocks if present
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const raw = typeof text === 'string' ? text : String(text ?? '');
+    const cleaned = raw.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned);
   } catch (error) {
     logger.error('Failed to parse JSON response:', text);
@@ -123,7 +268,7 @@ const PERSONALITY_DESCRIPTIONS = {
   'direct-transparent': 'Direct, transparent, and candid. Uses straightforward and honest communication, asking clear questions and providing direct feedback.',
   'growth-oriented-developmental': 'Growth-oriented, developmental, and supportive. Focuses on learning and continuous improvement, helping candidates reflect on their experiences and growth potential.',
   'conversational-authentic': 'Conversational, authentic, and relatable. Uses a natural and genuine interaction style, making the interview feel like a real conversation between professionals.',
-  'outcome-focused-metrics': 'Outcome-focused, metrics-driven, and results-oriented. Emphasizes measurable impact and performance, asking questions that reveal concrete achievements and quantifiable results.'
+  'outcome-focused-metrics': 'Outcome-focused, metrics-driven, and results-oriented. Emphasizes measurable impact and performance, asking questions that reveal concrete achievements and quantifiable results.',
 };
 
 function getPersonalityDescription(personalityId) {
@@ -144,21 +289,19 @@ export class LLMService {
         temperature: 0.8,
         maxTokens: 4000,
       });
-      
-      // Build personality context if available
+
       let personalityContext = '';
       if (personalityId) {
         const personalityDesc = getPersonalityDescription(personalityId);
         personalityContext = `\n\nInterviewer Style: ${personalityDesc}`;
       }
-      
-      // Build difficulty instruction
-      const difficultyInstruction = difficulty === 'easy' 
+
+      const difficultyInstruction = difficulty === 'easy'
         ? 'Basic questions suitable for junior candidates. Focus on fundamental concepts and straightforward scenarios.'
         : difficulty === 'hard'
-        ? 'Challenging questions requiring deep expertise. Include complex scenarios, edge cases, and advanced problem-solving.'
-        : 'Moderate questions appropriate for mid-level candidates. Balance between fundamentals and advanced topics.';
-      
+          ? 'Challenging questions requiring deep expertise. Include complex scenarios, edge cases, and advanced problem-solving.'
+          : 'Moderate questions appropriate for mid-level candidates. Balance between fundamentals and advanced topics.';
+
       const systemPrompt = `You are ${interviewerName}, an expert technical interviewer. Generate ${config.totalQuestions || 10} interview questions based on the following criteria:
 - Job Role: ${config.jobRole}
 - Experience Level: ${config.experienceLevel}
@@ -194,12 +337,50 @@ Important:
 
       const response = await callOllama(messages, llmOptions);
       const parsed = parseJSONResponse(response);
-      
+
       return parsed.questions || [];
     } catch (error) {
       logger.error('Error generating interview questions:', error);
       throw error;
     }
+  }
+
+  static async repairInterviewSummaryJson({ rawResponse, validationErrors, llmOptions }) {
+    const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
+      model: DEFAULT_MODEL,
+      temperature: 0.2,
+      maxTokens: 2000,
+    });
+
+    const prompt = `Fix the following invalid JSON so it strictly matches this schema and return JSON only:
+{
+  "overallScore": number (0-100),
+  "readinessLevel": string,
+  "strengths": string[],
+  "weaknesses": string[],
+  "technicalSkills": { "score": number (0-100), "feedback": string },
+  "communicationSkills": { "score": number (0-100), "feedback": string },
+  "recommendations": string[],
+  "detailedFeedback": string
+}
+Validation errors:
+${(validationErrors || []).join('; ') || 'Unknown'}
+
+Invalid payload:
+${rawResponse}`;
+
+    const messages = [
+      { role: 'system', content: 'You are a strict JSON repair assistant.' },
+      { role: 'user', content: prompt },
+    ];
+
+    const repairedText = await callOllama(messages, {
+      ...resolvedLlmOptions,
+      temperature: 0.2,
+      max_tokens: Math.min(3000, resolvedLlmOptions.max_tokens || 2000),
+    });
+
+    return parseJSONResponse(repairedText);
   }
 
   /**
@@ -212,7 +393,7 @@ Important:
         temperature: 0.7,
         maxTokens: 3000,
       });
-      const qaPairs = questions.map(q => ({
+      const qaPairs = questions.map((q) => ({
         question: q.question,
         answer: q.answer || 'Not answered',
         score: q.score || 0,
@@ -254,7 +435,26 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
       ];
 
       const response = await callOllama(messages, resolvedLlmOptions);
-      return parseJSONResponse(response);
+      const parsed = parseJSONResponse(response);
+      const validation = validateInterviewSummary(parsed);
+      if (validation.valid) {
+        return normalizeInterviewSummary(parsed);
+      }
+
+      logger.warn('Interview summary JSON schema validation failed; attempting one repair pass.', {
+        errors: validation.errors,
+      });
+
+      const repaired = await this.repairInterviewSummaryJson({
+        rawResponse: response,
+        validationErrors: validation.errors,
+        llmOptions: resolvedLlmOptions,
+      });
+      const repairedValidation = validateInterviewSummary(repaired);
+      if (!repairedValidation.valid) {
+        throw createStructuredOutputError(repairedValidation.errors);
+      }
+      return normalizeInterviewSummary(repaired);
     } catch (error) {
       logger.error('Error generating interview summary:', error);
       throw error;
@@ -320,9 +520,9 @@ Return ONLY valid JSON (no markdown):
    */
   static async generateNextQuestion({ currentQuestion, totalQuestions, config, previousAnswers = [] }) {
     try {
-      const context = previousAnswers.slice(-2).map(qa => 
-        `Q: ${qa.question}\nA: ${qa.answer}`
-      ).join('\n\n');
+      const context = previousAnswers.slice(-2).map((qa) =>
+        `Q: ${qa.question}\nA: ${qa.answer}`)
+        .join('\n\n');
 
       const systemPrompt = `You are conducting an interview for a ${config.jobRole} position at ${config.experienceLevel} level in the ${config.industry} industry.
 
@@ -396,7 +596,7 @@ Confidence should be between 0 and 1.`;
   static async verifyResumeDocument({ documentText, summary, expectedName }) {
     try {
       const truncatedText = documentText?.slice(0, 6000) || '';
-      const systemPrompt = `You are a resume compliance checker. Determine whether the text appears to be a real job résumé for ${expectedName || 'the candidate'}.
+      const systemPrompt = `You are a resume compliance checker. Determine whether the text appears to be a real job resume for ${expectedName || 'the candidate'}.
 
 Return strict JSON:
 {
@@ -429,26 +629,90 @@ Confidence must be between 0 and 1.`;
   }
 
   /**
-   * Check if Ollama service is running
+   * Check if Ollama service is running.
    */
-  static async healthCheck() {
+  static async healthCheck({ expectedModel = DEFAULT_MODEL } = {}) {
     try {
-      const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+      const response = await fetchWithTimeout(
+        `${OLLAMA_BASE_URL}/api/tags`,
+        {},
+        OLLAMA_HEALTH_TIMEOUT_MS,
+      );
       if (!response.ok) {
-        return { healthy: false, error: 'Ollama service not responding' };
+        return {
+          healthy: false,
+          modelReady: false,
+          expectedModel,
+          error: 'Ollama service not responding',
+        };
       }
       const data = await response.json();
-      return { 
-        healthy: true, 
-        models: data.models?.map(m => m.name) || [],
-        url: OLLAMA_BASE_URL 
+      const models = (data.models || []).map((model) => model?.name).filter(Boolean);
+      const modelReady = models.includes(expectedModel);
+      return {
+        healthy: true,
+        modelReady,
+        expectedModel,
+        models,
+        url: OLLAMA_BASE_URL,
       };
     } catch (error) {
-      return { 
-        healthy: false, 
+      return {
+        healthy: false,
+        modelReady: false,
+        expectedModel,
         error: error.message,
-        help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct'
+        help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct',
       };
+    }
+  }
+
+  static async getWhisperHealth() {
+    if (!WHISPER_BASE_URL) {
+      return {
+        configured: false,
+        reachable: null,
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `${WHISPER_BASE_URL.replace(/\/$/, '')}/health`,
+        {},
+        OLLAMA_HEALTH_TIMEOUT_MS,
+      );
+      return {
+        configured: true,
+        reachable: response.ok,
+      };
+    } catch {
+      return {
+        configured: true,
+        reachable: false,
+      };
+    }
+  }
+
+  /**
+   * Warm the configured model so first scoring request is less likely to timeout.
+   */
+  static async warmUp({ model = DEFAULT_MODEL } = {}) {
+    try {
+      await callOllama(
+        [
+          { role: 'system', content: 'You are a lightweight model warm-up probe.' },
+          { role: 'user', content: 'Reply with {"ok": true}' },
+        ],
+        {
+          model,
+          temperature: 0,
+          max_tokens: 64,
+          timeoutMs: OLLAMA_WARMUP_TIMEOUT_MS,
+        },
+      );
+      return { ok: true, model, url: OLLAMA_BASE_URL };
+    } catch (error) {
+      return { ok: false, model, url: OLLAMA_BASE_URL, error: error.message };
     }
   }
 }

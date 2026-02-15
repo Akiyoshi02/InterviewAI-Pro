@@ -279,6 +279,24 @@ router.post(
   InterviewController.endInterview
 );
 
+/**
+ * POST /api/interviews/:id/run-evaluation
+ * Run interview evaluation now (idempotent).
+ */
+router.post(
+  '/:id/run-evaluation',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.runEvaluation,
+);
+
 // =============================================================================
 // QUESTION/ANSWER MANAGEMENT
 // =============================================================================

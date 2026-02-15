@@ -46,6 +46,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   const [recordingPlaybackUrl, setRecordingPlaybackUrl] = useState('');
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState('');
+  const [runningEvaluation, setRunningEvaluation] = useState(false);
   const loadInterviewRef = useRef(null);
   const realtimeRefreshTimeoutRef = useRef(null);
 
@@ -188,6 +189,25 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
       alert('Failed to submit review: ' + err.message);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRunEvaluationNow = async () => {
+    try {
+      setRunningEvaluation(true);
+      const result = await apiClient.interviews.runEvaluation(interviewId);
+      if (result?.success && result?.interview) {
+        setInterview(result.interview);
+      } else {
+        const refreshed = await apiClient.interviews.getInterview(interviewId);
+        if (refreshed?.success && refreshed?.interview) {
+          setInterview(refreshed.interview);
+        }
+      }
+    } catch (error) {
+      alert(error?.message || 'Failed to run evaluation right now.');
+    } finally {
+      setRunningEvaluation(false);
     }
   };
 
@@ -695,15 +715,56 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                   </p>
                 </div>
               )}
+
+              {interview.recording && (
+                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 p-4">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Recording Metadata</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-slate-400">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Path:</span>{' '}
+                      <span className="break-all">{interview.recording.path || interview.recordingUrl}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Mime Type:</span>{' '}
+                      {interview.recording.mimeType || 'UNKNOWN'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Size:</span>{' '}
+                      {Number.isFinite(Number(interview.recording.size))
+                        ? `${Math.round(Number(interview.recording.size) / 1024)} KB`
+                        : 'UNKNOWN'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Created At:</span>{' '}
+                      {interview.recording.createdAt
+                        ? new Date(interview.recording.createdAt).toLocaleString()
+                        : 'UNKNOWN'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* AI Evaluation Tab — rubric-tied explainability for recruiters/SMEs */}
           {activeTab === 'evaluation' && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
-                AI-Generated Evaluation
-              </h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
+                  AI-Generated Evaluation
+                </h3>
+                {(interview?.pendingEvaluation || interview?.llmUnavailable) && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleRunEvaluationNow}
+                    disabled={runningEvaluation}
+                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white"
+                  >
+                    {runningEvaluation ? 'Running...' : 'Run Evaluation Now'}
+                  </Button>
+                )}
+              </div>
 
               {interview.evaluation ? (
                 <>

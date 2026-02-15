@@ -250,6 +250,116 @@ const resolveInterviewLlmOptions = (interviewConfig) => {
   );
 };
 
+const EVALUATION_RUN_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+
+const canRunEvaluation = (interview, user) => {
+  if (user?.accountType === 'SYSTEM_ADMIN') {
+    return { allowed: true };
+  }
+
+  const access = ensureAccess(interview, user, { allowOrganizationMembers: true });
+  if (!access.allowed) return access;
+
+  if (user?.accountType === 'COMPANY') {
+    const role = String(user?.organizationContext?.membership?.role || '').toUpperCase();
+    if (EVALUATION_RUN_ROLES.has(role)) {
+      return { allowed: true };
+    }
+    return { allowed: false, status: 403, message: 'Insufficient organization role for evaluation' };
+  }
+
+  return { allowed: false, status: 403, message: 'Evaluation access denied' };
+};
+
+const buildPendingEvaluationPayload = ({
+  reasonCode,
+  llmUnavailable = false,
+  message = 'AI scoring unavailable; session saved, scoring pending.',
+} = {}) => ({
+  status: 'PENDING_EVALUATION',
+  source: llmUnavailable ? 'FALLBACK' : 'DEFERRED',
+  llmUnavailable,
+  reasonCode: reasonCode || 'EVALUATION_PENDING',
+  message,
+  generatedAt: new Date().toISOString(),
+});
+
+const evaluateInterviewWithFallback = async ({
+  interview,
+  questions,
+  llmOptions,
+  operation = 'end',
+} = {}) => {
+  const startedAt = Date.now();
+  const evaluatedAt = new Date().toISOString();
+  const model = llmOptions?.model || DEFAULT_SYSTEM_AI_CONFIG.model;
+
+  try {
+    const evaluation = await LLMService.generateInterviewSummary({
+      interview,
+      questions,
+      llmOptions,
+    });
+    const durationMs = Date.now() - startedAt;
+    return {
+      evaluation: {
+        ...evaluation,
+        status: 'COMPLETED',
+        source: 'OLLAMA',
+        generatedAt: evaluatedAt,
+      },
+      pendingEvaluation: false,
+      llmUnavailable: false,
+      message: null,
+      reasonCode: null,
+      metadata: {
+        provider: 'ollama',
+        model,
+        evaluatedAt,
+        durationMs,
+        operation,
+        pendingEvaluation: false,
+      },
+    };
+  } catch (error) {
+    const llmUnavailable = isLikelyOllamaUnavailableError(error);
+    const reasonCode = llmUnavailable
+      ? 'OLLAMA_UNAVAILABLE'
+      : (error?.code === 'LLM_STRUCTURED_OUTPUT_INVALID'
+        ? 'INVALID_STRUCTURED_OUTPUT'
+        : 'EVALUATION_FAILED');
+    const message = llmUnavailable
+      ? 'AI scoring unavailable; session saved, scoring pending.'
+      : 'AI scoring could not be finalized right now. You can run evaluation later.';
+    logger.warn(`Interview evaluation deferred during ${operation}.`, {
+      interviewId: interview?.id || null,
+      reasonCode,
+      llmUnavailable,
+      error: error?.message || String(error),
+    });
+    return {
+      evaluation: buildPendingEvaluationPayload({
+        reasonCode,
+        llmUnavailable,
+        message,
+      }),
+      pendingEvaluation: true,
+      llmUnavailable,
+      message,
+      reasonCode,
+      metadata: {
+        provider: 'ollama',
+        model,
+        evaluatedAt,
+        durationMs: Date.now() - startedAt,
+        operation,
+        pendingEvaluation: true,
+        reasonCode,
+      },
+    };
+  }
+};
+
 export class InterviewController {
   static async createInterview(req, res, next) {
     try {
@@ -918,31 +1028,13 @@ export class InterviewController {
       }
 
       const answeredQuestions = (interview.questions || []).filter((q) => q.answer);
-      let evaluation = null;
-      let llmUnavailable = Boolean(interview?.llmUnavailable);
-      let pendingEvaluation = Boolean(interview?.pendingEvaluation);
-
-      try {
-        evaluation = await LLMService.generateInterviewSummary({
-          interview,
-          questions: answeredQuestions,
-          llmOptions: resolveInterviewLlmOptions(interview.config),
-        });
-      } catch (summaryError) {
-        if (!isLikelyOllamaUnavailableError(summaryError)) {
-          throw summaryError;
-        }
-        llmUnavailable = true;
-        pendingEvaluation = true;
-        evaluation = {
-          status: 'PENDING_EVALUATION',
-          source: 'FALLBACK',
-          llmUnavailable: true,
-          message: 'AI scoring unavailable; session saved, scoring pending.',
-          generatedAt: new Date().toISOString(),
-        };
-        logger.warn('Ollama unavailable at interview end; evaluation marked pending.');
-      }
+      const evaluationResult = await evaluateInterviewWithFallback({
+        interview,
+        questions: answeredQuestions,
+        llmOptions: resolveInterviewLlmOptions(interview.config),
+        operation: 'end',
+      });
+      const { evaluation, pendingEvaluation, llmUnavailable, metadata, reasonCode } = evaluationResult;
 
       const updatedInterview = await interviewStore.update(id, {
         status: 'COMPLETED',
@@ -952,6 +1044,9 @@ export class InterviewController {
         readinessLevel: pendingEvaluation ? null : evaluation?.readinessLevel ?? null,
         llmUnavailable,
         pendingEvaluation,
+        llmUnavailableAt: llmUnavailable ? new Date().toISOString() : interview?.llmUnavailableAt || null,
+        llmFallbackReason: pendingEvaluation ? reasonCode : null,
+        evaluationMetadata: metadata,
       });
 
       try {
@@ -998,12 +1093,131 @@ export class InterviewController {
         pendingEvaluation: Boolean(hydrated?.pendingEvaluation),
         llmUnavailable: Boolean(hydrated?.llmUnavailable),
         message: hydrated?.pendingEvaluation
-          ? 'AI scoring unavailable; session saved, scoring pending.'
+          ? (evaluationResult.message || 'AI scoring unavailable; session saved, scoring pending.')
           : undefined,
       });
     } catch (error) {
       logger.error('End interview error:', error);
       next(error);
+    }
+  }
+
+  static async runEvaluation(req, res, next) {
+    try {
+      const { id } = req.params;
+      const interview = await interviewStore.getWithQuestions(id);
+      const access = canRunEvaluation(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      const normalizedStatus = String(interview?.status || '').toUpperCase();
+      if (normalizedStatus !== 'COMPLETED') {
+        return res.status(409).json({
+          error: 'Interview must be completed before running evaluation',
+          code: 'INTERVIEW_NOT_COMPLETED',
+        });
+      }
+
+      const existingEvaluation = interview?.evaluation && typeof interview.evaluation === 'object'
+        ? interview.evaluation
+        : null;
+      const hasCompletedEvaluation = Boolean(
+        existingEvaluation
+          && !interview?.pendingEvaluation
+          && interview?.overallScore != null
+          && interview?.readinessLevel,
+      );
+
+      if (hasCompletedEvaluation) {
+        const hydratedExisting = await attachSingleInterviewParticipants(interview);
+        return res.json({
+          success: true,
+          interview: hydratedExisting,
+          reusedExistingEvaluation: true,
+          pendingEvaluation: false,
+          llmUnavailable: Boolean(hydratedExisting?.llmUnavailable),
+        });
+      }
+
+      const answeredQuestions = (interview.questions || []).filter((q) => q.answer);
+      const evaluationResult = await evaluateInterviewWithFallback({
+        interview,
+        questions: answeredQuestions,
+        llmOptions: resolveInterviewLlmOptions(interview.config),
+        operation: 'manual-run',
+      });
+      const { evaluation, pendingEvaluation, llmUnavailable, metadata, reasonCode } = evaluationResult;
+
+      const updatedInterview = await interviewStore.update(id, {
+        evaluation,
+        overallScore: pendingEvaluation ? null : evaluation?.overallScore ?? null,
+        readinessLevel: pendingEvaluation ? null : evaluation?.readinessLevel ?? null,
+        llmUnavailable,
+        pendingEvaluation,
+        llmUnavailableAt: llmUnavailable ? new Date().toISOString() : interview?.llmUnavailableAt || null,
+        llmFallbackReason: pendingEvaluation ? reasonCode : null,
+        evaluationMetadata: metadata,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_EVALUATION_RUN',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            pendingEvaluation,
+            llmUnavailable,
+            reasonCode: reasonCode || null,
+            overallScore: updatedInterview.overallScore ?? null,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-evaluated', {
+          actor: req.user.id,
+          pendingEvaluation,
+          llmUnavailable,
+          overallScore: updatedInterview.overallScore ?? null,
+          readinessLevel: updatedInterview.readinessLevel ?? null,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-evaluated', {
+            interviewId: updatedInterview.id,
+            pendingEvaluation,
+            llmUnavailable,
+            overallScore: updatedInterview.overallScore ?? null,
+            readinessLevel: updatedInterview.readinessLevel ?? null,
+            candidateId: updatedInterview.candidateId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-evaluated realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants({
+        ...updatedInterview,
+        questions: interview.questions,
+      });
+
+      return res.json({
+        success: true,
+        interview: hydrated,
+        reusedExistingEvaluation: false,
+        pendingEvaluation: Boolean(hydrated?.pendingEvaluation),
+        llmUnavailable: Boolean(hydrated?.llmUnavailable),
+        message: hydrated?.pendingEvaluation
+          ? (evaluationResult.message || 'Evaluation pending. You can run evaluation later.')
+          : undefined,
+      });
+    } catch (error) {
+      logger.error('Run evaluation error:', error);
+      return next(error);
     }
   }
 
@@ -1076,6 +1290,9 @@ export class InterviewController {
         evaluation: interview.evaluation,
         overallScore: interview.overallScore,
         readinessLevel: interview.readinessLevel,
+        evaluationMetadata: interview.evaluationMetadata || null,
+        pendingEvaluation: Boolean(interview.pendingEvaluation),
+        llmUnavailable: Boolean(interview.llmUnavailable),
         questions: (interview.questions || []).map((question) => ({
           id: question.id,
           question: question.question,

@@ -20,6 +20,7 @@ import billingRoutes from './billing.routes.js';
 import newsletterRoutes from './newsletter.routes.js';
 import datasetRoutes from './dataset.routes.js';
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
+import { LLMService } from '../services/llm.service.js';
 
 const router = express.Router();
 
@@ -52,6 +53,34 @@ export function setupRoutes(app) {
   // Health check
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // AI health check (used for demo readiness verification).
+  app.get('/api/ai/health', async (req, res) => {
+    try {
+      const expectedModel = process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+      const [ollama, whisper] = await Promise.all([
+        LLMService.healthCheck({ expectedModel }),
+        LLMService.getWhisperHealth(),
+      ]);
+
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        model: expectedModel,
+        ollamaReachable: Boolean(ollama.healthy),
+        modelReady: Boolean(ollama.modelReady),
+        ollama,
+        whisperReachable: whisper.reachable,
+        whisperConfigured: whisper.configured,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        timestamp: new Date().toISOString(),
+        error: error?.message || 'AI health check failed',
+      });
+    }
   });
 }
 

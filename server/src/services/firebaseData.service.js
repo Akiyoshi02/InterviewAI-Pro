@@ -482,7 +482,10 @@ export const interviewStore = {
     const questionsCollection = interviewsCollection.doc(interviewId).collection('questions');
 
     questions.forEach((q, index) => {
-      const questionId = q.id || randomUUID();
+      const rawId = q?.id;
+      const questionId = typeof rawId === 'string' && rawId.trim()
+        ? rawId.trim()
+        : (Number.isFinite(Number(rawId)) ? `q_${rawId}` : randomUUID());
       const docRef = questionsCollection.doc(questionId);
       batch.set(docRef, {
         id: questionId,

@@ -628,6 +628,14 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async runEvaluation(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/run-evaluation`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async getMyInterviews() {
       const response = await fetch(`${API_URL}/api/interviews/user/my-interviews`, {
         method: 'GET',

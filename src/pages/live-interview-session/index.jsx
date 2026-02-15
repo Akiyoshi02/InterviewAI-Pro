@@ -26,6 +26,10 @@ import apiClient from '../../services/apiClient';
 import { realtimeDb } from '../../config/firebase.js';
 
 const isBackendInterviewId = (id) => Boolean(id && !/^interview_\d+$/.test(id));
+const RECORDING_MIN_BYTES = Math.max(
+  1024,
+  Number.parseInt(import.meta.env.VITE_RECORDING_MIN_BYTES || '51200', 10) || 51200,
+);
 
 const LiveInterviewSession = () => {
   const navigate = useNavigate();
@@ -439,14 +443,23 @@ const LiveInterviewSession = () => {
 
       if (isBackendInterviewId(interviewId.current) && recordingBlob && recordingBlob.size > 0) {
         try {
-          setIsUploadingRecording(true);
-          const extension = 'webm';
-          const recordingFile = new File(
-            [recordingBlob],
-            `session_${Date.now()}.${extension}`,
-            { type: recordingBlob.type || `video/${extension}` },
-          );
-          await apiClient.interviews.uploadRecording(interviewId.current, recordingFile);
+          if (recordingBlob.size < RECORDING_MIN_BYTES) {
+            setSessionNotice('Recording was too short/small to upload. Please ensure camera/mic were active.');
+          } else {
+            setIsUploadingRecording(true);
+            const mimeType = recordingBlob.type || 'video/webm';
+            const extension = mimeType.includes('mp4')
+              ? 'mp4'
+              : mimeType.includes('ogg')
+                ? 'ogg'
+                : 'webm';
+            const recordingFile = new File(
+              [recordingBlob],
+              `session_${Date.now()}.${extension}`,
+              { type: mimeType },
+            );
+            await apiClient.interviews.uploadRecording(interviewId.current, recordingFile);
+          }
         } catch (uploadError) {
           console.error('Failed to upload full-session recording:', uploadError);
           setSessionNotice('Session ended, but recording upload failed.');
