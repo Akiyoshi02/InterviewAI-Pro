@@ -340,7 +340,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         setOrganizations(result.organizations || []);
       }
     } catch (error) {
-      console.error('Failed to load pending organizations:', error);
       showErrorToast('Failed to load pending organizations.');
     } finally {
       setLoading(false);
@@ -400,7 +399,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         throw new Error('Failed to approve organization');
       }
     } catch (error) {
-      console.error('Failed to approve organization:', error);
       setApproveDialog({ open: false, org: null });
       showErrorToast(error?.message || 'Failed to approve organization. Please try again.');
     } finally {
@@ -654,7 +652,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         if (onApprovalChange) onApprovalChange();
       }
     } catch (error) {
-      console.error('Failed to reject organization:', error);
       showErrorToast(error?.message || 'Failed to reject organization. Please try again.');
     } finally {
       setActionLoading(null);
@@ -682,7 +679,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         });
       }
     } catch (error) {
-      console.error('Failed to load organization details:', error);
       showErrorToast('Failed to load organization details.');
     }
   };

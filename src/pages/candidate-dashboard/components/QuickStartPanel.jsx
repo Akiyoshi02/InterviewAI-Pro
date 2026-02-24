@@ -27,7 +27,14 @@ const QuickStartPanel = ({ onStartPractice }) => {
 
   const handleStartPractice = () => {
     if (selectedRole && selectedDifficulty) {
-      onStartPractice?.({ role: selectedRole, difficulty: selectedDifficulty });
+      const payload = { role: selectedRole, difficulty: selectedDifficulty };
+      if (typeof onStartPractice === 'function') {
+        onStartPractice(payload);
+        return;
+      }
+
+      const params = new URLSearchParams(payload);
+      navigate(`/practice-interview-setup?${params.toString()}`);
     }
   };
 
@@ -93,7 +100,7 @@ const QuickStartPanel = ({ onStartPractice }) => {
             variant="ghost"
             iconName="History"
             iconPosition="left"
-            onClick={() => navigate('/candidate-dashboard')}
+            onClick={() => navigate('/candidate-dashboard#recent-activity')}
             className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
           >
             View History

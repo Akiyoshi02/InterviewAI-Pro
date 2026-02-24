@@ -8,6 +8,10 @@ import LoadingState from '../../../components/ui/LoadingState';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
+import { DEFAULT_MODEL } from '../../../services/llmClient.js';
+
+const SUPPORTED_PRIMARY_MODELS = ['qwen3:8b', 'qwen2.5:7b-instruct'];
+const FALLBACK_MODEL = 'qwen2.5:7b-instruct';
 
 const SystemSettings = () => {
   const [settings, setSettings] = useState(null);
@@ -17,11 +21,16 @@ const SystemSettings = () => {
   const [editedSettings, setEditedSettings] = useState(null);
   const [showResetConfirm, setShowResetConfirm] = useState(false);
   const [messageDialog, setMessageDialog] = useState({ open: false, title: '', message: '', variant: 'success' });
+  const [aiHealth, setAiHealth] = useState(null);
+  const [aiHealthLoading, setAiHealthLoading] = useState(false);
+  const [aiHealthError, setAiHealthError] = useState('');
   const realtimeRefreshTimeoutRef = useRef(null);
+  const aiHealthIntervalRef = useRef(null);
   const loadSettingsRef = useRef(null);
 
   useEffect(() => {
     loadSettings();
+    loadAIHealth();
   }, []);
 
   const loadSettings = async () => {
@@ -36,16 +45,48 @@ const SystemSettings = () => {
           nonverbalFeedbackEnabled: s.nonverbalFeedbackEnabled !== false,
         });
       }
-    } catch (error) {
-      console.error('Failed to load settings:', error);
+    } catch {
+      // Silent failure — settings form stays at defaults
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadAIHealth = async ({ silent = false } = {}) => {
+    try {
+      if (!silent) {
+        setAiHealthLoading(true);
+      }
+      const result = await apiClient.admin.getAIHealth();
+      setAiHealth(result || null);
+      if (result?.success) {
+        setAiHealthError('');
+      } else {
+        setAiHealthError(result?.error || 'Failed to load AI runtime status.');
+      }
+    } catch (error) {
+      setAiHealthError(error?.message || 'Failed to load AI runtime status.');
+    } finally {
+      if (!silent) {
+        setAiHealthLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     loadSettingsRef.current = loadSettings;
   }, [loadSettings]);
+
+  useEffect(() => {
+    aiHealthIntervalRef.current = setInterval(() => {
+      loadAIHealth({ silent: true });
+    }, 15000);
+    return () => {
+      if (aiHealthIntervalRef.current) {
+        clearInterval(aiHealthIntervalRef.current);
+      }
+    };
+  }, []);
 
   useRealtimePathFeed({
     path: 'adminFeeds/global',
@@ -58,6 +99,7 @@ const SystemSettings = () => {
       }
       realtimeRefreshTimeoutRef.current = setTimeout(() => {
         loadSettingsRef.current?.();
+        loadAIHealth({ silent: true });
       }, 300);
     },
   });
@@ -66,6 +108,9 @@ const SystemSettings = () => {
     () => () => {
       if (realtimeRefreshTimeoutRef.current) {
         clearTimeout(realtimeRefreshTimeoutRef.current);
+      }
+      if (aiHealthIntervalRef.current) {
+        clearInterval(aiHealthIntervalRef.current);
       }
     },
     [],
@@ -145,7 +190,6 @@ const SystemSettings = () => {
         });
       }
     } catch (err) {
-      console.error('Failed to save settings:', err);
       setMessageDialog({
         open: true,
         title: 'Error',
@@ -362,15 +406,29 @@ const SystemSettings = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
-              Model
+              Primary Model
             </label>
-            <input
-              type="text"
+            <select
               value={editedSettings.defaultAIConfig.model}
               onChange={(e) => handleAIConfigChange('model', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-purple-500 focus:border-transparent"
-              placeholder="e.g., qwen2.5:7b-instruct"
-            />
+            >
+              {SUPPORTED_PRIMARY_MODELS.map((modelName) => (
+                <option key={modelName} value={modelName}>
+                  {modelName}
+                </option>
+              ))}
+              {!SUPPORTED_PRIMARY_MODELS.includes(editedSettings.defaultAIConfig.model) && (
+                <option value={editedSettings.defaultAIConfig.model}>
+                  {editedSettings.defaultAIConfig.model} (unsupported)
+                </option>
+              )}
+            </select>
+            {!SUPPORTED_PRIMARY_MODELS.includes(editedSettings.defaultAIConfig.model) && (
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                Current saved model is outside the supported set. Switch to a supported model from the dropdown.
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
@@ -387,9 +445,128 @@ const SystemSettings = () => {
             />
           </div>
         </div>
+        <div className="mt-3 space-y-2">
+          <div className="rounded-lg border border-blue-200/70 dark:border-blue-700/50 bg-blue-50/60 dark:bg-blue-900/20 px-3 py-2">
+            <p className="text-xs text-blue-800 dark:text-blue-200">
+              Automatic fallback is enabled. If the primary model fails, the app retries with
+              <span className="font-semibold"> {FALLBACK_MODEL}</span>.
+            </p>
+          </div>
+          <div className="rounded-lg border border-purple-200/70 dark:border-purple-700/50 bg-purple-50/60 dark:bg-purple-900/20 px-3 py-2">
+            <p className="text-xs text-purple-800 dark:text-purple-200">
+              <span className="font-semibold">Thinking Mode</span> is enabled for evaluation tasks (STAR analysis, interview summaries, document verification) to improve scoring accuracy through chain-of-thought reasoning. Conversational tasks remain fast with thinking disabled.
+            </p>
+          </div>
+          <div className="rounded-lg border border-emerald-200/70 dark:border-emerald-700/50 bg-emerald-50/60 dark:bg-emerald-900/20 px-3 py-2">
+            <p className="text-xs text-emerald-800 dark:text-emerald-200">
+              <span className="font-semibold">Structured Output</span> is enforced via JSON schema constraints on all AI responses, guaranteeing valid structured data from every call.
+            </p>
+          </div>
+        </div>
         <p className="text-xs text-gray-600 dark:text-slate-400 mt-3">
           These settings will be used as defaults for new AI interview sessions. Users can still override them.
         </p>
+      </motion.div>
+
+      {/* AI Runtime Status */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.24 }}
+        className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg"
+      >
+        <div className="flex items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">
+              AI Runtime Model Status
+            </h3>
+            <p className="text-xs text-gray-600 dark:text-slate-400 mt-1">
+              Live status of Ollama and the most recently active model path (primary/fallback).
+            </p>
+          </div>
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => loadAIHealth()}
+            loading={aiHealthLoading}
+            disabled={aiHealthLoading}
+          >
+            <Icon name="RefreshCw" className="w-4 h-4 mr-2" />
+            Refresh
+          </Button>
+        </div>
+
+        {aiHealthError && (
+          <div className="mb-4 rounded-lg border border-amber-300/70 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-900/20 px-3 py-2">
+            <p className="text-xs text-amber-700 dark:text-amber-300">{aiHealthError}</p>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Ollama Service</p>
+            <p className={`text-sm font-semibold mt-1 ${
+              aiHealthLoading && !aiHealth
+                ? 'text-gray-700 dark:text-slate-300'
+                : aiHealth?.ollamaReachable
+                  ? 'text-green-700 dark:text-green-400'
+                  : 'text-red-700 dark:text-red-400'
+            }`}>
+              {aiHealthLoading && !aiHealth ? 'Checking...' : aiHealth?.ollamaReachable ? 'Online' : 'Offline'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Configured Primary</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {aiHealth?.runtimeModel?.primaryModel || editedSettings.defaultAIConfig.model || DEFAULT_MODEL}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Fallback Model</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {aiHealth?.runtimeModel?.fallbackModel || FALLBACK_MODEL}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Current Active Model</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {aiHealth?.runtimeModel?.lastSuccessfulModel || 'No successful call yet'}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Last Call Used Fallback</p>
+            <p className={`text-sm font-semibold mt-1 ${aiHealth?.runtimeModel?.lastUsedFallback ? 'text-amber-700 dark:text-amber-400' : 'text-gray-900 dark:text-slate-100'}`}>
+              {aiHealth?.runtimeModel?.lastUsedFallback ? 'Yes' : 'No'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Total Calls</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {Number.isFinite(aiHealth?.runtimeModel?.totalCalls) ? aiHealth.runtimeModel.totalCalls : 0}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Fallback Used Calls</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {Number.isFinite(aiHealth?.runtimeModel?.fallbackUsedCalls) ? aiHealth.runtimeModel.fallbackUsedCalls : 0}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+          <p className="text-xs text-gray-500 dark:text-slate-400">Last Attempt Path</p>
+          <p className="text-sm text-gray-900 dark:text-slate-100 mt-1 break-words">
+            {Array.isArray(aiHealth?.runtimeModel?.lastAttemptedModels) && aiHealth.runtimeModel.lastAttemptedModels.length > 0
+              ? aiHealth.runtimeModel.lastAttemptedModels.join(' -> ')
+              : 'No attempt recorded yet'}
+          </p>
+          <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+            Last update: {aiHealth?.runtimeModel?.lastCallAt ? new Date(aiHealth.runtimeModel.lastCallAt).toLocaleString() : 'Not available'}
+          </p>
+        </div>
       </motion.div>
 
       {/* Data Retention */}

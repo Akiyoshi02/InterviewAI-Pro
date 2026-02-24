@@ -344,4 +344,32 @@ router.post(
   InterviewController.submitAnswer
 );
 
+/**
+ * PATCH /api/interviews/:id/question/:questionId/notes
+ * GAP FEATURE: Save prep notes for a question
+ */
+router.patch(
+  '/:id/question/:questionId/notes',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    param('questionId')
+      .trim()
+      .notEmpty()
+      .withMessage('Question ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    body('prepNotes')
+      .optional()
+      .isString()
+      .isLength({ max: 500 })
+      .withMessage('Prep notes must be 500 characters or less'),
+  ],
+  validateRequest,
+  InterviewController.saveQuestionNotes
+);
+
 export default router;

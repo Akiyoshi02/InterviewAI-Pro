@@ -237,6 +237,20 @@ const UserContextNavigation = ({
       description: 'Manage team members and invitations',
       requiredPermission: 'MANAGE_MEMBERS'
     },
+    { 
+      key: 'settings',
+      label: 'Settings', 
+      path: '/company-settings', 
+      icon: 'Settings',
+      description: 'Organization and user profile settings'
+    },
+    { 
+      key: 'billing',
+      label: 'Billing', 
+      path: '/company-billing', 
+      icon: 'CreditCard',
+      description: 'Plan, usage, and billing history'
+    },
   ];
 
   const adminNavItems = [
@@ -310,15 +324,39 @@ const UserContextNavigation = ({
     },
     {
       key: 'data-research',
-      label: 'Data Governance',
+      label: 'Data & AI',
       icon: 'Database',
-      description: 'Training datasets and data governance',
+      description: 'Datasets, models, and research tools',
       items: [
         {
           label: 'Training Data',
           path: '/system-admin-dashboard/training-data',
           icon: 'Database',
           description: 'Inspect and export datasets'
+        },
+        {
+          label: 'Classification Metrics',
+          path: '/system-admin-dashboard/classification',
+          icon: 'Grid3X3',
+          description: 'Confusion matrix and precision/recall'
+        },
+        {
+          label: 'Model Fine-Tuning',
+          path: '/system-admin-dashboard/fine-tuning',
+          icon: 'Cpu',
+          description: 'Train LLM from interview data'
+        },
+        {
+          label: 'MediaPipe Calibration',
+          path: '/system-admin-dashboard/mediapipe-calibration',
+          icon: 'ScanFace',
+          description: 'Posture and face threshold calibration'
+        },
+        {
+          label: 'Research Tools',
+          path: '/system-admin-dashboard/research-tools',
+          icon: 'FlaskConical',
+          description: 'Record posture, analyze videos, add datasets'
         },
       ],
     },

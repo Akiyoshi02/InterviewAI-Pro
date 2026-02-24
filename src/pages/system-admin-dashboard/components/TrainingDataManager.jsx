@@ -82,11 +82,14 @@ const StatCard = ({ icon, title, value, subtitle, color = 'blue' }) => {
  */
 const DatasetCard = ({ dataset, type, onDelete, onExport }) => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this dataset? This action cannot be undone.')) {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
       return;
     }
+    setConfirmDelete(false);
     setIsDeleting(true);
     await onDelete(dataset.id, type);
     setIsDeleting(false);
@@ -156,28 +159,52 @@ const DatasetCard = ({ dataset, type, onDelete, onExport }) => {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          iconName="Download"
-          iconPosition="left"
-          onClick={() => onExport(dataset, type)}
-          className="flex-1 text-xs"
-        >
-          Export
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          iconName="Trash2"
-          onClick={handleDelete}
-          loading={isDeleting}
-          className="text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-        >
-          Delete
-        </Button>
-      </div>
+      {confirmDelete ? (
+        <div className="rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 p-3">
+          <p className="text-xs text-red-700 dark:text-red-300 font-medium mb-2">Delete this dataset? This cannot be undone.</p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDelete}
+              loading={isDeleting}
+              className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white border-red-600"
+            >
+              Confirm Delete
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="Download"
+            iconPosition="left"
+            onClick={() => onExport(dataset, type)}
+            className="flex-1 text-xs"
+          >
+            Export
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="Trash2"
+            onClick={handleDelete}
+            loading={isDeleting}
+            className="text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          >
+            Delete
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -215,7 +242,6 @@ const TrainingDataManager = () => {
         setDatasets(datasetsResult.datasets);
       }
     } catch (error) {
-      console.error('Failed to load training data:', error);
       showError('Failed to load training data');
     } finally {
       setIsLoading(false);
@@ -288,7 +314,6 @@ const TrainingDataManager = () => {
         await loadData();
       }
     } catch (error) {
-      console.error('Failed to delete dataset:', error);
       showError('Failed to delete dataset');
     }
   };
@@ -314,7 +339,6 @@ const TrainingDataManager = () => {
         showSuccess(`Exported ${type} data successfully`);
       }
     } catch (error) {
-      console.error('Failed to export datasets:', error);
       showError('Failed to export datasets');
     } finally {
       setIsExporting(false);

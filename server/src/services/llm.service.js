@@ -5,19 +5,168 @@
  * Setup Instructions:
  * 1. Download Ollama: https://ollama.ai/download
  * 2. Install and start Ollama service
- * 3. Pull a model: `ollama pull qwen2.5:7b-instruct`
+ * 3. Pull a model: `ollama pull qwen3:8b`
  * 4. Server runs at: http://localhost:11434
  *
  * Recommended Models (FREE):
- * - qwen2.5:7b-instruct (Best mix of quality + speed, 5.4GB)
- * - llama3.1:8b (Generalist, 4.7GB)
- * - mistral:7b (Fast, 4.1GB)
+ * - qwen3:8b (Best evaluation accuracy + structured output, 5.2GB)
+ * - qwen2.5:7b-instruct (Fallback model, 4.7GB)
  */
 
 import logger from '../utils/logger.js';
+import {
+  getLatestFineTuneQualification,
+  MIN_TRAINING_PAIRS_FOR_ACTIVATION,
+} from './modelFineTuning.service.js';
 
 const OLLAMA_BASE_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
+const DEFAULT_FALLBACK_MODEL = process.env.OLLAMA_FALLBACK_MODEL || 'qwen2.5:7b-instruct';
+const FINE_TUNED_MODEL_NAME = `interviewai-${DEFAULT_MODEL.replace(':', '-')}`;
+
+let _modelRuntimeStatus = {
+  totalCalls: 0,
+  successfulCalls: 0,
+  failedCalls: 0,
+  fallbackUsedCalls: 0,
+  lastOutcome: null,
+  lastCallAt: null,
+  lastSuccessAt: null,
+  lastFailureAt: null,
+  lastRequestedModel: null,
+  lastSuccessfulModel: null,
+  lastUsedFallback: false,
+  lastFallbackAttempted: false,
+  lastAttemptedModels: [],
+  lastError: null,
+};
+
+let _fineTunedModelAvailable = null;
+let _fineTunedModelCheckedAt = 0;
+const FINE_TUNE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+
+/**
+ * Check if the fine-tuned model variant exists in Ollama AND meets the
+ * minimum training quality gate (MIN_TRAINING_PAIRS_FOR_ACTIVATION).
+ *
+ * Both checks are cached together for 5 minutes. The quality gate prevents
+ * a model trained on too few interviews from being used at runtime — which
+ * would introduce scoring inconsistency rather than improving accuracy.
+ *
+ * Decision logic:
+ *  - Model doesn't exist in Ollama            → false (not created yet)
+ *  - Model exists but < threshold pairs used  → false (not reliable yet)
+ *  - Model exists AND >= threshold pairs used → true  (safe to prefer)
+ */
+async function isFineTunedModelAvailable() {
+  if (_fineTunedModelAvailable !== null && Date.now() - _fineTunedModelCheckedAt < FINE_TUNE_CHECK_INTERVAL_MS) {
+    return _fineTunedModelAvailable;
+  }
+
+  try {
+    // Step 1: Does the model exist in Ollama at all?
+    const ollamaResponse = await fetch(`${OLLAMA_BASE_URL}/api/show`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: FINE_TUNED_MODEL_NAME }),
+      signal: AbortSignal.timeout(3000),
+    });
+
+    if (!ollamaResponse.ok) {
+      _fineTunedModelAvailable = false;
+      _fineTunedModelCheckedAt = Date.now();
+      return false;
+    }
+
+    // Step 2: Was it trained on enough data to be trustworthy?
+    const qualification = await getLatestFineTuneQualification();
+    if (!qualification.qualifies) {
+      logger.info(
+        `Fine-tuned model exists but quality gate not met: ` +
+        `${qualification.examplesUsed}/${MIN_TRAINING_PAIRS_FOR_ACTIVATION} training pairs. ` +
+        `Using base model instead.`,
+      );
+      _fineTunedModelAvailable = false;
+      _fineTunedModelCheckedAt = Date.now();
+      return false;
+    }
+
+    _fineTunedModelAvailable = true;
+  } catch {
+    _fineTunedModelAvailable = false;
+  }
+
+  _fineTunedModelCheckedAt = Date.now();
+  return _fineTunedModelAvailable;
+}
+
+/**
+ * Resolve which model to use. Prefers fine-tuned model when available,
+ * unless the caller explicitly specified a model.
+ */
+async function resolveModel(requestedModel) {
+  if (requestedModel && requestedModel !== DEFAULT_MODEL) {
+    return requestedModel;
+  }
+  const fineTunedAvailable = await isFineTunedModelAvailable();
+  return fineTunedAvailable ? FINE_TUNED_MODEL_NAME : DEFAULT_MODEL;
+}
+
+const buildModelAttemptOrder = async (requestedModel) => {
+  const attempts = [];
+  const pushUnique = (modelName) => {
+    if (typeof modelName === 'string' && modelName.trim() && !attempts.includes(modelName.trim())) {
+      attempts.push(modelName.trim());
+    }
+  };
+
+  const effectiveModel = await resolveModel(requestedModel);
+  pushUnique(effectiveModel);
+
+  // If a fine-tuned variant fails, retry with the base primary model first.
+  if (effectiveModel === FINE_TUNED_MODEL_NAME) {
+    pushUnique(DEFAULT_MODEL);
+  }
+
+  pushUnique(DEFAULT_FALLBACK_MODEL);
+  return attempts;
+};
+
+const recordModelRuntimeCall = ({
+  requestedModel = null,
+  attemptedModels = [],
+  successfulModel = null,
+  usedFallback = false,
+  fallbackAttempted = false,
+  error = null,
+} = {}) => {
+  const timestamp = new Date().toISOString();
+  _modelRuntimeStatus.totalCalls += 1;
+  _modelRuntimeStatus.lastCallAt = timestamp;
+  _modelRuntimeStatus.lastRequestedModel = requestedModel || null;
+  _modelRuntimeStatus.lastAttemptedModels = Array.isArray(attemptedModels)
+    ? attemptedModels.filter((item) => typeof item === 'string' && item.trim())
+    : [];
+  _modelRuntimeStatus.lastUsedFallback = Boolean(usedFallback);
+  _modelRuntimeStatus.lastFallbackAttempted = Boolean(fallbackAttempted);
+  _modelRuntimeStatus.lastError = error ? String(error) : null;
+
+  if (successfulModel) {
+    _modelRuntimeStatus.successfulCalls += 1;
+    _modelRuntimeStatus.lastOutcome = 'success';
+    _modelRuntimeStatus.lastSuccessAt = timestamp;
+    _modelRuntimeStatus.lastSuccessfulModel = successfulModel;
+    if (usedFallback) {
+      _modelRuntimeStatus.fallbackUsedCalls += 1;
+    }
+    return;
+  }
+
+  _modelRuntimeStatus.failedCalls += 1;
+  _modelRuntimeStatus.lastOutcome = 'failed';
+  _modelRuntimeStatus.lastFailureAt = timestamp;
+};
+
 const OLLAMA_REQUEST_TIMEOUT_MS = Math.max(
   2000,
   Number.parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '45000', 10) || 45000,
@@ -30,17 +179,145 @@ const OLLAMA_WARMUP_TIMEOUT_MS = Math.max(
   3000,
   Number.parseInt(process.env.OLLAMA_WARMUP_TIMEOUT_MS || '60000', 10) || 60000,
 );
+const OLLAMA_THINKING_TIMEOUT_MS = Math.max(
+  10000,
+  Number.parseInt(process.env.OLLAMA_THINKING_TIMEOUT_MS || '120000', 10) || 120000,
+);
 const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
 
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
   top_p: 0.9,
   top_k: 40,
-  repeat_penalty: 1.08,
-  num_ctx: 8192,
+  repeat_penalty: 1.0,
+  num_ctx: 16384,
   num_batch: 256,
   gpu_layers: 999,
   num_predict: 4096,
+};
+
+const STAR_COMPONENT_SCHEMA = {
+  type: 'object',
+  properties: {
+    present: { type: 'boolean' },
+    quality: { type: 'string' },
+    feedback: { type: 'string' },
+  },
+  required: ['present', 'quality', 'feedback'],
+};
+
+const STRUCTURED_SCHEMAS = {
+  interviewSummary: {
+    type: 'object',
+    properties: {
+      overallScore: { type: 'number' },
+      readinessLevel: { type: 'string' },
+      strengths: { type: 'array', items: { type: 'string' } },
+      weaknesses: { type: 'array', items: { type: 'string' } },
+      technicalSkills: {
+        type: 'object',
+        properties: {
+          score: { type: 'number' },
+          feedback: { type: 'string' },
+        },
+        required: ['score', 'feedback'],
+      },
+      communicationSkills: {
+        type: 'object',
+        properties: {
+          score: { type: 'number' },
+          feedback: { type: 'string' },
+        },
+        required: ['score', 'feedback'],
+      },
+      recommendations: { type: 'array', items: { type: 'string' } },
+      detailedFeedback: { type: 'string' },
+    },
+    required: [
+      'overallScore', 'readinessLevel', 'strengths', 'weaknesses',
+      'technicalSkills', 'communicationSkills', 'recommendations', 'detailedFeedback',
+    ],
+  },
+
+  answerAnalysis: {
+    type: 'object',
+    properties: {
+      score: { type: 'number' },
+      starAnalysis: {
+        type: 'object',
+        properties: {
+          situation: STAR_COMPONENT_SCHEMA,
+          task: STAR_COMPONENT_SCHEMA,
+          action: STAR_COMPONENT_SCHEMA,
+          result: STAR_COMPONENT_SCHEMA,
+        },
+        required: ['situation', 'task', 'action', 'result'],
+      },
+      strengths: { type: 'array', items: { type: 'string' } },
+      weaknesses: { type: 'array', items: { type: 'string' } },
+      detailedFeedback: { type: 'string' },
+      suggestions: { type: 'array', items: { type: 'string' } },
+      coherenceScore: { type: 'number' },
+      friendlinessScore: { type: 'number' },
+    },
+    required: [
+      'score', 'starAnalysis', 'strengths', 'weaknesses',
+      'detailedFeedback', 'suggestions', 'coherenceScore', 'friendlinessScore',
+    ],
+  },
+
+  businessDocVerification: {
+    type: 'object',
+    properties: {
+      isOfficial: { type: 'boolean' },
+      confidence: { type: 'number' },
+      reasons: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['isOfficial', 'confidence', 'reasons'],
+  },
+
+  resumeVerification: {
+    type: 'object',
+    properties: {
+      isOfficial: { type: 'boolean' },
+      confidence: { type: 'number' },
+      message: { type: 'string' },
+    },
+    required: ['isOfficial', 'confidence', 'message'],
+  },
+
+  questionGeneration: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            type: { type: 'string' },
+            difficulty: { type: 'string' },
+            question: { type: 'string' },
+            expectedDuration: { type: 'string' },
+            evaluationCriteria: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['id', 'type', 'difficulty', 'question', 'expectedDuration', 'evaluationCriteria'],
+        },
+      },
+    },
+    required: ['questions'],
+  },
+
+  nextQuestion: {
+    type: 'object',
+    properties: {
+      question: { type: 'string' },
+      type: { type: 'string' },
+      difficulty: { type: 'string' },
+      expectedDuration: { type: 'string' },
+    },
+    required: ['question', 'type', 'difficulty', 'expectedDuration'],
+  },
 };
 
 const buildGenerationOptions = (options = {}) => ({
@@ -204,50 +481,141 @@ const fetchWithTimeout = async (url, init = {}, timeoutMs = OLLAMA_REQUEST_TIMEO
 };
 
 /**
- * Call Ollama API for chat completions
+ * Strip Qwen3 thinking blocks from model output.
+ * Safety net in case the model emits <think>…</think> blocks despite
+ * the think:false API parameter — ensures downstream consumers always
+ * receive clean content.
+ */
+const stripThinkingTags = (text) => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+/**
+ * Call Ollama API for chat completions.
+ * Supports configurable thinking mode (options.think) and structured output
+ * enforcement via JSON schema (options.format). Evaluation tasks enable
+ * thinking for deeper reasoning; conversational tasks disable it for speed.
  */
 async function callOllama(messages, options = {}) {
-  try {
-    const response = await fetchWithTimeout(
-      `${OLLAMA_BASE_URL}/api/chat`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
+  const modelAttempts = await buildModelAttemptOrder(options.model);
+  const requestedModel = typeof options?.model === 'string' && options.model.trim()
+    ? options.model.trim()
+    : null;
+  let fallbackAttempted = false;
+  let lastError = null;
+
+  for (let index = 0; index < modelAttempts.length; index += 1) {
+    const modelName = modelAttempts[index];
+
+    try {
+      const response = await fetchWithTimeout(
+        `${OLLAMA_BASE_URL}/api/chat`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: modelName,
+            messages,
+            stream: false,
+            think: options.think ?? false,
+            ...(options.format ? { format: options.format } : {}),
+            options: buildGenerationOptions(options),
+          }),
         },
-        body: JSON.stringify({
-          model: options.model || DEFAULT_MODEL,
-          messages,
-          stream: false,
-          options: buildGenerationOptions(options),
-        }),
-      },
-      options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS,
-    );
+        options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS,
+      );
 
-    if (!response.ok) {
-      throw new Error(`Ollama API error: ${response.status} ${response.statusText}`);
-    }
+      if (!response.ok) {
+        let bodyMessage = '';
+        try {
+          const bodyText = await response.text();
+          if (bodyText) {
+            try {
+              const bodyJson = JSON.parse(bodyText);
+              if (typeof bodyJson?.error === 'string') {
+                bodyMessage = ` - ${bodyJson.error}`;
+              } else {
+                bodyMessage = ` - ${bodyText.slice(0, 200)}`;
+              }
+            } catch {
+              bodyMessage = bodyText.slice(0, 200) ? ` - ${bodyText.slice(0, 200)}` : '';
+            }
+          }
+        } catch (_) {
+          // ignore body read errors
+        }
+        const message = `Ollama API error: ${response.status} ${response.statusText}${bodyMessage}`;
+        logger.error('Ollama API error response', {
+          model: modelName,
+          status: response.status,
+          statusText: response.statusText,
+          body: bodyMessage,
+        });
+        throw new Error(message);
+      }
 
-    const data = await response.json();
-    const content = data?.message?.content;
-    if (typeof content !== 'string' || !content.trim()) {
-      throw new Error('Ollama API returned empty content');
+      const data = await response.json();
+      const content = data?.message?.content;
+      if (typeof content !== 'string' || !content.trim()) {
+        throw new Error('Ollama API returned empty content');
+      }
+      const usedFallback = index > 0;
+      recordModelRuntimeCall({
+        requestedModel,
+        attemptedModels: modelAttempts,
+        successfulModel: modelName,
+        usedFallback,
+        fallbackAttempted,
+      });
+      return stripThinkingTags(content);
+    } catch (error) {
+      lastError = error;
+      const nextModel = modelAttempts[index + 1] || null;
+      if (nextModel) {
+        fallbackAttempted = true;
+        logger.warn('Ollama call failed, retrying with fallback model.', {
+          failedModel: modelName,
+          fallbackModel: nextModel,
+          error: error?.message || String(error),
+        });
+        continue;
+      }
+
+      logger.error('Ollama API call failed:', {
+        model: modelName,
+        error: error?.message || String(error),
+      });
+      recordModelRuntimeCall({
+        requestedModel,
+        attemptedModels: modelAttempts,
+        successfulModel: null,
+        usedFallback: false,
+        fallbackAttempted,
+        error: error?.message || String(error),
+      });
+      throw error;
     }
-    return content;
-  } catch (error) {
-    logger.error('Ollama API call failed:', error);
-    throw error;
   }
+
+  recordModelRuntimeCall({
+    requestedModel,
+    attemptedModels: modelAttempts,
+    successfulModel: null,
+    usedFallback: false,
+    fallbackAttempted,
+    error: lastError?.message || 'Ollama API call failed',
+  });
+  throw lastError || new Error('Ollama API call failed');
 }
 
 /**
- * Parse JSON response from LLM (handles markdown code blocks)
+ * Parse JSON response from LLM (handles markdown code blocks and Qwen3 thinking tags)
  */
 function parseJSONResponse(text) {
   try {
     const raw = typeof text === 'string' ? text : String(text ?? '');
-    const cleaned = raw.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
+    const noThink = raw.replace(/<think>[\s\S]*?<\/think>/g, '');
+    const cleaned = noThink.replace(/```json\n?/gi, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned);
   } catch (error) {
     logger.error('Failed to parse JSON response:', text);
@@ -276,6 +644,18 @@ function getPersonalityDescription(personalityId) {
 }
 
 export class LLMService {
+  static getRuntimeModelStatus() {
+    return {
+      primaryModel: DEFAULT_MODEL,
+      fallbackModel: DEFAULT_FALLBACK_MODEL,
+      fineTunedModel: FINE_TUNED_MODEL_NAME,
+      ..._modelRuntimeStatus,
+      lastAttemptedModels: Array.isArray(_modelRuntimeStatus.lastAttemptedModels)
+        ? [..._modelRuntimeStatus.lastAttemptedModels]
+        : [],
+    };
+  }
+
   /**
    * Generate interview questions
    */
@@ -335,7 +715,10 @@ Important:
         { role: 'user', content: 'Generate the interview questions now.' },
       ];
 
-      const response = await callOllama(messages, llmOptions);
+      const response = await callOllama(messages, {
+        ...llmOptions,
+        format: STRUCTURED_SCHEMAS.questionGeneration,
+      });
       const parsed = parseJSONResponse(response);
 
       return parsed.questions || [];
@@ -378,6 +761,7 @@ ${rawResponse}`;
       ...resolvedLlmOptions,
       temperature: 0.2,
       max_tokens: Math.min(3000, resolvedLlmOptions.max_tokens || 2000),
+      format: STRUCTURED_SCHEMAS.interviewSummary,
     });
 
     return parseJSONResponse(repairedText);
@@ -390,8 +774,8 @@ ${rawResponse}`;
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
         model: DEFAULT_MODEL,
-        temperature: 0.7,
-        maxTokens: 3000,
+        temperature: 0.5,
+        maxTokens: 4000,
       });
       const qaPairs = questions.map((q) => ({
         question: q.question,
@@ -434,7 +818,12 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
         { role: 'user', content: 'Generate the comprehensive evaluation report.' },
       ];
 
-      const response = await callOllama(messages, resolvedLlmOptions);
+      const response = await callOllama(messages, {
+        ...resolvedLlmOptions,
+        think: true,
+        format: STRUCTURED_SCHEMAS.interviewSummary,
+        timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+      });
       const parsed = parseJSONResponse(response);
       const validation = validateInterviewSummary(parsed);
       if (validation.valid) {
@@ -468,8 +857,8 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
         model: DEFAULT_MODEL,
-        temperature: 0.6,
-        maxTokens: 2000,
+        temperature: 0.45,
+        maxTokens: 3000,
       });
       const systemPrompt = `You are an expert interview evaluator. Analyze the candidate's answer using the STAR method (Situation, Task, Action, Result).
 
@@ -507,7 +896,12 @@ Return ONLY valid JSON (no markdown):
         { role: 'user', content: 'Analyze this answer and provide structured feedback.' },
       ];
 
-      const response = await callOllama(messages, resolvedLlmOptions);
+      const response = await callOllama(messages, {
+        ...resolvedLlmOptions,
+        think: true,
+        format: STRUCTURED_SCHEMAS.answerAnalysis,
+        timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+      });
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error analyzing answer:', error);
@@ -544,7 +938,11 @@ Generate the next appropriate question based on the conversation flow. Return ON
         { role: 'user', content: 'Generate the next question.' },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 500, temperature: 0.8 });
+      const response = await callOllama(messages, {
+        max_tokens: 500,
+        temperature: 0.8,
+        format: STRUCTURED_SCHEMAS.nextQuestion,
+      });
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error generating next question:', error);
@@ -582,7 +980,13 @@ Confidence should be between 0 and 1.`;
         { role: 'user', content: userContent },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 400, temperature: 0.3 });
+      const response = await callOllama(messages, {
+        max_tokens: 600,
+        temperature: 0.3,
+        think: true,
+        format: STRUCTURED_SCHEMAS.businessDocVerification,
+        timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+      });
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error verifying business document with LLM:', error);
@@ -595,7 +999,8 @@ Confidence should be between 0 and 1.`;
    */
   static async verifyResumeDocument({ documentText, summary, expectedName }) {
     try {
-      const truncatedText = documentText?.slice(0, 6000) || '';
+      // Keep payload smaller to avoid Ollama context/OOM issues (500)
+      const truncatedText = documentText?.slice(0, 4000) || '';
       const systemPrompt = `You are a resume compliance checker. Determine whether the text appears to be a real job resume for ${expectedName || 'the candidate'}.
 
 Return strict JSON:
@@ -620,7 +1025,14 @@ Confidence must be between 0 and 1.`;
         { role: 'user', content: userContent },
       ];
 
-      const response = await callOllama(messages, { max_tokens: 400, temperature: 0.3 });
+      const response = await callOllama(messages, {
+        max_tokens: 600,
+        temperature: 0.3,
+        num_ctx: 4096,
+        think: true,
+        format: STRUCTURED_SCHEMAS.resumeVerification,
+        timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+      });
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error verifying resume document with LLM:', error);
@@ -662,7 +1074,7 @@ Confidence must be between 0 and 1.`;
         modelReady: false,
         expectedModel,
         error: error.message,
-        help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct',
+        help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen3:8b && ollama pull qwen2.5:7b-instruct',
       };
     }
   }
@@ -716,3 +1128,4 @@ Confidence must be between 0 and 1.`;
     }
   }
 }
+

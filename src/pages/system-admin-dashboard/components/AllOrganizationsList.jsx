@@ -53,7 +53,6 @@ const AllOrganizationsList = () => {
         setOrganizations(result.organizations || []);
       }
     } catch (error) {
-      console.error('Failed to load organizations:', error);
       showErrorToast('Failed to load organizations.');
     } finally {
       setLoading(false);
@@ -121,7 +120,6 @@ const AllOrganizationsList = () => {
         setSelectedOrg({ ...org, ...result.organization, stats: result.stats });
       }
     } catch (error) {
-      console.error('Failed to load organization details:', error);
       showErrorToast('Failed to load organization details.');
     }
   };
@@ -193,7 +191,6 @@ const AllOrganizationsList = () => {
       setSuspensionReason('');
       showSuccessToast('Organization suspended successfully.');
     } catch (error) {
-      console.error('Failed to suspend organization:', error);
       showErrorToast(error?.message || 'Failed to suspend organization.');
     } finally {
       setActionLoading(null);
@@ -215,7 +212,6 @@ const AllOrganizationsList = () => {
       setActivateDialog({ open: false, org: null });
       showSuccessToast('Organization reactivated successfully.');
     } catch (error) {
-      console.error('Failed to reactivate organization:', error);
       showErrorToast(error?.message || 'Failed to reactivate organization.');
     } finally {
       setActionLoading(null);

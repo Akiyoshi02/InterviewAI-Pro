@@ -1,6 +1,0 @@
-[31merror when starting dev server:
-Error: Port 4028 is already in use
-    at Server.onError (file:///D:/Campus%20Work/Projects/Interviewer/node_modules/vite/dist/node/chunks/dep-T98iZFpD.js:47017:28)
-    at Server.emit (node:events:508:28)
-    at emitErrorNT (node:net:1976:8)
-    at process.processTicksAndRejections (node:internal/process/task_queues:90:21)[39m

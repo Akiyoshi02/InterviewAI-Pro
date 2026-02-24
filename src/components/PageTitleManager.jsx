@@ -29,6 +29,7 @@ const TITLE_RULES = [
   { pattern: /^\/practice-interview-setup$/, title: 'Practice Interview Setup - InterviewAI Pro' },
   { pattern: /^\/live-interview-session$/, title: 'Live Interview Session - InterviewAI Pro' },
   { pattern: /^\/interview-lobby\/[^/]+$/, title: 'Interview Lobby - InterviewAI Pro' },
+  { pattern: /^\/interview-results\/[^/]+$/, title: 'Interview Results - InterviewAI Pro' },
   { pattern: /^\/invite$/, title: 'Interview Invitation - InterviewAI Pro' },
   { pattern: /^\/accept-team-invite\/[^/]+$/, title: 'Accept Team Invite - InterviewAI Pro' },
   { pattern: /^\/candidate-dashboard$/, title: 'Candidate Dashboard - InterviewAI Pro' },
@@ -41,6 +42,8 @@ const TITLE_RULES = [
   { pattern: /^\/company-candidates$/, title: 'Candidates - InterviewAI Pro' },
   { pattern: /^\/company-analytics$/, title: 'Analytics - InterviewAI Pro' },
   { pattern: /^\/company-team-members$/, title: 'Team Members - InterviewAI Pro' },
+  { pattern: /^\/company-settings$/, title: 'Settings - InterviewAI Pro' },
+  { pattern: /^\/company-billing$/, title: 'Billing - InterviewAI Pro' },
   { pattern: /^\/system-admin-dashboard(?:\/[^/]+)?$/, title: 'System Admin Dashboard - InterviewAI Pro' }
 ];
 

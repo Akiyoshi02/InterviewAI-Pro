@@ -1,9 +1,11 @@
 import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { hasPermission } from '../../../utils/rolePermissions';
 
 const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole }) => {
+  const navigate = useNavigate();
   const quickActions = useMemo(() => {
     const actions = [
       {
@@ -12,7 +14,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Set up a new candidate interview session',
         icon: 'Calendar',
         color: 'from-blue-600 to-purple-600',
-        onClick: onScheduleInterview || (() => window.location.href = '/practice-interview-setup'),
+        onClick: onScheduleInterview || (() => navigate('/practice-interview-setup')),
         requiredPermission: 'SEND_INVITATIONS'
       },
       {
@@ -21,7 +23,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Design custom interview questions and criteria',
         icon: 'FileText',
         color: 'from-cyan-500 to-blue-500',
-        onClick: onCreateTemplate || (() => window.location.href = '/practice-interview-setup'),
+        onClick: onCreateTemplate || (() => navigate('/practice-interview-setup')),
         requiredPermission: 'CREATE_TEMPLATES'
       },
       {
@@ -134,7 +136,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
           {shortcuts?.map((shortcut) => (
             <button
               key={shortcut?.id}
-              onClick={() => window.location.href = shortcut?.path}
+              onClick={() => shortcut?.path && navigate(shortcut.path)}
               className="flex flex-col items-center space-y-1.5 p-2.5 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/60 dark:hover:bg-slate-800/60 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] transition-all duration-200 group"
             >
               <div className="w-8 h-8 bg-white/80 dark:bg-slate-900/70 rounded-lg flex items-center justify-center group-hover:bg-gradient-to-br group-hover:from-blue-600 group-hover:to-purple-600 group-hover:text-white transition-all duration-200">
@@ -167,15 +169,17 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
                 size="sm" 
                 iconName="Book" 
                 iconPosition="left" 
+                onClick={() => navigate('/company-interviews')}
                 className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-xs"
               >
-                Docs
+                Interviews
               </Button>
               <Button 
                 variant="ghost" 
                 size="sm" 
                 iconName="MessageCircle" 
                 iconPosition="left" 
+                onClick={() => window.open('mailto:support@interviewai.pro', '_blank')}
                 className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 text-xs"
               >
                 Support

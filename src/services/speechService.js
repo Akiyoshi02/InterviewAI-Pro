@@ -27,12 +27,54 @@ class SpeechService {
     console.log('Available voices:', this.availableVoices.length);
   }
 
+  normalizeName(value = '') {
+    return String(value).toLowerCase().replace(/[\s_]+/g, '-').trim();
+  }
+
+  getVoicesByLanguage(lang = 'en') {
+    const voices = this.synth.getVoices();
+    if (!lang) return voices;
+    const normalized = String(lang).toLowerCase();
+    return voices.filter((voice) => {
+      const voiceLang = String(voice.lang || '').toLowerCase();
+      return voiceLang === normalized || voiceLang.startsWith(`${normalized.split('-')[0]}-`);
+    });
+  }
+
+  /**
+   * Find a voice using loose matching criteria.
+   * @param {{ gender?: string, lang?: string }} criteria
+   * @returns {SpeechSynthesisVoice|null}
+   */
+  findVoice(criteria = {}) {
+    const { gender, lang } = criteria || {};
+    const voices = this.getVoicesByLanguage(lang || 'en');
+    if (!voices.length) return null;
+
+    const normalizedGender = String(gender || '').toLowerCase();
+    if (!normalizedGender) {
+      return voices[0];
+    }
+
+    const genderHints = {
+      female: /(female|zira|samantha|victoria|karen|moira|tessa|zira)/i,
+      male: /(male|david|alex|daniel)/i,
+    };
+    const matcher = genderHints[normalizedGender];
+    if (!matcher) {
+      return voices[0];
+    }
+
+    return voices.find((voice) => matcher.test(voice.name)) || voices[0];
+  }
+
   /**
    * Get a suitable voice for the AI interviewer
    * Prioritizes: English, female/neutral voices
    */
-  getPreferredVoice() {
-    const voices = this.synth.getVoices();
+  getPreferredVoice(lang = 'en') {
+    const voices = this.getVoicesByLanguage(lang);
+    if (!voices.length) return null;
     
     // Try to find a good English voice
     const preferredVoices = [
@@ -52,6 +94,43 @@ class SpeechService {
     ];
 
     return preferredVoices.find(v => v !== undefined);
+  }
+
+  resolveVoice(optionVoice, optionCriteria = null, lang = 'en-US') {
+    const voices = this.synth.getVoices();
+    if (!voices.length) return null;
+
+    if (optionVoice) {
+      if (typeof optionVoice === 'object' && optionVoice.name) {
+        const matchedByName = voices.find((voice) => voice.name === optionVoice.name);
+        if (matchedByName) return matchedByName;
+      }
+
+      if (typeof optionVoice === 'string') {
+        const normalizedRequested = this.normalizeName(optionVoice);
+        const matchedByName = voices.find((voice) => voice.name === optionVoice);
+        if (matchedByName) return matchedByName;
+
+        const matchedByNormalizedName = voices.find(
+          (voice) => this.normalizeName(voice.name) === normalizedRequested,
+        );
+        if (matchedByNormalizedName) return matchedByNormalizedName;
+
+        const matchedByPartialNormalizedName = voices.find((voice) => {
+          const normalizedVoiceName = this.normalizeName(voice.name);
+          return normalizedVoiceName.includes(normalizedRequested)
+            || normalizedRequested.includes(normalizedVoiceName);
+        });
+        if (matchedByPartialNormalizedName) return matchedByPartialNormalizedName;
+      }
+    }
+
+    if (optionCriteria) {
+      const matchedByCriteria = this.findVoice(optionCriteria);
+      if (matchedByCriteria) return matchedByCriteria;
+    }
+
+    return this.getPreferredVoice(lang);
   }
 
   /**
@@ -74,7 +153,8 @@ class SpeechService {
       const utterance = new SpeechSynthesisUtterance(text);
       
       // Set voice
-      const voice = this.getPreferredVoice();
+      const language = options.lang || 'en-US';
+      const voice = this.resolveVoice(options.voice, options.voiceCriteria, language);
       if (voice) {
         utterance.voice = voice;
       }
@@ -83,7 +163,7 @@ class SpeechService {
       utterance.rate = options.rate || 1.0;      // Speed (0.1 to 10)
       utterance.pitch = options.pitch || 1.0;    // Pitch (0 to 2)
       utterance.volume = options.volume || 1.0;  // Volume (0 to 1)
-      utterance.lang = options.lang || 'en-US';
+      utterance.lang = language;
 
       // Event handlers
       utterance.onstart = () => {

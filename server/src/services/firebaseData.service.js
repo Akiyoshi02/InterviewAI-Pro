@@ -27,6 +27,7 @@ const platformAuditLogsCollection = firestore.collection('platformAuditLogs');
 const systemSettingsCollection = firestore.collection('systemSettings');
 const analyticsSnapshotsCollection = firestore.collection('analyticsSnapshots'); // For historical metrics tracking
 const emailVerificationsCollection = firestore.collection('emailVerifications');
+const savedAnswersCollection = firestore.collection('savedAnswers'); // GAP FEATURE: Personal Answer Library
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
@@ -989,6 +990,176 @@ export async function hydrateInterviewParticipants(interviews = []) {
   }));
 }
 
+const ACTIVE_CANDIDATE_APPLICATION_STATUSES = new Set(['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED']);
+const STRONG_SIGNAL_APPLICATION_STATUSES = new Set(['SHORTLISTED', 'INTERVIEWING', 'HIRED']);
+
+const formatDurationMinutes = (value) => {
+  const totalMinutes = Math.max(0, Math.round(Number(value) || 0));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours && minutes) return `${hours}h ${minutes}m`;
+  if (hours) return `${hours}h`;
+  return `${minutes}m`;
+};
+
+const extractInterviewDurationMinutes = (interview = {}) => {
+  const startedAtMillis = toMillis(interview?.startedAt);
+  const endedAtMillis = toMillis(interview?.endedAt);
+  if (startedAtMillis > 0 && endedAtMillis > startedAtMillis) {
+    const elapsedMinutes = Math.round((endedAtMillis - startedAtMillis) / (1000 * 60));
+    if (elapsedMinutes > 0) return elapsedMinutes;
+  }
+
+  const plannedDuration = Number.parseInt(interview?.duration, 10);
+  if (Number.isFinite(plannedDuration) && plannedDuration > 0) {
+    return plannedDuration;
+  }
+
+  return String(interview?.status || '').toUpperCase() === 'COMPLETED' ? 30 : 0;
+};
+
+const calculateDurationChange = (current, previous) => {
+  const currentMinutes = Math.max(0, Math.round(Number(current) || 0));
+  const previousMinutes = Number.isFinite(Number(previous)) ? Math.max(0, Math.round(Number(previous))) : null;
+
+  if (!currentMinutes) {
+    return {
+      value: 0,
+      formatted: formatDurationMinutes(0),
+      changeText: 'No practice time yet',
+      changeType: 'neutral',
+    };
+  }
+
+  if (previousMinutes === null) {
+    return {
+      value: currentMinutes,
+      formatted: formatDurationMinutes(currentMinutes),
+      changeText: 'New',
+      changeType: 'neutral',
+    };
+  }
+
+  const diff = currentMinutes - previousMinutes;
+  if (diff === 0) {
+    return {
+      value: currentMinutes,
+      formatted: formatDurationMinutes(currentMinutes),
+      changeText: 'No change',
+      changeType: 'neutral',
+    };
+  }
+
+  const sign = diff > 0 ? '+' : '-';
+  return {
+    value: currentMinutes,
+    formatted: formatDurationMinutes(currentMinutes),
+    changeText: `${sign}${formatDurationMinutes(Math.abs(diff))} this week`,
+    changeType: diff > 0 ? 'positive' : 'negative',
+  };
+};
+
+const toInsightDateLabel = (value) => {
+  const millis = toMillis(value);
+  if (!millis) return null;
+  return new Date(millis).toLocaleDateString();
+};
+
+const buildCandidateInsights = ({ currentMetrics, previousMetrics }) => {
+  const insights = [];
+  const averageScore = Number(currentMetrics?.averageScore) || 0;
+  const completedInterviews = Number(currentMetrics?.completedInterviews) || 0;
+  const activeInterviews = (Number(currentMetrics?.scheduledInterviews) || 0) + (Number(currentMetrics?.inProgressInterviews) || 0);
+  const activeApplications = Number(currentMetrics?.activeApplications) || 0;
+  const strongSignalApplications = Number(currentMetrics?.strongSignalApplications) || 0;
+  const nextScheduledLabel = toInsightDateLabel(currentMetrics?.nextScheduledFor);
+  const remainingForMilestone = Math.max(1, 5 - completedInterviews);
+
+  if (averageScore > 0 && completedInterviews > 0) {
+    insights.push({
+      id: 'score-trend',
+      color: averageScore >= 85 ? 'green' : (averageScore >= 70 ? 'blue' : 'amber'),
+      title: `Average interview score ${Math.round(averageScore)}%`,
+      detail: completedInterviews > 1
+        ? `Based on ${completedInterviews} completed interviews.`
+        : 'Based on your first completed interview.',
+    });
+  } else {
+    insights.push({
+      id: 'score-baseline',
+      color: 'blue',
+      title: 'No scored interviews yet',
+      detail: 'Complete a practice interview to unlock score trends and confidence tracking.',
+    });
+  }
+
+  if (activeInterviews > 0) {
+    insights.push({
+      id: 'pipeline-active',
+      color: 'green',
+      title: `${activeInterviews} active interview${activeInterviews === 1 ? '' : 's'} in your pipeline`,
+      detail: nextScheduledLabel
+        ? `Next scheduled interview on ${nextScheduledLabel}.`
+        : 'Keep your interview schedule updated to stay prepared.',
+    });
+  } else if (activeApplications > 0) {
+    insights.push({
+      id: 'pipeline-applications',
+      color: 'blue',
+      title: `${activeApplications} active application${activeApplications === 1 ? '' : 's'} awaiting interview stages`,
+      detail: 'Keep practicing while waiting for recruiter responses.',
+    });
+  } else {
+    insights.push({
+      id: 'pipeline-empty',
+      color: 'amber',
+      title: 'Interview pipeline is currently empty',
+      detail: 'Apply to roles or start AI practice to build momentum.',
+    });
+  }
+
+  if (strongSignalApplications > 0) {
+    insights.push({
+      id: 'coaching-signal',
+      color: 'green',
+      title: `${strongSignalApplications} application${strongSignalApplications === 1 ? '' : 's'} in strong-signal stages`,
+      detail: 'Prepare targeted stories for shortlist and interview-round conversations.',
+    });
+  } else if (completedInterviews >= 5) {
+    insights.push({
+      id: 'coaching-consistency',
+      color: 'blue',
+      title: 'Consistency milestone unlocked',
+      detail: `${completedInterviews} completed interviews gives you a strong preparation base.`,
+    });
+  } else if (completedInterviews > 0) {
+    insights.push({
+      id: 'coaching-momentum',
+      color: 'amber',
+      title: 'Keep momentum toward your consistency goal',
+      detail: `${remainingForMilestone} more session${remainingForMilestone === 1 ? '' : 's'} to reach your first 5-session milestone.`,
+    });
+  } else {
+    insights.push({
+      id: 'coaching-kickoff',
+      color: 'amber',
+      title: 'Opportunity: strengthen communication structure',
+      detail: 'Use quick-start practice to build STAR-based response confidence.',
+    });
+  }
+
+  // Prefer trend context when historical snapshot exists and score improved.
+  if (previousMetrics && Number(previousMetrics?.averageScore) > 0 && averageScore > Number(previousMetrics.averageScore)) {
+    insights[0] = {
+      ...insights[0],
+      detail: `Improved from ${Math.round(previousMetrics.averageScore)}% over last week.`,
+    };
+  }
+
+  return insights;
+};
+
 export const analyticsStore = {
   async getStatsForUser(userId, accountType) {
     let interviews = [];
@@ -1329,10 +1500,23 @@ export const analyticsStore = {
    */
   async getCurrentCandidateMetrics(candidateId) {
     const interviews = await interviewStore.listByCandidate(candidateId);
+    const applications = await jobApplicationStore.listByCandidate(candidateId);
     
     const completedInterviews = interviews.filter(i => i?.status === 'COMPLETED');
     const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
     const inProgressInterviews = interviews.filter(i => i?.status === 'IN_PROGRESS');
+    const totalPracticeMinutes = completedInterviews.reduce(
+      (sum, interview) => sum + extractInterviewDurationMinutes(interview),
+      0,
+    );
+    const activeApplications = applications.filter((application) =>
+      ACTIVE_CANDIDATE_APPLICATION_STATUSES.has(String(application?.status || '').toUpperCase())).length;
+    const strongSignalApplications = applications.filter((application) =>
+      STRONG_SIGNAL_APPLICATION_STATUSES.has(String(application?.status || '').toUpperCase())).length;
+    const nextScheduledFor = scheduledInterviews
+      .map((interview) => interview?.scheduledFor)
+      .filter(Boolean)
+      .sort((left, right) => toMillis(left) - toMillis(right))[0] || null;
     
     // Calculate average score from completed interviews
     const scoredInterviews = completedInterviews.filter(i => i?.overallScore != null);
@@ -1359,6 +1543,11 @@ export const analyticsStore = {
       inProgressInterviews: inProgressInterviews.length,
       averageScore: Math.round(averageScore * 100) / 100,
       currentGrade: getGrade(averageScore),
+      totalPracticeMinutes,
+      totalPracticeTimeFormatted: formatDurationMinutes(totalPracticeMinutes),
+      activeApplications,
+      strongSignalApplications,
+      nextScheduledFor,
       snapshotDate: now(),
     };
   },
@@ -1455,9 +1644,17 @@ export const analyticsStore = {
           currentMetrics.currentGrade,
           previousMetrics?.currentGrade
         ),
+        totalPracticeTime: calculateDurationChange(
+          currentMetrics.totalPracticeMinutes,
+          previousMetrics?.totalPracticeMinutes
+        ),
         // Additional metrics without comparison
         totalInterviews: currentMetrics.totalInterviews,
         inProgressInterviews: currentMetrics.inProgressInterviews,
+        insights: buildCandidateInsights({
+          currentMetrics,
+          previousMetrics,
+        }),
         snapshotDate: currentMetrics.snapshotDate,
       };
     } catch (error) {
@@ -1469,8 +1666,18 @@ export const analyticsStore = {
         scheduledInterviews: { value: current.scheduledInterviews, changeText: '', changeType: 'neutral' },
         averageScore: { value: current.averageScore, changeText: '', changeType: 'neutral' },
         currentGrade: { value: current.currentGrade || '—', changeText: '', changeType: 'neutral' },
+        totalPracticeTime: {
+          value: current.totalPracticeMinutes || 0,
+          formatted: current.totalPracticeTimeFormatted || formatDurationMinutes(0),
+          changeText: '',
+          changeType: 'neutral',
+        },
         totalInterviews: current.totalInterviews,
         inProgressInterviews: current.inProgressInterviews,
+        insights: buildCandidateInsights({
+          currentMetrics: current,
+          previousMetrics: null,
+        }),
         snapshotDate: current.snapshotDate,
       };
     }
@@ -2394,6 +2601,16 @@ export const invitationStore = {
     return docToData(doc);
   },
 
+  async update(id, data = {}) {
+    if (!id) return null;
+    await invitationsCollection.doc(id).set(
+      { ...data, updatedAt: now() },
+      { merge: true },
+    );
+    const updated = await invitationsCollection.doc(id).get();
+    return docToData(updated);
+  },
+
   async getByToken(token) {
     if (!token) return null;
     const snapshot = await invitationsCollection.where('token', '==', token).limit(1).get();
@@ -2767,6 +2984,78 @@ export const jobApplicationStore = {
     };
     await docRef.set(payload);
     return payload;
+  },
+
+  /**
+   * CRITICAL FIX: Atomic create with duplicate check to prevent race conditions (TOCTOU vulnerability)
+   * This method uses a Firestore transaction to ensure duplicate check and create are atomic.
+   */
+  async createWithDuplicateCheck(data = {}) {
+    const { jobId, candidateId } = data;
+    if (!jobId || !candidateId) {
+      throw new Error('jobId and candidateId are required');
+    }
+
+    // Use a transaction to ensure duplicate check and create are atomic
+    return await db.runTransaction(async (transaction) => {
+      // Check for existing application within transaction
+      const existingQuery = jobApplicationsCollection
+        .where('jobId', '==', jobId)
+        .where('candidateId', '==', candidateId)
+        .orderBy('createdAt', 'desc')
+        .limit(1);
+      
+      const existingSnapshot = await transaction.get(existingQuery);
+      
+      if (!existingSnapshot.empty) {
+        const existingApplication = docToData(existingSnapshot.docs[0]);
+        
+        // Allow re-applying if the previous application was withdrawn by the candidate
+        const isWithdrawn = existingApplication.status === 'REJECTED' && existingApplication.withdrawnBy;
+        
+        if (!isWithdrawn) {
+          // Throw error with existing application data
+          const error = new Error('Duplicate application found');
+          error.code = 'DUPLICATE_APPLICATION';
+          error.existingApplication = existingApplication;
+          throw error;
+        }
+        // If withdrawn, continue to create new application
+      }
+
+      // Create new application within transaction
+      const docRef = jobApplicationsCollection.doc();
+      const currentTime = now();
+      const payload = {
+        id: docRef.id,
+        jobId: data.jobId,
+        candidateId: data.candidateId,
+        organizationId: data.organizationId,
+        status: data.status || 'SUBMITTED',
+        resumeUrl: data.resumeUrl || null,
+        coverLetter: data.coverLetter || null,
+        answers: ensureArray(data.answers),
+        jobSnapshot: (data.jobSnapshot && typeof data.jobSnapshot === 'object') ? data.jobSnapshot : null,
+        organizationSnapshot: (data.organizationSnapshot && typeof data.organizationSnapshot === 'object') ? data.organizationSnapshot : null,
+        jobDeletedAt: data.jobDeletedAt || null,
+        statusSource: data.statusSource || null,
+        statusChangedAt: data.statusChangedAt || currentTime,
+        dispositionCode: data.dispositionCode || null,
+        dispositionCategory: data.dispositionCategory || null,
+        dispositionReason: data.dispositionReason || null,
+        dispositionNotes: data.dispositionNotes || null,
+        dispositionTags: ensureArray(data.dispositionTags),
+        dispositionAt: data.dispositionAt || null,
+        dispositionBy: data.dispositionBy || null,
+        statusHistory: ensureArray(data.statusHistory),
+        submittedAt: data.submittedAt || currentTime,
+        createdAt: currentTime,
+        updatedAt: currentTime,
+      };
+      
+      transaction.set(docRef, payload);
+      return payload;
+    });
   },
 
   async getById(id) {
@@ -3160,7 +3449,7 @@ const SYSTEM_FEATURE_FLAG_DEFAULTS = Object.freeze({
 });
 
 const SYSTEM_DEFAULT_AI_CONFIG = Object.freeze({
-  model: 'qwen2.5:7b-instruct',
+  model: 'qwen3:8b',
   temperature: 0.7,
   maxTokens: 2000,
 });
@@ -3469,3 +3758,229 @@ export const teamInvitationStore = {
     return { success: true };
   },
 };
+
+// ============================================================================
+// GAP FEATURE: Personal Answer Library
+// ============================================================================
+
+export const savedAnswerStore = {
+  /**
+   * Save an answer to the personal library
+   */
+  async create(data = {}) {
+    const docRef = savedAnswersCollection.doc();
+    const currentTime = now();
+    const payload = {
+      id: docRef.id,
+      userId: data.userId,
+      questionText: data.questionText || '',
+      answer: data.answer || '',
+      interviewId: data.interviewId || null,
+      questionId: data.questionId || null,
+      notes: data.notes || '',
+      tags: ensureArray(data.tags),
+      rating: data.rating || null,
+      savedAt: currentTime,
+      createdAt: currentTime,
+      updatedAt: currentTime,
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  /**
+   * Get saved answers for a user
+   */
+  async listByUser(userId, options = {}) {
+    if (!userId) return [];
+    const limit = options.limit || 100;
+    const tag = options.tag;
+
+    try {
+      let query = savedAnswersCollection
+        .where('userId', '==', userId)
+        .orderBy('savedAt', 'desc');
+      
+      if (limit) {
+        query = query.limit(limit);
+      }
+
+      const snapshot = await query.get();
+      let answers = snapshot.docs.map((doc) => docToData(doc));
+
+      // Filter by tag if provided (in-memory since Firestore array-contains requires index)
+      if (tag) {
+        answers = answers.filter((a) => a.tags && a.tags.includes(tag));
+      }
+
+      return answers;
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('SavedAnswers index still building; falling back to in-memory sort.');
+      const snapshot = await savedAnswersCollection.where('userId', '==', userId).get();
+      let answers = snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.savedAt) - toMillis(a?.savedAt));
+      
+      if (tag) {
+        answers = answers.filter((a) => a.tags && a.tags.includes(tag));
+      }
+
+      if (limit) {
+        answers = answers.slice(0, limit);
+      }
+      return answers;
+    }
+  },
+
+  /**
+   * Update saved answer
+   */
+  async update(id, updates = {}) {
+    if (!id) throw new Error('Saved answer ID is required');
+    const docRef = savedAnswersCollection.doc(id);
+    const payload = {
+      ...updates,
+      updatedAt: now(),
+    };
+    await docRef.update(payload);
+    const updated = await docRef.get();
+    return docToData(updated);
+  },
+
+  /**
+   * Delete saved answer
+   */
+  async delete(id) {
+    if (!id) throw new Error('Saved answer ID is required');
+    await savedAnswersCollection.doc(id).delete();
+    return { success: true };
+  },
+
+  /**
+   * Get saved answer by ID
+   */
+  async getById(id) {
+    if (!id) return null;
+    const doc = await savedAnswersCollection.doc(id).get();
+    return docToData(doc);
+  },
+};
+
+// ============================================================================
+// GAP FEATURE: Practice Streak Tracking
+// ============================================================================
+
+/**
+ * Calculate practice streak for a candidate
+ */
+export function calculatePracticeStreak(lastPracticeDate, newPracticeDate) {
+  if (!lastPracticeDate) {
+    return { currentStreak: 1, shouldReset: false };
+  }
+
+  const lastDate = new Date(lastPracticeDate);
+  const newDate = new Date(newPracticeDate);
+  
+  // Normalize to start of day for comparison
+  lastDate.setHours(0, 0, 0, 0);
+  newDate.setHours(0, 0, 0, 0);
+  
+  const diffInMs = newDate - lastDate;
+  const diffInDays = diffInMs / (1000 * 60 * 60 * 24);
+  
+  if (diffInDays === 0) {
+    // Same day - no change to streak
+    return { currentStreak: null, shouldReset: false, sameDay: true };
+  } else if (diffInDays === 1) {
+    // Consecutive day - increment streak
+    return { currentStreak: null, shouldReset: false, increment: true };
+  } else {
+    // Gap > 1 day - reset streak
+    return { currentStreak: 1, shouldReset: true };
+  }
+}
+
+/**
+ * Update practice streak when interview is completed
+ */
+export async function updatePracticeStreak(userId, interviewCompletedAt) {
+  try {
+    const user = await userStore.getByUid(userId);
+    if (!user || user.accountType !== 'CANDIDATE') {
+      return;
+    }
+
+    const completedDate = new Date(interviewCompletedAt).toISOString().split('T')[0]; // YYYY-MM-DD
+    const lastPracticeDate = user.profile?.practiceStats?.lastPracticeDate;
+    
+    const streakCalc = calculatePracticeStreak(lastPracticeDate, completedDate);
+    
+    if (streakCalc.sameDay) {
+      // Same day - just increment session count, no streak change
+      const practiceHistory = user.profile?.practiceStats?.practiceHistory || {};
+      const todayStats = practiceHistory[completedDate] || { sessionsCompleted: 0, questionsAnswered: 0, averageScore: 0 };
+      
+      await usersCollection.doc(userId).set({
+        profile: {
+          practiceStats: {
+            lastPracticeDate: completedDate,
+            totalPracticeSessions: (user.profile?.practiceStats?.totalPracticeSessions || 0) + 1,
+            practiceHistory: {
+              ...practiceHistory,
+              [completedDate]: {
+                sessionsCompleted: todayStats.sessionsCompleted + 1,
+                questionsAnswered: todayStats.questionsAnswered,
+                averageScore: todayStats.averageScore,
+              },
+            },
+          },
+        },
+      }, { merge: true });
+      return;
+    }
+
+    let newCurrentStreak;
+    if (streakCalc.shouldReset) {
+      newCurrentStreak = 1;
+    } else if (streakCalc.increment) {
+      newCurrentStreak = (user.profile?.practiceStats?.currentStreak || 0) + 1;
+    } else {
+      newCurrentStreak = user.profile?.practiceStats?.currentStreak || 1;
+    }
+
+    const longestStreak = Math.max(
+      newCurrentStreak,
+      user.profile?.practiceStats?.longestStreak || 0
+    );
+
+    const practiceHistory = user.profile?.practiceStats?.practiceHistory || {};
+    const todayStats = practiceHistory[completedDate] || { sessionsCompleted: 0, questionsAnswered: 0, averageScore: 0 };
+
+    await usersCollection.doc(userId).set({
+      profile: {
+        practiceStats: {
+          currentStreak: newCurrentStreak,
+          longestStreak,
+          lastPracticeDate: completedDate,
+          totalPracticeSessions: (user.profile?.practiceStats?.totalPracticeSessions || 0) + 1,
+          practiceHistory: {
+            ...practiceHistory,
+            [completedDate]: {
+              sessionsCompleted: todayStats.sessionsCompleted + 1,
+              questionsAnswered: todayStats.questionsAnswered,
+              averageScore: todayStats.averageScore,
+            },
+          },
+        },
+      },
+    }, { merge: true });
+
+    logger.info(`Practice streak updated for user ${userId}: ${newCurrentStreak} days`);
+  } catch (error) {
+    logger.error('Update practice streak error:', error);
+    // Non-fatal - don't block interview completion
+  }
+}

@@ -165,6 +165,7 @@ const JobsPage = () => {
   const [bookmarkedJobIds, setBookmarkedJobIds] = useState(new Set());
   const [filters, setFilters] = useState(DEFAULT_JOB_FILTERS);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [clipboardToast, setClipboardToast] = useState('');
   const applicationsRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
   const bookmarkStorageKey = `${BOOKMARK_STORAGE_PREFIX}:${user?.id || user?.uid || 'guest'}`;
@@ -456,7 +457,8 @@ const JobsPage = () => {
       case 'instagram':
         // Instagram doesn't support direct sharing via URL
         navigator.clipboard.writeText(jobUrl);
-        alert('Job URL copied to clipboard!');
+        setClipboardToast('Job URL copied to clipboard!');
+        setTimeout(() => setClipboardToast(''), 3000);
         return;
       default:
         // Native share or copy
@@ -469,7 +471,8 @@ const JobsPage = () => {
           return;
         } else {
           navigator.clipboard.writeText(jobUrl);
-          alert('Job URL copied to clipboard!');
+          setClipboardToast('Job URL copied to clipboard!');
+          setTimeout(() => setClipboardToast(''), 3000);
           return;
         }
     }
@@ -864,24 +867,26 @@ const JobsPage = () => {
                 variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
               >
                 {filteredJobs.length === 0 ? (
-                  <div className="card-base p-6 xs:p-8 text-center max-w-lg mx-auto">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center mx-auto mb-4">
-                      <Icon name={filters.bookmarkFilter === 'saved' ? 'Bookmark' : 'Briefcase'} size={28} className="text-gray-400 dark:text-slate-500" />
+                  <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
+                    <div className="text-center py-12">
+                      <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30 inline-flex mb-4">
+                        <Icon name={filters.bookmarkFilter === 'saved' ? 'Bookmark' : 'Briefcase'} className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                        {filters.bookmarkFilter === 'saved' ? 'No saved jobs yet' : 'No openings available'}
+                      </h3>
+                      <p className="text-gray-600 dark:text-slate-400 mb-4">
+                        {filters.bookmarkFilter === 'saved'
+                          ? 'Bookmark roles to quickly return to them later.'
+                          : activeFilterCount > 0
+                            ? 'No roles match your current filters. Clear filters to broaden your results.'
+                            : 'There are no public job listings at the moment. You can still practice interviews for any role.'}
+                      </p>
+                      <Button className="rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => handlePractice(null)}>
+                        <Icon name="Play" size={16} className="mr-1.5" />
+                        Start a practice interview
+                      </Button>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">
-                      {filters.bookmarkFilter === 'saved' ? 'No saved jobs yet' : 'No openings available'}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-                      {filters.bookmarkFilter === 'saved'
-                        ? 'Bookmark roles to quickly return to them later.'
-                        : activeFilterCount > 0
-                          ? 'No roles match your current filters. Clear filters to broaden your results.'
-                          : 'There are no public job listings at the moment. You can still practice interviews for any role.'}
-                    </p>
-                    <Button className="rounded-full" onClick={() => handlePractice(null)}>
-                      <Icon name="Play" size={16} className="mr-1.5" />
-                      Start a practice interview
-                    </Button>
                   </div>
                 ) : (
                   <>
@@ -1192,6 +1197,17 @@ const JobsPage = () => {
             </div>
           </div>
         </motion.div>
+      )}
+
+      {/* Clipboard / share toast */}
+      {clipboardToast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 shadow-2xl flex items-center gap-3 max-w-sm">
+          <Icon name="Copy" className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+          <p className="text-sm text-blue-800 dark:text-blue-200 flex-1">{clipboardToast}</p>
+          <button onClick={() => setClipboardToast('')} className="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800">
+            <Icon name="X" className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+          </button>
+        </div>
       )}
     </div>
   );

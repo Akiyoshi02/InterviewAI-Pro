@@ -116,6 +116,7 @@ const sanitizeMembership = (membership) => {
 
 const buildUserResponse = (user, organization = null, membership = null) => ({
   ...sanitizeUser(user),
+  practiceStats: user.profile?.practiceStats ?? null,
   organizationContext:
     organization && membership
       ? {
@@ -304,24 +305,32 @@ export class AuthController {
       const normalizedCertifications = normalizeListField(certifications);
       const firebaseUid = req.user.uid;
       const email = (req.user.email || '').toLowerCase();
+
+      // Require email verification for self-registration flows,
+      // but allow trusted team-invitation flows to proceed without it.
       let emailVerified = Boolean(req.user.emailVerified);
-      if (!emailVerified) {
-        try {
-          const userRecord = await admin.auth().getUser(firebaseUid);
-          emailVerified = Boolean(userRecord.emailVerified);
-        } catch (verificationError) {
-          logger.warn('Unable to confirm Firebase email verification', {
-            uid: firebaseUid,
-            error: verificationError.message,
+      const isTeamInvitationFlow = Boolean(teamInvitationToken);
+
+      if (!isTeamInvitationFlow) {
+        if (!emailVerified) {
+          try {
+            const userRecord = await admin.auth().getUser(firebaseUid);
+            emailVerified = Boolean(userRecord.emailVerified);
+          } catch (verificationError) {
+            logger.warn('Unable to confirm Firebase email verification', {
+              uid: firebaseUid,
+              error: verificationError.message,
+            });
+          }
+        }
+
+        if (!emailVerified) {
+          return res.status(403).json({
+            success: false,
+            error: 'Please verify your email address before completing registration.',
+            code: 'EMAIL_NOT_VERIFIED',
           });
         }
-      }
-      if (!emailVerified) {
-        return res.status(403).json({
-          success: false,
-          error: 'Please verify your email address before completing registration.',
-          code: 'EMAIL_NOT_VERIFIED',
-        });
       }
       let accountTypeEnum = (accountType || '').toUpperCase() === 'COMPANY' ? 'COMPANY' : 'CANDIDATE';
 

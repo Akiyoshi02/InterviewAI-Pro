@@ -118,6 +118,20 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       fullLabel: 'Team Members', 
       requiredPermission: 'MANAGE_MEMBERS' 
     },
+    { 
+      key: 'settings',
+      label: 'Settings', 
+      path: '/company-settings', 
+      icon: 'Settings', 
+      fullLabel: 'Settings' 
+    },
+    { 
+      key: 'billing',
+      label: 'Billing', 
+      path: '/company-billing', 
+      icon: 'CreditCard', 
+      fullLabel: 'Billing' 
+    },
   ];
 
   const adminNavItems = [
@@ -145,11 +159,15 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
     },
     {
       key: 'research',
-      label: 'Data',
+      label: 'Data & AI',
       icon: 'Database',
-      fullLabel: 'Data Governance',
+      fullLabel: 'Data & AI',
       items: [
         { label: 'Training Data', path: '/system-admin-dashboard/training-data', icon: 'Database' },
+        { label: 'Classification Metrics', path: '/system-admin-dashboard/classification', icon: 'Grid3X3' },
+        { label: 'Model Fine-Tuning', path: '/system-admin-dashboard/fine-tuning', icon: 'Cpu' },
+        { label: 'MediaPipe Calibration', path: '/system-admin-dashboard/mediapipe-calibration', icon: 'ScanFace' },
+        { label: 'Research Tools', path: '/system-admin-dashboard/research-tools', icon: 'FlaskConical' },
       ],
     },
     { key: 'support', label: 'Live Chat', path: '/system-admin-dashboard/live-chat', icon: 'MessageSquare' },

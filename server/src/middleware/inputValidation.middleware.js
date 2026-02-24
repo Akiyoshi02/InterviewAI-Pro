@@ -1178,6 +1178,58 @@ export const validationSchemas = {
       ],
     },
   },
+
+  // GAP FEATURE: Saved Answer schemas
+  savedAnswer: {
+    create: {
+      allowedFields: ['questionText', 'answer', 'interviewId', 'questionId', 'notes', 'tags', 'rating'],
+      validators: [
+        body('questionText')
+          .trim()
+          .notEmpty()
+          .withMessage('Question text is required')
+          .isLength({ max: LENGTH_LIMITS.LONG_TEXT }),
+        body('answer')
+          .trim()
+          .notEmpty()
+          .withMessage('Answer is required')
+          .isLength({ max: LENGTH_LIMITS.VERY_LONG_TEXT }),
+        body('interviewId')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.ID }),
+        body('questionId')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.ID }),
+        commonValidators.longText('notes'),
+        body('tags')
+          .optional()
+          .isArray()
+          .withMessage('Tags must be an array'),
+        body('rating')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 5 })
+          .withMessage('Rating must be between 1 and 5'),
+      ],
+    },
+    update: {
+      allowedFields: ['notes', 'tags', 'rating'],
+      validators: [
+        commonValidators.longText('notes'),
+        body('tags')
+          .optional()
+          .isArray()
+          .withMessage('Tags must be an array'),
+        body('rating')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 5 })
+          .withMessage('Rating must be between 1 and 5'),
+      ],
+    },
+  },
 };
 
 // =============================================================================

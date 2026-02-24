@@ -12,7 +12,6 @@ import RealTimeFeedbackPanel from './components/RealTimeFeedbackPanel';
 import QuestionProgressIndicator from './components/QuestionProgressIndicator';
 import ScreenSharingPanel from './components/ScreenSharingPanel';
 import PoseAnalysisPanel from '../../components/ui/PoseAnalysisPanel';
-import InterviewAnalyticsPanel from '../../components/ui/InterviewAnalyticsPanel';
 import LoadingState from '../../components/ui/LoadingState';
 import RecordingConsentScreen from './components/RecordingConsentScreen';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -24,12 +23,34 @@ import {
 import { useAIInterviewer } from '../../hooks/useAIInterviewer';
 import apiClient from '../../services/apiClient';
 import { realtimeDb } from '../../config/firebase.js';
+import { InterviewDatasetCollector } from '../../services/interviewDatasetService';
 
 const isBackendInterviewId = (id) => Boolean(id && !/^interview_\d+$/.test(id));
 const RECORDING_MIN_BYTES = Math.max(
   1024,
   Number.parseInt(import.meta.env.VITE_RECORDING_MIN_BYTES || '51200', 10) || 51200,
 );
+
+const DEFAULT_INTERVIEW_CONFIG = {
+  jobRole: 'Software Engineer',
+  company: 'Tech Company',
+  experienceLevel: 'Mid-level',
+  industry: 'Technology',
+  interviewTypes: ['behavioral', 'technical'],
+  totalQuestions: 10,
+  personality: null,
+  voice: null,
+  interviewerName: null,
+  advancedSettings: {
+    skillFocus: [],
+    language: 'en',
+    realTimeFeedback: false,
+    followUpQuestions: true,
+    recordSession: true,
+    practiceMode: false,
+    difficulty: 'medium',
+  },
+};
 
 const LiveInterviewSession = () => {
   const navigate = useNavigate();
@@ -57,11 +78,23 @@ const LiveInterviewSession = () => {
     searchParams.get('interviewId') || searchParams.get('id') || `interview_${Date.now()}`
   );
   const snapshotIntervalRef = useRef(null);
+  const datasetCollectorRef = useRef(null);
+  const analyticsDataRef = useRef({ collectedData: [], interviewId: null });
   const mediaStreamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
+  const hasInitializedInterviewRef = useRef(false);
+  const screenShareStreamRef = useRef(null);
   const [isUploadingRecording, setIsUploadingRecording] = useState(false);
   const [sessionNotice, setSessionNotice] = useState('');
+  const [activeInterviewConfig, setActiveInterviewConfig] = useState(DEFAULT_INTERVIEW_CONFIG);
+  const [screenShareStream, setScreenShareStream] = useState(null);
+
+  useEffect(() => {
+    if (!sessionNotice || isUploadingRecording) return undefined;
+    const timeoutId = setTimeout(() => setSessionNotice(''), 5000);
+    return () => clearTimeout(timeoutId);
+  }, [sessionNotice, isUploadingRecording]);
 
   // Explicit recording consent (FR2). Restore from session so refresh doesn't re-prompt.
   const [recordingConsentGiven, setRecordingConsentGiven] = useState(() => {
@@ -150,11 +183,11 @@ const LiveInterviewSession = () => {
     stopListening,
     whisperAvailable,
     isTranscribing,
-    error: aiError
+    clearConversation,
   } = useAIInterviewer();
   
   const [sessionState, setSessionState] = useState({
-    isActive: true,
+    isActive: false,
     isPaused: false,
     isRecording: true,
     sessionDuration: 0,
@@ -171,9 +204,6 @@ const LiveInterviewSession = () => {
   });
 
   const [aiState, setAiState] = useState({
-    isSpeaking: false,
-    currentQuestion: "",
-    isListening: true,
     currentAnswer: ""
   });
 
@@ -193,8 +223,6 @@ const LiveInterviewSession = () => {
     lastUpdated: null,
   });
 
-  // Full analytics metrics (including face-mesh data)
-  const [analyticsMetrics, setAnalyticsMetrics] = useState(null);
   const poseMetricsRef = useRef(poseMetrics);
   const lastRealtimeEventRef = useRef('');
 
@@ -202,41 +230,175 @@ const LiveInterviewSession = () => {
     poseMetricsRef.current = poseMetrics;
   }, [poseMetrics]);
 
-  // Initialize AI Interviewer when component mounts
+  const advancedSettings = activeInterviewConfig?.advancedSettings || DEFAULT_INTERVIEW_CONFIG.advancedSettings;
+  const realTimeFeedbackEnabled = Boolean(advancedSettings?.realTimeFeedback);
+  const practiceModeEnabled = Boolean(advancedSettings?.practiceMode);
+  const interviewTypes = Array.isArray(activeInterviewConfig?.interviewTypes) && activeInterviewConfig.interviewTypes.length > 0
+    ? activeInterviewConfig.interviewTypes
+    : DEFAULT_INTERVIEW_CONFIG.interviewTypes;
+  const effectiveTotalQuestions = Math.max(aiTotalQuestions || sessionState?.totalQuestions || 0, 1);
+  const estimatedTimeRemaining = Math.max((effectiveTotalQuestions - Math.max(questionsAsked, 0)) * 3, 0);
+
+  const getQuestionCategoryProgress = useCallback(() => {
+    const types = interviewTypes;
+    const total = effectiveTotalQuestions;
+    const completed = Math.min(Math.max(questionsAsked, 0), total);
+    const base = Math.floor(total / types.length);
+    let remainder = total % types.length;
+    let remainingCompleted = completed;
+
+    return types.map((type) => {
+      const bucketTotal = base + (remainder > 0 ? 1 : 0);
+      remainder = Math.max(remainder - 1, 0);
+      const bucketCompleted = Math.min(remainingCompleted, bucketTotal);
+      remainingCompleted = Math.max(remainingCompleted - bucketCompleted, 0);
+
+      return {
+        type,
+        completed: bucketCompleted,
+        total: bucketTotal,
+      };
+    });
+  }, [interviewTypes, effectiveTotalQuestions, questionsAsked]);
+
+  const getNextQuestionType = useCallback(() => {
+    if (!interviewTypes.length) return sessionState?.questionType || 'general';
+    const index = Math.max(questionsAsked, 0) % interviewTypes.length;
+    return interviewTypes[index] || sessionState?.questionType || 'general';
+  }, [interviewTypes, questionsAsked, sessionState?.questionType]);
+
+  // Initialize AI interviewer only after explicit recording consent.
   useEffect(() => {
+    if (!recordingConsentGiven || hasInitializedInterviewRef.current) return;
+    hasInitializedInterviewRef.current = true;
+
     const loadInterviewConfig = async () => {
       try {
-        // Load interview configuration from localStorage
         const configStr = localStorage.getItem('interviewConfig');
-        const config = configStr ? JSON.parse(configStr) : {
-          jobRole: 'Software Engineer',
-          company: 'Tech Company',
-          experienceLevel: 'Mid-level',
-          industry: 'Technology',
-          totalQuestions: 10
-        };
-
-        // Add interviewId to config if available from URL
+        const parsedConfig = configStr ? JSON.parse(configStr) : {};
         const idFromUrl = interviewId.current;
+        let backendInterview = null;
         if (isBackendInterviewId(idFromUrl)) {
-          config.interviewId = idFromUrl;
+          try {
+            const interviewResponse = await apiClient.interviews.getById(idFromUrl);
+            backendInterview = interviewResponse?.interview || null;
+          } catch (fetchError) {
+            console.warn('Unable to load backend interview config, falling back to local config.', fetchError);
+          }
         }
 
-        // Initialize the AI interviewer
+        const backendStoredConfig = backendInterview?.config && typeof backendInterview.config === 'object'
+          ? backendInterview.config
+          : {};
+        const resolvedDuration = Math.max(
+          Number(
+            backendInterview?.duration
+            || parsedConfig?.duration
+            || parsedConfig?.sessionDuration
+            || DEFAULT_INTERVIEW_CONFIG.totalQuestions * 3,
+          ) || 30,
+          15,
+        );
+        const resolvedInterviewTypes = Array.isArray(backendInterview?.interviewTypes) && backendInterview.interviewTypes.length > 0
+          ? backendInterview.interviewTypes
+          : (
+            Array.isArray(parsedConfig?.interviewTypes) && parsedConfig.interviewTypes.length > 0
+              ? parsedConfig.interviewTypes
+              : DEFAULT_INTERVIEW_CONFIG.interviewTypes
+          );
+        const resolvedSkillFocus = Array.isArray(backendInterview?.skillFocus)
+          ? backendInterview.skillFocus
+          : (
+            Array.isArray(parsedConfig?.skillFocus)
+              ? parsedConfig.skillFocus
+              : (Array.isArray(parsedConfig?.advancedSettings?.skillFocus)
+                ? parsedConfig.advancedSettings.skillFocus
+                : [])
+          );
+        const mergedAdvancedSettings = {
+          ...DEFAULT_INTERVIEW_CONFIG.advancedSettings,
+          ...(parsedConfig?.advancedSettings || {}),
+          ...(backendStoredConfig?.advancedSettings || {}),
+        };
+        const resolvedTotalQuestions = Array.isArray(backendInterview?.questions) && backendInterview.questions.length > 0
+          ? backendInterview.questions.length
+          : Math.max(
+            Number(
+              parsedConfig?.totalQuestions
+              || Math.floor(resolvedDuration / 3)
+              || DEFAULT_INTERVIEW_CONFIG.totalQuestions,
+            ) || DEFAULT_INTERVIEW_CONFIG.totalQuestions,
+            1,
+          );
+
+        const config = {
+          ...DEFAULT_INTERVIEW_CONFIG,
+          ...parsedConfig,
+          jobRole: backendInterview?.jobRole || parsedConfig?.jobRole || DEFAULT_INTERVIEW_CONFIG.jobRole,
+          experienceLevel: backendInterview?.experienceLevel || parsedConfig?.experienceLevel || DEFAULT_INTERVIEW_CONFIG.experienceLevel,
+          industry: backendInterview?.industry || parsedConfig?.industry || DEFAULT_INTERVIEW_CONFIG.industry,
+          interviewTypes: resolvedInterviewTypes,
+          skillFocus: resolvedSkillFocus,
+          duration: resolvedDuration,
+          totalQuestions: resolvedTotalQuestions,
+          personality: backendStoredConfig?.personality ?? parsedConfig?.personality ?? DEFAULT_INTERVIEW_CONFIG.personality,
+          voice: backendStoredConfig?.voice ?? parsedConfig?.voice ?? DEFAULT_INTERVIEW_CONFIG.voice,
+          interviewerName: backendStoredConfig?.interviewerName ?? parsedConfig?.interviewerName ?? DEFAULT_INTERVIEW_CONFIG.interviewerName,
+          advancedSettings: mergedAdvancedSettings,
+          interviewId: isBackendInterviewId(idFromUrl)
+            ? idFromUrl
+            : (parsedConfig?.interviewId || idFromUrl),
+        };
+
+        localStorage.setItem('interviewConfig', JSON.stringify(config));
+
+        // GAP: Save prep notes to first question when we have questions (e.g. after start or from lobby)
+        const prepNotes = parsedConfig?.prepNotes || '';
+        if (
+          idFromUrl &&
+          isBackendInterviewId(idFromUrl) &&
+          prepNotes.trim() &&
+          Array.isArray(backendInterview?.questions) &&
+          backendInterview.questions.length > 0
+        ) {
+          try {
+            await apiClient.interviews.saveQuestionNotes(
+              idFromUrl,
+              backendInterview.questions[0].id,
+              prepNotes.trim()
+            );
+          } catch (saveNotesErr) {
+            console.warn('Could not save prep notes to question:', saveNotesErr);
+          }
+        }
+
         await initializeInterview(config);
-        
-        // Update session state with AI config
-        setSessionState(prev => ({
+        setActiveInterviewConfig(config);
+
+        datasetCollectorRef.current = new InterviewDatasetCollector({
+          ...config,
+          interviewId: interviewId.current,
+          sessionId: `session_${Date.now()}`,
+        });
+
+        setSessionState((prev) => ({
           ...prev,
-          totalQuestions: config.totalQuestions || 10
+          isActive: true,
+          isPaused: false,
+          totalQuestions: config.totalQuestions || 10,
+          currentQuestion: 0,
+          questionType: config.interviewTypes?.[0] || 'behavioral',
+          isRecording: config?.advancedSettings?.recordSession ?? true,
         }));
       } catch (error) {
         console.error('Failed to initialize AI interviewer:', error);
+        hasInitializedInterviewRef.current = false;
+        setSessionNotice('Unable to initialize interview. Please refresh and try again.');
       }
     };
 
-    loadInterviewConfig();
-  }, []);
+    void loadInterviewConfig();
+  }, [recordingConsentGiven]);
 
   // Realtime interview lifecycle synchronization for backend interviews.
   useEffect(() => {
@@ -403,16 +565,30 @@ const LiveInterviewSession = () => {
     recordingChunksRef.current = [];
   }, []);
 
+  useEffect(() => () => {
+    const stream = screenShareStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    screenShareStreamRef.current = null;
+  }, []);
+
   const handlePauseSession = () => {
+    if (!practiceModeEnabled) {
+      setSessionNotice('Pause is disabled unless Practice Mode is enabled in setup.');
+      return;
+    }
     setSessionState(prev => ({ ...prev, isPaused: true }));
   };
 
   const handleResumeSession = () => {
+    if (!practiceModeEnabled) return;
     setSessionState(prev => ({ ...prev, isPaused: false }));
   };
 
   const handleEndSession = async () => {
     setSessionState(prev => ({ ...prev, isActive: false }));
+    stopScreenShare();
     
     // Stop pose snapshot interval
     if (snapshotIntervalRef.current) {
@@ -431,14 +607,15 @@ const LiveInterviewSession = () => {
       const interviewSummary = await concludeAIInterview();
       const backendInterview = interviewSummary?.backendInterview || null;
       
-      // Store interview summary
+      // Store interview summary under both current and legacy keys.
       localStorage.setItem('lastInterviewSummary', JSON.stringify(interviewSummary));
+      localStorage.setItem('lastInterviewSession', JSON.stringify(interviewSummary));
+      localStorage.setItem('lastInterviewId', String(interviewId.current || ''));
 
       if (backendInterview?.pendingEvaluation || backendInterview?.llmUnavailable) {
-        const pendingMessage = 'AI scoring unavailable; session saved, scoring pending.';
+        const pendingMessage = 'AI deep evaluation unavailable right now; session saved, scoring will be completed when the AI service is back online.';
         setSessionNotice(pendingMessage);
         localStorage.setItem('lastInterviewNotice', pendingMessage);
-        window.alert(pendingMessage);
       }
 
       if (isBackendInterviewId(interviewId.current) && recordingBlob && recordingBlob.size > 0) {
@@ -474,14 +651,67 @@ const LiveInterviewSession = () => {
         questionsAnswered: questionsAsked,
         totalQuestions: aiTotalQuestions,
       });
+
+      // POST MediaPipe analytics data to backend for calibration
+      const analyticsPayload = analyticsDataRef.current;
+      if (analyticsPayload?.collectedData?.length > 0) {
+        try {
+          const avgPosture = analyticsPayload.collectedData.reduce((s, d) => s + (d.scores?.posture || 0), 0) / analyticsPayload.collectedData.length;
+          const avgOverall = analyticsPayload.collectedData.reduce((s, d) => s + (d.scores?.overall || 0), 0) / analyticsPayload.collectedData.length;
+          await apiClient.datasets.saveAnalytics({
+            sessionId: `session_${Date.now()}`,
+            interviewId: interviewId.current,
+            dataPoints: analyticsPayload.collectedData,
+            summary: {
+              totalFrames: analyticsPayload.collectedData.length,
+              averagePostureScore: Math.round(avgPosture),
+              averageOverallScore: Math.round(avgOverall),
+              sessionDuration: sessionState?.sessionDuration,
+            },
+            config: { enablePose: true, enableFace: true, detectionInterval: 100 },
+          });
+        } catch (analyticsError) {
+          console.error('Failed to save analytics dataset:', analyticsError);
+        }
+      }
       
-      console.log('Interview completed:', { interviewSummary, poseSummary });
+      // Finalize dataset collection and POST training data to backend
+      if (datasetCollectorRef.current) {
+        try {
+          const collector = datasetCollectorRef.current;
+          const conversationTurns = collector.conversationTurns || [];
+          const questionAnswerPairs = collector.questionAnswerPairs || [];
+          if (conversationTurns.length > 0) {
+            const datasetResult = collector.finalizeSession();
+            await apiClient.datasets.saveInterview({
+              sessionId: datasetResult.sessionId,
+              interviewId: interviewId.current,
+              config: datasetResult.config,
+              conversationTurns,
+              questionAnswerPairs,
+              trainingData: datasetResult.trainingData || [],
+              statistics: datasetResult.statistics,
+              summary: datasetResult,
+            });
+          } else {
+            collector.finalizeSession();
+          }
+        } catch (datasetError) {
+          console.error('Failed to save training dataset:', datasetError);
+        }
+      }
+
     } catch (error) {
       console.error('Failed to finalize interview:', error);
     }
-    
-    // Navigate to feedback/results page
-    navigate('/candidate-dashboard');
+
+    // Navigate to results page when we have a backend interview ID, otherwise dashboard
+    const id = interviewId.current;
+    if (id && isBackendInterviewId(id)) {
+      navigate(`/interview-results/${id}`);
+    } else {
+      navigate('/candidate-dashboard');
+    }
   };
 
   const handleEmergencyExit = () => {
@@ -493,13 +723,30 @@ const LiveInterviewSession = () => {
     }
 
     void stopSessionRecording();
+    stopScreenShare();
     
     navigate('/candidate-dashboard');
   };
 
   const handleTechnicalSupport = () => {
-    // Open technical support modal or chat
-    console.log('Technical support requested');
+    setSessionNotice('For technical support, please contact support@interviewai.pro or refresh your browser.');
+    setTimeout(() => setSessionNotice(''), 6000);
+  };
+
+  const handleRestartAudio = () => {
+    setVideoState((prev) => ({
+      ...prev,
+      isAudioEnabled: false,
+      isMuted: true,
+    }));
+    setTimeout(() => {
+      setVideoState((prev) => ({
+        ...prev,
+        isAudioEnabled: true,
+        isMuted: false,
+      }));
+    }, 250);
+    setSessionNotice('Audio restarted.');
   };
 
   const handleToggleVideo = () => {
@@ -534,7 +781,8 @@ const LiveInterviewSession = () => {
       if (canCandidateSpeak) {
         await startListening();
       } else {
-        console.log('Please wait for AI to finish speaking');
+        setSessionNotice('Please wait for the AI interviewer to finish speaking before responding.');
+        setTimeout(() => setSessionNotice(''), 3000);
       }
     }
   };
@@ -554,14 +802,41 @@ const LiveInterviewSession = () => {
       
       // Determine which phase we're in and send to AI
       if (interviewPhase === 'introduction') {
-        await sendIntroduction(answer);
+        const response = await sendIntroduction(answer);
+        setSessionState((prev) => ({
+          ...prev,
+          currentQuestion: response?.questionNumber || 1,
+          questionType: response?.questionType || prev?.questionType,
+        }));
       } else if (interviewPhase === 'questions') {
+        const questionText = currentMessage || '';
         const response = await sendAnswer(answer);
+
+        // Record Q&A pair for training data collection
+        if (datasetCollectorRef.current && questionText) {
+          datasetCollectorRef.current.addInterviewerMessage(questionText, {
+            questionNumber: questionsAsked,
+            phase: 'questions',
+          });
+          datasetCollectorRef.current.addCandidateMessage(answer);
+          datasetCollectorRef.current.recordQAPair(
+            { text: questionText, type: sessionState?.questionType || 'behavioral' },
+            { text: answer },
+            {
+              score: response?.evaluation?.score ?? null,
+              starAnalysis: response?.evaluation?.starAnalysis ?? null,
+              strengths: response?.evaluation?.strengths ?? [],
+              weaknesses: response?.evaluation?.weaknesses ?? [],
+              feedback: response?.evaluation?.feedback ?? '',
+            },
+          );
+        }
         
         // Update session progress
         setSessionState(prev => ({
           ...prev,
-          currentQuestion: questionsAsked
+          currentQuestion: response?.questionNumber ?? questionsAsked,
+          questionType: response?.questionType || prev?.questionType,
         }));
       } else if (interviewPhase === 'candidate_questions') {
         await askQuestion(answer);
@@ -571,16 +846,84 @@ const LiveInterviewSession = () => {
     }
   };
 
-  const handleFeedbackGenerated = (feedback) => {
-    // Handle feedback from real-time analysis
-    console.log('Feedback generated:', feedback);
+  const handleFeedbackGenerated = (_feedback) => {
+    // Real-time feedback is surfaced via session state
   };
 
-  const handleToggleScreenShare = () => {
-    setScreenShareState(prev => ({ 
-      ...prev, 
-      isScreenSharing: !prev?.isScreenSharing 
+  const stopScreenShare = useCallback(() => {
+    const stream = screenShareStreamRef.current;
+    if (stream) {
+      stream.getTracks().forEach((track) => track.stop());
+    }
+    screenShareStreamRef.current = null;
+    setScreenShareStream(null);
+    setScreenShareState((prev) => ({
+      ...prev,
+      isScreenSharing: false,
     }));
+  }, []);
+
+  const requestScreenShare = useCallback(async (preferWindow = false) => {
+    if (!navigator?.mediaDevices?.getDisplayMedia) {
+      throw new Error('Screen sharing is not supported by this browser');
+    }
+
+    const constraints = preferWindow
+      ? { video: { displaySurface: 'window' }, audio: false }
+      : { video: true, audio: false };
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia(constraints);
+    } catch (error) {
+      if (preferWindow) {
+        stream = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: false });
+      } else {
+        throw error;
+      }
+    }
+    const [videoTrack] = stream.getVideoTracks();
+    if (videoTrack) {
+      videoTrack.addEventListener('ended', () => {
+        stopScreenShare();
+      }, { once: true });
+    }
+
+    screenShareStreamRef.current = stream;
+    setScreenShareStream(stream);
+    setScreenShareState((prev) => ({
+      ...prev,
+      isScreenSharing: true,
+    }));
+  }, [stopScreenShare]);
+
+  const handleToggleScreenShare = async () => {
+    if (screenShareState?.isScreenSharing) {
+      stopScreenShare();
+      return;
+    }
+
+    try {
+      await requestScreenShare(false);
+    } catch (error) {
+      console.error('Failed to start screen sharing:', error);
+      setSessionNotice('Unable to start screen sharing.');
+      setScreenShareState((prev) => ({
+        ...prev,
+        isScreenSharing: false,
+      }));
+    }
+  };
+
+  const handleShareWindow = async () => {
+    try {
+      if (screenShareState?.isScreenSharing) {
+        stopScreenShare();
+      }
+      await requestScreenShare(true);
+    } catch (error) {
+      console.error('Failed to share specific window:', error);
+      setSessionNotice('Unable to share selected window.');
+    }
   };
 
   const handleWhiteboardToggle = (isActive) => {
@@ -590,13 +933,13 @@ const LiveInterviewSession = () => {
     }));
   };
 
+  const handleClearConversation = useCallback(() => {
+    clearConversation();
+    setAiState({ currentAnswer: '' });
+  }, [clearConversation]);
+
   const handlePoseMetricsUpdate = (metrics, fullMetrics = null) => {
     setPoseMetrics(metrics);
-    
-    // Update full analytics metrics if provided
-    if (fullMetrics) {
-      setAnalyticsMetrics(fullMetrics);
-    }
     
     // Save to session storage for current session tracking
     saveSessionPoseData({
@@ -608,22 +951,22 @@ const LiveInterviewSession = () => {
   };
 
   const handleRecordingConsentGiven = async (data) => {
-    const key = `recording_consent_${interviewId.current}`;
-    sessionStorage.setItem(key, JSON.stringify({
+    const consentPayload = {
       recordingConsentGivenAt: data.recordingConsentGivenAt,
       recordingConsentVersion: data.recordingConsentVersion,
-    }));
+    };
     const id = interviewId.current;
     if (isBackendInterviewId(id)) {
       try {
-        await apiClient.interviews.recordRecordingConsent(id, {
-          recordingConsentGivenAt: data.recordingConsentGivenAt,
-          recordingConsentVersion: data.recordingConsentVersion,
-        });
+        await apiClient.interviews.recordRecordingConsent(id, consentPayload);
       } catch (err) {
         console.error('Failed to persist recording consent to server:', err);
+        setSessionNotice('Failed to save recording consent. Please check your connection and try again.');
+        return;
       }
     }
+    const key = `recording_consent_${id}`;
+    sessionStorage.setItem(key, JSON.stringify(consentPayload));
     setRecordingConsentGiven(true);
   };
 
@@ -643,10 +986,7 @@ const LiveInterviewSession = () => {
           return;
         }
 
-        const saved = savePoseSnapshot(interviewId.current, latestPoseMetrics);
-        if (saved) {
-          console.log('Pose snapshot saved to localStorage');
-        }
+        savePoseSnapshot(interviewId.current, latestPoseMetrics);
       }, 5000); // Save every 5 seconds
     }
 
@@ -691,7 +1031,7 @@ const LiveInterviewSession = () => {
         </div>
       )}
 
-      {/* Explicit recording consent (FR2) – must agree before interview UI and recording */}
+      {/* Explicit recording consent (FR2) - must agree before interview UI and recording */}
       <AnimatePresence mode="wait">
         {!recordingConsentGiven && (
           <RecordingConsentScreen onConsentGiven={handleRecordingConsentGiven} />
@@ -722,6 +1062,7 @@ const LiveInterviewSession = () => {
               currentQuestion={currentMessage}
               isSpeaking={isAISpeaking}
               isProcessing={isAIProcessing}
+              interviewerName={activeInterviewConfig?.interviewerName}
               questionProgress={{
                 currentQuestion: questionsAsked,
                 totalQuestions: aiTotalQuestions
@@ -731,10 +1072,14 @@ const LiveInterviewSession = () => {
               sessionDuration={sessionState?.sessionDuration}
               isPaused={sessionState?.isPaused}
               isRecording={sessionState?.isRecording}
+              questionsAsked={questionsAsked}
+              totalQuestions={aiTotalQuestions || sessionState?.totalQuestions}
+              canPause={practiceModeEnabled}
               onPause={handlePauseSession}
               onResume={handleResumeSession}
               onEndSession={handleEndSession}
               onTechnicalSupport={handleTechnicalSupport}
+              onRestartAudio={handleRestartAudio}
               onEmergencyExit={handleEmergencyExit}
             />
           </div>
@@ -749,6 +1094,8 @@ const LiveInterviewSession = () => {
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
               onMediaStreamReady={handleMediaStreamReady}
               enablePoseDetection={nonverbalFeedbackEnabled}
+              interviewId={interviewId.current}
+              analyticsDataRef={analyticsDataRef}
             />
             <div className="flex-1 min-h-[400px]">
               <TranscriptionPanel
@@ -764,6 +1111,7 @@ const LiveInterviewSession = () => {
                 isTranscribing={isTranscribing}
                 onToggleListening={handleToggleListening}
                 onAnswerComplete={handleAnswerComplete}
+                onClearConversation={handleClearConversation}
                 className="h-full"
               />
             </div>
@@ -774,8 +1122,10 @@ const LiveInterviewSession = () => {
             <QuestionProgressIndicator
               currentQuestion={questionsAsked}
               totalQuestions={aiTotalQuestions}
-              estimatedTimeRemaining={15}
+              estimatedTimeRemaining={estimatedTimeRemaining}
               questionType={sessionState?.questionType}
+              categoryProgress={getQuestionCategoryProgress()}
+              nextQuestionType={getNextQuestionType()}
             />
             {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
             <div className="flex-1 min-h-[300px]">
@@ -784,13 +1134,18 @@ const LiveInterviewSession = () => {
                 currentAnswer={aiState?.currentAnswer}
                 currentQuestion={currentMessage}
                 onFeedbackGenerated={handleFeedbackGenerated}
+                interviewId={interviewId.current}
+                difficulty={advancedSettings?.difficulty || 'medium'}
+                enabled={realTimeFeedbackEnabled}
                 className="h-full"
               />
             </div>
             <ScreenSharingPanel
               isScreenSharing={screenShareState?.isScreenSharing}
               onToggleScreenShare={handleToggleScreenShare}
+              onShareWindow={handleShareWindow}
               onWhiteboardToggle={handleWhiteboardToggle}
+              screenShareStream={screenShareStream}
             />
           </div>
         </motion.div>
@@ -807,6 +1162,7 @@ const LiveInterviewSession = () => {
               currentQuestion={currentMessage}
               isSpeaking={isAISpeaking}
               isProcessing={isAIProcessing}
+              interviewerName={activeInterviewConfig?.interviewerName}
               questionProgress={{
                 currentQuestion: questionsAsked,
                 totalQuestions: aiTotalQuestions
@@ -826,6 +1182,7 @@ const LiveInterviewSession = () => {
                 isTranscribing={isTranscribing}
                 onToggleListening={handleToggleListening}
                 onAnswerComplete={handleAnswerComplete}
+                onClearConversation={handleClearConversation}
                 className="h-full"
               />
             </div>
@@ -833,10 +1190,14 @@ const LiveInterviewSession = () => {
               sessionDuration={sessionState?.sessionDuration}
               isPaused={sessionState?.isPaused}
               isRecording={sessionState?.isRecording}
+              questionsAsked={questionsAsked}
+              totalQuestions={aiTotalQuestions || sessionState?.totalQuestions}
+              canPause={practiceModeEnabled}
               onPause={handlePauseSession}
               onResume={handleResumeSession}
               onEndSession={handleEndSession}
               onTechnicalSupport={handleTechnicalSupport}
+              onRestartAudio={handleRestartAudio}
               onEmergencyExit={handleEmergencyExit}
             />
           </div>
@@ -851,12 +1212,16 @@ const LiveInterviewSession = () => {
               onPoseMetricsUpdate={handlePoseMetricsUpdate}
               onMediaStreamReady={handleMediaStreamReady}
               enablePoseDetection={nonverbalFeedbackEnabled}
+              interviewId={interviewId.current}
+              analyticsDataRef={analyticsDataRef}
             />
             <QuestionProgressIndicator
               currentQuestion={questionsAsked}
               totalQuestions={aiTotalQuestions}
-              estimatedTimeRemaining={15}
+              estimatedTimeRemaining={estimatedTimeRemaining}
               questionType={sessionState?.questionType}
+              categoryProgress={getQuestionCategoryProgress()}
+              nextQuestionType={getNextQuestionType()}
             />
             {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
             <div className="flex-1 min-h-[250px]">
@@ -865,6 +1230,9 @@ const LiveInterviewSession = () => {
                 currentAnswer={aiState?.currentAnswer}
                 currentQuestion={currentMessage}
                 onFeedbackGenerated={handleFeedbackGenerated}
+                interviewId={interviewId.current}
+                difficulty={advancedSettings?.difficulty || 'medium'}
+                enabled={realTimeFeedbackEnabled}
                 className="h-full"
               />
             </div>
@@ -882,8 +1250,8 @@ const LiveInterviewSession = () => {
             currentQuestion={currentMessage}
             isSpeaking={isAISpeaking}
             isProcessing={isAIProcessing}
+            interviewerName={activeInterviewConfig?.interviewerName}
             onQuestionComplete={handleQuestionComplete}
-            interviewConfig={aiState?.interviewConfig}
             questionProgress={{
               currentQuestion: sessionState?.currentQuestion,
               totalQuestions: sessionState?.totalQuestions
@@ -894,8 +1262,10 @@ const LiveInterviewSession = () => {
           <QuestionProgressIndicator
             currentQuestion={questionsAsked}
             totalQuestions={aiTotalQuestions}
-            estimatedTimeRemaining={15}
+            estimatedTimeRemaining={estimatedTimeRemaining}
             questionType={sessionState?.questionType}
+            categoryProgress={getQuestionCategoryProgress()}
+            nextQuestionType={getNextQuestionType()}
           />
 
           {/* Video Feed - Compact */}
@@ -907,6 +1277,8 @@ const LiveInterviewSession = () => {
             onPoseMetricsUpdate={handlePoseMetricsUpdate}
             onMediaStreamReady={handleMediaStreamReady}
             enablePoseDetection={nonverbalFeedbackEnabled}
+            interviewId={interviewId.current}
+            analyticsDataRef={analyticsDataRef}
           />
 
           {/* Pose Analysis Panel - Mobile */}
@@ -927,6 +1299,7 @@ const LiveInterviewSession = () => {
               isTranscribing={isTranscribing}
               onToggleListening={handleToggleListening}
               onAnswerComplete={handleAnswerComplete}
+              onClearConversation={handleClearConversation}
               className="h-full"
             />
           </div>
@@ -936,8 +1309,11 @@ const LiveInterviewSession = () => {
             <RealTimeFeedbackPanel
               isActive={sessionState?.isActive}
               currentAnswer={aiState?.currentAnswer}
-              currentQuestion={aiState?.currentQuestion}
+              currentQuestion={currentMessage}
               onFeedbackGenerated={handleFeedbackGenerated}
+              interviewId={interviewId.current}
+              difficulty={advancedSettings?.difficulty || 'medium'}
+              enabled={realTimeFeedbackEnabled}
               className="h-full"
             />
           </div>
@@ -947,10 +1323,14 @@ const LiveInterviewSession = () => {
             sessionDuration={sessionState?.sessionDuration}
             isPaused={sessionState?.isPaused}
             isRecording={sessionState?.isRecording}
+            questionsAsked={questionsAsked}
+            totalQuestions={aiTotalQuestions || sessionState?.totalQuestions}
+            canPause={practiceModeEnabled}
             onPause={handlePauseSession}
             onResume={handleResumeSession}
             onEndSession={handleEndSession}
             onTechnicalSupport={handleTechnicalSupport}
+            onRestartAudio={handleRestartAudio}
             onEmergencyExit={handleEmergencyExit}
           />
         </motion.div>

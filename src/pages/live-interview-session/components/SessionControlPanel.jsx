@@ -7,10 +7,14 @@ const SessionControlPanel = ({
   sessionDuration = 0,
   isPaused = false,
   isRecording = true,
+  questionsAsked = 0,
+  totalQuestions = 0,
+  canPause = true,
   onPause,
   onResume,
   onEndSession,
   onTechnicalSupport,
+  onRestartAudio,
   onEmergencyExit,
   className = ''
 }) => {
@@ -93,9 +97,10 @@ const SessionControlPanel = ({
             iconName={isPaused ? "Play" : "Pause"}
             iconPosition="left"
             onClick={isPaused ? onResume : onPause}
+            disabled={!canPause}
             className="text-xs sm:text-sm h-9 sm:h-10"
           >
-            {isPaused ? 'Resume' : 'Pause'}
+            {canPause ? (isPaused ? 'Resume' : 'Pause') : 'Pause Disabled'}
           </Button>
           
           <Button
@@ -114,11 +119,13 @@ const SessionControlPanel = ({
         {/* Session Info */}
         <div className="grid grid-cols-2 gap-3 p-3 bg-white/60 dark:bg-slate-900/60 border border-white/40 dark:border-slate-700/60 rounded-2xl">
           <div className="text-center">
-            <div className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">8</div>
+            <div className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">{questionsAsked}</div>
             <div className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">Questions Asked</div>
           </div>
           <div className="text-center">
-            <div className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">12</div>
+            <div className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">
+              {Math.max(totalQuestions - questionsAsked, 0)}
+            </div>
             <div className="text-[10px] sm:text-xs text-gray-500 dark:text-slate-400">Remaining</div>
           </div>
         </div>
@@ -144,6 +151,7 @@ const SessionControlPanel = ({
               size="sm"
               iconName="RefreshCw"
               iconPosition="left"
+              onClick={onRestartAudio}
               className="text-xs h-8 sm:h-9"
             >
               <span className="hidden sm:inline">Restart Audio</span>

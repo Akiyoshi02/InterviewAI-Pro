@@ -33,6 +33,19 @@ const AcceptTeamInvitePage = () => {
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
 
+  // Email verification state (8-digit code, same as main registration)
+  const [emailVerification, setEmailVerification] = useState({
+    status: 'idle', // idle | sending | sent | verified | error
+    message: '',
+    email: '',
+  });
+  const [verificationCode, setVerificationCode] = useState('');
+  const [verificationCodeError, setVerificationCodeError] = useState('');
+  const [isSendingVerification, setIsSendingVerification] = useState(false);
+  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
+  const [resendAvailableAt, setResendAvailableAt] = useState(null);
+  const [resendSeconds, setResendSeconds] = useState(0);
+
   const departments = [
     { value: 'hr', label: 'Human Resources' },
     { value: 'engineering', label: 'Engineering & Development' },
@@ -77,6 +90,165 @@ const AcceptTeamInvitePage = () => {
     }
   }, [token]);
 
+  // Keep resend countdown in sync with backend cooldown
+  useEffect(() => {
+    if (!resendAvailableAt) {
+      setResendSeconds(0);
+      return;
+    }
+
+    const updateCountdown = () => {
+      const remaining = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000));
+      setResendSeconds(remaining);
+      if (remaining <= 0) {
+        setResendAvailableAt(null);
+      }
+    };
+
+    updateCountdown();
+    const interval = setInterval(updateCountdown, 1000);
+    return () => clearInterval(interval);
+  }, [resendAvailableAt]);
+
+  const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+
+  // Ensure we have a Firebase session for the invited email so that
+  // the backend email verification endpoints can attach to the correct user.
+  const ensureFirebaseSessionForVerification = async () => {
+    const targetEmail = normalizeEmail(invitation?.email);
+    if (!targetEmail) {
+      throw new Error('Invitation email is missing. Please reload the page or request a new invitation.');
+    }
+
+    const { data: sessionSnapshot } = await authHelpers.getSession();
+    const existingSession = sessionSnapshot?.session;
+    const existingEmail = normalizeEmail(existingSession?.user?.email);
+
+    if (existingSession?.access_token && existingEmail === targetEmail) {
+      return existingSession.user;
+    }
+
+    if (existingSession?.access_token && existingEmail && existingEmail !== targetEmail) {
+      await authHelpers.signOut();
+    }
+
+    // Create Firebase Auth user using the password the invitee entered
+    const { data: authData, error: authError } = await authHelpers.signUp(
+      invitation.email,
+      password,
+      {
+        fullName: fullName.trim(),
+        accountType: 'COMPANY',
+      }
+    );
+
+    if (authError) {
+      const errorCode = authError?.code;
+      if (errorCode === 'auth/email-already-in-use') {
+        const { data: signInData, error: signInError } = await authHelpers.signIn(invitation.email, password);
+        if (signInError || !signInData?.user) {
+          throw new Error(signInError?.message || 'An account with this email already exists. Please sign in instead.');
+        }
+        return signInData.user;
+      }
+      throw new Error(authError.message || 'Failed to create account for email verification.');
+    }
+
+    if (!authData?.user) {
+      throw new Error('Failed to create your account for email verification.');
+    }
+
+    return authData.user;
+  };
+
+  const sendVerificationEmail = async () => {
+    const targetEmail = normalizeEmail(invitation?.email);
+
+    setIsSendingVerification(true);
+    setVerificationCodeError('');
+    setEmailVerification({ status: 'sending', message: '', email: targetEmail });
+
+    try {
+      if (!password) {
+        throw new Error('Please enter a password before requesting a verification code.');
+      }
+
+      await ensureFirebaseSessionForVerification();
+      const result = await apiClient.auth.startEmailVerification({
+        email: targetEmail,
+        fullName: fullName.trim() || undefined,
+      });
+
+      if (result?.verified) {
+        await authHelpers.reloadUser();
+        await authHelpers.refreshAccessToken();
+        setEmailVerification({
+          status: 'verified',
+          email: targetEmail,
+          message: 'Email verified. You can now complete your registration.',
+        });
+        setVerificationCode('');
+        setVerificationCodeError('');
+        setResendAvailableAt(null);
+        setResendSeconds(0);
+        return true;
+      }
+
+      setEmailVerification({
+        status: 'sent',
+        email: targetEmail,
+        message: `We sent an 8-digit verification code to ${targetEmail}. Enter it below to continue.`,
+      });
+      setResendAvailableAt(Date.now() + 60 * 1000);
+      return true;
+    } catch (err) {
+      setEmailVerification({
+        status: 'error',
+        email: targetEmail,
+        message: err?.message || 'Unable to send a verification code. Please try again.',
+      });
+      return false;
+    } finally {
+      setIsSendingVerification(false);
+    }
+  };
+
+  const handleVerifyCode = async () => {
+    const cleanedCode = (verificationCode || '').replace(/\D/g, '');
+    if (cleanedCode.length !== 8) {
+      setVerificationCodeError('Enter the 8-digit code from your email.');
+      return;
+    }
+
+    setIsVerifyingCode(true);
+    setVerificationCodeError('');
+
+    try {
+      await ensureFirebaseSessionForVerification();
+      await apiClient.auth.verifyEmailCode(cleanedCode);
+      const { data, error } = await authHelpers.reloadUser();
+
+      if (error || !data?.user?.email_confirmed_at) {
+        throw new Error(error?.message || 'Unable to confirm your email verification. Please try again.');
+      }
+
+      await authHelpers.refreshAccessToken();
+      setEmailVerification({
+        status: 'verified',
+        email: normalizeEmail(data?.user?.email || invitation?.email),
+        message: 'Email verified. You can now complete your registration.',
+      });
+      setVerificationCode('');
+      setVerificationCodeError('');
+      setResendAvailableAt(null);
+      setResendSeconds(0);
+    } catch (err) {
+      setVerificationCodeError(err?.message || 'Unable to verify the code. Please try again.');
+    } finally {
+      setIsVerifyingCode(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!invitation) return;
@@ -113,29 +285,17 @@ const AcceptTeamInvitePage = () => {
     setError('');
 
     try {
-      // Step 1: Create Firebase Auth account first (required by registration endpoint)
-      const { data: authData, error: authError } = await authHelpers.signUp(
-        invitation.email,
-        password,
-        {
-          fullName: fullName.trim(),
-          accountType: 'COMPANY',
+      // Require email verification before completing registration
+      if (emailVerification.status !== 'verified') {
+        const sent = await sendVerificationEmail();
+        if (sent) {
+          setError('We sent you an 8-digit verification code. Please verify your email before completing registration.');
         }
-      );
-
-      if (authError) {
-        const errorCode = authError?.code;
-        if (errorCode === 'auth/email-already-in-use') {
-          throw new Error('An account with this email already exists. Please sign in instead.');
-        }
-        throw new Error(authError.message || 'Failed to create account.');
+        return;
       }
 
-      if (!authData?.user || !authData?.session?.access_token) {
-        throw new Error('Failed to create user account');
-      }
-
-      // Step 2: Register with backend using the Firebase Auth token
+      // By this point, Firebase Auth user exists and email is verified.
+      // Proceed to register with backend using the Firebase Auth token.
       const registerData = await apiClient.auth.register({
         fullName: fullName.trim(),
         email: invitation.email,

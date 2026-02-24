@@ -16,6 +16,10 @@ import AllOrganizationsList from './components/AllOrganizationsList.jsx';
 import LiveChatManager from './components/LiveChatManager.jsx';
 import TrainingDataManager from './components/TrainingDataManager.jsx';
 import FairnessCalibrationPanel from './components/FairnessCalibrationPanel.jsx';
+import ClassificationMetricsPanel from './components/ClassificationMetricsPanel.jsx';
+import ModelFineTuningPanel from './components/ModelFineTuningPanel.jsx';
+import MediaPipeCalibrationPanel from './components/MediaPipeCalibrationPanel.jsx';
+import ResearchToolsPanel from './components/ResearchToolsPanel.jsx';
 import UserManagementPanel from './components/UserManagementPanel.jsx';
 import PlatformOperationsPanel from './components/PlatformOperationsPanel.jsx';
 import apiClient from '../../services/apiClient.js';
@@ -58,10 +62,34 @@ const SECTION_DEFINITIONS = [
     icon: 'Scale',
   },
   {
+    id: 'classification',
+    title: 'Classification Metrics',
+    description: 'Confusion matrix and precision/recall/F1 for AI vs SME score classification.',
+    icon: 'Grid3X3',
+  },
+  {
+    id: 'fine-tuning',
+    title: 'Model Fine-Tuning',
+    description: 'Train and evaluate domain-specialized LLM from collected interview data.',
+    icon: 'Cpu',
+  },
+  {
+    id: 'mediapipe-calibration',
+    title: 'MediaPipe Calibration',
+    description: 'Compare static posture/face thresholds against data-driven calibrated values.',
+    icon: 'ScanFace',
+  },
+  {
     id: 'training-data',
     title: 'Training Data Governance',
     description: 'Manage datasets for evaluation and model training workflows.',
     icon: 'Database',
+  },
+  {
+    id: 'research-tools',
+    title: 'Research Tools',
+    description: 'Record posture/gestures, analyze videos, and add external datasets.',
+    icon: 'FlaskConical',
   },
   {
     id: 'live-chat',
@@ -165,8 +193,8 @@ const SystemAdminDashboard = () => {
       if (result.success) {
         setStats(result.stats);
       }
-    } catch (error) {
-      console.error('Failed to load stats:', error);
+    } catch {
+      // Silent failure — dashboard stats unavailable
     } finally {
       setLoading(false);
     }
@@ -335,10 +363,34 @@ const SystemAdminDashboard = () => {
             <FairnessCalibrationPanel />
           </SectionContainer>
         );
+      case 'classification':
+        return (
+          <SectionContainer title={SECTION_MAP.classification.title} description={SECTION_MAP.classification.description} icon={SECTION_MAP.classification.icon}>
+            <ClassificationMetricsPanel />
+          </SectionContainer>
+        );
+      case 'fine-tuning':
+        return (
+          <SectionContainer title={SECTION_MAP['fine-tuning'].title} description={SECTION_MAP['fine-tuning'].description} icon={SECTION_MAP['fine-tuning'].icon}>
+            <ModelFineTuningPanel />
+          </SectionContainer>
+        );
+      case 'mediapipe-calibration':
+        return (
+          <SectionContainer title={SECTION_MAP['mediapipe-calibration'].title} description={SECTION_MAP['mediapipe-calibration'].description} icon={SECTION_MAP['mediapipe-calibration'].icon}>
+            <MediaPipeCalibrationPanel />
+          </SectionContainer>
+        );
       case 'training-data':
         return (
           <SectionContainer title={SECTION_MAP['training-data'].title} description={SECTION_MAP['training-data'].description} icon={SECTION_MAP['training-data'].icon}>
             <TrainingDataManager />
+          </SectionContainer>
+        );
+      case 'research-tools':
+        return (
+          <SectionContainer title={SECTION_MAP['research-tools'].title} description={SECTION_MAP['research-tools'].description} icon={SECTION_MAP['research-tools'].icon}>
+            <ResearchToolsPanel />
           </SectionContainer>
         );
       case 'live-chat':

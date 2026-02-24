@@ -26,6 +26,7 @@ import {
   ALLOWED_VALUES,
 } from '../middleware/inputValidation.middleware.js';
 import { AdminController } from '../controllers/admin.controller.js';
+import { FineTuningController } from '../controllers/fineTuning.controller.js';
 
 const router = express.Router();
 
@@ -283,6 +284,52 @@ router.get('/stats', AdminController.getStats);
  * Get fairness metrics and AI vs SME calibration (FR10)
  */
 router.get('/fairness-calibration', AdminController.getFairnessCalibration);
+
+/**
+ * GET /api/admin/classification-metrics
+ * Get confusion matrix and classification metrics (AI vs SME)
+ */
+router.get('/classification-metrics', AdminController.getClassificationMetrics);
+
+/**
+ * GET /api/admin/mediapipe-calibration
+ * Get MediaPipe threshold calibration data (static vs data-driven)
+ */
+router.get('/mediapipe-calibration', AdminController.getMediaPipeCalibration);
+
+// =============================================================================
+// MODEL FINE-TUNING
+// =============================================================================
+
+/**
+ * POST /api/admin/fine-tune
+ * Trigger model fine-tuning from collected data
+ */
+router.post('/fine-tune', FineTuningController.triggerFineTune);
+
+/**
+ * GET /api/admin/fine-tune/status
+ * Get fine-tuning status and model info
+ */
+router.get('/fine-tune/status', FineTuningController.getStatus);
+
+/**
+ * POST /api/admin/fine-tune/evaluate
+ * Run before/after model evaluation
+ */
+router.post('/fine-tune/evaluate', FineTuningController.evaluate);
+
+/**
+ * GET /api/admin/fine-tune/export
+ * Export training data as JSONL for LoRA fine-tuning with scripts/fine_tune_lora.py
+ */
+router.get('/fine-tune/export', FineTuningController.exportTrainingData);
+
+/**
+ * POST /api/admin/fine-tune/import-gguf
+ * Register a LoRA-trained GGUF file with Ollama as the fine-tuned model
+ */
+router.post('/fine-tune/import-gguf', FineTuningController.importGGUF);
 
 // =============================================================================
 // INTEGRATIONS

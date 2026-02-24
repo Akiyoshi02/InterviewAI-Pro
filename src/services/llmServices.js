@@ -5,6 +5,139 @@
 
 import { callOllama, parseJSONResponse } from './llmClient';
 
+const SERVICE_SCHEMAS = {
+  questionGeneration: {
+    type: 'object',
+    properties: {
+      questions: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            id: { type: 'number' },
+            type: { type: 'string' },
+            question: { type: 'string' },
+            expectedAnswerPoints: { type: 'array', items: { type: 'string' } },
+            difficulty: { type: 'string' },
+          },
+          required: ['id', 'type', 'question', 'expectedAnswerPoints', 'difficulty'],
+        },
+      },
+    },
+    required: ['questions'],
+  },
+
+  answerEvaluation: {
+    type: 'object',
+    properties: {
+      scores: {
+        type: 'object',
+        properties: {
+          completeness: { type: 'number' },
+          accuracy: { type: 'number' },
+          clarity: { type: 'number' },
+          relevance: { type: 'number' },
+        },
+        required: ['completeness', 'accuracy', 'clarity', 'relevance'],
+      },
+      overallScore: { type: 'number' },
+      feedback: { type: 'string' },
+      strengths: { type: 'array', items: { type: 'string' } },
+      improvements: { type: 'array', items: { type: 'string' } },
+      followUpSuggestion: { type: 'string' },
+    },
+    required: ['scores', 'overallScore', 'feedback', 'strengths', 'improvements', 'followUpSuggestion'],
+  },
+
+  interviewSummary: {
+    type: 'object',
+    properties: {
+      overallRating: { type: 'string' },
+      scoreBreakdown: {
+        type: 'object',
+        properties: {
+          technical: { type: 'number' },
+          behavioral: { type: 'number' },
+          communication: { type: 'number' },
+        },
+        required: ['technical', 'behavioral', 'communication'],
+      },
+      keyStrengths: { type: 'array', items: { type: 'string' } },
+      areasForImprovement: { type: 'array', items: { type: 'string' } },
+      recommendation: { type: 'string' },
+      detailedFeedback: { type: 'string' },
+      nextSteps: { type: 'string' },
+    },
+    required: ['overallRating', 'scoreBreakdown', 'keyStrengths', 'areasForImprovement', 'recommendation', 'detailedFeedback', 'nextSteps'],
+  },
+
+  nextQuestion: {
+    type: 'object',
+    properties: {
+      question: { type: 'string' },
+      type: { type: 'string' },
+      difficulty: { type: 'string' },
+      expectedPoints: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['question', 'type', 'difficulty', 'expectedPoints'],
+  },
+
+  speechAnalysis: {
+    type: 'object',
+    properties: {
+      severity: { type: 'string' },
+      confidence: { type: 'string' },
+      mainIssues: { type: 'array', items: { type: 'string' } },
+      suggestions: { type: 'array', items: { type: 'string' } },
+      encouragement: { type: 'string' },
+    },
+    required: ['severity', 'confidence', 'mainIssues', 'suggestions', 'encouragement'],
+  },
+
+  studyPlan: {
+    type: 'object',
+    properties: {
+      overallGoal: { type: 'string' },
+      timeline: { type: 'string' },
+      weeklyPlan: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            week: { type: 'number' },
+            focus: { type: 'string' },
+            tasks: { type: 'array', items: { type: 'string' } },
+            resources: { type: 'array', items: { type: 'string' } },
+          },
+          required: ['week', 'focus', 'tasks', 'resources'],
+        },
+      },
+      dailyRoutine: {
+        type: 'object',
+        properties: {
+          morning: { type: 'string' },
+          afternoon: { type: 'string' },
+          evening: { type: 'string' },
+        },
+        required: ['morning', 'afternoon', 'evening'],
+      },
+      keyResources: { type: 'array', items: { type: 'string' } },
+      practiceExercises: { type: 'array', items: { type: 'string' } },
+      milestones: { type: 'array', items: { type: 'string' } },
+      motivationalTip: { type: 'string' },
+    },
+    required: ['overallGoal', 'timeline', 'weeklyPlan', 'dailyRoutine', 'keyResources', 'practiceExercises', 'milestones', 'motivationalTip'],
+  },
+
+  chatSuggestions: {
+    type: 'object',
+    properties: {
+      suggestions: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['suggestions'],
+  },
+};
+
 const CHAT_PROJECT_CONTEXT = `InterviewAI Pro is an AI-powered interview prep and hiring platform.
 Key areas:
 - Candidate experience: practice interviews, live interview sessions, interview feedback.
@@ -49,7 +182,8 @@ Return ONLY valid JSON in this format:
       { role: 'user', content: userPrompt }
     ], {
       temperature: 0.7,
-      max_tokens: 1500
+      max_tokens: 1500,
+      format: SERVICE_SCHEMAS.questionGeneration,
     });
 
     return parseJSONResponse(response);
@@ -94,8 +228,10 @@ Return ONLY valid JSON:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: 'Evaluate the answer now.' }
     ], {
-      temperature: 0.6,
-      max_tokens: 800
+      temperature: 0.45,
+      max_tokens: 1200,
+      think: true,
+      format: SERVICE_SCHEMAS.answerEvaluation,
     });
 
     return parseJSONResponse(response);
@@ -140,8 +276,10 @@ Provide a comprehensive evaluation in JSON format:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: 'Generate the interview summary now.' }
     ], {
-      temperature: 0.5,
-      max_tokens: 1200
+      temperature: 0.45,
+      max_tokens: 1500,
+      think: true,
+      format: SERVICE_SCHEMAS.interviewSummary,
     });
 
     return parseJSONResponse(response);
@@ -218,7 +356,8 @@ Return ONLY valid JSON:
       { role: 'user', content: 'Generate the next question.' }
     ], {
       temperature: 0.7,
-      max_tokens: 300
+      max_tokens: 300,
+      format: SERVICE_SCHEMAS.nextQuestion,
     });
 
     return parseJSONResponse(response);
@@ -254,8 +393,9 @@ Provide analysis in JSON:
       { role: 'system', content: systemPrompt },
       { role: 'user', content: 'Analyze the speech pattern.' }
     ], {
-      temperature: 0.6,
-      max_tokens: 400
+      temperature: 0.5,
+      max_tokens: 400,
+      format: SERVICE_SCHEMAS.speechAnalysis,
     });
 
     return parseJSONResponse(response);
@@ -318,7 +458,8 @@ Create a structured study plan in JSON format:
       { role: 'user', content: 'Generate the personalized study plan.' }
     ], {
       temperature: 0.7,
-      max_tokens: 1500
+      max_tokens: 1500,
+      format: SERVICE_SCHEMAS.studyPlan,
     });
 
     return parseJSONResponse(response);
@@ -532,7 +673,8 @@ Instructions:
       { role: 'user', content: 'Generate suggestions now.' }
     ], {
       temperature: 0.4,
-      max_tokens: 400
+      max_tokens: 400,
+      format: SERVICE_SCHEMAS.chatSuggestions,
     });
 
     const parsed = parseJSONResponse(response);

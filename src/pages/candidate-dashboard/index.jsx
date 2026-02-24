@@ -10,6 +10,7 @@ import RecentActivityFeed from './components/RecentActivityFeed';
 import RecommendedTopics from './components/RecommendedTopics';
 import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
+import SavedAnswersPanel from './components/SavedAnswersPanel';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
@@ -18,10 +19,18 @@ import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
+import { deriveDashboardInsights } from './utils/candidateInsights.js';
 import {
   INTERVIEW_FEED_EVENTS,
   combineRealtimeEventTypes,
 } from '../../constants/realtimeFeedEvents.js';
+
+const QUICK_START_DIFFICULTY_MAP = Object.freeze({
+  beginner: 'easy',
+  intermediate: 'medium',
+  advanced: 'hard',
+  expert: 'hard',
+});
 
 const CandidateDashboard = () => {
   const navigate = useNavigate();
@@ -29,13 +38,13 @@ const CandidateDashboard = () => {
   const { maintenanceMode } = useMaintenanceMode();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [interviews, setInterviews] = useState([]);
+  const [applications, setApplications] = useState([]);
   const [analytics, setAnalytics] = useState(null);
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
   const realtimeRefreshTimeoutRef = useRef(null);
   const fetchDashboardDataRef = useRef(null);
-
 
   const handleLogout = async () => {
     await logout();
@@ -103,10 +112,11 @@ const CandidateDashboard = () => {
     setDataLoading(true);
     setError(null);
     try {
-      const [interviewsResult, analyticsResult, dashboardMetricsResult] = await Promise.allSettled([
+      const [interviewsResult, analyticsResult, dashboardMetricsResult, applicationsResult] = await Promise.allSettled([
         apiClient.interviews.getMyInterviews(),
         apiClient.analytics.getDashboard(),
         apiClient.analytics.getCandidateDashboardMetrics(),
+        apiClient.applications.getMyApplications({ limit: 100 }),
       ]);
 
       if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
@@ -126,12 +136,50 @@ const CandidateDashboard = () => {
       } else {
         setDashboardMetrics(null);
       }
+
+      if (applicationsResult.status === 'fulfilled' && applicationsResult.value.success) {
+        setApplications(Array.isArray(applicationsResult.value.applications) ? applicationsResult.value.applications : []);
+      } else {
+        setApplications([]);
+      }
     } catch (err) {
       setError(err.message || 'Failed to load dashboard data. Please try again.');
     } finally {
       setDataLoading(false);
     }
   }, [user]);
+
+  const handleStartPractice = useCallback(({ role, difficulty } = {}) => {
+    const normalizedRole = typeof role === 'string' ? role.trim() : '';
+    const normalizedDifficultyKey = typeof difficulty === 'string'
+      ? difficulty.toLowerCase().trim()
+      : '';
+    const normalizedDifficulty = QUICK_START_DIFFICULTY_MAP[normalizedDifficultyKey] || 'medium';
+
+    try {
+      const existingDraftRaw = localStorage.getItem('interviewSetupDraft');
+      const existingDraft = existingDraftRaw ? JSON.parse(existingDraftRaw) : {};
+      const existingAdvancedSettings = existingDraft?.advancedSettings
+        && typeof existingDraft.advancedSettings === 'object'
+        ? existingDraft.advancedSettings
+        : {};
+
+      const nextDraft = {
+        ...existingDraft,
+        jobRole: normalizedRole || existingDraft?.jobRole || '',
+        advancedSettings: {
+          ...existingAdvancedSettings,
+          difficulty: normalizedDifficulty,
+        },
+      };
+
+      localStorage.setItem('interviewSetupDraft', JSON.stringify(nextDraft));
+    } catch (_error) {
+      // Fail-open: users can still continue to setup and configure manually.
+    }
+
+    navigate('/practice-interview-setup');
+  }, [navigate]);
 
   useEffect(() => {
     fetchDashboardDataRef.current = fetchDashboardData;
@@ -167,6 +215,7 @@ const CandidateDashboard = () => {
   }, [fetchDashboardData]);
 
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const safeApplications = Array.isArray(applications) ? applications : [];
   const showInitialLoader = dataLoading && !safeInterviews.length && !analytics;
 
   if (status === 'loading' || !user || showInitialLoader) {
@@ -215,6 +264,7 @@ const CandidateDashboard = () => {
   const scheduledInterviews = scheduledMetrics?.value ?? safeInterviews.filter(i => i?.status?.toUpperCase() === 'SCHEDULED').length;
   const averageScore = scoreMetrics?.value ?? analytics?.averageScore ?? null;
   const currentGrade = gradeMetrics?.value ?? null;
+  const totalPracticeTime = dashboardMetrics?.totalPracticeTime?.formatted ?? null;
   
   // Find the latest/upcoming interview for display
   const latestInterview = safeInterviews[0] || null;
@@ -229,7 +279,7 @@ const CandidateDashboard = () => {
   const heroHighlights = [
     {
       label: 'Average score',
-      value: averageScore ? `${Math.round(averageScore)}%` : '—',
+      value: averageScore ? `${Math.round(averageScore)}%` : 'N/A',
       detail: scoreMetrics?.changeText || 'From completed interviews'
     },
     {
@@ -243,6 +293,19 @@ const CandidateDashboard = () => {
       detail: completedMetrics?.changeText || 'Total interviews done'
     }
   ];
+
+  const dashboardInsights = deriveDashboardInsights({
+    interviews: safeInterviews,
+    dashboardMetrics,
+    analytics,
+    applications: safeApplications,
+  });
+
+  const insightDotClassByColor = {
+    blue: 'bg-blue-500',
+    green: 'bg-green-500',
+    amber: 'bg-amber-500',
+  };
 
   return (
     <div className="dashboard-shell">
@@ -298,7 +361,7 @@ const CandidateDashboard = () => {
                       <span>Realtime performance intelligence</span>
                     </div>
                     <h1 className="text-xl xs:text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
-                      Welcome back, {user?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Innovator'} 👋
+                      Welcome back, {user?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Innovator'}
                     </h1>
                     <p className="text-xs xs:text-sm sm:text-base text-gray-600 dark:text-slate-300 max-w-2xl leading-relaxed">
                       Your AI coach has synced your latest practice sessions. Continue the streak,
@@ -336,7 +399,7 @@ const CandidateDashboard = () => {
                     practiceSessions: completedInterviews,
                     avgScore: averageScore ? Math.round(averageScore) : null,
                     liveInterviews: scheduledInterviews + (dashboardMetrics?.inProgressInterviews || 0),
-                    totalPracticeTime: null // Not tracked in backend yet
+                    totalPracticeTime,
                   }}
                 />
               </motion.div>
@@ -348,10 +411,11 @@ const CandidateDashboard = () => {
               >
                 {/* Progress Overview - Full Width */}
                 <motion.div variants={fadeUpChild}>
-                  <ProgressOverviewCard 
+                  <ProgressOverviewCard
                     analytics={analytics}
                     interviews={safeInterviews}
                     dashboardMetrics={dashboardMetrics}
+                    user={user}
                   />
                 </motion.div>
 
@@ -387,8 +451,17 @@ const CandidateDashboard = () => {
                 {/* Two Column Grid */}
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-2 sm:gap-3">
                   <motion.div variants={fadeUpChild} className="lg:col-span-2 space-y-2 sm:space-y-3">
-                    <RecentActivityFeed activities={safeInterviews} />
-                    <SchedulingWidget upcomingInterviews={safeInterviews} />
+                    <div id="recent-activity">
+                      <RecentActivityFeed
+                        activities={safeInterviews}
+                        onViewAll={() => navigate('/my-applications')}
+                        onViewHistory={() => navigate('/my-applications')}
+                      />
+                    </div>
+                    <SchedulingWidget
+                      upcomingInterviews={safeInterviews}
+                      onScheduleSaved={fetchDashboardData}
+                    />
                     {/* Managing interview anxiety (2.6.4 ii: feedback on performance problems related to anxiety) */}
                     <div className="rounded-2xl border border-amber-200/60 dark:border-amber-800/50 bg-gradient-to-br from-amber-50/80 to-orange-50/60 dark:from-amber-900/20 dark:to-orange-900/20 p-4 sm:p-5 shadow-lg">
                       <h3 className="text-base font-semibold text-amber-900 dark:text-amber-100 mb-2 flex items-center gap-2">
@@ -400,27 +473,37 @@ const CandidateDashboard = () => {
                       </p>
                       <ul className="space-y-2 text-sm text-amber-900 dark:text-amber-100">
                         <li className="flex items-start gap-2">
-                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">-</span>
                           <span><strong>Breathe before answering:</strong> Take a short pause and one deep breath to steady your voice and thoughts.</span>
                         </li>
                         <li className="flex items-start gap-2">
-                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">-</span>
                           <span><strong>Structure helps:</strong> Using STAR (Situation, Task, Action, Result) gives you a clear frame so you feel less on the spot.</span>
                         </li>
                         <li className="flex items-start gap-2">
-                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">-</span>
                           <span><strong>Practice out loud:</strong> Rehearsing answers aloud reduces nervousness and improves fluency on the day.</span>
                         </li>
                         <li className="flex items-start gap-2">
-                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">•</span>
-                          <span><strong>Focus on one question at a time:</strong> Avoid worrying about what’s next; answer the current question well.</span>
+                          <span className="text-amber-600 dark:text-amber-400 mt-0.5">-</span>
+                          <span><strong>Focus on one question at a time:</strong> Avoid worrying about what's next; answer the current question well.</span>
                         </li>
                       </ul>
                     </div>
                   </motion.div>
                   <motion.div variants={fadeUpChild} className="space-y-2 sm:space-y-3">
-                    <QuickStartPanel />
-                    <AchievementBadges />
+                    <QuickStartPanel onStartPractice={handleStartPractice} />
+                    <div id="achievement-badges">
+                      <AchievementBadges
+                        interviews={safeInterviews}
+                        dashboardMetrics={dashboardMetrics}
+                        analytics={analytics}
+                        applications={safeApplications}
+                      />
+                    </div>
+                    <div id="saved-answers">
+                      <SavedAnswersPanel />
+                    </div>
                   </motion.div>
                 </div>
               </motion.div>
@@ -430,46 +513,38 @@ const CandidateDashboard = () => {
                 variants={fadeUpChild}
                 className="grid grid-cols-1 lg:grid-cols-2 gap-2 sm:gap-3"
               >
-                <RecommendedTopics />
+                <div id="recommended-topics">
+                  <RecommendedTopics
+                    interviews={safeInterviews}
+                    dashboardMetrics={dashboardMetrics}
+                    analytics={analytics}
+                    applications={safeApplications}
+                    onRefresh={fetchDashboardData}
+                    refreshing={dataLoading}
+                    onStartPractice={handleStartPractice}
+                  />
+                </div>
                 <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
                   <div className="flex items-center justify-between mb-3 sm:mb-4">
                     <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">AI-Powered Insights</h2>
                     <span className="text-xs uppercase tracking-widest sm:tracking-[0.3em] text-blue-600 dark:text-blue-400">Live feed</span>
                   </div>
                   <div className="space-y-2.5">
-                    <div className="flex items-start gap-2">
-                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-blue-500 flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
-                          Communication confidence +23%
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                          Based on your last 5 practice sessions
-                        </p>
+                    {dashboardInsights.map((insight) => (
+                      <div key={insight.id} className="flex items-start gap-2">
+                        <div
+                          className={`mt-1 h-1.5 w-1.5 rounded-full flex-shrink-0 ${insightDotClassByColor[insight.color] || 'bg-blue-500'}`}
+                        />
+                        <div className="min-w-0">
+                          <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
+                            {insight.title}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            {insight.detail}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-green-500 flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
-                          Technical problem-solving in top quartile
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                          Ready for senior-level technical interviews
-                        </p>
-                      </div>
-                    </div>
-                    <div className="flex items-start gap-2">
-                      <div className="mt-1 h-1.5 w-1.5 rounded-full bg-amber-500 flex-shrink-0" />
-                      <div className="min-w-0">
-                        <p className="text-xs sm:text-sm font-medium text-gray-900 dark:text-slate-100">
-                          Opportunity: deepen system design answers
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400">
-                          Recommended focus: 2-3 hours per week
-                        </p>
-                      </div>
-                    </div>
+                    ))}
                   </div>
                 </div>
               </motion.div>

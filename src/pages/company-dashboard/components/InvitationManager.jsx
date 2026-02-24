@@ -99,6 +99,7 @@ const InvitationManager = ({ onRefresh }) => {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
   const [statusMessage, setStatusMessage] = useState('');
+  const [revokingId, setRevokingId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
   const realtimeRefreshTimeoutRef = useRef(null);
@@ -222,6 +223,30 @@ const InvitationManager = ({ onRefresh }) => {
       setCurrentPage(safePage);
     }
   }, [currentPage, safePage]);
+
+  const handleRevoke = async (invitationId) => {
+    if (revokingId) return;
+    setRevokingId(invitationId);
+    setError('');
+    try {
+      const result = await apiClient.invitations.revoke(invitationId);
+      if (result.success) {
+        setInvitations((previous) =>
+          previous.map((inv) =>
+            inv.id === invitationId ? { ...inv, status: 'REVOKED' } : inv,
+          ),
+        );
+        setStatusMessage('Invitation revoked.');
+        setTimeout(() => setStatusMessage(''), 3000);
+      } else {
+        setError(result.error || 'Failed to revoke invitation.');
+      }
+    } catch (err) {
+      setError(err.message || 'Failed to revoke invitation.');
+    } finally {
+      setRevokingId(null);
+    }
+  };
 
   const handleSubmit = async (event) => {
     event.preventDefault();
@@ -412,46 +437,67 @@ const InvitationManager = ({ onRefresh }) => {
               <th className="pb-2 py-2">Lifecycle</th>
               <th className="pb-2 py-2">Sent</th>
               <th className="pb-2 py-2">Expires</th>
+              <th className="pb-2 py-2">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {paginatedInvitationMetas.map((meta) => (
-              <tr key={meta.invitation.id} className="border-b border-white/30 dark:border-slate-700/50 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors duration-200">
-                <td className="py-3 text-gray-900 dark:text-slate-100">
-                  {meta.invitation.email || '-'}
-                </td>
-                <td className="py-3 text-gray-500 dark:text-slate-300">
-                  <div className="flex flex-col">
-                    <span className="text-gray-800 dark:text-slate-100 font-medium">{meta.jobTitle}</span>
-                    <span className="text-xs text-gray-500 dark:text-slate-400">{meta.jobId || '-'}</span>
-                  </div>
-                </td>
-                <td className="py-3">
-                  <span className="inline-flex items-center rounded-full border border-blue-100 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-500/10 px-2 py-1 text-xs font-semibold text-blue-700 dark:text-blue-200">
-                    {meta.stageLabel}
-                  </span>
-                </td>
-                <td className="py-3">
-                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold ${getStatusBadgeClass(meta.effectiveStatus)}`}>
-                    {INVITATION_STATUS_LABELS[meta.effectiveStatus] || meta.effectiveStatus}
-                  </span>
-                </td>
-                <td className="py-3">
-                  <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold ${getLifecycleBadgeClass(meta.lifecycleState)}`}>
-                    {INVITATION_LIFECYCLE_LABELS[meta.lifecycleState] || meta.lifecycleState}
-                  </span>
-                </td>
-                <td className="py-3 text-xs text-gray-500 dark:text-slate-400">
-                  {formatDateTime(meta.createdAtDate)}
-                </td>
-                <td className="py-3 text-xs text-gray-500 dark:text-slate-400">
-                  {formatDateTime(meta.expiresAtDate)}
-                </td>
-              </tr>
-            ))}
+            {paginatedInvitationMetas.map((meta) => {
+              const isPending = String(meta.effectiveStatus || '').toUpperCase() === 'PENDING';
+              const isRevoking = revokingId === meta.invitation.id;
+              return (
+                <tr key={meta.invitation.id} className="border-b border-white/30 dark:border-slate-700/50 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors duration-200">
+                  <td className="py-3 text-gray-900 dark:text-slate-100">
+                    {meta.invitation.email || '-'}
+                  </td>
+                  <td className="py-3 text-gray-500 dark:text-slate-300">
+                    <div className="flex flex-col">
+                      <span className="text-gray-800 dark:text-slate-100 font-medium">{meta.jobTitle}</span>
+                      <span className="text-xs text-gray-500 dark:text-slate-400">{meta.jobId || '-'}</span>
+                    </div>
+                  </td>
+                  <td className="py-3">
+                    <span className="inline-flex items-center rounded-full border border-blue-100 dark:border-blue-500/30 bg-blue-50/60 dark:bg-blue-500/10 px-2 py-1 text-xs font-semibold text-blue-700 dark:text-blue-200">
+                      {meta.stageLabel}
+                    </span>
+                  </td>
+                  <td className="py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold ${getStatusBadgeClass(meta.effectiveStatus)}`}>
+                      {INVITATION_STATUS_LABELS[meta.effectiveStatus] || meta.effectiveStatus}
+                    </span>
+                  </td>
+                  <td className="py-3">
+                    <span className={`inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold ${getLifecycleBadgeClass(meta.lifecycleState)}`}>
+                      {INVITATION_LIFECYCLE_LABELS[meta.lifecycleState] || meta.lifecycleState}
+                    </span>
+                  </td>
+                  <td className="py-3 text-xs text-gray-500 dark:text-slate-400">
+                    {formatDateTime(meta.createdAtDate)}
+                  </td>
+                  <td className="py-3 text-xs text-gray-500 dark:text-slate-400">
+                    {formatDateTime(meta.expiresAtDate)}
+                  </td>
+                  <td className="py-3">
+                    {isPending ? (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleRevoke(meta.invitation.id)}
+                        loading={isRevoking}
+                        disabled={isRevoking}
+                        className="text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10 border-red-200 dark:border-red-500/30"
+                      >
+                        Revoke
+                      </Button>
+                    ) : (
+                      <span className="text-xs text-gray-400 dark:text-slate-500">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
             {!filteredInvitationMetas.length && (
               <tr>
-                <td className="py-4 text-sm text-gray-500 dark:text-slate-400" colSpan={7}>
+                <td className="py-4 text-sm text-gray-500 dark:text-slate-400" colSpan={8}>
                   {loading
                     ? 'Loading invitations...'
                     : (activeFilterCount > 0

@@ -1,8 +1,12 @@
-import React from 'react';
+import React, { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 
-const RecentActivityFeed = ({ activities = [] }) => {
+const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
+  const navigate = useNavigate();
+  const [showAllActivities, setShowAllActivities] = useState(false);
+
   // Transform real interview data into activity format
   const transformInterviewsToActivities = (interviews) => {
     if (!Array.isArray(interviews) || interviews.length === 0) return [];
@@ -29,7 +33,7 @@ const RecentActivityFeed = ({ activities = [] }) => {
         title = `Completed ${jobRole} Interview`;
         description = score ? `Score: ${Math.round(score)}%` : 'Interview completed';
         if (companyName && companyName !== 'Practice Session') {
-          description = `${companyName} • ${description}`;
+          description = `${companyName} - ${description}`;
         }
       } else if (status === 'IN_PROGRESS') {
         type = 'live';
@@ -40,7 +44,7 @@ const RecentActivityFeed = ({ activities = [] }) => {
         const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
         title = `Upcoming: ${jobRole}`;
         description = scheduledDate 
-          ? `${companyName} • ${scheduledDate.toLocaleDateString()}`
+          ? `${companyName} - ${scheduledDate.toLocaleDateString()}`
           : `${companyName}`;
       } else {
         type = 'practice';
@@ -63,6 +67,8 @@ const RecentActivityFeed = ({ activities = [] }) => {
 
   // Use transformed real data - no mock fallback
   const activityData = transformInterviewsToActivities(activities);
+  const hasActivities = activityData.length > 0;
+  const visibleActivities = showAllActivities ? activityData : activityData.slice(0, 6);
 
   const getActivityIcon = (type) => {
     const iconMap = {
@@ -86,6 +92,29 @@ const RecentActivityFeed = ({ activities = [] }) => {
     return colorMap?.[type] || 'bg-gradient-to-br from-slate-400 to-slate-500';
   };
 
+  const handleViewAll = () => {
+    if (typeof onViewAll === 'function') {
+      onViewAll({ activities: activityData, showAllActivities });
+      return;
+    }
+    if (!hasActivities && typeof onViewHistory === 'function') {
+      onViewHistory({ activities: activityData, showAllActivities });
+      return;
+    }
+    setShowAllActivities((prev) => !prev);
+  };
+
+  const handleViewHistory = () => {
+    if (typeof onViewHistory === 'function') {
+      onViewHistory({ activities: activityData, showAllActivities });
+      return;
+    }
+    if (!hasActivities) {
+      return;
+    }
+    setShowAllActivities(true);
+  };
+
   const getTimeAgo = (timestamp) => {
     const now = new Date();
     const diffInMinutes = Math.floor((now - timestamp) / (1000 * 60));
@@ -105,6 +134,14 @@ const RecentActivityFeed = ({ activities = [] }) => {
     return 'text-rose-500 dark:text-rose-400';
   };
 
+  const viewAllLabel = hasActivities
+    ? (showAllActivities ? 'Show Less' : 'View All')
+    : (typeof onViewHistory === 'function' ? 'Explore Applications' : 'View All');
+
+  const historyLabel = hasActivities
+    ? (showAllActivities ? 'Activity History Expanded' : 'View Complete Activity History')
+    : (typeof onViewHistory === 'function' ? 'Open My Applications' : 'View Complete Activity History');
+
   return (
     <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
       <div className="flex items-center justify-between mb-3 sm:mb-4">
@@ -113,16 +150,17 @@ const RecentActivityFeed = ({ activities = [] }) => {
           variant="ghost"
           size="sm"
           iconName="MoreHorizontal"
+          onClick={handleViewAll}
           className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
         >
-          View All
+          {viewAllLabel}
         </Button>
       </div>
       <div className="space-y-2.5">
-        {activityData?.slice(0, 6)?.map((activity) => (
+        {visibleActivities?.length > 0 ? visibleActivities?.map((activity) => (
           <div
             key={activity?.id}
-            className="flex items-start space-x-3 p-2.5 sm:p-3 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200 cursor-pointer"
+            className="flex items-start space-x-3 p-2.5 sm:p-3 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200"
           >
             <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white ${getActivityColor(activity?.type)}`}>
               <Icon name={getActivityIcon(activity?.type)} size={16} color="currentColor" />
@@ -140,7 +178,7 @@ const RecentActivityFeed = ({ activities = [] }) => {
 
                   {/* Activity-specific details */}
                   {activity?.score && (
-                    <div className="flex items-center space-x-4 mt-2">
+                    <div className="flex items-center space-x-4 mt-2 flex-wrap gap-y-1">
                       <span className={`text-sm font-medium ${getScoreColor(activity?.score)}`}>
                         Score: {activity?.score}%
                       </span>
@@ -148,6 +186,15 @@ const RecentActivityFeed = ({ activities = [] }) => {
                         <span className="text-xs text-gray-500 dark:text-slate-400">
                           "{activity?.feedback}"
                         </span>
+                      )}
+                      {activity?.type === 'completed' && activity?.id && (
+                        <button
+                          type="button"
+                          onClick={() => navigate(`/interview-results/${activity.id}`)}
+                          className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                        >
+                          View results
+                        </button>
                       )}
                     </div>
                   )}
@@ -174,7 +221,17 @@ const RecentActivityFeed = ({ activities = [] }) => {
               </div>
             </div>
           </div>
-        ))}
+        )) : (
+          <div className="rounded-xl border border-dashed border-white/40 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 p-4 text-center">
+            <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 mb-2">
+              <Icon name="Activity" size={18} className="text-blue-600 dark:text-blue-400" />
+            </div>
+            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">No activity yet</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+              Complete your first interview to build your activity timeline.
+            </p>
+          </div>
+        )}
       </div>
       {/* View More Button */}
       <div className="mt-4 pt-3 border-t border-white/30 dark:border-slate-700/60">
@@ -183,9 +240,10 @@ const RecentActivityFeed = ({ activities = [] }) => {
           fullWidth
           iconName="ArrowRight"
           iconPosition="right"
+          onClick={handleViewHistory}
           className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
         >
-          View Complete Activity History
+          {historyLabel}
         </Button>
       </div>
     </div>

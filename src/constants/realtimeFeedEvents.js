@@ -90,6 +90,8 @@ export const ADMIN_FEED_EVENTS = Object.freeze({
 export const INTERVIEW_FEED_EVENTS = Object.freeze({
   lifecycle: Object.freeze([
     'interview-created',
+    'interview-scheduled',
+    'interview-rescheduled',
     'interview-started',
     'interview-ended',
   ]),

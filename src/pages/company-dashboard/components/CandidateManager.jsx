@@ -130,8 +130,8 @@ const CandidateManager = () => {
       if (jobsResult.success) {
         setJobs(jobsResult.jobs || []);
       }
-    } catch (err) {
-      console.error('Failed to load candidate data:', err);
+    } catch {
+      // Silent failure — table stays empty; user can refresh
     } finally {
       setLoading(false);
     }

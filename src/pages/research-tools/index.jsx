@@ -14,6 +14,8 @@ import { motion } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
+import UserContextNavigation from '../../components/ui/UserContextNavigation';
+import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import VideoRecorder from './components/VideoRecorder.jsx';
 import VideoAnalyzer from './components/VideoAnalyzer.jsx';
@@ -24,6 +26,7 @@ const ResearchToolsPage = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   const handleLogout = async () => {
     await logout();
@@ -45,7 +48,27 @@ const ResearchToolsPage = () => {
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
       
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="flex flex-col lg:flex-row">
+        <UserContextNavigation
+          userType="admin"
+          isCollapsed={isSidebarCollapsed}
+          onToggleCollapse={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+        />
+        
+        <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isSidebarCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'} max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8`}>
+        {/* Breadcrumb / Back link */}
+        <div className="mb-4">
+          <Button
+            variant="outline"
+            iconName="ArrowLeft"
+            iconPosition="left"
+            onClick={() => navigate('/system-admin-dashboard')}
+            className="text-sm"
+          >
+            Back to Admin Overview
+          </Button>
+        </div>
+        
         {/* Header */}
         <div className="mb-8">
           <motion.div
@@ -250,7 +273,8 @@ const ResearchToolsPage = () => {
           {activeTab === 'llm-aggregator' && <LLMDataAggregator />}
           {activeTab === 'datasets' && <DatasetDownloader />}
         </motion.div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 };

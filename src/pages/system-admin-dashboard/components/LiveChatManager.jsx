@@ -65,8 +65,8 @@ const LiveChatManager = () => {
     const registerAdmin = async () => {
       try {
         await apiClient.admin.registerLiveChatAdmin();
-      } catch (error) {
-        console.error('Failed to register live chat admin:', error);
+      } catch {
+        // Silent failure — admin proceeds without registration
       } finally {
         if (isMounted) {
           setIsReady(true);
@@ -230,8 +230,8 @@ const LiveChatManager = () => {
         respondedBy: adminName,
       });
       setDraft('');
-    } catch (error) {
-      console.error('Failed to send admin message:', error);
+    } catch {
+      // Silent failure — message send failed; user can retry
     } finally {
       setIsSending(false);
     }
@@ -249,8 +249,8 @@ const LiveChatManager = () => {
           name: adminName,
         },
       });
-    } catch (error) {
-      console.error('Failed to close chat:', error);
+    } catch {
+      // Silent failure — chat close failed; user can retry
     }
   }, [adminName, selectedChatId]);
 

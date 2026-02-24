@@ -162,23 +162,7 @@ export class ApplicationController {
         return res.status(400).json({ error: 'Applications are closed for this position' });
       }
 
-      // Check for duplicate application (excluding withdrawn applications)
-      const existingApplication = await jobApplicationStore.checkDuplicate(jobId, candidateId);
-      if (existingApplication) {
-        // Allow re-applying if the previous application was withdrawn by the candidate
-        const isWithdrawn = existingApplication.status === 'REJECTED' && existingApplication.withdrawnBy;
-        
-        if (!isWithdrawn) {
-          // Only block if it's not a withdrawn application
-          return res.status(409).json({
-            error: 'You have already applied to this position',
-            application: sanitizeApplication(existingApplication, null, null, null),
-          });
-        }
-        // If withdrawn, we'll allow creating a new application below
-      }
-
-      // Validate answers match questions
+      // Validate answers match questions BEFORE transaction
       if (job.applicationQuestions && job.applicationQuestions.length > 0) {
         const requiredQuestions = job.applicationQuestions.filter((q) => q.required);
         const answeredQuestionIds = new Set((answers || []).map((a) => a.questionId));
@@ -192,34 +176,47 @@ export class ApplicationController {
         }
       }
 
-      // Create application
+      // Get organization snapshot BEFORE transaction
       try {
         organization = await organizationStore.getById(job.organizationId);
       } catch (organizationError) {
         logger.warn(`Unable to fetch organization ${job.organizationId} for application snapshot:`, organizationError);
       }
 
-      const application = await jobApplicationStore.create({
-        jobId,
-        candidateId,
-        organizationId: job.organizationId,
-        status: 'SUBMITTED',
-        resumeUrl: resumeUrl || req.user.profile?.resumeUrl,
-        coverLetter: coverLetter || null,
-        answers: answers || [],
-        jobSnapshot: buildJobSnapshot(job),
-        organizationSnapshot: buildOrganizationSnapshot(organization, job.organizationId),
-        statusSource: 'CANDIDATE_SUBMISSION',
-        statusChangedAt: new Date().toISOString(),
-        statusHistory: [
-          buildStatusHistoryEntry({
-            previousStatus: null,
-            status: 'SUBMITTED',
-            changedBy: candidateId,
-            source: 'CANDIDATE_SUBMISSION',
-          }),
-        ],
-      });
+      // CRITICAL FIX: Use transaction to prevent race condition (TOCTOU vulnerability)
+      // This ensures duplicate check and create are atomic
+      let application;
+      try {
+        application = await jobApplicationStore.createWithDuplicateCheck({
+          jobId,
+          candidateId,
+          organizationId: job.organizationId,
+          status: 'SUBMITTED',
+          resumeUrl: resumeUrl || req.user.profile?.resumeUrl,
+          coverLetter: coverLetter || null,
+          answers: answers || [],
+          jobSnapshot: buildJobSnapshot(job),
+          organizationSnapshot: buildOrganizationSnapshot(organization, job.organizationId),
+          statusSource: 'CANDIDATE_SUBMISSION',
+          statusChangedAt: new Date().toISOString(),
+          statusHistory: [
+            buildStatusHistoryEntry({
+              previousStatus: null,
+              status: 'SUBMITTED',
+              changedBy: candidateId,
+              source: 'CANDIDATE_SUBMISSION',
+            }),
+          ],
+        });
+      } catch (duplicateError) {
+        if (duplicateError.code === 'DUPLICATE_APPLICATION') {
+          return res.status(409).json({
+            error: 'You have already applied to this position',
+            application: sanitizeApplication(duplicateError.existingApplication, null, null, null),
+          });
+        }
+        throw duplicateError;
+      }
 
       // Log activity
       await activityLogStore.record({

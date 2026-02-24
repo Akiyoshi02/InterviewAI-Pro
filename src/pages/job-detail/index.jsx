@@ -36,6 +36,7 @@ const JobDetailPage = () => {
   const [applicationSuccess, setApplicationSuccess] = useState(false);
   const [hasApplied, setHasApplied] = useState(false);
   const [applicationStatus, setApplicationStatus] = useState(null);
+  const [infoMessage, setInfoMessage] = useState('');
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadJobRef = useRef(null);
   const checkApplicationRef = useRef(null);
@@ -82,8 +83,8 @@ const JobDetailPage = () => {
       }
       setHasApplied(false);
       setApplicationStatus(null);
-    } catch (err) {
-      console.error('Failed to check application status:', err);
+    } catch {
+      // Silent failure — apply button stays visible if status check fails
     }
   };
 
@@ -223,7 +224,8 @@ const JobDetailPage = () => {
 
   const handleApply = () => {
     if (user?.accountType?.toUpperCase() !== 'CANDIDATE') {
-      alert('Only candidates can apply to jobs.');
+      setInfoMessage('Only candidates can apply to jobs.');
+      setTimeout(() => setInfoMessage(''), 4000);
       return;
     }
     setShowApplicationForm(true);
@@ -280,7 +282,8 @@ const JobDetailPage = () => {
           return;
         } else {
           navigator.clipboard.writeText(jobUrl);
-          alert('Job URL copied to clipboard!');
+          setInfoMessage('Job URL copied to clipboard!');
+          setTimeout(() => setInfoMessage(''), 3000);
           return;
         }
     }
@@ -854,6 +857,29 @@ const JobDetailPage = () => {
           onClose={() => setShowApplicationForm(false)}
           onSuccess={handleApplicationSuccess}
         />
+      )}
+
+      {/* Info / clipboard toast */}
+      {infoMessage && (
+        <motion.div
+          initial={{ opacity: 0, y: 50 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 50 }}
+          className="fixed bottom-4 right-4 z-50 max-w-md"
+        >
+          <div className="rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <Icon name="Info" className="w-5 h-5 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+              <p className="text-sm text-blue-800 dark:text-blue-200 flex-1">{infoMessage}</p>
+              <button
+                onClick={() => setInfoMessage('')}
+                className="p-1 hover:bg-blue-200 dark:hover:bg-blue-800 rounded"
+              >
+                <Icon name="X" className="w-4 h-4 text-blue-600 dark:text-blue-400" />
+              </button>
+            </div>
+          </div>
+        </motion.div>
       )}
 
       {/* Success Message */}

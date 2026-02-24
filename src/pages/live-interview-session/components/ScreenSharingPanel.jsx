@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { cn } from '../../../utils/cn';
@@ -6,14 +6,26 @@ import { cn } from '../../../utils/cn';
 const ScreenSharingPanel = ({ 
   isScreenSharing = false,
   onToggleScreenShare,
+  onShareWindow,
   onWhiteboardToggle,
+  screenShareStream = null,
   className = ''
 }) => {
   const [isWhiteboardActive, setIsWhiteboardActive] = useState(false);
   const [drawingMode, setDrawingMode] = useState('pen');
   const [selectedColor, setSelectedColor] = useState('#2563EB');
   const canvasRef = useRef(null);
+  const screenPreviewRef = useRef(null);
   const [isDrawing, setIsDrawing] = useState(false);
+
+  useEffect(() => {
+    const video = screenPreviewRef.current;
+    if (!video) return;
+    video.srcObject = screenShareStream || null;
+    if (screenShareStream) {
+      void video.play().catch(() => {});
+    }
+  }, [screenShareStream]);
 
   const handleScreenShare = () => {
     onToggleScreenShare?.();
@@ -121,6 +133,7 @@ const ScreenSharingPanel = ({
               size="sm"
               iconName="Window"
               iconPosition="left"
+              onClick={onShareWindow}
               className="text-xs h-8 sm:h-9"
             >
               Share Window
@@ -220,12 +233,24 @@ const ScreenSharingPanel = ({
       {/* Screen Share Preview */}
       {isScreenSharing && (
         <div className="p-4 pt-0">
-          <div className="aspect-video bg-gray-900/80 rounded-2xl border border-white/20 dark:border-slate-700/60 flex items-center justify-center text-white">
-            <div className="text-center space-y-2">
-              <Icon name="Monitor" size={32} className="text-white/70 mx-auto" />
-              <p className="text-sm text-white/80">Screen sharing active</p>
-              <p className="text-xs text-white/60">Your screen is visible to the interviewer</p>
-            </div>
+          <div className="aspect-video bg-gray-900/80 rounded-2xl border border-white/20 dark:border-slate-700/60 overflow-hidden">
+            {screenShareStream ? (
+              <video
+                ref={screenPreviewRef}
+                autoPlay
+                muted
+                playsInline
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              <div className="w-full h-full flex items-center justify-center text-white">
+                <div className="text-center space-y-2">
+                  <Icon name="Monitor" size={32} className="text-white/70 mx-auto" />
+                  <p className="text-sm text-white/80">Screen sharing active</p>
+                  <p className="text-xs text-white/60">Waiting for stream preview...</p>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

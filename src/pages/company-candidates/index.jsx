@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import CandidateManager from '../company-dashboard/components/CandidateManager';
@@ -12,6 +13,7 @@ import { hasPermission } from '../../utils/rolePermissions';
 const CompanyCandidatesPage = () => {
   const { user, logout } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
+  const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const userType = user?.accountType === 'COMPANY' ? 'company' : null;
   
@@ -21,7 +23,7 @@ const CompanyCandidatesPage = () => {
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = '/login';
+    navigate('/login');
   };
 
   if (!userType) {

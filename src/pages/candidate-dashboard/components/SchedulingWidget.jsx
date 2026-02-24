@@ -4,7 +4,7 @@ import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient';
 
-const SchedulingWidget = ({ upcomingInterviews = [] }) => {
+const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   const navigate = useNavigate();
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [selectedInterviewId, setSelectedInterviewId] = useState('');
@@ -80,6 +80,7 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
 
   // Use transformed real data - no mock fallback
   const interviewData = transformInterviews(upcomingInterviews);
+  const hasScheduledInterviews = interviewData.length > 0;
 
   const getStatusColor = (status) => {
     const colorMap = {
@@ -94,8 +95,9 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   };
 
   const getCountdownColor = (timeLeft) => {
-    const days = parseInt(timeLeft);
-    if (days <= 1) return 'text-rose-500 dark:text-rose-400';
+    if (!timeLeft || timeLeft === 'Today') return 'text-rose-500 dark:text-rose-400';
+    const days = parseInt(timeLeft, 10);
+    if (Number.isNaN(days) || days <= 1) return 'text-rose-500 dark:text-rose-400';
     if (days <= 3) return 'text-purple-600 dark:text-purple-400';
     return 'text-emerald-600 dark:text-emerald-400';
   };
@@ -117,13 +119,13 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
 
   const openScheduleFormFor = (interview = null) => {
     const target = interview || interviewData?.[0] || null;
-    if (target) {
-      setSelectedInterviewId(target.id || '');
-      setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
-      setMeetingLink(target?.meetingLink || '');
-    } else {
-      resetScheduleForm();
+    if (!target) {
+      navigate('/my-applications');
+      return;
     }
+    setSelectedInterviewId(target.id || '');
+    setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
+    setMeetingLink(target?.meetingLink || '');
     setShowScheduleForm(true);
   };
 
@@ -152,7 +154,9 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
       }
       setShowScheduleForm(false);
       resetScheduleForm();
-      window.location.reload();
+      if (typeof onScheduleSaved === 'function') {
+        await onScheduleSaved();
+      }
     } catch (error) {
       setScheduleError(error?.message || 'Failed to save schedule');
     } finally {
@@ -161,6 +165,10 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
   };
 
   const handleViewCalendar = () => {
+    if (!hasScheduledInterviews) {
+      navigate('/my-applications');
+      return;
+    }
     const withMeetingLink = interviewData.find((item) => item?.meetingLink);
     if (withMeetingLink?.meetingLink) {
       window.open(withMeetingLink.meetingLink, '_blank', 'noopener,noreferrer');
@@ -181,12 +189,12 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
         <Button
           variant="default"
           size="sm"
-          iconName="Plus"
+          iconName={hasScheduledInterviews ? 'Plus' : 'Briefcase'}
           iconPosition="left"
           onClick={() => openScheduleFormFor()}
           className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
         >
-          Schedule
+          {hasScheduledInterviews ? 'Schedule' : 'My Applications'}
         </Button>
       </div>
       {showScheduleForm && (
@@ -350,17 +358,28 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           </div>
           <h3 className="font-medium text-gray-900 dark:text-slate-100 mb-2">No Upcoming Interviews</h3>
           <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-            Schedule your first interview or practice with AI
+            You do not have any scheduled interviews yet. Keep momentum with practice while your applications progress.
           </p>
-          <Button
-          variant="default"
-          iconName="Plus"
-          iconPosition="left"
-          onClick={() => openScheduleFormFor()}
-          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
-        >
-            Schedule Interview
-          </Button>
+          <div className="flex flex-col xs:flex-row justify-center gap-2">
+            <Button
+              variant="outline"
+              iconName="Briefcase"
+              iconPosition="left"
+              onClick={() => navigate('/my-applications')}
+              className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+            >
+              View Applications
+            </Button>
+            <Button
+              variant="default"
+              iconName="Play"
+              iconPosition="left"
+              onClick={() => navigate('/practice-interview-setup')}
+              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+            >
+              Start Practice
+            </Button>
+          </div>
         </div>
       }
       {/* Quick Actions */}
@@ -370,11 +389,10 @@ const SchedulingWidget = ({ upcomingInterviews = [] }) => {
           iconName="Calendar"
           iconPosition="left"
           onClick={handleViewCalendar}
-          disabled={!interviewData?.length}
           fullWidth
           className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
         >
-          View Calendar
+          {hasScheduledInterviews ? 'View Calendar' : 'Open My Applications'}
         </Button>
       </div>
     </div>);

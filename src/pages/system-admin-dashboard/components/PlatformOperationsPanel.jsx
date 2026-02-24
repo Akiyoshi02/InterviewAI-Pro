@@ -54,7 +54,6 @@ const PlatformOperationsPanel = () => {
         setRetention(retentionResult.value.retention || null);
       }
     } catch (error) {
-      console.error('Failed to load operations data:', error);
       showErrorToast('Failed to load operations data.');
     } finally {
       setLoading(false);
@@ -112,7 +111,6 @@ const PlatformOperationsPanel = () => {
       showSuccessToast(dryRun ? 'Dry run complete.' : 'Data retention cleanup executed.');
       await loadData({ showLoader: false });
     } catch (error) {
-      console.error('Failed to run cleanup:', error);
       showErrorToast(error?.message || 'Failed to run cleanup.');
     } finally {
       setCleanupRunning(false);

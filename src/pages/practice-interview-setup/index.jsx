@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
@@ -28,6 +28,7 @@ const PracticeInterviewSetup = () => {
   const [isChecklistComplete, setIsChecklistComplete] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState(null);
+  const [savedConfigs, setSavedConfigs] = useState([]);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -39,6 +40,7 @@ const PracticeInterviewSetup = () => {
     personality: null, // AI interviewer personality traits
     voice: null, // Voice/actor selection (separate from personality)
     interviewerName: null, // Generated or custom interviewer name
+    prepNotes: '', // GAP: prep notes saved to first question when session has questions
     advancedSettings: {
       skillFocus: [],
       language: 'en',
@@ -158,6 +160,7 @@ const PracticeInterviewSetup = () => {
         localStorage.setItem('interviewConfig', JSON.stringify({
           ...formData,
           interviewId: result.interview.id,
+          prepNotes: formData.prepNotes || '',
         }));
 
         // Navigate to live interview session
@@ -166,7 +169,6 @@ const PracticeInterviewSetup = () => {
         throw new Error('Failed to create interview');
       }
     } catch (err) {
-      console.error('Failed to create interview:', err);
       setError(err.message || 'Failed to start interview. Please try again.');
       setIsCreating(false);
     }
@@ -186,6 +188,34 @@ const PracticeInterviewSetup = () => {
     }));
   };
 
+  const loadSavedConfigs = useCallback(() => {
+    try {
+      const configs = JSON.parse(localStorage.getItem('savedInterviewConfigs') || '[]');
+      setSavedConfigs(Array.isArray(configs) ? configs : []);
+    } catch {
+      setSavedConfigs([]);
+    }
+  }, []);
+
+  const applySavedConfig = useCallback((savedConfig) => {
+    if (!savedConfig?.config) return;
+    setFormData({
+      ...savedConfig.config,
+      advancedSettings: {
+        skillFocus: [],
+        language: 'en',
+        realTimeFeedback: false,
+        followUpQuestions: true,
+        recordSession: true,
+        practiceMode: false,
+        difficulty: 'medium',
+        ...(savedConfig.config?.advancedSettings || {}),
+      },
+    });
+    setCurrentStep(1);
+    showSuccessToast(`Loaded config: ${savedConfig.name || 'Saved configuration'}`);
+  }, [showSuccessToast]);
+
   // Auto-save form data to localStorage
   useEffect(() => {
     const savedData = localStorage.getItem('interviewSetupDraft');
@@ -193,11 +223,12 @@ const PracticeInterviewSetup = () => {
       try {
         const parsed = JSON.parse(savedData);
         setFormData(prev => ({ ...prev, ...parsed }));
-      } catch (error) {
-        console.error('Failed to load saved form data:', error);
+      } catch {
+        // Ignore invalid saved draft data
       }
     }
-  }, []);
+    loadSavedConfigs();
+  }, [loadSavedConfigs]);
 
   useEffect(() => {
     localStorage.setItem('interviewSetupDraft', JSON.stringify(formData));
@@ -255,9 +286,24 @@ const PracticeInterviewSetup = () => {
       
       case 4:
         return (
-          <PreparationChecklist
-            onChecklistComplete={setIsChecklistComplete}
-          />
+          <div className="space-y-6">
+            <div>
+              <label htmlFor="prep-notes" className="block text-sm font-medium text-gray-900 dark:text-slate-100 mb-2">
+                Prep notes
+              </label>
+              <textarea
+                id="prep-notes"
+                value={formData.prepNotes || ''}
+                onChange={(e) => setFormData((prev) => ({ ...prev, prepNotes: e.target.value }))}
+                placeholder="Key points to remember, STAR examples, or questions you want to ask. These will be saved with your session."
+                rows={4}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 dark:placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-transparent p-3 text-sm resize-y min-h-[100px]"
+              />
+            </div>
+            <PreparationChecklist
+              onChecklistComplete={setIsChecklistComplete}
+            />
+          </div>
         );
       
       default:
@@ -461,6 +507,8 @@ const PracticeInterviewSetup = () => {
                         interviewTypes: [],
                         sessionDuration: 30,
                         personality: null,
+                        voice: null,
+                        interviewerName: null,
                         advancedSettings: {
                           skillFocus: [],
                           language: 'en',
@@ -479,21 +527,34 @@ const PracticeInterviewSetup = () => {
                   >
                     Reset Form
                   </Button>
+                  {savedConfigs.length > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconName="Upload"
+                      iconPosition="left"
+                      onClick={() => applySavedConfig(savedConfigs[savedConfigs.length - 1])}
+                      className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm flex-1 xs:flex-none"
+                    >
+                      Load Last Saved
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     size="sm"
                     iconName="Save"
                     iconPosition="left"
                     onClick={() => {
-                      const savedConfigs = JSON.parse(localStorage.getItem('savedInterviewConfigs') || '[]');
+                      const existingConfigs = JSON.parse(localStorage.getItem('savedInterviewConfigs') || '[]');
                       const newConfig = {
                         id: Date.now(),
                         name: `${formData?.jobRole || 'Custom'} Interview`,
                         config: formData,
                         createdAt: new Date()?.toISOString()
                       };
-                      savedConfigs?.push(newConfig);
-                      localStorage.setItem('savedInterviewConfigs', JSON.stringify(savedConfigs));
+                      existingConfigs?.push(newConfig);
+                      localStorage.setItem('savedInterviewConfigs', JSON.stringify(existingConfigs));
+                      loadSavedConfigs();
                       showSuccessToast('Configuration saved successfully!');
                     }}
                     className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-800 dark:text-slate-200 hover:bg-gray-50 dark:hover:bg-slate-800 text-xs sm:text-sm flex-1 xs:flex-none"

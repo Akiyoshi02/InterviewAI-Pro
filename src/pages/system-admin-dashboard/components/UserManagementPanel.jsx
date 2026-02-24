@@ -59,6 +59,8 @@ const UserManagementPanel = () => {
   const [filters, setFilters] = useState(DEFAULT_ADMIN_USER_FILTERS);
   const [page, setPage] = useState(1);
   const [actionLoadingId, setActionLoadingId] = useState(null);
+  const [suspensionModal, setSuspensionModal] = useState({ open: false, user: null, reason: '' });
+  const [promoteConfirmUser, setPromoteConfirmUser] = useState(null);
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadUsersRef = useRef(null);
 
@@ -105,7 +107,6 @@ const UserManagementPanel = () => {
 
       setAllUsers(deduped);
     } catch (error) {
-      console.error('Failed to load users:', error);
       showErrorToast(error?.message || 'Failed to load users.');
     } finally {
       setLoading(false);
@@ -183,20 +184,16 @@ const UserManagementPanel = () => {
     setFilters(DEFAULT_ADMIN_USER_FILTERS);
   };
 
-  const handleChangeStatus = async (user, nextStatus) => {
+  const handleChangeStatus = (user, nextStatus) => {
     if (!user?.id || actionLoadingId) return;
-
-    let reason = '';
     if (nextStatus === 'SUSPENDED') {
-      const inputReason = window.prompt('Suspension reason (minimum 8 characters):', '');
-      if (inputReason === null) return;
-      reason = inputReason.trim();
-      if (reason.length < 8) {
-        showWarningToast('Please provide at least 8 characters for suspension reason.');
-        return;
-      }
+      setSuspensionModal({ open: true, user, reason: '' });
+    } else {
+      confirmChangeStatus(user, nextStatus, '');
     }
+  };
 
+  const confirmChangeStatus = async (user, nextStatus, reason) => {
     try {
       setActionLoadingId(user.id);
       const result = await apiClient.admin.updateUserStatus(user.id, {
@@ -209,20 +206,30 @@ const UserManagementPanel = () => {
       showSuccessToast(nextStatus === 'SUSPENDED' ? 'User suspended successfully.' : 'User reactivated successfully.');
       await loadUsers({ showLoader: false });
     } catch (error) {
-      console.error('Failed to update user status:', error);
       showErrorToast(error?.message || 'Failed to update user status.');
     } finally {
       setActionLoadingId(null);
     }
   };
 
-  const handlePromoteToAdmin = async (user) => {
-    if (!user?.id || actionLoadingId) return;
-    const confirmed = window.confirm(
-      `Promote ${user.email || user.fullName || 'this user'} to System Admin?\n\nThis grants full platform administrative access.`,
-    );
-    if (!confirmed) return;
+  const handleConfirmSuspension = () => {
+    const { user, reason } = suspensionModal;
+    if (reason.trim().length < 8) {
+      showWarningToast('Please provide at least 8 characters for the suspension reason.');
+      return;
+    }
+    setSuspensionModal({ open: false, user: null, reason: '' });
+    confirmChangeStatus(user, 'SUSPENDED', reason.trim());
+  };
 
+  const handlePromoteToAdmin = (user) => {
+    if (!user?.id || actionLoadingId) return;
+    setPromoteConfirmUser(user);
+  };
+
+  const confirmPromoteToAdmin = async () => {
+    const user = promoteConfirmUser;
+    setPromoteConfirmUser(null);
     try {
       setActionLoadingId(user.id);
       const result = await apiClient.admin.promoteToSystemAdmin(user.id);
@@ -232,7 +239,6 @@ const UserManagementPanel = () => {
       showSuccessToast('User promoted to system admin.');
       await loadUsers({ showLoader: false });
     } catch (error) {
-      console.error('Failed to promote user:', error);
       showErrorToast(error?.message || 'Failed to promote user.');
     } finally {
       setActionLoadingId(null);
@@ -466,6 +472,70 @@ const UserManagementPanel = () => {
           </Button>
         </div>
       </div>
+
+      {suspensionModal.open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center flex-shrink-0">
+                <Icon name="ShieldOff" size={18} className="text-orange-600 dark:text-orange-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Suspend user</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">{suspensionModal.user?.email}</p>
+              </div>
+            </div>
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                Suspension reason <span className="text-red-500">*</span>
+                <span className="text-xs text-gray-400 font-normal ml-1">(minimum 8 characters)</span>
+              </label>
+              <textarea
+                value={suspensionModal.reason}
+                onChange={(e) => setSuspensionModal((prev) => ({ ...prev, reason: e.target.value }))}
+                placeholder="Explain why this account is being suspended..."
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 dark:placeholder:text-slate-400 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-500 focus:border-transparent resize-none"
+              />
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setSuspensionModal({ open: false, user: null, reason: '' })}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-orange-600 hover:bg-orange-700 text-white border-none" onClick={handleConfirmSuspension}>
+                Suspend User
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {promoteConfirmUser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center flex-shrink-0">
+                <Icon name="ShieldCheck" size={18} className="text-purple-600 dark:text-purple-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Promote to System Admin?</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">{promoteConfirmUser?.email || promoteConfirmUser?.fullName}</p>
+              </div>
+            </div>
+            <p className="text-sm text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 rounded-xl px-3 py-2">
+              This grants full platform administrative access. This action cannot be undone from the UI.
+            </p>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setPromoteConfirmUser(null)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-purple-600 hover:bg-purple-700 text-white border-none" onClick={confirmPromoteToAdmin}>
+                Promote
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

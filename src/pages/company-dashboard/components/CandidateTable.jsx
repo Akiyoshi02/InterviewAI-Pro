@@ -78,6 +78,34 @@ const toMillis = (value) => {
   return Number.isFinite(millis) ? millis : 0;
 };
 
+const exportCandidatesCSV = (rows) => {
+  const headers = ['Name', 'Email', 'Position', 'Experience', 'Interview Date', 'Duration', 'AI Score', 'Status'];
+  const escape = (val) => {
+    const str = val == null ? '' : String(val);
+    return str.includes(',') || str.includes('"') || str.includes('\n')
+      ? `"${str.replace(/"/g, '""')}"`
+      : str;
+  };
+  const csvContent = [
+    headers.join(','),
+    ...rows.map((c) =>
+      [c.name, c.email, c.position, c.experience || '--', c.interviewDate, c.duration, c.aiScore != null ? `${c.aiScore}%` : '--', formatStatusLabel(c.statusCode)]
+        .map(escape)
+        .join(','),
+    ),
+  ].join('\n');
+
+  const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `candidates_${new Date().toISOString().slice(0, 10)}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+};
+
 const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUpdateStatus }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest_date');
@@ -105,7 +133,9 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
         statusCode,
         avatar: interview?.candidate?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(interview?.candidate?.fullName || 'C')}&background=6366f1&color=fff`,
         duration: interview?.duration ? `${Math.round(interview.duration / 60)} min` : '--',
-        experience: '--',
+        experience: interview?.experienceLevel
+          ? String(interview.experienceLevel).charAt(0).toUpperCase() + String(interview.experienceLevel).slice(1).toLowerCase()
+          : (interview?.candidate?.profile?.experienceLevel || null),
         sortDateMillis: Math.max(scheduledAtMillis, updatedAtMillis || 0, fallbackDateMillis || 0),
       };
     }),
@@ -217,9 +247,10 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
             variant="outline"
             iconName="Download"
             iconPosition="left"
+            onClick={() => exportCandidatesCSV(filteredCandidates)}
             className="w-full sm:w-auto rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
           >
-            Export
+            Export CSV
           </Button>
         </div>
 
@@ -305,7 +336,7 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
                 <td className="py-4 px-4">
                   <div>
                     <p className="font-medium text-gray-900 dark:text-slate-100">{candidate.position}</p>
-                    <p className="text-sm text-gray-500 dark:text-slate-400">{candidate.experience} experience</p>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">{candidate.experience ? `${candidate.experience} level` : 'Level N/A'}</p>
                   </div>
                 </td>
                 <td className="py-4 px-4">

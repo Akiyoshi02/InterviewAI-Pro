@@ -79,8 +79,8 @@ const PlatformAuditLogs = () => {
 
       setAllLogs(deduped);
       setIsTruncated(Boolean(hasMore && cursor));
-    } catch (error) {
-      console.error('Failed to load audit logs:', error);
+    } catch {
+      // Silent failure — logs stay empty; user can refresh
     } finally {
       setLoading(false);
       setRefreshing(false);

@@ -157,8 +157,7 @@ const AIChatAssistant = ({
         },
         hiringMetrics: metrics || {}
       };
-    } catch (error) {
-      console.warn('AI Assistant context error:', error);
+    } catch {
       return { companyData: {}, hiringMetrics: {} };
     }
   };
@@ -313,8 +312,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setIsTyping(false);
       }, 1000 + Math.random() * 2000);
       
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       setIsTyping(false);
       
       const errorMessage = {
@@ -394,12 +392,11 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       const errorMessage = {
         id: updatedMessages?.length + 1,
         type: 'assistant',
-        content: "I ran into an issue generating a response. Please ensure your local AI service (Ollama) is running and try again.",
+        content: "I ran into an issue generating a response. The AI service may be temporarily unavailable. Please try again in a moment.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -440,7 +437,6 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Voice input error:', error);
       setRecordingError(error?.message || 'Transcription failed. Please try again.');
       setVoiceStatus('idle');
     } finally {
@@ -472,7 +468,6 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Microphone access error:', error);
       setRecordingError(error?.message || 'Unable to access microphone.');
       setIsRecording(false);
       setVoiceStatus('idle');

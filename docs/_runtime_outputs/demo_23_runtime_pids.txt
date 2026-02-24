@@ -1,2 +1,0 @@
-server_pid=51812
-frontend_pid=5528

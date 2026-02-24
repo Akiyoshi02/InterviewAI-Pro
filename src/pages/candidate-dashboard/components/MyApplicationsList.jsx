@@ -141,6 +141,7 @@ const MyApplicationsList = () => {
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState({ open: false, applicationId: null });
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawSuccess, setWithdrawSuccess] = useState('');
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
@@ -186,7 +187,6 @@ const MyApplicationsList = () => {
         setError('Failed to load applications');
       }
     } catch (err) {
-      console.error('Load applications error:', err);
       setError(err.message || 'Failed to load applications');
     } finally {
       setLoading(false);
@@ -233,6 +233,8 @@ const MyApplicationsList = () => {
       const result = await apiClient.applications.withdraw(withdrawDialog.applicationId);
       if (result.success) {
         setWithdrawDialog({ open: false, applicationId: null });
+        setWithdrawSuccess('Application withdrawn successfully.');
+        setTimeout(() => setWithdrawSuccess(''), 4000);
         loadApplications();
       } else {
         throw new Error(result.error || 'Failed to withdraw application');
@@ -359,6 +361,11 @@ const MyApplicationsList = () => {
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
+      {withdrawSuccess && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          {withdrawSuccess}
+        </div>
+      )}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>

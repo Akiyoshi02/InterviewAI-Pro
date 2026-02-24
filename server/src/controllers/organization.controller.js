@@ -164,6 +164,28 @@ export class OrganizationController {
         return res.status(400).json({ error: 'userId is required' });
       }
 
+      // CRITICAL FIX: Prevent removing last admin
+      // Check if this would demote or deactivate the last admin
+      const existingMembership = await organizationMemberStore.getMember(organization.id, userId);
+      const isCurrentlyAdmin = existingMembership?.role === 'ADMIN' && existingMembership?.status === 'ACTIVE';
+      const wouldBeDemotedOrDeactivated = (role && role !== 'ADMIN') || (status && status !== 'ACTIVE');
+
+      if (isCurrentlyAdmin && wouldBeDemotedOrDeactivated) {
+        // Count active admins in the organization
+        const allMembers = await organizationMemberStore.listByOrganization(organization.id);
+        const activeAdminCount = allMembers.filter(
+          (m) => m.role === 'ADMIN' && m.status === 'ACTIVE'
+        ).length;
+
+        // If this is the last active admin, prevent the change
+        if (activeAdminCount <= 1) {
+          return res.status(409).json({
+            error: 'Cannot demote or deactivate the last admin. Please assign another admin first.',
+            code: 'LAST_ADMIN_PROTECTION',
+          });
+        }
+      }
+
       const membership = await organizationMemberStore.addMember({
         organizationId: organization.id,
         userId,

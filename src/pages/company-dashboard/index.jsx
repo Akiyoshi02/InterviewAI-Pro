@@ -41,6 +41,8 @@ const CompanyDashboard = () => {
   const [error, setError] = useState(null);
   const [selectedReviewInterviewId, setSelectedReviewInterviewId] = useState(null);
   const [actionMessage, setActionMessage] = useState('');
+  const [statusUpdateModal, setStatusUpdateModal] = useState({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
   const realtimeRefreshTimeoutRef = useRef(null);
   const fetchCompanyDataRef = useRef(null);
 
@@ -381,16 +383,20 @@ const CompanyDashboard = () => {
   };
 
   const handleUpdateStatus = (candidateId) => {
-    console.log('Updating status for candidate:', candidateId);
-    // Open status update modal
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+    setStatusUpdateModal({ open: true, interviewId: interview.id, currentStatus: interview.pipelineStatus || interview.status || 'SCREENING' });
   };
 
   const handleScheduleInterview = () => {
-    window.location.href = '/practice-interview-setup';
+    navigate('/practice-interview-setup');
   };
 
   const handleCreateTemplate = () => {
-    window.location.href = '/practice-interview-setup';
+    navigate('/practice-interview-setup');
   };
 
   const handleGenerateReport = () => {
@@ -401,20 +407,43 @@ const CompanyDashboard = () => {
     navigate('/company-analytics');
   };
 
+  const PIPELINE_STAGE_OPTIONS = [
+    { value: 'SCREENING', label: 'Screening' },
+    { value: 'INTERVIEW', label: 'Interview' },
+    { value: 'OFFER', label: 'Offer' },
+    { value: 'HIRED', label: 'Hired' },
+    { value: 'REJECTED', label: 'Rejected' },
+  ];
+
+  const handleStatusUpdateSubmit = async (newStatus) => {
+    if (!statusUpdateModal.interviewId || !newStatus) return;
+    setStatusUpdateLoading(true);
+    try {
+      await apiClient.pipeline.move(statusUpdateModal.interviewId, { pipelineStatus: newStatus });
+      setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+      setActionMessage('');
+      await fetchCompanyData();
+    } catch (err) {
+      setActionMessage(err?.message || 'Failed to update status. Please try again.');
+      setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+    } finally {
+      setStatusUpdateLoading(false);
+    }
+  };
+
   const handleActionClick = (action) => {
     switch (action?.id) {
       case 'setup-interview':
-        window.location.href = '/practice-interview-setup';
+        navigate('/practice-interview-setup');
         break;
       case 'review-candidates':
-        // Navigate to candidates page
         navigate('/company-candidates');
         break;
       case 'live-session':
-        window.location.href = '/live-interview-session';
+        navigate('/live-interview-session');
         break;
       default:
-        console.log('Action clicked:', action?.id);
+        break;
     }
   };
 
@@ -590,6 +619,47 @@ const CompanyDashboard = () => {
             interviewId={selectedReviewInterviewId}
             onClose={() => setSelectedReviewInterviewId(null)}
           />
+        )}
+
+        {statusUpdateModal.open && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Update Pipeline Status</h3>
+                <button
+                  type="button"
+                  onClick={() => setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' })}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 rounded-full p-1"
+                >
+                  <Icon name="X" size={16} />
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-slate-400">Move this candidate to a new stage in your hiring pipeline.</p>
+              <div className="space-y-2">
+                {PIPELINE_STAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={statusUpdateLoading}
+                    onClick={() => handleStatusUpdateSubmit(option.value)}
+                    className={`w-full text-left px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                      statusUpdateModal.currentStatus === option.value
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-300 hover:border-blue-400 dark:hover:border-blue-500'
+                    } disabled:opacity-50`}
+                  >
+                    {option.label}
+                    {statusUpdateModal.currentStatus === option.value && (
+                      <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">(current)</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {statusUpdateLoading && (
+                <p className="text-xs text-center text-gray-500 dark:text-slate-400">Updating...</p>
+              )}
+            </div>
+          </div>
         )}
 
         {/* Floating Action Button - Mobile Only - ADMIN and RECRUITER only */}

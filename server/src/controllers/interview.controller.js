@@ -5,6 +5,7 @@ import {
   activityLogStore,
   hydrateInterviewParticipants,
   interviewStore,
+  invitationStore,
   jobApplicationStore,
   jobStore,
   publishAdminRealtimeUpdate,
@@ -185,7 +186,7 @@ const isTerminalInterviewStatus = (status) => {
 };
 
 const DEFAULT_SYSTEM_AI_CONFIG = Object.freeze({
-  model: process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct',
+  model: process.env.OLLAMA_MODEL || 'qwen3:8b',
   temperature: 0.7,
   maxTokens: 2000,
 });
@@ -938,6 +939,13 @@ export class InterviewController {
         return res.status(400).json({ error: 'Interview cannot be started in current state' });
       }
 
+      if (!interview.recordingConsentGivenAt) {
+        return res.status(409).json({
+          error: 'Recording consent is required before starting the interview',
+          code: 'RECORDING_CONSENT_REQUIRED',
+        });
+      }
+
       if (!interview.questions || interview.questions.length === 0) {
         const config = {
           jobRole: interview.jobRole,
@@ -1027,6 +1035,13 @@ export class InterviewController {
         return res.status(access.status).json({ error: access.message });
       }
 
+      if (interview.status !== 'IN_PROGRESS') {
+        return res.status(409).json({
+          error: 'Interview cannot be ended because it is not in progress',
+          code: 'INTERVIEW_NOT_IN_PROGRESS',
+        });
+      }
+
       const answeredQuestions = (interview.questions || []).filter((q) => q.answer);
       const evaluationResult = await evaluateInterviewWithFallback({
         interview,
@@ -1048,6 +1063,35 @@ export class InterviewController {
         llmFallbackReason: pendingEvaluation ? reasonCode : null,
         evaluationMetadata: metadata,
       });
+
+      // GAP FIX: Auto-update application status when interview completes
+      if (updatedInterview.mode === 'HIRING' && updatedInterview.invitationId) {
+        try {
+          const invitation = await invitationStore.getById(updatedInterview.invitationId);
+          if (invitation && invitation.acceptedApplicationId) {
+            // Update application to mark interview as completed
+            await jobApplicationStore.update(invitation.acceptedApplicationId, {
+              interviewCompletedAt: updatedInterview.endedAt,
+              // Keep status as INTERVIEWING until review/decision
+            });
+            logger.info(`Application ${invitation.acceptedApplicationId} updated with interview completion`);
+          }
+        } catch (applicationUpdateError) {
+          logger.warn('Failed to update application after interview completion:', applicationUpdateError);
+          // Non-fatal - interview still completed successfully
+        }
+      }
+
+      // GAP FEATURE: Update practice streak for PRACTICE mode interviews
+      if (updatedInterview.mode === 'PRACTICE' && updatedInterview.candidateId) {
+        try {
+          const { updatePracticeStreak } = await import('../services/firebaseData.service.js');
+          await updatePracticeStreak(updatedInterview.candidateId, updatedInterview.endedAt);
+        } catch (streakError) {
+          logger.warn('Failed to update practice streak:', streakError);
+          // Non-fatal - interview still completed successfully
+        }
+      }
 
       try {
         await recordRealtimeEvent(id, 'interview-ended', {
@@ -1411,6 +1455,41 @@ export class InterviewController {
       res.json({ success: true, questionId });
     } catch (error) {
       logger.error('Mark question asked error:', error);
+      next(error);
+    }
+  }
+
+  // GAP FEATURE: Save prep notes for a question
+  static async saveQuestionNotes(req, res, next) {
+    try {
+      const { id, questionId } = req.params;
+      const { prepNotes } = req.body;
+      
+      const interview = await interviewStore.getById(id);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      // Validate question exists
+      const questions = (interview.questions || []);
+      const question = questions.find((q) => q.id === questionId);
+      if (!question) {
+        return res.status(404).json({ error: 'Question not found' });
+      }
+
+      // Update question with prep notes
+      await interviewStore.updateQuestion(id, questionId, {
+        prepNotes: prepNotes || '',
+      });
+
+      res.json({ 
+        success: true, 
+        message: 'Prep notes saved',
+        questionId,
+      });
+    } catch (error) {
+      logger.error('Save question notes error:', error);
       next(error);
     }
   }

@@ -677,6 +677,70 @@ export const apiClient = {
       });
       return handleResponse(response);
     },
+
+    async saveQuestionNotes(interviewId, questionId, prepNotes) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/question/${questionId}/notes`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({ prepNotes: prepNotes || '' }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Personal Answer Library (saved answers) - candidate only
+   */
+  savedAnswers: {
+    async create({ questionText, answer, interviewId, questionId, notes, tags, rating }) {
+      const response = await fetch(`${API_URL}/api/saved-answers`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({
+          questionText: questionText || '',
+          answer: answer || '',
+          interviewId: interviewId || undefined,
+          questionId: questionId || undefined,
+          notes: notes || undefined,
+          tags: Array.isArray(tags) ? tags : undefined,
+          rating: rating != null ? rating : undefined,
+        }),
+      });
+      return handleResponse(response);
+    },
+
+    async list({ limit = 100, tag } = {}) {
+      const params = new URLSearchParams();
+      if (limit != null) params.set('limit', String(limit));
+      if (tag) params.set('tag', tag);
+      const qs = params.toString();
+      const response = await fetch(`${API_URL}/api/saved-answers${qs ? `?${qs}` : ''}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async update(id, { notes, tags, rating }) {
+      const response = await fetch(`${API_URL}/api/saved-answers/${id}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({
+          notes: notes !== undefined ? notes : undefined,
+          tags: tags !== undefined ? tags : undefined,
+          rating: rating !== undefined ? rating : undefined,
+        }),
+      });
+      return handleResponse(response);
+    },
+
+    async delete(id) {
+      const response = await fetch(`${API_URL}/api/saved-answers/${id}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
   },
 
   /**
@@ -852,6 +916,70 @@ export const apiClient = {
   },
 
   /**
+   * Billing APIs (company/organization)
+   */
+  billing: {
+    async getPlans() {
+      const response = await fetch(`${API_URL}/api/billing/plans`, {
+        method: 'GET',
+        headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+
+    async getSubscription() {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getUsage() {
+      const response = await fetch(`${API_URL}/api/billing/usage`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getBillingHistory(limit = 50) {
+      const response = await fetch(`${API_URL}/api/billing/history?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateSubscription(planId) {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'PUT',
+        headers: await getHeaders(),
+        body: JSON.stringify({ planId }),
+      });
+      return handleResponse(response);
+    },
+
+    async cancelSubscription(cancelAtPeriodEnd = true) {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+        body: JSON.stringify({ cancelAtPeriodEnd }),
+      });
+      return handleResponse(response);
+    },
+
+    async createCheckoutSession(planId) {
+      const response = await fetch(`${API_URL}/api/billing/checkout`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ planId }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
    * Job APIs
    */
   jobs: {
@@ -997,6 +1125,14 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify({ token }),
+      });
+      return handleResponse(response);
+    },
+
+    async revoke(id) {
+      const response = await fetch(`${API_URL}/api/invitations/${id}/revoke`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
       });
       return handleResponse(response);
     },
@@ -1179,6 +1315,14 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async getAIHealth() {
+      const response = await fetch(`${API_URL}/api/ai/health`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async updateSettings(settings) {
       const response = await fetch(`${API_URL}/api/admin/settings`, {
         method: 'PATCH',
@@ -1273,6 +1417,67 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getClassificationMetrics(limit = 500) {
+      const response = await fetch(`${API_URL}/api/admin/classification-metrics?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getMediaPipeCalibration() {
+      const response = await fetch(`${API_URL}/api/admin/mediapipe-calibration`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getFineTuneStatus() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/status`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async triggerFineTune() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async evaluateFineTunedModel() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/evaluate`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async exportTrainingData() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/export`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Export failed' }));
+        throw new Error(err.error || 'Export failed');
+      }
+      return response.blob();
+    },
+
+    async importTrainedGGUF(ggufPath) {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/import-gguf`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ ggufPath }),
       });
       return handleResponse(response);
     },

@@ -387,6 +387,7 @@ const CandidateFields = ({
     moderationState,
     onReset,
   }) => {
+    const inputId = React.useId();
     const fileValue = formData?.[fieldKey];
     const error = errors?.[fieldKey];
     const stateClass = error
@@ -436,12 +437,6 @@ const CandidateFields = ({
         }
         setIsUploading(false);
       }
-    };
-
-    const handleFileInputClick = () => {
-      if (!inputRef?.current) return;
-      inputRef.current.value = '';
-      inputRef.current.click();
     };
 
     const handleRemoveFile = () => {
@@ -509,18 +504,20 @@ const CandidateFields = ({
               </div>
             )}
             <div className="flex flex-wrap gap-2 justify-center">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                iconName="Upload"
-                className="rounded-full"
-                onClick={handleFileInputClick}
-                disabled={isChecking}
-                loading={isChecking}
-              >
-                Replace
-              </Button>
+              {isChecking ? (
+                <span className="inline-flex items-center justify-center h-9 sm:h-10 rounded-full px-3 sm:px-4 min-h-[40px] border border-input bg-background opacity-50 cursor-not-allowed text-sm font-medium">
+                  <LoadingIndicator size={14} tone="current" className="mr-2" />
+                  Replace
+                </span>
+              ) : (
+                <label
+                  htmlFor={inputId}
+                  className="inline-flex items-center justify-center h-9 sm:h-10 rounded-full px-3 sm:px-4 min-h-[40px] border border-input bg-background hover:bg-accent cursor-pointer text-sm font-medium"
+                >
+                  <Icon name="Upload" size={14} className="mr-2" />
+                  Replace
+                </label>
+              )}
               <Button
                 type="button"
                 variant="ghost"
@@ -537,18 +534,20 @@ const CandidateFields = ({
         ) : (
           <div className="mt-4 flex items-center justify-between gap-3">
             <p className="text-xs text-gray-500 dark:text-slate-400">{helper}</p>
-            <Button
-              type="button"
-              variant="default"
-              size="sm"
-              iconName="Upload"
-              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-              onClick={handleFileInputClick}
-              disabled={isChecking}
-              loading={isChecking}
-            >
-              Upload
-            </Button>
+            {isChecking ? (
+              <span className="inline-flex items-center justify-center h-9 sm:h-10 rounded-full px-3 sm:px-4 min-h-[40px] bg-gradient-to-r from-blue-600 to-purple-600 text-white opacity-50 cursor-not-allowed text-sm font-medium">
+                <LoadingIndicator size={14} tone="current" className="mr-2" />
+                Upload
+              </span>
+            ) : (
+              <label
+                htmlFor={inputId}
+                className="inline-flex items-center justify-center h-9 sm:h-10 rounded-full px-3 sm:px-4 min-h-[40px] bg-gradient-to-r from-blue-600 to-purple-600 text-white hover:opacity-90 cursor-pointer text-sm font-medium transition-opacity"
+              >
+                <Icon name="Upload" size={14} className="mr-2" />
+                Upload
+              </label>
+            )}
           </div>
         )}
 
@@ -567,6 +566,7 @@ const CandidateFields = ({
         )}
 
         <input
+          id={inputId}
           ref={inputRef}
           type="file"
           accept={accept}

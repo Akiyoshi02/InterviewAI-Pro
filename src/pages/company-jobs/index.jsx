@@ -736,8 +736,6 @@ const CompanyJobsPage = () => {
       // Clear location feedback on success
       setLocationFeedback({ status: 'success', message: '' });
     } catch (error) {
-      console.error('Location detection error:', error);
-
       let friendlyMessage = error?.message || 'Unable to detect your location. Please enter it manually.';
 
       if (error?.code === 1 || error?.message?.toLowerCase().includes('permission')) {
@@ -805,8 +803,7 @@ const CompanyJobsPage = () => {
         setPendingRealtimeJobUpdates(0);
       }
     } catch (err) {
-      console.error('Failed to load jobs:', err);
-      setError('Failed to load jobs');
+      setError(err?.message || 'Failed to load jobs');
     } finally {
       setLoading(false);
     }
@@ -1181,7 +1178,6 @@ const CompanyJobsPage = () => {
       await loadJobs();
       closeCreateModal();
     } catch (err) {
-      console.error('Job submission error:', err);
       // Extract validation errors from response
       if (err.errors && Array.isArray(err.errors)) {
         const errorMessages = err.errors.map(e => `${e.param || e.field}: ${e.msg || e.message}`).join(', ');
@@ -1238,7 +1234,6 @@ const CompanyJobsPage = () => {
           if (archiveErr?.code === 'ACTIVE_APPLICATIONS_REQUIRE_RESOLUTION') {
             deleteError = archiveErr;
           } else {
-            console.error('Failed to archive job before delete:', archiveErr);
             setError(archiveErr.message || 'Failed to archive job before deleting');
             return;
           }
@@ -1281,13 +1276,11 @@ const CompanyJobsPage = () => {
           }
           return;
         } catch (resolveErr) {
-          console.error('Failed to resolve active applications before delete:', resolveErr);
           setError(resolveErr.message || 'Failed to resolve applications and delete job');
           return;
         }
       }
 
-      console.error('Failed to delete job:', deleteError);
       setError(deleteError.message || 'Failed to delete job');
     }
   };
@@ -1299,8 +1292,7 @@ const CompanyJobsPage = () => {
         await loadJobs();
       }
     } catch (err) {
-      console.error('Failed to publish job:', err);
-      setError('Failed to publish job');
+      setError(err?.message || 'Failed to publish job');
     }
   };
 
@@ -1311,8 +1303,7 @@ const CompanyJobsPage = () => {
         await loadJobs();
       }
     } catch (err) {
-      console.error('Failed to archive job:', err);
-      setError('Failed to archive job');
+      setError(err?.message || 'Failed to archive job');
     }
   };
 
@@ -1657,8 +1648,8 @@ const CompanyJobsPage = () => {
                         try {
                           await refresh();
                           await loadJobs();
-                        } catch (err) {
-                          console.error('Failed to refresh:', err);
+                        } catch {
+                          // Silent failure — page remains as-is
                         } finally {
                           setRefreshing(false);
                         }

@@ -49,5 +49,14 @@ router.post(
   InvitationController.acceptInvitation,
 );
 
+router.patch(
+  '/:id/revoke',
+  authenticate,
+  requireFeatureFlag('enableInvitations'),
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  InvitationController.revokeInvitation,
+);
+
 export default router;
 

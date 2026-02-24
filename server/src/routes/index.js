@@ -19,6 +19,7 @@ import templateRoutes from './template.routes.js';
 import billingRoutes from './billing.routes.js';
 import newsletterRoutes from './newsletter.routes.js';
 import datasetRoutes from './dataset.routes.js';
+import savedAnswerRoutes from './savedAnswer.routes.js'; // GAP FEATURE: Personal Answer Library
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
 import { LLMService } from '../services/llm.service.js';
 
@@ -45,6 +46,7 @@ export function setupRoutes(app) {
   app.use('/api/billing', billingRoutes);
   app.use('/api/newsletter', newsletterRoutes);
   app.use('/api/datasets', datasetRoutes);
+  app.use('/api/saved-answers', savedAnswerRoutes); // GAP FEATURE: Personal Answer Library
   app.use('/api', applicationRoutes);
 
   // Add maintenance header to all API responses
@@ -58,7 +60,8 @@ export function setupRoutes(app) {
   // AI health check (used for demo readiness verification).
   app.get('/api/ai/health', async (req, res) => {
     try {
-      const expectedModel = process.env.OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+      const expectedModel = process.env.OLLAMA_MODEL || 'qwen3:8b';
+      const runtimeModel = LLMService.getRuntimeModelStatus();
       const [ollama, whisper] = await Promise.all([
         LLMService.healthCheck({ expectedModel }),
         LLMService.getWhisperHealth(),
@@ -71,6 +74,7 @@ export function setupRoutes(app) {
         ollamaReachable: Boolean(ollama.healthy),
         modelReady: Boolean(ollama.modelReady),
         ollama,
+        runtimeModel,
         whisperReachable: whisper.reachable,
         whisperConfigured: whisper.configured,
       });
@@ -79,6 +83,7 @@ export function setupRoutes(app) {
         success: false,
         timestamp: new Date().toISOString(),
         error: error?.message || 'AI health check failed',
+        runtimeModel: LLMService.getRuntimeModelStatus(),
       });
     }
   });

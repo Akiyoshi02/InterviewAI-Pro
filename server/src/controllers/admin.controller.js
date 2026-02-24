@@ -15,6 +15,14 @@ import { PLANS } from '../services/billing.service.js';
 import { clearFeatureFlagCache } from '../middleware/featureFlags.middleware.js';
 import logger from '../utils/logger.js';
 import admin, { firestore, realtimeDb } from '../config/firebase.js';
+import {
+  classifyScore,
+  buildConfusionMatrix,
+  calculateMetrics,
+  calculateAccuracy,
+  LABELS as CLASS_LABELS,
+} from '../utils/classificationMetrics.util.js';
+import { calibrateFromCollectedData } from '../services/mediapipeCalibration.service.js';
 
 const ensureRealtimeAdmin = async ({ uid, email, fullName }) => {
   if (!realtimeDb || !uid) return;
@@ -2177,6 +2185,68 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get data retention summary error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get classification metrics: confusion matrix, precision, recall, F1
+   * comparing AI score classifications vs SME score classifications.
+   */
+  static async getClassificationMetrics(req, res, next) {
+    try {
+      const limit = Math.min(parseInt(req.query.limit, 10) || 500, 2000);
+      const reviews = await reviewStore.listRecent(limit);
+
+      const calibrationPairs = reviews.filter(
+        (r) =>
+          r.aiOverallScoreAtReview != null &&
+          !Number.isNaN(Number(r.aiOverallScoreAtReview)) &&
+          r.smeOverallScore != null &&
+          !Number.isNaN(Number(r.smeOverallScore)),
+      );
+
+      if (calibrationPairs.length === 0) {
+        return res.json({
+          success: true,
+          confusionMatrix: null,
+          metrics: null,
+          accuracy: null,
+          sampleSize: 0,
+          message: 'No reviews with both AI and SME scores found.',
+        });
+      }
+
+      const predictions = calibrationPairs.map((r) => classifyScore(Number(r.aiOverallScoreAtReview)));
+      const actuals = calibrationPairs.map((r) => classifyScore(Number(r.smeOverallScore)));
+
+      const confusionMatrix = buildConfusionMatrix(predictions, actuals, CLASS_LABELS);
+      const metrics = calculateMetrics(confusionMatrix.matrix, CLASS_LABELS);
+      const accuracy = calculateAccuracy(confusionMatrix.matrix);
+
+      res.json({
+        success: true,
+        confusionMatrix,
+        metrics,
+        accuracy,
+        sampleSize: calibrationPairs.length,
+        labels: CLASS_LABELS,
+      });
+    } catch (error) {
+      logger.error('Get classification metrics error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get MediaPipe calibration: compare static thresholds with data-driven values.
+   */
+  static async getMediaPipeCalibration(req, res, next) {
+    try {
+      const result = await calibrateFromCollectedData();
+      res.json({ success: result.success !== false, ...result });
+    } catch (error) {
+      logger.error('Get MediaPipe calibration error:', error);
       next(error);
     }
   }

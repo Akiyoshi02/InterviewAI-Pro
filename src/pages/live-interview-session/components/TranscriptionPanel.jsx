@@ -17,6 +17,7 @@ const TranscriptionPanel = ({
   canCandidateSpeak = false,
   whisperAvailable = false,
   isTranscribing = false,
+  onClearConversation,
   className = ''
 }) => {
   const scrollRef = useRef(null);
@@ -47,9 +48,7 @@ const TranscriptionPanel = ({
 
   // Clear transcripts function
   const clearTranscripts = () => {
-    // This would need to be handled by parent component
-    // For now, we'll just log it
-    console.log('Clear conversation requested');
+    onClearConversation?.();
   };
 
   return (

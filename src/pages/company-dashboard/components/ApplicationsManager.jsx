@@ -174,6 +174,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const [startingReview, setStartingReview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const [rejectionModal, setRejectionModal] = useState({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
 
@@ -218,7 +219,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         setError('Failed to load applications');
       }
     } catch (err) {
-      console.error('Failed to load applications:', err);
       setError(err.message || 'Failed to load applications');
     } finally {
       setLoading(false);
@@ -256,50 +256,45 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     [],
   );
 
-  const promptRejectionDisposition = () => {
-    const selectableOptions = APPLICATION_DISPOSITION_OPTIONS.filter(
-      (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
-    );
-    const choiceText = selectableOptions
-      .map((option, index) => `${index + 1}. ${option.label}`)
-      .join('\n');
-    const selection = window.prompt(
-      `Select a rejection reason:\n${choiceText}\n\nEnter number (default: 1).`,
-      '1',
-    );
-    if (selection === null) return null;
-
-    const parsedIndex = Number.parseInt(String(selection).trim(), 10);
-    const selectedOption = Number.isInteger(parsedIndex) && parsedIndex >= 1 && parsedIndex <= selectableOptions.length
-      ? selectableOptions[parsedIndex - 1]
-      : selectableOptions[0];
-    const notes = window.prompt(
-      'Optional recruiter note for audit trail (leave blank to skip):',
-      '',
-    );
-    if (notes === null) return null;
-
-    return {
-      dispositionCode: selectedOption.value,
-      dispositionCategory: selectedOption.category,
-      dispositionReason: selectedOption.reason || selectedOption.label,
-      dispositionNotes: notes.trim() || null,
-    };
-  };
+  const REJECTION_DISPOSITION_OPTIONS = APPLICATION_DISPOSITION_OPTIONS.filter(
+    (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
+  );
 
   const handleStatusChange = async (applicationId, newStatus) => {
+    if (newStatus === 'REJECTED') {
+      setRejectionModal({ open: true, applicationId, dispositionCode: REJECTION_DISPOSITION_OPTIONS[0]?.value || 'PASSED_ON', notes: '' });
+      return;
+    }
     try {
       setUpdating(applicationId);
-      const payload = { status: newStatus };
-      if (newStatus === 'REJECTED') {
-        const rejectionDisposition = promptRejectionDisposition();
-        if (!rejectionDisposition) {
-          setUpdating(null);
-          return;
+      const result = await apiClient.applications.updateStatus(applicationId, { status: newStatus });
+      if (result.success) {
+        await loadApplications();
+        if (selectedApplication?.id === applicationId) {
+          setSelectedApplication(result.application);
         }
-        Object.assign(payload, rejectionDisposition);
       }
+    } catch (err) {
+      setError('Failed to update status: ' + (err.message || 'Please try again.'));
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setUpdating(null);
+    }
+  };
 
+  const confirmRejection = async () => {
+    const { applicationId, dispositionCode, notes } = rejectionModal;
+    setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
+    const selectedOption = REJECTION_DISPOSITION_OPTIONS.find((o) => o.value === dispositionCode) || REJECTION_DISPOSITION_OPTIONS[0];
+    const payload = {
+      status: 'REJECTED',
+      dispositionCode: selectedOption?.value,
+      dispositionCategory: selectedOption?.category,
+      dispositionReason: selectedOption?.reason || selectedOption?.label,
+      dispositionNotes: notes?.trim() || null,
+    };
+    try {
+      setUpdating(applicationId);
       const result = await apiClient.applications.updateStatus(applicationId, payload);
       if (result.success) {
         await loadApplications();
@@ -308,7 +303,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         }
       }
     } catch (err) {
-      alert('Failed to update status: ' + err.message);
+      setError('Failed to reject application: ' + (err.message || 'Please try again.'));
+      setTimeout(() => setError(''), 5000);
     } finally {
       setUpdating(null);
     }
@@ -366,10 +362,10 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
       if (interviewId && statusToApply) {
         try {
-          await apiClient.applications.updateStatus(selectedApplication.id, statusToApply);
+          await apiClient.applications.updateStatus(selectedApplication.id, { status: statusToApply });
           await loadApplications();
-        } catch (updateErr) {
-          console.warn('Failed to update application status:', updateErr);
+        } catch {
+          // Status update failed silently; review navigation continues
         }
       }
 
@@ -379,7 +375,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         setShowDetails(false);
       }
     } catch (err) {
-      console.error('Failed to start review:', err);
       setError(err.message || 'Failed to start review. Please try again.');
       setTimeout(() => setError(''), 5000);
     } finally {
@@ -1158,6 +1153,66 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
             </motion.div>
           )}
         </AnimatePresence>,
+        document.body
+      )}
+
+      {rejectionModal.open && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Reject Application</h3>
+              <button
+                type="button"
+                onClick={() => setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' })}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 rounded-full p-1"
+              >
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Rejection reason</label>
+              <select
+                value={rejectionModal.dispositionCode}
+                onChange={(e) => setRejectionModal((prev) => ({ ...prev, dispositionCode: e.target.value }))}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+              >
+                {REJECTION_DISPOSITION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                Recruiter note <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={rejectionModal.notes}
+                onChange={(e) => setRejectionModal((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="Internal audit note..."
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 dark:placeholder:text-slate-400 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' })}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white border-none"
+                onClick={confirmRejection}
+              >
+                Confirm Rejection
+              </Button>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
     </div>

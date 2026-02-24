@@ -138,6 +138,37 @@ const AIChatAssistant = ({
       })) || [];
   };
 
+  const getLastSessionData = () => {
+    try {
+      const summary = JSON.parse(window.localStorage.getItem('lastInterviewSummary') || '{}');
+      if (summary && Object.keys(summary).length > 0) {
+        return summary;
+      }
+      return JSON.parse(window.localStorage.getItem('lastInterviewSession') || '{}');
+    } catch {
+      return {};
+    }
+  };
+
+  const getFeedbackHistoryForSession = (sessionData = {}) => {
+    try {
+      const explicitInterviewId = window.localStorage.getItem('lastInterviewId');
+      const fallbackInterviewId = sessionData?.backendInterview?.id || null;
+      const interviewId = explicitInterviewId || fallbackInterviewId;
+      const scopedKey = interviewId ? `interviewFeedback:${interviewId}` : null;
+      const scopedHistory = scopedKey
+        ? JSON.parse(window.localStorage.getItem(scopedKey) || '[]')
+        : [];
+      if (Array.isArray(scopedHistory) && scopedHistory.length > 0) {
+        return scopedHistory;
+      }
+      const legacyHistory = JSON.parse(window.localStorage.getItem('interviewFeedback') || '[]');
+      return Array.isArray(legacyHistory) ? legacyHistory : [];
+    } catch {
+      return [];
+    }
+  };
+
   const getAssistantContext = () => {
     if (typeof window === 'undefined') {
       return { userProfile: {}, recentPerformance: {} };
@@ -145,8 +176,8 @@ const AIChatAssistant = ({
 
     try {
       const profile = JSON.parse(window.localStorage.getItem('candidateProfile') || '{}');
-      const lastSession = JSON.parse(window.localStorage.getItem('lastInterviewSession') || '{}');
-      const feedbackHistory = JSON.parse(window.localStorage.getItem('interviewFeedback') || '[]');
+      const lastSession = getLastSessionData();
+      const feedbackHistory = getFeedbackHistoryForSession(lastSession);
       const latestFeedback = Array.isArray(feedbackHistory) && feedbackHistory.length > 0
         ? feedbackHistory[feedbackHistory.length - 1]
         : null;
@@ -158,8 +189,7 @@ const AIChatAssistant = ({
           latestFeedback: latestFeedback || null
         }
       };
-    } catch (error) {
-      console.warn('AI Assistant context error:', error);
+    } catch {
       return { userProfile: {}, recentPerformance: {} };
     }
   };
@@ -183,7 +213,7 @@ const AIChatAssistant = ({
       
       switch (action) {
         case 'analyze_session':
-          const sessionData = JSON.parse(localStorage.getItem('lastInterviewSession') || '{}');
+          const sessionData = getLastSessionData();
           if (Object.keys(sessionData)?.length > 0) {
             const summary = await generateSummary(sessionData);
             aiResponse = formatSessionAnalysis(summary);
@@ -193,7 +223,7 @@ const AIChatAssistant = ({
           break;
           
         case 'create_study_plan':
-          const feedbackData = JSON.parse(localStorage.getItem('interviewFeedback') || '[]');
+          const feedbackData = getFeedbackHistoryForSession(getLastSessionData());
           if (feedbackData?.length > 0) {
             const latestFeedback = feedbackData?.[feedbackData?.length - 1];
             const studyPlan = await createStudyPlan({
@@ -212,22 +242,22 @@ const AIChatAssistant = ({
           aiResponse = `Here are some key interview tips based on best practices:
 
 **Before the Interview:**
-• Research the company and role thoroughly
-• Practice common behavioral questions using the STAR method
-• Prepare specific examples from your experience
-• Review technical concepts relevant to the position
+- Research the company and role thoroughly
+- Practice common behavioral questions using the STAR method
+- Prepare specific examples from your experience
+- Review technical concepts relevant to the position
 
 **During the Interview:**
-• Listen carefully to each question before responding
-• Structure your answers clearly with concrete examples
-• Ask thoughtful questions about the role and company
-• Maintain good eye contact and confident body language
+- Listen carefully to each question before responding
+- Structure your answers clearly with concrete examples
+- Ask thoughtful questions about the role and company
+- Maintain good eye contact and confident body language
 
 **Technical Interviews:**
-• Think out loud when solving problems
-• Start with clarifying questions
-• Consider edge cases and error handling
-• Explain your thought process step by step
+- Think out loud when solving problems
+- Start with clarifying questions
+- Consider edge cases and error handling
+- Explain your thought process step by step
 
 Would you like me to elaborate on any of these areas?`;
           break;
@@ -249,8 +279,7 @@ Would you like me to elaborate on any of these areas?`;
         setIsTyping(false);
       }, 1000 + Math.random() * 2000);
       
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       setIsTyping(false);
       
       const errorMessage = {
@@ -301,12 +330,11 @@ Would you like me to elaborate on any of these areas?`;
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       const errorMessage = {
         id: updatedMessages?.length + 1,
         type: 'assistant',
-        content: "I ran into an issue generating a response. Please ensure your local AI service (Ollama) is running and try again.",
+        content: "I ran into an issue generating a response. The AI service may be temporarily unavailable. Please try again in a moment.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -347,7 +375,6 @@ Would you like me to elaborate on any of these areas?`;
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Voice input error:', error);
       setRecordingError(error?.message || 'Transcription failed. Please try again.');
       setVoiceStatus('idle');
     } finally {
@@ -379,7 +406,6 @@ Would you like me to elaborate on any of these areas?`;
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Microphone access error:', error);
       setRecordingError(error?.message || 'Unable to access microphone.');
       setIsRecording(false);
       setVoiceStatus('idle');
@@ -401,16 +427,16 @@ Would you like me to elaborate on any of these areas?`;
 **Overall Score:** ${summary?.overallScore || 0}/100 (${summary?.readinessLevel || 'Assessment Pending'})
 
 **Key Strengths:**
-${summary?.strengths?.map(s => `• ${s}`)?.join('\n') || '• Analysis in progress...'}
+${summary?.strengths?.map(s => `- ${s}`)?.join('\n') || '- Analysis in progress...'}
 
 **Areas for Improvement:**
-${summary?.weaknesses?.map(w => `• ${w}`)?.join('\n') || '• Analysis in progress...'}
+${summary?.weaknesses?.map(w => `- ${w}`)?.join('\n') || '- Analysis in progress...'}
 
 **Recommendations:**
-${summary?.recommendations?.map(r => `• ${r}`)?.join('\n') || '• Analysis in progress...'}
+${summary?.recommendations?.map(r => `- ${r}`)?.join('\n') || '- Analysis in progress...'}
 
 **Next Steps:**
-${summary?.nextSteps?.map(s => `• ${s}`)?.join('\n') || '• Analysis in progress...'}
+${summary?.nextSteps?.map(s => `- ${s}`)?.join('\n') || '- Analysis in progress...'}
 
 ${summary?.detailedFeedback || 'Complete analysis will be available after your next session.'}`;
   };
@@ -419,19 +445,19 @@ ${summary?.detailedFeedback || 'Complete analysis will be available after your n
     return `## Personalized Study Plan
 
 **30-Day Focus:**
-• ${plan?.thirtyDayPlan?.focus || 'Foundation building and core concepts review'}
-• ${plan?.thirtyDayPlan?.activities || 'Daily practice sessions and concept reinforcement'}
+- ${plan?.thirtyDayPlan?.focus || 'Foundation building and core concepts review'}
+- ${plan?.thirtyDayPlan?.activities || 'Daily practice sessions and concept reinforcement'}
 
 **60-Day Objectives:**
-• ${plan?.sixtyDayPlan?.focus || 'Advanced topics and mock interviews'}
-• ${plan?.sixtyDayPlan?.activities || 'System design practice and behavioral preparation'}
+- ${plan?.sixtyDayPlan?.focus || 'Advanced topics and mock interviews'}
+- ${plan?.sixtyDayPlan?.activities || 'System design practice and behavioral preparation'}
 
 **90-Day Goals:**
-• ${plan?.ninetyDayPlan?.focus || 'Interview readiness and confidence building'}
-• ${plan?.ninetyDayPlan?.activities || 'Company-specific preparation and final assessments'}
+- ${plan?.ninetyDayPlan?.focus || 'Interview readiness and confidence building'}
+- ${plan?.ninetyDayPlan?.activities || 'Company-specific preparation and final assessments'}
 
 **Recommended Resources:**
-${plan?.resources?.slice(0, 3)?.map(r => `• ${r?.title || 'Resource'}: ${r?.description || 'Comprehensive preparation material'}`)?.join('\n') || '• Curated learning materials based on your needs'}
+${plan?.resources?.slice(0, 3)?.map(r => `- ${r?.title || 'Resource'}: ${r?.description || 'Comprehensive preparation material'}`)?.join('\n') || '- Curated learning materials based on your needs'}
 
 This plan is tailored to your current skill level and target companies. Would you like me to elaborate on any specific area?`;
   };

@@ -75,7 +75,7 @@ const InterviewTypeSelector = ({ selectedTypes, onTypesChange, className = '' })
                   <p className="text-xs font-semibold text-gray-900 dark:text-slate-100">Example Questions:</p>
                   {type?.examples?.map((example, index) => (
                     <p key={index} className="text-xs text-gray-600 dark:text-slate-400 pl-3 border-l-2 border-blue-200 dark:border-blue-500/40">
-                      • {example}
+                      - {example}
                     </p>
                   ))}
                 </div>

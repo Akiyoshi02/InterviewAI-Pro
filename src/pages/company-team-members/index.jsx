@@ -98,6 +98,8 @@ const CompanyTeamMembersPage = () => {
   const [inviteRole, setInviteRole] = useState('REVIEWER');
   const [inviting, setInviting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
+  const [removeMemberConfirm, setRemoveMemberConfirm] = useState(null);
+  const [updatingRoleId, setUpdatingRoleId] = useState(null);
   const [memberFilters, setMemberFilters] = useState(DEFAULT_TEAM_MEMBER_FILTERS);
   const [invitationFilters, setInvitationFilters] = useState(DEFAULT_TEAM_INVITATION_FILTERS);
   const [showAdvancedMemberFilters, setShowAdvancedMemberFilters] = useState(false);
@@ -117,8 +119,8 @@ const CompanyTeamMembersPage = () => {
       if (result.success) {
         setMembers(result.members || []);
       }
-    } catch (err) {
-      console.error('Failed to load members', err);
+    } catch {
+      // Silent failure — table stays empty; user can refresh
     } finally {
       setLoadingMembers(false);
     }
@@ -132,8 +134,8 @@ const CompanyTeamMembersPage = () => {
       if (result.success) {
         setTeamInvitations(result.invitations || []);
       }
-    } catch (err) {
-      console.error('Failed to load invitations', err);
+    } catch {
+      // Silent failure — table stays empty; user can refresh
     } finally {
       setLoadingInvitations(false);
     }
@@ -210,9 +212,14 @@ const CompanyTeamMembersPage = () => {
     }
   };
 
-  const handleRemoveMember = async (userId) => {
-    if (!organization?.id) return;
-    if (!window.confirm('Are you sure you want to remove this member?')) return;
+  const handleRemoveMember = (userId) => {
+    setRemoveMemberConfirm(userId);
+  };
+
+  const confirmRemoveMember = async () => {
+    const userId = removeMemberConfirm;
+    setRemoveMemberConfirm(null);
+    if (!organization?.id || !userId) return;
     try {
       const result = await apiClient.organizations.removeMember(userId);
       if (result.success) {
@@ -227,6 +234,7 @@ const CompanyTeamMembersPage = () => {
 
   const handleUpdateMemberRole = async (userId, newRole) => {
     if (!organization?.id) return;
+    setUpdatingRoleId(userId);
     try {
       const result = await apiClient.organizations.updateMemberRole(userId, newRole);
       if (result.success) {
@@ -238,6 +246,8 @@ const CompanyTeamMembersPage = () => {
     } catch (err) {
       const errorMsg = err?.message || (typeof err === 'string' ? err : 'Failed to update role.');
       setStatusMessage(errorMsg);
+    } finally {
+      setUpdatingRoleId(null);
     }
   };
 
@@ -740,6 +750,7 @@ const CompanyTeamMembersPage = () => {
                               options={roleOptions}
                               value={member.role}
                               onChange={(value) => handleUpdateMemberRole(member.userId, value)}
+                              loading={updatingRoleId === member.userId}
                               className="w-32"
                             />
                             <Button
@@ -765,6 +776,30 @@ const CompanyTeamMembersPage = () => {
           </main>
         </div>
       </div>
+
+      {removeMemberConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <Icon name="UserMinus" size={18} className="text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Remove member?</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">This will revoke their access to the organization.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setRemoveMemberConfirm(null)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white border-none" onClick={confirmRemoveMember}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

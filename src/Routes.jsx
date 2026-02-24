@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes as RouterRoutes, Route } from "react-router-dom";
+import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-router-dom";
 import ScrollToTop from "components/ScrollToTop";
 import PageTitleManager from "components/PageTitleManager";
 import ErrorBoundary from "components/ErrorBoundary";
@@ -15,6 +15,7 @@ import CompanyDashboard from './pages/company-dashboard';
 import Login from './pages/login';
 import AdminLogin from './pages/admin-login';
 import PracticeInterviewSetup from './pages/practice-interview-setup';
+import InterviewResultsPage from './pages/interview-results';
 import Register from './pages/register';
 import ResetPassword from './pages/reset-password';
 import CandidateDashboard from './pages/candidate-dashboard';
@@ -46,7 +47,8 @@ import CompanyInvitationsPage from './pages/company-invitations';
 import CompanyCandidatesPage from './pages/company-candidates';
 import CompanyAnalyticsPage from './pages/company-analytics';
 import CompanyTeamMembersPage from './pages/company-team-members';
-import ResearchToolsPage from './pages/research-tools';
+import CompanySettingsPage from './pages/company-settings';
+import CompanyBillingPage from './pages/company-billing';
 
 const Routes = () => {
   return (
@@ -73,6 +75,14 @@ const Routes = () => {
           element={(
             <ProtectedRoute roles={['CANDIDATE']}>
               <InterviewLobby />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/interview-results/:interviewId"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <InterviewResultsPage />
             </ProtectedRoute>
           )}
         />
@@ -137,6 +147,22 @@ const Routes = () => {
           element={(
             <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_MEMBERS']}>
               <CompanyTeamMembersPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-settings"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanySettingsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-billing"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyBillingPage />
             </ProtectedRoute>
           )}
         />
@@ -233,11 +259,11 @@ const Routes = () => {
         />
         <Route
           path="/research-tools"
-          element={(
+          element={
             <ProtectedRoute roles={['SYSTEM_ADMIN']}>
-              <ResearchToolsPage />
+              <Navigate to="/system-admin-dashboard/research-tools" replace />
             </ProtectedRoute>
-          )}
+          }
         />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
