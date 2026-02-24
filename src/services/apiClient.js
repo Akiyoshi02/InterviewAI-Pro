@@ -25,6 +25,7 @@ const normalizeUploadsPath = (value) => {
     'company-verifications/',
     'job-advert-images/',
     'job-advert-videos/',
+    'interviews/',
   ];
   const lower = normalized.toLowerCase();
   const hasKnownPrefix = knownPrefixes.some((prefix) => lower.startsWith(prefix));
@@ -562,6 +563,55 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async schedule(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/schedule`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async reschedule(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async cancel(interviewId, payload = {}) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/cancel`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async uploadRecording(interviewId, recordingFile) {
+      const formData = new FormData();
+      formData.append('recording', recordingFile);
+      const token = await getAuthToken();
+      const headers = token ? { Authorization: `Bearer ${token}` } : {};
+
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording`, {
+        method: 'POST',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async getRecordingUrl(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-url`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async start(interviewId) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/start`, {
         method: 'POST',
@@ -572,6 +622,14 @@ export const apiClient = {
 
     async end(interviewId) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/end`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async runEvaluation(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/run-evaluation`, {
         method: 'POST',
         headers: await getHeaders(),
       });
@@ -616,6 +674,70 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify({ questionId, answer, audioUrl }),
+      });
+      return handleResponse(response);
+    },
+
+    async saveQuestionNotes(interviewId, questionId, prepNotes) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/question/${questionId}/notes`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({ prepNotes: prepNotes || '' }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Personal Answer Library (saved answers) - candidate only
+   */
+  savedAnswers: {
+    async create({ questionText, answer, interviewId, questionId, notes, tags, rating }) {
+      const response = await fetch(`${API_URL}/api/saved-answers`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({
+          questionText: questionText || '',
+          answer: answer || '',
+          interviewId: interviewId || undefined,
+          questionId: questionId || undefined,
+          notes: notes || undefined,
+          tags: Array.isArray(tags) ? tags : undefined,
+          rating: rating != null ? rating : undefined,
+        }),
+      });
+      return handleResponse(response);
+    },
+
+    async list({ limit = 100, tag } = {}) {
+      const params = new URLSearchParams();
+      if (limit != null) params.set('limit', String(limit));
+      if (tag) params.set('tag', tag);
+      const qs = params.toString();
+      const response = await fetch(`${API_URL}/api/saved-answers${qs ? `?${qs}` : ''}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async update(id, { notes, tags, rating }) {
+      const response = await fetch(`${API_URL}/api/saved-answers/${id}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify({
+          notes: notes !== undefined ? notes : undefined,
+          tags: tags !== undefined ? tags : undefined,
+          rating: rating !== undefined ? rating : undefined,
+        }),
+      });
+      return handleResponse(response);
+    },
+
+    async delete(id) {
+      const response = await fetch(`${API_URL}/api/saved-answers/${id}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
       });
       return handleResponse(response);
     },
@@ -794,6 +916,70 @@ export const apiClient = {
   },
 
   /**
+   * Billing APIs (company/organization)
+   */
+  billing: {
+    async getPlans() {
+      const response = await fetch(`${API_URL}/api/billing/plans`, {
+        method: 'GET',
+        headers: await getHeaders(false),
+      });
+      return handleResponse(response);
+    },
+
+    async getSubscription() {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getUsage() {
+      const response = await fetch(`${API_URL}/api/billing/usage`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getBillingHistory(limit = 50) {
+      const response = await fetch(`${API_URL}/api/billing/history?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateSubscription(planId) {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'PUT',
+        headers: await getHeaders(),
+        body: JSON.stringify({ planId }),
+      });
+      return handleResponse(response);
+    },
+
+    async cancelSubscription(cancelAtPeriodEnd = true) {
+      const response = await fetch(`${API_URL}/api/billing/subscription`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+        body: JSON.stringify({ cancelAtPeriodEnd }),
+      });
+      return handleResponse(response);
+    },
+
+    async createCheckoutSession(planId) {
+      const response = await fetch(`${API_URL}/api/billing/checkout`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ planId }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
    * Job APIs
    */
   jobs: {
@@ -939,6 +1125,14 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify({ token }),
+      });
+      return handleResponse(response);
+    },
+
+    async revoke(id) {
+      const response = await fetch(`${API_URL}/api/invitations/${id}/revoke`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
       });
       return handleResponse(response);
     },
@@ -1121,6 +1315,14 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async getAIHealth() {
+      const response = await fetch(`${API_URL}/api/ai/health`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async updateSettings(settings) {
       const response = await fetch(`${API_URL}/api/admin/settings`, {
         method: 'PATCH',
@@ -1149,6 +1351,133 @@ export const apiClient = {
       const response = await fetch(`${API_URL}/api/admin/live-chat/register`, {
         method: 'POST',
         headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async listUsers(options = {}) {
+      const params = new URLSearchParams();
+      if (options.accountType) params.set('accountType', options.accountType);
+      if (options.status) params.set('status', options.status);
+      if (options.q) params.set('q', options.q);
+      if (options.limit) params.set('limit', String(options.limit));
+      if (options.offset) params.set('offset', String(options.offset));
+
+      const query = params.toString();
+      const response = await fetch(`${API_URL}/api/admin/users${query ? `?${query}` : ''}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateUserStatus(id, payload) {
+      const response = await fetch(`${API_URL}/api/admin/users/${id}/status`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload || {}),
+      });
+      return handleResponse(response);
+    },
+
+    async promoteToSystemAdmin(id) {
+      const response = await fetch(`${API_URL}/api/admin/users/${id}/promote-system-admin`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getBillingOverview() {
+      const response = await fetch(`${API_URL}/api/admin/billing-overview`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getNewsletterStats() {
+      const response = await fetch(`${API_URL}/api/admin/newsletter-stats`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getDataRetentionSummary() {
+      const response = await fetch(`${API_URL}/api/admin/data-retention/summary`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async runDataRetentionCleanup(payload = {}) {
+      const response = await fetch(`${API_URL}/api/admin/data-retention/run`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getClassificationMetrics(limit = 500) {
+      const response = await fetch(`${API_URL}/api/admin/classification-metrics?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getMediaPipeCalibration() {
+      const response = await fetch(`${API_URL}/api/admin/mediapipe-calibration`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getFineTuneStatus() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/status`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async triggerFineTune() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async evaluateFineTunedModel() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/evaluate`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async exportTrainingData() {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/export`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      if (!response.ok) {
+        const err = await response.json().catch(() => ({ error: 'Export failed' }));
+        throw new Error(err.error || 'Export failed');
+      }
+      return response.blob();
+    },
+
+    async importTrainedGGUF(ggufPath) {
+      const response = await fetch(`${API_URL}/api/admin/fine-tune/import-gguf`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify({ ggufPath }),
       });
       return handleResponse(response);
     },

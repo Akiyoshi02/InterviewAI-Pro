@@ -173,6 +173,52 @@ export class InvitationController {
     }
   }
 
+  static async revokeInvitation(req, res, next) {
+    try {
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const { id } = req.params;
+
+      const invitation = await invitationStore.getById(id);
+      if (!invitation || invitation.organizationId !== organizationId) {
+        return res.status(404).json({ error: 'Invitation not found' });
+      }
+
+      if (invitation.status === 'REVOKED') {
+        return res.status(409).json({ error: 'Invitation is already revoked' });
+      }
+      if (invitation.status === 'ACCEPTED') {
+        return res.status(409).json({ error: 'Cannot revoke an accepted invitation' });
+      }
+
+      const updated = await invitationStore.update(id, {
+        status: 'REVOKED',
+        revokedAt: new Date().toISOString(),
+        revokedBy: req.user.id,
+      });
+
+      await activityLogStore.record({
+        organizationId,
+        actorId: req.user.id,
+        actorRole: req.user.organizationContext?.membership?.role,
+        action: 'INVITATION_REVOKED',
+        targetType: 'INVITATION',
+        targetId: id,
+        metadata: { email: invitation.email, jobId: invitation.jobId },
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'invitation-revoked', {
+        invitationId: id,
+        email: invitation.email || null,
+        status: 'REVOKED',
+      });
+
+      res.json({ success: true, invitation: sanitizeInvitation(updated || invitation) });
+    } catch (error) {
+      logger.error('Revoke invitation error:', error);
+      next(error);
+    }
+  }
+
   static async acceptInvitation(req, res, next) {
     let claimedInvitationId = null;
     let acceptanceFinalized = false;

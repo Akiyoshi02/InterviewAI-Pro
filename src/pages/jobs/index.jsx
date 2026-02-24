@@ -5,6 +5,15 @@ import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
@@ -13,6 +22,107 @@ import JobApplicationForm from './components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const BOOKMARK_STORAGE_PREFIX = 'jobs-bookmarks';
+
+const JOB_DATE_PRESET_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Dates' },
+  { value: 'last7', label: 'Last 7 Days' },
+  { value: 'last30', label: 'Last 30 Days' },
+  { value: 'last90', label: 'Last 90 Days' },
+  { value: 'custom', label: 'Custom Range' },
+];
+
+const JOB_BOOKMARK_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Roles' },
+  { value: 'saved', label: 'Saved Roles' },
+  { value: 'unsaved', label: 'Unsaved Roles' },
+];
+
+const JOB_APPLICATION_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Application States' },
+  { value: 'not-applied', label: 'Not Applied' },
+  { value: 'applied', label: 'Applied' },
+  { value: 'withdrawn', label: 'Withdrawn' },
+  { value: 'not-selected', label: 'Not Selected' },
+  { value: 'can-reapply', label: 'Can Reapply' },
+];
+
+const JOB_LOCATION_MODE_OPTIONS = [
+  { value: 'all', label: 'All Locations' },
+  { value: 'remote', label: 'Remote' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'onsite', label: 'On-site' },
+];
+
+const JOB_DEADLINE_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Closing Windows' },
+  { value: '7', label: 'Closing in 7 Days' },
+  { value: '30', label: 'Closing in 30 Days' },
+  { value: 'none', label: 'No Deadline' },
+];
+
+const JOB_SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'closingSoon', label: 'Closing Soon' },
+  { value: 'titleAsc', label: 'Role Name (A-Z)' },
+  { value: 'companyAsc', label: 'Company (A-Z)' },
+];
+
+const DEFAULT_JOB_FILTERS = {
+  searchQuery: '',
+  bookmarkFilter: 'all',
+  applicationFilter: 'all',
+  employmentType: 'all',
+  experienceLevel: 'all',
+  department: 'all',
+  locationMode: 'all',
+  datePreset: 'all',
+  postedFrom: '',
+  postedTo: '',
+  deadlineWindow: 'all',
+  sortBy: 'newest',
+};
+
+const normalizeText = (value) => (value || '').toString().trim().toLowerCase();
+
+const getDateWindow = (filters = {}) => {
+  const now = new Date();
+  const preset = normalizeText(filters.datePreset || 'all');
+  if (preset === 'all') return { from: null, to: null };
+
+  if (preset === 'custom') {
+    const from = filters.postedFrom ? new Date(filters.postedFrom) : null;
+    const to = filters.postedTo ? new Date(filters.postedTo) : null;
+    if (from && !Number.isNaN(from.getTime())) from.setHours(0, 0, 0, 0);
+    if (to && !Number.isNaN(to.getTime())) to.setHours(23, 59, 59, 999);
+    return {
+      from: from && !Number.isNaN(from.getTime()) ? from : null,
+      to: to && !Number.isNaN(to.getTime()) ? to : null,
+    };
+  }
+
+  const from = new Date(now);
+  if (preset === 'last7') from.setDate(from.getDate() - 7);
+  if (preset === 'last30') from.setDate(from.getDate() - 30);
+  if (preset === 'last90') from.setDate(from.getDate() - 90);
+  from.setHours(0, 0, 0, 0);
+  return { from, to: null };
+};
+
+const countActiveJobFilters = (filters = {}) => {
+  let count = 0;
+  if (normalizeText(filters.searchQuery)) count += 1;
+  if ((filters.bookmarkFilter || 'all') !== 'all') count += 1;
+  if ((filters.applicationFilter || 'all') !== 'all') count += 1;
+  if ((filters.employmentType || 'all') !== 'all') count += 1;
+  if ((filters.experienceLevel || 'all') !== 'all') count += 1;
+  if ((filters.department || 'all') !== 'all') count += 1;
+  if ((filters.locationMode || 'all') !== 'all') count += 1;
+  if ((filters.datePreset || 'all') !== 'all') count += 1;
+  if ((filters.deadlineWindow || 'all') !== 'all') count += 1;
+  if ((filters.sortBy || 'newest') !== 'newest') count += 1;
+  return count;
+};
 
 // Helper function to convert relative upload paths to absolute URLs
 const getAssetUrl = (assetPath) => {
@@ -53,7 +163,9 @@ const JobsPage = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [jobsPerPage] = useState(12);
   const [bookmarkedJobIds, setBookmarkedJobIds] = useState(new Set());
-  const [showBookmarkedOnly, setShowBookmarkedOnly] = useState(false);
+  const [filters, setFilters] = useState(DEFAULT_JOB_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
+  const [clipboardToast, setClipboardToast] = useState('');
   const applicationsRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
   const bookmarkStorageKey = `${BOOKMARK_STORAGE_PREFIX}:${user?.id || user?.uid || 'guest'}`;
@@ -310,6 +422,18 @@ const JobsPage = () => {
     });
   };
 
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_JOB_FILTERS);
+    setShowAdvancedFilters(false);
+  };
+
   // Handle share
   const handleShare = (job, platform, e) => {
     e.stopPropagation();
@@ -333,7 +457,8 @@ const JobsPage = () => {
       case 'instagram':
         // Instagram doesn't support direct sharing via URL
         navigator.clipboard.writeText(jobUrl);
-        alert('Job URL copied to clipboard!');
+        setClipboardToast('Job URL copied to clipboard!');
+        setTimeout(() => setClipboardToast(''), 3000);
         return;
       default:
         // Native share or copy
@@ -346,7 +471,8 @@ const JobsPage = () => {
           return;
         } else {
           navigator.clipboard.writeText(jobUrl);
-          alert('Job URL copied to clipboard!');
+          setClipboardToast('Job URL copied to clipboard!');
+          setTimeout(() => setClipboardToast(''), 3000);
           return;
         }
     }
@@ -356,15 +482,143 @@ const JobsPage = () => {
     }
   };
 
-  // Pagination calculations
-  const visibleJobs = showBookmarkedOnly
-    ? jobs.filter((job) => bookmarkedJobIds.has(job.id))
-    : jobs;
-  const totalPages = Math.max(1, Math.ceil(visibleJobs.length / jobsPerPage));
+  const filterOptions = {
+    employmentTypeOptions: [
+      { value: 'all', label: 'All Employment Types' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.employmentType)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: formatEmploymentType(value) })),
+    ],
+    experienceLevelOptions: [
+      { value: 'all', label: 'All Experience Levels' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.experienceLevel)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: formatExperienceLevel(value) || value })),
+    ],
+    departmentOptions: [
+      { value: 'all', label: 'All Departments' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.department)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: value })),
+    ],
+  };
+
+  const activeFilterCount = countActiveJobFilters(filters);
+  const normalizedQuery = normalizeText(filters.searchQuery);
+  const queryTokens = normalizedQuery.split(' ').filter(Boolean);
+  const dateWindow = getDateWindow(filters);
+  const filteredJobs = jobs
+    .filter((job) => {
+      const isSaved = bookmarkedJobIds.has(job.id);
+      const applicationInfo = applicationsByJobId.get(job.id);
+      const isWithdrawn = applicationInfo?.status === 'REJECTED' && Boolean(applicationInfo?.withdrawnBy);
+      const isRejected = applicationInfo?.status === 'REJECTED' && !applicationInfo?.withdrawnBy;
+      const isApplied = Boolean(applicationInfo) && !isWithdrawn && !isRejected;
+      const canReapply = isWithdrawn;
+      const locationLabel = getDisplayLocation(job?.location);
+      const normalizedLocation = normalizeText(locationLabel);
+      const locationMode = normalizedLocation.includes('remote')
+        ? 'remote'
+        : normalizedLocation.includes('hybrid')
+          ? 'hybrid'
+          : 'onsite';
+      const postedAtValue = job?.publishedAt || job?.createdAt || null;
+      const postedAt = postedAtValue ? new Date(postedAtValue) : null;
+      const hasValidPostedAt = postedAt && !Number.isNaN(postedAt.getTime());
+      const daysLeft = getDaysLeft(job);
+
+      if (filters.bookmarkFilter === 'saved' && !isSaved) return false;
+      if (filters.bookmarkFilter === 'unsaved' && isSaved) return false;
+
+      if (filters.applicationFilter === 'not-applied' && applicationInfo) return false;
+      if (filters.applicationFilter === 'applied' && !isApplied) return false;
+      if (filters.applicationFilter === 'withdrawn' && !isWithdrawn) return false;
+      if (filters.applicationFilter === 'not-selected' && !isRejected) return false;
+      if (filters.applicationFilter === 'can-reapply' && !canReapply) return false;
+
+      if (filters.employmentType !== 'all' && (job?.employmentType || '') !== filters.employmentType) return false;
+      if (filters.experienceLevel !== 'all' && (job?.experienceLevel || '') !== filters.experienceLevel) return false;
+      if (filters.department !== 'all' && (job?.department || '') !== filters.department) return false;
+      if (filters.locationMode !== 'all' && locationMode !== filters.locationMode) return false;
+
+      if (filters.deadlineWindow === '7' && !(Number.isFinite(daysLeft) && daysLeft <= 7)) return false;
+      if (filters.deadlineWindow === '30' && !(Number.isFinite(daysLeft) && daysLeft <= 30)) return false;
+      if (filters.deadlineWindow === 'none' && Number.isFinite(daysLeft)) return false;
+
+      if (dateWindow.from || dateWindow.to) {
+        if (!hasValidPostedAt) return false;
+        if (dateWindow.from && postedAt < dateWindow.from) return false;
+        if (dateWindow.to && postedAt > dateWindow.to) return false;
+      }
+
+      if (queryTokens.length) {
+        const searchableText = [
+          job?.title || '',
+          job?.organization?.name || '',
+          job?.department || '',
+          locationLabel,
+          job?.description || '',
+          job?.employmentType || '',
+          job?.experienceLevel || '',
+          ...(Array.isArray(job?.skills) ? job.skills : []),
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        if (!queryTokens.every((token) => searchableText.includes(token))) return false;
+      }
+
+      return true;
+    })
+    .sort((left, right) => {
+      const leftPosted = new Date(left?.publishedAt || left?.createdAt || 0).getTime() || 0;
+      const rightPosted = new Date(right?.publishedAt || right?.createdAt || 0).getTime() || 0;
+
+      switch (filters.sortBy) {
+        case 'oldest':
+          return leftPosted - rightPosted;
+        case 'closingSoon': {
+          const leftDays = getDaysLeft(left);
+          const rightDays = getDaysLeft(right);
+          if (!Number.isFinite(leftDays) && !Number.isFinite(rightDays)) return rightPosted - leftPosted;
+          if (!Number.isFinite(leftDays)) return 1;
+          if (!Number.isFinite(rightDays)) return -1;
+          return leftDays - rightDays;
+        }
+        case 'titleAsc':
+          return (left?.title || '').localeCompare(right?.title || '');
+        case 'companyAsc':
+          return (left?.organization?.name || '').localeCompare(right?.organization?.name || '');
+        case 'newest':
+        default:
+          return rightPosted - leftPosted;
+      }
+    });
+
+  const totalPages = Math.max(1, Math.ceil(filteredJobs.length / jobsPerPage));
   const startIndex = (currentPage - 1) * jobsPerPage;
   const endIndex = startIndex + jobsPerPage;
-  const paginatedJobs = visibleJobs.slice(startIndex, endIndex);
+  const paginatedJobs = filteredJobs.slice(startIndex, endIndex);
   const bookmarkedCount = jobs.filter((job) => bookmarkedJobIds.has(job.id)).length;
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [filters]);
 
   useEffect(() => {
     if (currentPage > totalPages) {
@@ -399,23 +653,20 @@ const JobsPage = () => {
             className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}
           >
           <section className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6">
-            <div className="relative overflow-hidden card-base p-4 xs:p-5 sm:p-6 shadow-glass dark:shadow-glass-dark">
-              <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
-              <div className="relative z-10 flex flex-col gap-3 sm:gap-4 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 text-center sm:text-left">
-                  <div className="mx-auto sm:mx-0 w-11 h-11 xs:w-12 xs:h-12 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/20 flex-shrink-0">
-                    <Icon name="Briefcase" size={18} className="xs:w-5 xs:h-5" color="white" />
+            <div className="mb-1">
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                    <Icon name="Briefcase" size={24} color="white" />
                   </div>
-                  <div className="space-y-1 xs:space-y-1.5">
-                    <p className="text-[10px] xs:text-xs uppercase tracking-[0.4em] xs:tracking-[0.5em] text-blue-600 dark:text-blue-300">Opportunities</p>
-                    <h1 className="text-2xl xs:text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100">Interview-ready roles</h1>
-                    <p className="text-sm xs:text-base text-gray-600 dark:text-slate-300 max-w-2xl">
+                  <div>
+                    <h1 className="text-2xl xs:text-3xl sm:text-4xl font-bold text-gray-900 dark:text-slate-100">
+                      Interview-ready roles
+                    </h1>
+                    <p className="text-sm xs:text-base text-gray-600 dark:text-slate-400 mt-1 sm:whitespace-nowrap">
                       Browse openings from teams already using InterviewAI to streamline their hiring process.
                     </p>
                   </div>
-                </div>
-                <div className="rounded-xl xs:rounded-2xl border border-blue-100 dark:border-blue-500/30 bg-blue-50/70 dark:bg-blue-500/10 p-3 xs:p-4 text-xs xs:text-sm text-blue-900 dark:text-blue-100">
-                  Select a role, review key skills, and launch a practice interview in minutes.
                 </div>
               </div>
             </div>
@@ -443,23 +694,112 @@ const JobsPage = () => {
             )}
 
             {!loading && !error && jobs.length > 0 && (
-              <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 dark:border-slate-700 bg-white/70 dark:bg-slate-900/60 px-4 py-3">
-                <p className="text-sm text-gray-600 dark:text-slate-300">
-                  Saved jobs: <span className="font-semibold text-gray-900 dark:text-slate-100">{bookmarkedCount}</span>
-                </p>
-                <Button
-                  variant={showBookmarkedOnly ? 'default' : 'outline'}
-                  size="sm"
-                  onClick={() => {
-                    setShowBookmarkedOnly((prev) => !prev);
-                    setCurrentPage(1);
-                  }}
-                  className="rounded-full"
-                >
-                  <Icon name={showBookmarkedOnly ? 'List' : 'Bookmark'} size={14} className="mr-1.5" />
-                  {showBookmarkedOnly ? 'Show All Jobs' : 'Show Saved Only'}
-                </Button>
-              </div>
+              <UnifiedFilterPanel
+                title="Role Filters"
+                description={`Refine openings by saved status, application state, role attributes, and posting window. Saved roles: ${bookmarkedCount}.`}
+                activeCount={activeFilterCount}
+                onClear={clearFilters}
+                headerActions={(
+                  <UnifiedFilterToggleButton
+                    active={showAdvancedFilters}
+                    onClick={() => setShowAdvancedFilters((previous) => !previous)}
+                    label="Advanced Filters"
+                  />
+                )}
+              >
+                <div className={FILTER_GRID_CLASS}>
+                  <UnifiedSearchField
+                    label="Search"
+                    className="sm:col-span-2 xl:col-span-2"
+                    type="text"
+                    value={filters.searchQuery}
+                    onChange={(event) => updateFilter('searchQuery', event.target.value)}
+                    placeholder="Role, company, skills, location, or description"
+                  />
+                  <UnifiedFilterSelect
+                    label="Saved Roles"
+                    value={filters.bookmarkFilter}
+                    onChange={(value) => updateFilter('bookmarkFilter', value)}
+                    options={JOB_BOOKMARK_FILTER_OPTIONS}
+                  />
+                  <UnifiedFilterSelect
+                    label="Application State"
+                    value={filters.applicationFilter}
+                    onChange={(value) => updateFilter('applicationFilter', value)}
+                    options={JOB_APPLICATION_FILTER_OPTIONS}
+                  />
+                  <UnifiedFilterSelect
+                    label="Employment Type"
+                    value={filters.employmentType}
+                    onChange={(value) => updateFilter('employmentType', value)}
+                    options={filterOptions.employmentTypeOptions}
+                  />
+                  <UnifiedFilterSelect
+                    label="Experience Level"
+                    value={filters.experienceLevel}
+                    onChange={(value) => updateFilter('experienceLevel', value)}
+                    options={filterOptions.experienceLevelOptions}
+                  />
+                </div>
+
+                {showAdvancedFilters && (
+                  <div className={FILTER_SUBPANEL_CLASS}>
+                    <div className={FILTER_GRID_CLASS}>
+                      <UnifiedFilterSelect
+                        label="Department"
+                        value={filters.department}
+                        onChange={(value) => updateFilter('department', value)}
+                        options={filterOptions.departmentOptions}
+                      />
+                      <UnifiedFilterSelect
+                        label="Location Mode"
+                        value={filters.locationMode}
+                        onChange={(value) => updateFilter('locationMode', value)}
+                        options={JOB_LOCATION_MODE_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Closing Window"
+                        value={filters.deadlineWindow}
+                        onChange={(value) => updateFilter('deadlineWindow', value)}
+                        options={JOB_DEADLINE_FILTER_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Posted Date"
+                        value={filters.datePreset}
+                        onChange={(value) => updateFilter('datePreset', value)}
+                        options={JOB_DATE_PRESET_FILTER_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Sort By"
+                        value={filters.sortBy}
+                        onChange={(value) => updateFilter('sortBy', value)}
+                        options={JOB_SORT_OPTIONS}
+                      />
+                    </div>
+
+                    {filters.datePreset === 'custom' && (
+                      <div className={FILTER_DATE_GRID_CLASS}>
+                        <label className="space-y-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">Posted From</span>
+                          <UnifiedTextInput
+                            type="date"
+                            value={filters.postedFrom}
+                            onChange={(event) => updateFilter('postedFrom', event.target.value)}
+                          />
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">Posted To</span>
+                          <UnifiedTextInput
+                            type="date"
+                            value={filters.postedTo}
+                            onChange={(event) => updateFilter('postedTo', event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </UnifiedFilterPanel>
             )}
 
             {loading && (
@@ -526,23 +866,27 @@ const JobsPage = () => {
                 animate="visible"
                 variants={{ visible: { transition: { staggerChildren: 0.08 } } }}
               >
-                {visibleJobs.length === 0 ? (
-                  <div className="card-base p-6 xs:p-8 text-center max-w-lg mx-auto">
-                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 dark:from-slate-800 dark:to-slate-700 flex items-center justify-center mx-auto mb-4">
-                      <Icon name={showBookmarkedOnly ? 'Bookmark' : 'Briefcase'} size={28} className="text-gray-400 dark:text-slate-500" />
+                {filteredJobs.length === 0 ? (
+                  <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
+                    <div className="text-center py-12">
+                      <div className="p-3 rounded-full bg-blue-100 dark:bg-blue-900/30 inline-flex mb-4">
+                        <Icon name={filters.bookmarkFilter === 'saved' ? 'Bookmark' : 'Briefcase'} className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">
+                        {filters.bookmarkFilter === 'saved' ? 'No saved jobs yet' : 'No openings available'}
+                      </h3>
+                      <p className="text-gray-600 dark:text-slate-400 mb-4">
+                        {filters.bookmarkFilter === 'saved'
+                          ? 'Bookmark roles to quickly return to them later.'
+                          : activeFilterCount > 0
+                            ? 'No roles match your current filters. Clear filters to broaden your results.'
+                            : 'There are no public job listings at the moment. You can still practice interviews for any role.'}
+                      </p>
+                      <Button className="rounded-full bg-blue-600 hover:bg-blue-700" onClick={() => handlePractice(null)}>
+                        <Icon name="Play" size={16} className="mr-1.5" />
+                        Start a practice interview
+                      </Button>
                     </div>
-                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-2">
-                      {showBookmarkedOnly ? 'No saved jobs yet' : 'No openings available'}
-                    </h3>
-                    <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-                      {showBookmarkedOnly
-                        ? 'Bookmark roles to quickly return to them later.'
-                        : 'There are no public job listings at the moment. You can still practice interviews for any role.'}
-                    </p>
-                    <Button className="rounded-full" onClick={() => handlePractice(null)}>
-                      <Icon name="Play" size={16} className="mr-1.5" />
-                      Start a practice interview
-                    </Button>
                   </div>
                 ) : (
                   <>
@@ -742,7 +1086,7 @@ const JobsPage = () => {
                   {totalPages > 1 && (
                     <div className="flex items-center justify-between gap-4 mt-6">
                       <div className="text-sm text-gray-600 dark:text-slate-400">
-                        Showing {startIndex + 1} to {Math.min(endIndex, visibleJobs.length)} of {visibleJobs.length} jobs
+                        Showing {startIndex + 1} to {Math.min(endIndex, filteredJobs.length)} of {filteredJobs.length} jobs
                       </div>
                       <div className="flex items-center gap-2">
                         <Button
@@ -853,6 +1197,17 @@ const JobsPage = () => {
             </div>
           </div>
         </motion.div>
+      )}
+
+      {/* Clipboard / share toast */}
+      {clipboardToast && (
+        <div className="fixed bottom-4 right-4 z-50 rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 px-4 py-3 shadow-2xl flex items-center gap-3 max-w-sm">
+          <Icon name="Copy" className="w-4 h-4 text-blue-600 dark:text-blue-400 flex-shrink-0" />
+          <p className="text-sm text-blue-800 dark:text-blue-200 flex-1">{clipboardToast}</p>
+          <button onClick={() => setClipboardToast('')} className="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800">
+            <Icon name="X" className="w-3 h-3 text-blue-600 dark:text-blue-400" />
+          </button>
+        </div>
       )}
     </div>
   );

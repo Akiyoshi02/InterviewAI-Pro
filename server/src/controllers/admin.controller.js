@@ -11,8 +11,18 @@ import {
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
+import { PLANS } from '../services/billing.service.js';
+import { clearFeatureFlagCache } from '../middleware/featureFlags.middleware.js';
 import logger from '../utils/logger.js';
-import admin, { realtimeDb } from '../config/firebase.js';
+import admin, { firestore, realtimeDb } from '../config/firebase.js';
+import {
+  classifyScore,
+  buildConfusionMatrix,
+  calculateMetrics,
+  calculateAccuracy,
+  LABELS as CLASS_LABELS,
+} from '../utils/classificationMetrics.util.js';
+import { calibrateFromCollectedData } from '../services/mediapipeCalibration.service.js';
 
 const ensureRealtimeAdmin = async ({ uid, email, fullName }) => {
   if (!realtimeDb || !uid) return;
@@ -26,6 +36,205 @@ const ensureRealtimeAdmin = async ({ uid, email, fullName }) => {
   } catch (error) {
     logger.error('Failed to register system admin in realtime database:', error);
   }
+};
+
+const normalizeUserAccountStatus = (status) => {
+  const normalized = (status || 'ACTIVE').toString().trim().toUpperCase();
+  return normalized === 'SUSPENDED' ? 'SUSPENDED' : 'ACTIVE';
+};
+
+const SYSTEM_RETENTION_DEFAULTS = Object.freeze({
+  interviewDataDays: 365,
+  activityLogDays: 90,
+});
+
+const SYSTEM_RETENTION_LIMITS = Object.freeze({
+  interviewDataDays: Object.freeze({ min: 30, max: 3650 }),
+  activityLogDays: Object.freeze({ min: 7, max: 3650 }),
+});
+
+const normalizeRetentionDays = (value, fallback, { min, max }) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.round(Math.min(max, Math.max(min, parsed)));
+};
+
+const getRetentionPolicy = (settings) => ({
+  interviewDataDays: normalizeRetentionDays(
+    settings?.dataRetention?.interviewDataDays,
+    SYSTEM_RETENTION_DEFAULTS.interviewDataDays,
+    SYSTEM_RETENTION_LIMITS.interviewDataDays,
+  ),
+  activityLogDays: normalizeRetentionDays(
+    settings?.dataRetention?.activityLogDays,
+    SYSTEM_RETENTION_DEFAULTS.activityLogDays,
+    SYSTEM_RETENTION_LIMITS.activityLogDays,
+  ),
+});
+
+const getCutoffIsoFromDays = (days) => {
+  const ms = Number(days) * 24 * 60 * 60 * 1000;
+  return new Date(Date.now() - ms).toISOString();
+};
+
+const splitIntoChunks = (items = [], chunkSize = 450) => {
+  const chunks = [];
+  for (let i = 0; i < items.length; i += chunkSize) {
+    chunks.push(items.slice(i, i + chunkSize));
+  }
+  return chunks;
+};
+
+const queryCollectionBeforeDate = async ({
+  collection,
+  dateField,
+  cutoffIso,
+  limit,
+  additionalWhere = null,
+}) => {
+  try {
+    let query = collection.where(dateField, '<=', cutoffIso);
+    if (additionalWhere?.field) {
+      query = query.where(additionalWhere.field, '==', additionalWhere.value);
+    }
+    query = query.orderBy(dateField, 'asc').limit(limit);
+    const snapshot = await query.get();
+    return snapshot.docs;
+  } catch (error) {
+    if (!error || !String(error?.message || '').toLowerCase().includes('index')) {
+      throw error;
+    }
+    logger.warn(`Index unavailable for ${collection.id} retention query; using in-memory fallback.`);
+    const snapshot = await collection.get();
+    const filtered = snapshot.docs
+      .filter((doc) => {
+        const data = doc.data() || {};
+        const dateValue = data[dateField];
+        if (!dateValue || dateValue > cutoffIso) return false;
+        if (additionalWhere?.field) {
+          return data[additionalWhere.field] === additionalWhere.value;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aValue = (a.data() || {})[dateField] || '';
+        const bValue = (b.data() || {})[dateField] || '';
+        return String(aValue).localeCompare(String(bValue));
+      });
+    return filtered.slice(0, limit);
+  }
+};
+
+const countCollectionBeforeDate = async ({
+  collection,
+  dateField,
+  cutoffIso,
+  additionalWhere = null,
+}) => {
+  try {
+    let query = collection.where(dateField, '<=', cutoffIso);
+    if (additionalWhere?.field) {
+      query = query.where(additionalWhere.field, '==', additionalWhere.value);
+    }
+    const aggregate = await query.count().get();
+    const countValue = aggregate?.data()?.count;
+    if (Number.isFinite(countValue)) {
+      return countValue;
+    }
+  } catch (error) {
+    logger.warn(`Count query failed for ${collection.id}; using fallback count.`, error?.message || error);
+  }
+
+  const docs = await queryCollectionBeforeDate({
+    collection,
+    dateField,
+    cutoffIso,
+    limit: 20000,
+    additionalWhere,
+  });
+  return docs.length;
+};
+
+const redactInterviewForRetention = async ({
+  interviewRef,
+  interviewData,
+  retentionDays,
+}) => {
+  const questionsSnapshot = await interviewRef.collection('questions').get();
+  const poseDataSnapshot = await interviewRef.collection('poseData').limit(500).get();
+
+  const redactionPayload = {
+    transcript: null,
+    evaluation: null,
+    retentionPurgedAt: new Date().toISOString(),
+    retentionPolicyDays: retentionDays,
+    updatedAt: new Date().toISOString(),
+  };
+
+  const questionUpdateDocs = questionsSnapshot.docs.map((doc) => ({
+    ref: doc.ref,
+    payload: {
+      answer: null,
+      answerAudioUrl: null,
+      feedback: null,
+      strengths: [],
+      weaknesses: [],
+      updatedAt: new Date().toISOString(),
+    },
+  }));
+
+  const writeChunks = splitIntoChunks(questionUpdateDocs, 420);
+  for (const chunk of writeChunks) {
+    const batch = firestore.batch();
+    chunk.forEach((entry) => {
+      batch.set(entry.ref, entry.payload, { merge: true });
+    });
+    await batch.commit();
+  }
+
+  const interviewBatch = firestore.batch();
+  interviewBatch.set(interviewRef, redactionPayload, { merge: true });
+  poseDataSnapshot.docs.forEach((doc) => {
+    interviewBatch.delete(doc.ref);
+  });
+  await interviewBatch.commit();
+
+  return {
+    interviewId: interviewData.id || interviewRef.id,
+    redactedQuestions: questionsSnapshot.size,
+    deletedPoseDataPoints: poseDataSnapshot.size,
+  };
+};
+
+const deleteDocsByRef = async (docs = []) => {
+  let deleted = 0;
+  const chunks = splitIntoChunks(docs, 420);
+  for (const chunk of chunks) {
+    const batch = firestore.batch();
+    chunk.forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    deleted += chunk.length;
+  }
+  return deleted;
+};
+
+const ensureBootstrapAuthorized = async (req) => {
+  const hasSystemAdmin = await userStore.hasAccountType('SYSTEM_ADMIN');
+  if (!hasSystemAdmin) {
+    return { hasSystemAdmin: false };
+  }
+
+  if (req.user?.accountType === 'SYSTEM_ADMIN') {
+    return { hasSystemAdmin: true };
+  }
+
+  const error = new Error(
+    'System admin authentication is required because a system admin already exists.',
+  );
+  error.status = 403;
+  error.statusCode = 403;
+  error.code = 'SYSTEM_ADMIN_AUTH_REQUIRED';
+  throw error;
 };
 
 const sanitizeOrganization = (org) => {
@@ -64,9 +273,13 @@ const sanitizeUser = (user) => {
     id: user.id,
     email: user.email,
     accountType: user.accountType,
+    accountStatus: normalizeUserAccountStatus(user.accountStatus),
     fullName: user.fullName,
     companyName: user.companyName,
     primaryOrganizationId: user.primaryOrganizationId,
+    suspendedAt: user.suspendedAt || null,
+    suspendedBy: user.suspendedBy || null,
+    suspensionReason: user.suspensionReason || null,
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
   };
@@ -602,6 +815,7 @@ export class AdminController {
   static async bootstrapAdmin(req, res, next) {
     try {
       const { email, password, fullName } = req.body;
+      await ensureBootstrapAuthorized(req);
 
       if (!email || !password) {
         return res.status(400).json({ error: 'Email and password are required' });
@@ -707,8 +921,9 @@ export class AdminController {
   static async seedAdmin(req, res, next) {
     try {
       const { email, uid } = req.body;
+      const normalizedEmail = (email || '').toString().trim().toLowerCase();
 
-      if (!email || !uid) {
+      if (!normalizedEmail || !uid) {
         return res.status(400).json({ error: 'Email and UID are required' });
       }
 
@@ -718,8 +933,8 @@ export class AdminController {
       if (user) {
         if (user.accountType === 'SYSTEM_ADMIN') {
           await ensureRealtimeAdmin({
-            uid,
-            email: user.email || email,
+            uid: user.id || uid,
+            email: user.email || normalizedEmail,
             fullName: user.fullName || req.body.fullName,
           });
           return res.json({
@@ -728,7 +943,38 @@ export class AdminController {
             user: sanitizeUser(user),
           });
         }
+      } else {
+        // Safe idempotent retry path: if the email already belongs to a system admin,
+        // treat this request as already satisfied even if the caller supplied a stale UID.
+        const existingByEmail = await userStore.getByEmail(normalizedEmail);
+        if (existingByEmail?.accountType === 'SYSTEM_ADMIN') {
+          await ensureRealtimeAdmin({
+            uid: existingByEmail.id,
+            email: existingByEmail.email || normalizedEmail,
+            fullName: existingByEmail.fullName || req.body.fullName,
+          });
+          return res.json({
+            success: true,
+            message: existingByEmail.id === uid
+              ? 'System admin already exists'
+              : 'System admin already exists for this email',
+            user: sanitizeUser(existingByEmail),
+            ...(existingByEmail.id !== uid
+              ? {
+                requestedUid: uid,
+                resolvedUid: existingByEmail.id,
+              }
+              : {}),
+          });
+        }
+      }
 
+      // If a system admin already exists, only authenticated system admins can
+      // promote additional users. The idempotent "already exists" success path
+      // above remains available for safe retries.
+      await ensureBootstrapAuthorized(req);
+
+      if (user) {
         // Update existing user to system admin
         user = await userStore.update(uid, {
           accountType: 'SYSTEM_ADMIN',
@@ -736,15 +982,15 @@ export class AdminController {
       } else {
         // Create new system admin user
         user = await userStore.create(uid, {
-          email,
+          email: normalizedEmail,
           accountType: 'SYSTEM_ADMIN',
           fullName: req.body.fullName || 'System Administrator',
         });
       }
 
       await ensureRealtimeAdmin({
-        uid,
-        email,
+        uid: user?.id || uid,
+        email: user?.email || normalizedEmail,
         fullName: user?.fullName || req.body.fullName,
       });
 
@@ -758,10 +1004,10 @@ export class AdminController {
         action: 'ADMIN_SEEDED',
         targetType: 'USER',
         targetId: uid,
-        metadata: { email },
+        metadata: { email: normalizedEmail },
       });
 
-      logger.info(`System admin seeded: ${email}`);
+      logger.info(`System admin seeded: ${normalizedEmail}`);
 
       res.status(201).json({
         success: true,
@@ -1247,10 +1493,15 @@ export class AdminController {
       res.json({
         success: true,
         nonverbalFeedbackEnabled: settings?.nonverbalFeedbackEnabled !== false,
+        featureFlags: settings?.featureFlags || null,
       });
     } catch (error) {
       logger.error('Get public config error:', error);
-      res.json({ success: true, nonverbalFeedbackEnabled: true });
+      res.json({
+        success: true,
+        nonverbalFeedbackEnabled: true,
+        featureFlags: null,
+      });
     }
   }
 
@@ -1296,6 +1547,7 @@ export class AdminController {
       const updates = req.body;
 
       const settings = await systemSettingsStore.update(updates, adminId);
+      clearFeatureFlagCache();
 
       // Log the action
       await platformAuditLogStore.record({
@@ -1372,12 +1624,42 @@ export class AdminController {
    */
   static async getStats(req, res, next) {
     try {
-      const allOrgs = await organizationStore.listAll(1000, 0);
+      const [allOrgs, usersSnapshot, subscriptionsSnapshot] = await Promise.all([
+        organizationStore.listAll(1000, 0),
+        firestore.collection('users').get(),
+        firestore.collection('subscriptions').get(),
+      ]);
       const pendingOrgs = allOrgs.filter((o) => o.status === 'PENDING');
       const approvedOrgs = allOrgs.filter((o) => o.status === 'APPROVED');
       const rejectedOrgs = allOrgs.filter((o) => o.status === 'REJECTED');
       const suspendedOrgs = allOrgs.filter((o) => o.status === 'SUSPENDED');
 
+      const users = usersSnapshot.docs.map((doc) => doc.data() || {});
+      const usersByType = users.reduce(
+        (acc, user) => {
+          const type = (user.accountType || 'UNKNOWN').toString().toUpperCase();
+          if (type === 'CANDIDATE') acc.candidates += 1;
+          else if (type === 'COMPANY') acc.companyUsers += 1;
+          else if (type === 'SYSTEM_ADMIN') acc.systemAdmins += 1;
+          else acc.other += 1;
+          return acc;
+        },
+        {
+          candidates: 0,
+          companyUsers: 0,
+          systemAdmins: 0,
+          other: 0,
+        },
+      );
+      const suspendedUsers = users.filter(
+        (user) => normalizeUserAccountStatus(user.accountStatus) === 'SUSPENDED',
+      ).length;
+
+      const subscriptions = subscriptionsSnapshot.docs.map((doc) => doc.data() || {});
+      const activeSubscriptions = subscriptions.filter(
+        (subscription) => (subscription.status || '').toString().toLowerCase() === 'active',
+      ).length;
+      
       // Get recent activity
       const recentLogsPage = await platformAuditLogStore.listPage({ limit: 10 });
       const recentLogs = recentLogsPage.items;
@@ -1401,6 +1683,15 @@ export class AdminController {
             approved: approvedOrgs.length,
             rejected: rejectedOrgs.length,
             suspended: suspendedOrgs.length,
+          },
+          users: {
+            total: users.length,
+            suspended: suspendedUsers,
+            ...usersByType,
+          },
+          billing: {
+            totalSubscriptions: subscriptions.length,
+            activeSubscriptions,
           },
           recentActivity: enrichedLogs,
         },
@@ -1538,19 +1829,545 @@ export class AdminController {
    */
   static async listUsers(req, res, next) {
     try {
-      const { accountType, limit = 100 } = req.query;
+      const {
+        accountType = null,
+        status = null,
+        q = '',
+        limit = 100,
+        offset = 0,
+      } = req.query;
 
-      // This is a basic implementation - in production, you'd want pagination
-      // and more sophisticated filtering
-      // For now, we'll return a limited subset
-      
+      const parsedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 100, 500));
+      const parsedOffset = Math.max(0, Number.parseInt(offset, 10) || 0);
+
+      const page = await userStore.list({
+        accountType,
+        accountStatus: status,
+        query: q,
+        limit: parsedLimit,
+        offset: parsedOffset,
+      });
+
+      const organizationIds = Array.from(
+        new Set(page.users.map((user) => user.primaryOrganizationId).filter(Boolean)),
+      );
+      const organizations = await Promise.all(
+        organizationIds.map(async (id) => organizationStore.getById(id)),
+      );
+      const organizationsById = new Map(
+        organizations.filter(Boolean).map((org) => [org.id, org]),
+      );
+
+      const users = page.users.map((user) => ({
+        ...sanitizeUser(user),
+        organization: user.primaryOrganizationId
+          ? (() => {
+              const organization = organizationsById.get(user.primaryOrganizationId);
+              return organization
+                ? {
+                    id: organization.id,
+                    name: organization.displayName || organization.name || null,
+                    status: organization.status || null,
+                  }
+                : null;
+            })()
+          : null,
+      }));
+
       res.json({
         success: true,
-        users: [],
-        message: 'User listing requires additional implementation for production use',
+        users,
+        total: page.total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: parsedOffset + users.length < page.total,
       });
     } catch (error) {
       logger.error('List users error:', error);
+      next(error);
+    }
+  }
+
+  static async updateUserStatus(req, res, next) {
+    try {
+      const { id } = req.params;
+      const adminId = req.user.id;
+      const status = normalizeUserAccountStatus(req.body?.status);
+      const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+
+      const targetUser = await userStore.getByUid(id);
+      if (!targetUser) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      if (id === adminId && status === 'SUSPENDED') {
+        return res.status(409).json({
+          success: false,
+          error: 'You cannot suspend your own account.',
+          code: 'SELF_SUSPEND_FORBIDDEN',
+        });
+      }
+
+      if ((targetUser.accountType || '').toUpperCase() === 'SYSTEM_ADMIN' && status === 'SUSPENDED') {
+        return res.status(409).json({
+          success: false,
+          error: 'System admin accounts cannot be suspended from this panel.',
+          code: 'SYSTEM_ADMIN_SUSPEND_FORBIDDEN',
+        });
+      }
+
+      const currentStatus = normalizeUserAccountStatus(targetUser.accountStatus);
+      if (currentStatus === status) {
+        return res.json({
+          success: true,
+          message: `User is already ${status}`,
+          user: sanitizeUser(targetUser),
+        });
+      }
+
+      const updates = status === 'SUSPENDED'
+        ? {
+            accountStatus: 'SUSPENDED',
+            suspendedAt: new Date().toISOString(),
+            suspendedBy: adminId,
+            suspensionReason: reason || null,
+          }
+        : {
+            accountStatus: 'ACTIVE',
+            suspendedAt: null,
+            suspendedBy: null,
+            suspensionReason: null,
+          };
+
+      const updatedUser = await userStore.update(id, updates);
+      try {
+        await admin.auth().updateUser(id, {
+          disabled: status === 'SUSPENDED',
+        });
+      } catch (firebaseError) {
+        logger.error(`Failed to update Firebase auth status for user ${id}:`, firebaseError);
+      }
+
+      const action = status === 'SUSPENDED' ? 'USER_SUSPENDED' : 'USER_ACTIVATED';
+      await platformAuditLogStore.record({
+        actorId: adminId,
+        actorType: 'SYSTEM_ADMIN',
+        action,
+        targetType: 'USER',
+        targetId: id,
+        metadata: {
+          targetAccountType: updatedUser.accountType || null,
+          reason: reason || null,
+          previousStatus: currentStatus,
+          nextStatus: status,
+        },
+      });
+
+      await publishAdminRealtimeUpdate('user-status-updated', {
+        userId: id,
+        status,
+      });
+
+      return res.json({
+        success: true,
+        message: status === 'SUSPENDED' ? 'User suspended successfully' : 'User activated successfully',
+        user: sanitizeUser(updatedUser),
+      });
+    } catch (error) {
+      logger.error('Update user status error:', error);
+      next(error);
+    }
+  }
+
+  static async promoteToSystemAdmin(req, res, next) {
+    try {
+      const { id } = req.params;
+      const adminId = req.user.id;
+
+      const targetUser = await userStore.getByUid(id);
+      if (!targetUser) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      if ((targetUser.accountType || '').toUpperCase() === 'SYSTEM_ADMIN') {
+        await ensureRealtimeAdmin({
+          uid: targetUser.id,
+          email: targetUser.email,
+          fullName: targetUser.fullName,
+        });
+        return res.json({
+          success: true,
+          message: 'User is already a system admin',
+          user: sanitizeUser(targetUser),
+        });
+      }
+
+      const promotedUser = await userStore.update(id, {
+        accountType: 'SYSTEM_ADMIN',
+        accountStatus: 'ACTIVE',
+        suspendedAt: null,
+        suspendedBy: null,
+        suspensionReason: null,
+      });
+
+      await ensureRealtimeAdmin({
+        uid: promotedUser.id,
+        email: promotedUser.email,
+        fullName: promotedUser.fullName,
+      });
+
+      await platformAuditLogStore.record({
+        actorId: adminId,
+        actorType: 'SYSTEM_ADMIN',
+        action: 'USER_PROMOTED_SYSTEM_ADMIN',
+        targetType: 'USER',
+        targetId: id,
+        metadata: {
+          previousAccountType: targetUser.accountType || null,
+          nextAccountType: 'SYSTEM_ADMIN',
+          email: promotedUser.email || null,
+        },
+      });
+
+      await publishAdminRealtimeUpdate('user-status-updated', {
+        userId: id,
+        status: 'ACTIVE',
+        accountType: 'SYSTEM_ADMIN',
+      });
+
+      return res.json({
+        success: true,
+        message: 'User promoted to system admin',
+        user: sanitizeUser(promotedUser),
+      });
+    } catch (error) {
+      logger.error('Promote system admin error:', error);
+      next(error);
+    }
+  }
+
+  static async getBillingOverview(req, res, next) {
+    try {
+      const [subscriptionsSnapshot, billingEventsSnapshot] = await Promise.all([
+        firestore.collection('subscriptions').get(),
+        firestore.collection('billingEvents')
+          .orderBy('timestamp', 'desc')
+          .limit(25)
+          .get()
+          .catch(async (error) => {
+            logger.warn('Billing events index unavailable; using unsorted fallback.', error?.message || error);
+            const fallback = await firestore.collection('billingEvents').limit(25).get();
+            return fallback;
+          }),
+      ]);
+
+      const subscriptions = subscriptionsSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      }));
+      const billingEvents = billingEventsSnapshot.docs
+        .map((doc) => doc.data() || {})
+        .sort((a, b) => new Date(b.timestamp || 0).getTime() - new Date(a.timestamp || 0).getTime());
+
+      const planCounts = subscriptions.reduce((acc, subscription) => {
+        const key = (subscription.planId || 'unknown').toString().toLowerCase();
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
+      const statusCounts = subscriptions.reduce((acc, subscription) => {
+        const key = (subscription.status || 'unknown').toString().toLowerCase();
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+
+      const planPriceMap = Object.values(PLANS).reduce((acc, plan) => {
+        acc[plan.id] = Number(plan.price) || 0;
+        return acc;
+      }, {});
+      const estimatedMrr = subscriptions.reduce((sum, subscription) => {
+        const status = (subscription.status || '').toString().toLowerCase();
+        if (status !== 'active') return sum;
+        return sum + (planPriceMap[(subscription.planId || '').toString().toLowerCase()] || 0);
+      }, 0);
+
+      return res.json({
+        success: true,
+        billing: {
+          totalSubscriptions: subscriptions.length,
+          statusCounts,
+          planCounts,
+          estimatedMrr,
+          recentEvents: billingEvents.slice(0, 20),
+        },
+      });
+    } catch (error) {
+      logger.error('Get billing overview error:', error);
+      next(error);
+    }
+  }
+
+  static async getNewsletterStats(req, res, next) {
+    try {
+      const newsletterRef = firestore.collection('newsletterSubscriptions');
+      const [activeSnapshot, totalSnapshot, recentSnapshot] = await Promise.all([
+        newsletterRef.where('status', '==', 'active').get(),
+        newsletterRef.get(),
+        newsletterRef
+          .orderBy('subscribedAt', 'desc')
+          .limit(20)
+          .get()
+          .catch(async (error) => {
+            logger.warn('Newsletter subscribedAt index unavailable; using unsorted fallback.', error?.message || error);
+            return newsletterRef.limit(20).get();
+          }),
+      ]);
+
+      const recent = recentSnapshot.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .sort((a, b) => new Date(b.subscribedAt || 0).getTime() - new Date(a.subscribedAt || 0).getTime());
+
+      return res.json({
+        success: true,
+        newsletter: {
+          active: activeSnapshot.size,
+          total: totalSnapshot.size,
+          unsubscribed: totalSnapshot.size - activeSnapshot.size,
+          recent,
+        },
+      });
+    } catch (error) {
+      logger.error('Get newsletter stats error:', error);
+      next(error);
+    }
+  }
+
+  static async getDataRetentionSummary(req, res, next) {
+    try {
+      const settings = await systemSettingsStore.get();
+      const retentionPolicy = getRetentionPolicy(settings);
+      const interviewCutoffIso = getCutoffIsoFromDays(retentionPolicy.interviewDataDays);
+      const activityCutoffIso = getCutoffIsoFromDays(retentionPolicy.activityLogDays);
+
+      const [eligibleInterviews, eligiblePlatformAuditLogs, eligibleActivityLogs] = await Promise.all([
+        countCollectionBeforeDate({
+          collection: firestore.collection('interviews'),
+          dateField: 'endedAt',
+          cutoffIso: interviewCutoffIso,
+          additionalWhere: { field: 'status', value: 'COMPLETED' },
+        }),
+        countCollectionBeforeDate({
+          collection: firestore.collection('platformAuditLogs'),
+          dateField: 'createdAt',
+          cutoffIso: activityCutoffIso,
+        }),
+        countCollectionBeforeDate({
+          collection: firestore.collection('activityLogs'),
+          dateField: 'createdAt',
+          cutoffIso: activityCutoffIso,
+        }),
+      ]);
+
+      return res.json({
+        success: true,
+        retention: {
+          policy: retentionPolicy,
+          cutoff: {
+            interviews: interviewCutoffIso,
+            activityLogs: activityCutoffIso,
+          },
+          pending: {
+            interviews: eligibleInterviews,
+            platformAuditLogs: eligiblePlatformAuditLogs,
+            activityLogs: eligibleActivityLogs,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('Get data retention summary error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get classification metrics: confusion matrix, precision, recall, F1
+   * comparing AI score classifications vs SME score classifications.
+   */
+  static async getClassificationMetrics(req, res, next) {
+    try {
+      const limit = Math.min(parseInt(req.query.limit, 10) || 500, 2000);
+      const reviews = await reviewStore.listRecent(limit);
+
+      const calibrationPairs = reviews.filter(
+        (r) =>
+          r.aiOverallScoreAtReview != null &&
+          !Number.isNaN(Number(r.aiOverallScoreAtReview)) &&
+          r.smeOverallScore != null &&
+          !Number.isNaN(Number(r.smeOverallScore)),
+      );
+
+      if (calibrationPairs.length === 0) {
+        return res.json({
+          success: true,
+          confusionMatrix: null,
+          metrics: null,
+          accuracy: null,
+          sampleSize: 0,
+          message: 'No reviews with both AI and SME scores found.',
+        });
+      }
+
+      const predictions = calibrationPairs.map((r) => classifyScore(Number(r.aiOverallScoreAtReview)));
+      const actuals = calibrationPairs.map((r) => classifyScore(Number(r.smeOverallScore)));
+
+      const confusionMatrix = buildConfusionMatrix(predictions, actuals, CLASS_LABELS);
+      const metrics = calculateMetrics(confusionMatrix.matrix, CLASS_LABELS);
+      const accuracy = calculateAccuracy(confusionMatrix.matrix);
+
+      res.json({
+        success: true,
+        confusionMatrix,
+        metrics,
+        accuracy,
+        sampleSize: calibrationPairs.length,
+        labels: CLASS_LABELS,
+      });
+    } catch (error) {
+      logger.error('Get classification metrics error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Get MediaPipe calibration: compare static thresholds with data-driven values.
+   */
+  static async getMediaPipeCalibration(req, res, next) {
+    try {
+      const result = await calibrateFromCollectedData();
+      res.json({ success: result.success !== false, ...result });
+    } catch (error) {
+      logger.error('Get MediaPipe calibration error:', error);
+      next(error);
+    }
+  }
+
+  static async runDataRetentionCleanup(req, res, next) {
+    try {
+      const adminId = req.user.id;
+      const dryRun = req.body?.dryRun === true || req.body?.dryRun === 'true';
+      const requestedMax = Number.parseInt(req.body?.maxDocuments, 10);
+      const maxDocuments = Number.isInteger(requestedMax)
+        ? Math.min(Math.max(requestedMax, 1), 1000)
+        : 250;
+
+      const settings = await systemSettingsStore.get();
+      const retentionPolicy = getRetentionPolicy(settings);
+      const interviewCutoffIso = getCutoffIsoFromDays(retentionPolicy.interviewDataDays);
+      const activityCutoffIso = getCutoffIsoFromDays(retentionPolicy.activityLogDays);
+
+      const interviewDocsRaw = await queryCollectionBeforeDate({
+        collection: firestore.collection('interviews'),
+        dateField: 'endedAt',
+        cutoffIso: interviewCutoffIso,
+        limit: maxDocuments,
+        additionalWhere: { field: 'status', value: 'COMPLETED' },
+      });
+      const interviewDocs = interviewDocsRaw
+        .filter((doc) => !(doc.data() || {}).retentionPurgedAt)
+        .slice(0, maxDocuments);
+
+      const platformAuditDocs = await queryCollectionBeforeDate({
+        collection: firestore.collection('platformAuditLogs'),
+        dateField: 'createdAt',
+        cutoffIso: activityCutoffIso,
+        limit: maxDocuments,
+      });
+
+      const activityLogDocs = await queryCollectionBeforeDate({
+        collection: firestore.collection('activityLogs'),
+        dateField: 'createdAt',
+        cutoffIso: activityCutoffIso,
+        limit: maxDocuments,
+      });
+
+      const summary = {
+        dryRun,
+        maxDocuments,
+        policy: retentionPolicy,
+        cutoff: {
+          interviews: interviewCutoffIso,
+          activityLogs: activityCutoffIso,
+        },
+        candidates: {
+          interviews: interviewDocs.length,
+          platformAuditLogs: platformAuditDocs.length,
+          activityLogs: activityLogDocs.length,
+        },
+        processed: {
+          interviews: 0,
+          redactedQuestions: 0,
+          deletedPoseDataPoints: 0,
+          platformAuditLogs: 0,
+          activityLogs: 0,
+        },
+        failedInterviews: [],
+        hasMore: {
+          interviews: interviewDocsRaw.length >= maxDocuments,
+          platformAuditLogs: platformAuditDocs.length >= maxDocuments,
+          activityLogs: activityLogDocs.length >= maxDocuments,
+        },
+      };
+
+      if (!dryRun) {
+        for (const doc of interviewDocs) {
+          const interviewData = { id: doc.id, ...(doc.data() || {}) };
+          try {
+            const redaction = await redactInterviewForRetention({
+              interviewRef: doc.ref,
+              interviewData,
+              retentionDays: retentionPolicy.interviewDataDays,
+            });
+            summary.processed.interviews += 1;
+            summary.processed.redactedQuestions += redaction.redactedQuestions;
+            summary.processed.deletedPoseDataPoints += redaction.deletedPoseDataPoints;
+          } catch (retentionError) {
+            summary.failedInterviews.push({
+              interviewId: interviewData.id,
+              error: retentionError?.message || 'Unknown error',
+            });
+          }
+        }
+
+        summary.processed.platformAuditLogs = await deleteDocsByRef(platformAuditDocs);
+        summary.processed.activityLogs = await deleteDocsByRef(activityLogDocs);
+
+        await platformAuditLogStore.record({
+          actorId: adminId,
+          actorType: 'SYSTEM_ADMIN',
+          action: 'DATA_RETENTION_CLEANUP_RUN',
+          targetType: 'SETTINGS',
+          targetId: 'global',
+          metadata: {
+            maxDocuments,
+            policy: retentionPolicy,
+            processed: summary.processed,
+            failedInterviews: summary.failedInterviews.length,
+          },
+        });
+
+        await publishAdminRealtimeUpdate('data-retention-cleanup-run', {
+          adminId,
+          processed: summary.processed,
+          failedInterviews: summary.failedInterviews.length,
+        });
+      }
+
+      return res.json({
+        success: true,
+        retention: summary,
+      });
+    } catch (error) {
+      logger.error('Run data retention cleanup error:', error);
       next(error);
     }
   }

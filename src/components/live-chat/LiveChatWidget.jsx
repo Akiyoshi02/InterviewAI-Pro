@@ -805,7 +805,7 @@ const LiveChatWidget = () => {
       const errorMessage = {
         id: updatedMessages.length + 1,
         type: 'assistant',
-        content: "I ran into an issue generating a response. Please ensure your local AI service (Ollama) is running and try again.",
+        content: "I ran into an issue generating a response. Please ensure Ollama is running locally with the required models installed. Try running `ollama list` to verify.",
         timestamp: Date.now()
       };
       setAssistantMessages((prev) => [...prev, errorMessage]);

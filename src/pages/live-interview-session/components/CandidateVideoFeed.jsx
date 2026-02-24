@@ -11,10 +11,14 @@ const CandidateVideoFeed = ({
   onToggleVideo,
   onToggleAudio,
   onPoseMetricsUpdate,
+  onMediaStreamReady,
   enablePoseDetection = true,
+  interviewId = null,
+  analyticsDataRef = null,
   className = ''
 }) => {
   const videoRef = useRef(null);
+  const streamRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -26,11 +30,19 @@ const CandidateVideoFeed = ({
     metrics: fullMetrics,
     isPoseReady,
     isFaceReady,
+    collectedData,
   } = useInterviewAnalytics(videoRef.current, {
     enablePose: enablePoseDetection && isVideoEnabled,
     enableFace: enablePoseDetection && isVideoEnabled,
-    collectData: false, // Set to true to collect training data
+    collectData: true,
+    interviewId,
   });
+
+  useEffect(() => {
+    if (analyticsDataRef && collectedData) {
+      analyticsDataRef.current = { collectedData, interviewId };
+    }
+  }, [analyticsDataRef, collectedData, interviewId]);
   
   const poseEnabled = isPoseReady || isFaceReady;
 
@@ -43,7 +55,9 @@ const CandidateVideoFeed = ({
           video: true,
           audio: true
         });
+        streamRef.current = mediaStream;
         setStream(mediaStream);
+        onMediaStreamReady?.(mediaStream);
         
         // Wait for video ref to be available
         if (videoRef?.current) {
@@ -63,8 +77,10 @@ const CandidateVideoFeed = ({
     initializeCamera();
 
     return () => {
-      if (stream) {
-        stream?.getTracks()?.forEach(track => track?.stop());
+      onMediaStreamReady?.(null);
+      if (streamRef.current) {
+        streamRef.current.getTracks()?.forEach(track => track?.stop());
+        streamRef.current = null;
       }
     };
   }, []); // Empty dependency array - initialize only once

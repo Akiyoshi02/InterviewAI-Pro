@@ -1,14 +1,34 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import { useToast } from '../../../components/ui/Toast.jsx';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
+import {
+  ADMIN_APPROVAL_COMPLETENESS_FILTER_OPTIONS,
+  ADMIN_APPROVAL_PRIORITY_FILTER_OPTIONS,
+  ADMIN_APPROVAL_SORT_FILTER_OPTIONS,
+  ADMIN_DATE_PRESET_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_OWNER_DOMAIN_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_REREVIEW_FILTER_OPTIONS,
+  DEFAULT_ADMIN_APPROVAL_FILTERS,
+  buildApprovalQueueFilterOptions,
+  countActiveApprovalFilters,
+  filterPendingApprovalOrganizations,
+} from '../utils/adminDashboardFilters.js';
 
 const CHECK_STYLES = {
   pass: {
@@ -281,6 +301,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [approveDialog, setApproveDialog] = useState({ open: false, org: null });
   const [isApproving, setIsApproving] = useState(false);
+  const [approvalFilters, setApprovalFilters] = useState(DEFAULT_ADMIN_APPROVAL_FILTERS);
   const [expandedSections, setExpandedSections] = useState({
     risk: true,
     checklist: false,
@@ -319,7 +340,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         setOrganizations(result.organizations || []);
       }
     } catch (error) {
-      console.error('Failed to load pending organizations:', error);
       showErrorToast('Failed to load pending organizations.');
     } finally {
       setLoading(false);
@@ -379,7 +399,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         throw new Error('Failed to approve organization');
       }
     } catch (error) {
-      console.error('Failed to approve organization:', error);
       setApproveDialog({ open: false, org: null });
       showErrorToast(error?.message || 'Failed to approve organization. Please try again.');
     } finally {
@@ -633,7 +652,6 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         if (onApprovalChange) onApprovalChange();
       }
     } catch (error) {
-      console.error('Failed to reject organization:', error);
       showErrorToast(error?.message || 'Failed to reject organization. Please try again.');
     } finally {
       setActionLoading(null);
@@ -661,9 +679,27 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
         });
       }
     } catch (error) {
-      console.error('Failed to load organization details:', error);
       showErrorToast('Failed to load organization details.');
     }
+  };
+
+  const approvalFilterOptions = useMemo(
+    () => buildApprovalQueueFilterOptions(organizations),
+    [organizations],
+  );
+
+  const filteredOrganizations = useMemo(
+    () => filterPendingApprovalOrganizations(organizations, approvalFilters),
+    [organizations, approvalFilters],
+  );
+
+  const activeApprovalFilterCount = useMemo(
+    () => countActiveApprovalFilters(approvalFilters),
+    [approvalFilters],
+  );
+
+  const clearApprovalFilters = () => {
+    setApprovalFilters(DEFAULT_ADMIN_APPROVAL_FILTERS);
   };
 
   if (loading) {
@@ -724,7 +760,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
               Pending Organization Approvals
             </h2>
             <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
-              {organizations.length} organization{organizations.length !== 1 ? 's' : ''} awaiting review
+              Showing {filteredOrganizations.length} of {organizations.length} organization{organizations.length !== 1 ? 's' : ''} awaiting review
             </p>
           </div>
           <Button
@@ -738,8 +774,107 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
           </Button>
         </div>
 
+        <UnifiedFilterPanel
+          className="mb-6"
+          title="Approval Queue Filters"
+          description="Prioritize pending organizations by risk level, profile completeness, owner domain, and age."
+          activeCount={activeApprovalFilterCount}
+          onClear={clearApprovalFilters}
+        >
+          <div className={FILTER_GRID_CLASS}>
+            <UnifiedSearchField
+              label="Search"
+              className="sm:col-span-2 xl:col-span-2"
+              type="text"
+              value={approvalFilters.searchQuery}
+              onChange={(event) => setApprovalFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
+              placeholder="Organization, owner, notes, or risk signal"
+            />
+            <UnifiedFilterSelect
+              label="Priority"
+              value={approvalFilters.priorityFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, priorityFilter: value }))}
+              options={ADMIN_APPROVAL_PRIORITY_FILTER_OPTIONS}
+              placeholder="All priorities"
+            />
+            <UnifiedFilterSelect
+              label="Profile Completeness"
+              value={approvalFilters.completenessFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, completenessFilter: value }))}
+              options={ADMIN_APPROVAL_COMPLETENESS_FILTER_OPTIONS}
+              placeholder="Any completeness level"
+            />
+            <UnifiedFilterSelect
+              label="Owner Domain"
+              value={approvalFilters.ownerDomainFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, ownerDomainFilter: value }))}
+              options={ADMIN_ORGANIZATION_OWNER_DOMAIN_FILTER_OPTIONS}
+              placeholder="Any owner domain"
+            />
+            <UnifiedFilterSelect
+              label="Re-review"
+              value={approvalFilters.reReviewFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, reReviewFilter: value }))}
+              options={ADMIN_ORGANIZATION_REREVIEW_FILTER_OPTIONS}
+              placeholder="Any re-review state"
+            />
+            <UnifiedFilterSelect
+              label="Industry"
+              value={approvalFilters.industryFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, industryFilter: value }))}
+              options={approvalFilterOptions.industryOptions}
+              placeholder="All industries"
+            />
+            <UnifiedFilterSelect
+              label="Company Size"
+              value={approvalFilters.companySizeFilter}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, companySizeFilter: value }))}
+              options={approvalFilterOptions.companySizeOptions}
+              placeholder="All company sizes"
+            />
+            <UnifiedFilterSelect
+              label="Organization Age"
+              value={approvalFilters.agePreset}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, agePreset: value }))}
+              options={ADMIN_DATE_PRESET_FILTER_OPTIONS}
+              placeholder="All ages"
+            />
+            <UnifiedFilterSelect
+              label="Sort By"
+              value={approvalFilters.sortBy}
+              onChange={(value) => setApprovalFilters((prev) => ({ ...prev, sortBy: value }))}
+              options={ADMIN_APPROVAL_SORT_FILTER_OPTIONS}
+              placeholder="Sort approvals"
+            />
+          </div>
+          {approvalFilters.agePreset === 'custom' && (
+            <div className={FILTER_DATE_GRID_CLASS}>
+              <UnifiedFilterField label="Created From">
+                <UnifiedTextInput
+                  type="date"
+                  value={approvalFilters.createdFrom}
+                  onChange={(event) => setApprovalFilters((prev) => ({ ...prev, createdFrom: event.target.value }))}
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Created To">
+                <UnifiedTextInput
+                  type="date"
+                  value={approvalFilters.createdTo}
+                  onChange={(event) => setApprovalFilters((prev) => ({ ...prev, createdTo: event.target.value }))}
+                />
+              </UnifiedFilterField>
+            </div>
+          )}
+        </UnifiedFilterPanel>
+
         <div className="space-y-4">
-          {organizations.map((org) => (
+          {filteredOrganizations.length === 0 && (
+            <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-700 p-6 text-center">
+              <Icon name="Search" className="w-8 h-8 text-gray-400 mx-auto mb-2" />
+              <p className="text-sm text-gray-600 dark:text-slate-400">No pending organizations match the selected filters.</p>
+            </div>
+          )}
+          {filteredOrganizations.map((org) => (
             <motion.div
               key={org.id}
               initial={{ opacity: 0, y: 20 }}
@@ -859,7 +994,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                 tabIndex={-1}
                 className="bg-white dark:bg-slate-800 rounded-2xl border border-white/40 dark:border-slate-700/60 shadow-2xl max-w-4xl w-full max-h-[92vh] overflow-y-auto"
               >
-                <div className="sticky top-0 z-10 px-7 sm:px-8 py-5 border-b border-gray-200/70 dark:border-slate-700/70 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
+                <div className="sticky top-0 z-10 px-4 sm:px-6 py-5 border-b border-gray-200/70 dark:border-slate-700/70 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="p-2.5 rounded-xl bg-red-100 dark:bg-red-900/30">
@@ -885,7 +1020,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                   </div>
                 </div>
 
-                <div className="p-7 sm:p-8 space-y-5">
+                <div className="p-4 sm:p-6 space-y-5">
                   <div className="rounded-xl border border-gray-200/70 dark:border-slate-700/70 bg-gray-50/70 dark:bg-slate-900/50 p-4">
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                       <div>
@@ -1087,7 +1222,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[9999] flex items-center justify-center p-6 sm:p-8"
+              className="fixed inset-0 z-[9999] flex items-center justify-center p-4 sm:p-6"
               style={{ overflow: 'hidden' }}
             >
               <motion.div
@@ -1113,7 +1248,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                 style={{ maxHeight: 'calc(100vh - 6rem)' }}
               >
               <div className="overflow-y-auto scrollbar-hide" style={{ maxHeight: 'calc(100vh - 6rem)' }}>
-                <div className="sticky top-0 z-10 px-7 sm:px-8 py-5 border-b border-gray-200/70 dark:border-slate-700/70 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
+                <div className="sticky top-0 z-10 px-4 sm:px-6 py-5 border-b border-gray-200/70 dark:border-slate-700/70 bg-white/95 dark:bg-slate-800/95 backdrop-blur">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-center gap-3 min-w-0">
                       <div className="p-3 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex-shrink-0">
@@ -1142,7 +1277,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                     </div>
                   </div>
                 </div>
-                <div className="p-7 sm:p-8">
+                <div className="p-4 sm:p-6">
 
                   <div className="grid grid-cols-1 xl:grid-cols-12 gap-4">
                     <div className="xl:col-span-12 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/70 dark:bg-slate-900/60 p-4">
@@ -1202,7 +1337,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                             <h3 className="text-base font-semibold text-red-700 dark:text-red-300">Risk Flags</h3>
                           </div>
                           <div className="flex items-center gap-2">
-                            <span className="text-[11px] px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
+                            <span className="text-xs px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300">
                               {riskFlags.length}
                             </span>
                             <Icon
@@ -1243,16 +1378,16 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                           Verification Checklist
                         </h3>
                         <div className="flex items-center gap-2 flex-wrap justify-end">
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300">
                             Pass {verificationSummary.pass || 0}
                           </span>
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300">
                             Warn {verificationSummary.warn || 0}
                           </span>
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300">
                             Fail {verificationSummary.fail || 0}
                           </span>
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
                             {verificationSummary.total || verificationChecks.length || 0} checks
                           </span>
                           <Icon
@@ -1285,7 +1420,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                                   <div className="min-w-0">
                                     <div className="flex items-center gap-2 flex-wrap">
                                       <p className="text-base font-semibold text-gray-900 dark:text-slate-100">{check.label}</p>
-                                      <span className={`text-[11px] font-semibold uppercase tracking-wide ${style.text}`}>
+                                      <span className={`text-xs font-semibold uppercase tracking-wide ${style.text}`}>
                                         {status}
                                       </span>
                                     </div>
@@ -1304,7 +1439,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                           <h3 className="text-base font-semibold text-gray-700 dark:text-slate-300">
                             Company Profile
                           </h3>
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
                             Registration Data
                           </span>
                         </div>
@@ -1425,7 +1560,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                           <h3 className="text-base font-semibold text-gray-700 dark:text-slate-300">
                             Owner and Contact
                           </h3>
-                          <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
+                          <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
                             Account Data
                           </span>
                         </div>
@@ -1508,7 +1643,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
 
                         {selectedOrg.reReviewRequestNote && (
                           <div className="mt-3 rounded-lg border border-blue-200 dark:border-blue-900/50 bg-blue-50/70 dark:bg-blue-900/20 p-3">
-                            <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                            <p className="text-xs font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
                               Re-review request note
                             </p>
                             <p className="mt-1 text-sm text-blue-800 dark:text-blue-200 whitespace-pre-wrap break-words">
@@ -1523,7 +1658,7 @@ const OrganizationApprovalQueue = ({ onApprovalChange }) => {
                         <h3 className="text-base font-semibold text-gray-700 dark:text-slate-300">
                           Evidence and Documents
                         </h3>
-                        <span className="text-[11px] px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
+                        <span className="text-xs px-2 py-1 rounded-full bg-gray-100 dark:bg-slate-700/80 text-gray-600 dark:text-slate-300">
                           Auto checks
                         </span>
                       </div>

@@ -414,8 +414,9 @@ const AIInterviewerPreview = ({
                     <div className="w-3 h-3 bg-emerald-600 dark:bg-emerald-400 rounded-full animate-pulse"></div>
                   )}
                   <p className="text-sm text-gray-900 dark:text-slate-100 font-medium">
-                    "Hello! I'm {interviewerName || 'Your Interviewer'}. I'm excited to help you practice your interview skills today. 
+                    {`"Hello! I'm ${interviewerName || 'Your Interviewer'}. I'm excited to help you practice your interview skills today.
                     Let's start with a simple question to get warmed up."
+                    `}
                   </p>
                 </div>
               </div>

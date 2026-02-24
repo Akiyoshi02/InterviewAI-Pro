@@ -1,67 +1,26 @@
-import React from 'react';
+import React, { useMemo } from 'react';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { deriveRecommendedTopics } from '../utils/candidateInsights.js';
 
-const RecommendedTopics = ({ recommendations = [] }) => {
-  const mockRecommendations = [
-    {
-      id: 1,
-      title: 'System Design Fundamentals',
-      description: 'Based on your recent performance, focus on scalability concepts',
-      difficulty: 'Advanced',
-      estimatedTime: '45 min',
-      category: 'Technical',
-      priority: 'high',
-      completionRate: 23,
-      icon: 'Cpu'
-    },
-    {
-      id: 2,
-      title: 'Behavioral Interview Techniques',
-      description: 'Improve your STAR method responses for leadership questions',
-      difficulty: 'Intermediate',
-      estimatedTime: '30 min',
-      category: 'Soft Skills',
-      priority: 'medium',
-      completionRate: 67,
-      icon: 'Users'
-    },
-    {
-      id: 3,
-      title: 'Data Structures & Algorithms',
-      description: 'Strengthen your coding interview preparation',
-      difficulty: 'Advanced',
-      estimatedTime: '60 min',
-      category: 'Technical',
-      priority: 'high',
-      completionRate: 45,
-      icon: 'Code'
-    },
-    {
-      id: 4,
-      title: 'Product Strategy Questions',
-      description: 'Practice product management case studies and frameworks',
-      difficulty: 'Intermediate',
-      estimatedTime: '40 min',
-      category: 'Domain Specific',
-      priority: 'medium',
-      completionRate: 12,
-      icon: 'Target'
-    },
-    {
-      id: 5,
-      title: 'Communication Skills',
-      description: 'Enhance clarity and confidence in your responses',
-      difficulty: 'Beginner',
-      estimatedTime: '25 min',
-      category: 'Soft Skills',
-      priority: 'low',
-      completionRate: 89,
-      icon: 'MessageCircle'
+const RecommendedTopics = ({
+  recommendations = [],
+  interviews = [],
+  dashboardMetrics = null,
+  analytics = null,
+  applications = [],
+  onRefresh,
+  refreshing = false,
+  onStartPractice,
+}) => {
+  const navigate = useNavigate();
+  const topicData = useMemo(() => {
+    if (Array.isArray(recommendations) && recommendations.length > 0) {
+      return recommendations;
     }
-  ];
-
-  const topicData = recommendations?.length > 0 ? recommendations : mockRecommendations;
+    return deriveRecommendedTopics({ interviews, dashboardMetrics, analytics, applications });
+  }, [recommendations, interviews, dashboardMetrics, analytics, applications]);
 
   const getPriorityColor = (priority) => {
     const colorMap = {
@@ -83,11 +42,22 @@ const RecommendedTopics = ({ recommendations = [] }) => {
 
   const getDifficultyColor = (difficulty) => {
     const colorMap = {
-      'Beginner': 'text-emerald-600 dark:text-emerald-400',
-      'Intermediate': 'text-purple-600 dark:text-purple-400',
-      'Advanced': 'text-rose-600 dark:text-rose-400'
+      Beginner: 'text-emerald-600 dark:text-emerald-400',
+      Intermediate: 'text-purple-600 dark:text-purple-400',
+      Advanced: 'text-rose-600 dark:text-rose-400'
     };
     return colorMap?.[difficulty] || 'text-gray-500 dark:text-slate-400';
+  };
+
+  const handleStartTopicPractice = (topic = {}) => {
+    const role = String(topic?.practiceRole || 'software-engineer').trim();
+    const difficulty = String(topic?.practiceDifficulty || 'intermediate').trim().toLowerCase();
+    if (typeof onStartPractice === 'function') {
+      onStartPractice({ role, difficulty });
+      return;
+    }
+    const params = new URLSearchParams({ role, difficulty });
+    navigate(`/practice-interview-setup?${params.toString()}`);
   };
 
   return (
@@ -95,19 +65,22 @@ const RecommendedTopics = ({ recommendations = [] }) => {
       <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">AI-powered suggestions based on your performance</p>
+          <p className="text-xs text-gray-500 dark:text-slate-400">AI-powered suggestions based on your latest interview data</p>
         </div>
         <Button
           variant="ghost"
           size="sm"
           iconName="RefreshCw"
+          onClick={onRefresh}
+          disabled={refreshing}
           className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
         >
-          Refresh
+          {refreshing ? 'Refreshing...' : 'Refresh'}
         </Button>
       </div>
-      <div className="space-y-2.5">
-        {topicData?.slice(0, 4)?.map((topic) => (
+      {topicData?.length > 0 ? (
+        <div className="space-y-2.5">
+          {topicData?.slice(0, 4)?.map((topic) => (
           <div
             key={topic?.id}
             className={`rounded-xl border p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] cursor-pointer backdrop-blur ${getPriorityBg(topic?.priority)}`}
@@ -149,6 +122,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                     size="sm"
                     iconName="ArrowRight"
                     iconPosition="right"
+                    onClick={() => handleStartTopicPractice(topic)}
                     className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 flex-shrink-0 w-full xs:w-auto"
                   >
                     Practice
@@ -158,7 +132,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
                 {/* Progress Bar */}
                 <div className="mt-2">
                   <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400 mb-1">
-                    <span>Community Progress</span>
+                    <span>Readiness</span>
                     <span>{topic?.completionRate}%</span>
                   </div>
                   <div className="w-full bg-gray-100 dark:bg-slate-900/70 rounded-full h-1.5">
@@ -171,8 +145,22 @@ const RecommendedTopics = ({ recommendations = [] }) => {
               </div>
             </div>
           </div>
-        ))}
-      </div>
+          ))}
+        </div>
+      ) : (
+        <div className="rounded-xl border border-white/40 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/60 p-4 text-center">
+          <div className="text-sm text-gray-600 dark:text-slate-300 mb-3">
+            Complete at least one interview to unlock personalized topic recommendations.
+          </div>
+          <Button
+            variant="outline"
+            onClick={() => navigate('/practice-interview-setup')}
+            className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+          >
+            Start a Practice Session
+          </Button>
+        </div>
+      )}
       {/* View All Topics */}
       <div className="mt-4 pt-3 border-t border-white/30">
         <Button
@@ -180,6 +168,7 @@ const RecommendedTopics = ({ recommendations = [] }) => {
           fullWidth
           iconName="BookOpen"
           iconPosition="left"
+          onClick={() => navigate('/learning-center')}
           className="rounded-full border border-gray-200 text-gray-700 hover:border-blue-300 hover:text-blue-600"
         >
           Explore All Practice Topics

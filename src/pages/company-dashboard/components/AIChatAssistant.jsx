@@ -15,36 +15,36 @@ const CHAT_SIZE_PRESETS = {
     label: 'Compact',
     shortLabel: 'S',
     container: 'w-80 h-[520px]',
-    bodyAssistant: 'text-[13px]',
-    bodyUser: 'text-[13px]',
-    heading2: 'text-[16px]',
+    bodyAssistant: 'text-sm',
+    bodyUser: 'text-sm',
+    heading2: 'text-base',
     heading3: 'text-xs',
-    heading4: 'text-[11px]',
+    heading4: 'text-xs',
     messageSpacing: 'space-y-1.5',
     listSpacing: 'space-y-1',
     inputText: 'text-sm',
-    statusText: 'text-[11px]'
+    statusText: 'text-xs'
   },
   cozy: {
     label: 'Cozy',
     shortLabel: 'M',
     container: 'w-96 h-[600px]',
-    bodyAssistant: 'text-[14px]',
-    bodyUser: 'text-[14px]',
+    bodyAssistant: 'text-sm',
+    bodyUser: 'text-sm',
     heading2: 'text-lg',
     heading3: 'text-sm',
     heading4: 'text-xs',
     messageSpacing: 'space-y-2',
     listSpacing: 'space-y-1.5',
-    inputText: 'text-[15px]',
+    inputText: 'text-base',
     statusText: 'text-xs'
   },
   spacious: {
     label: 'Spacious',
     shortLabel: 'L',
     container: 'w-[30rem] h-[700px]',
-    bodyAssistant: 'text-[15px]',
-    bodyUser: 'text-[15px]',
+    bodyAssistant: 'text-base',
+    bodyUser: 'text-base',
     heading2: 'text-xl',
     heading3: 'text-base',
     heading4: 'text-sm',
@@ -157,8 +157,7 @@ const AIChatAssistant = ({
         },
         hiringMetrics: metrics || {}
       };
-    } catch (error) {
-      console.warn('AI Assistant context error:', error);
+    } catch {
       return { companyData: {}, hiringMetrics: {} };
     }
   };
@@ -313,8 +312,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setIsTyping(false);
       }, 1000 + Math.random() * 2000);
       
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       setIsTyping(false);
       
       const errorMessage = {
@@ -394,12 +392,11 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
       };
       
       setMessages(prev => [...prev, assistantMessage]);
-    } catch (error) {
-      console.error('AI Assistant Error:', error);
+    } catch {
       const errorMessage = {
         id: updatedMessages?.length + 1,
         type: 'assistant',
-        content: "I ran into an issue generating a response. Please ensure your local AI service (Ollama) is running and try again.",
+        content: "I ran into an issue generating a response. The AI service may be temporarily unavailable. Please try again in a moment.",
         timestamp: new Date()
       };
       setMessages(prev => [...prev, errorMessage]);
@@ -440,7 +437,6 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Voice input error:', error);
       setRecordingError(error?.message || 'Transcription failed. Please try again.');
       setVoiceStatus('idle');
     } finally {
@@ -472,7 +468,6 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         setVoiceStatus('idle');
       }
     } catch (error) {
-      console.error('Microphone access error:', error);
       setRecordingError(error?.message || 'Unable to access microphone.');
       setIsRecording(false);
       setVoiceStatus('idle');
@@ -730,7 +725,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
                 onClick={() => setChatSize(sizeKey)}
                 title={`${preset.label} chat size`}
                 aria-label={`${preset.label} chat size`}
-                className={`text-[11px] font-semibold px-2 py-0.5 rounded-full border border-white/20 transition ${
+                className={`text-xs font-semibold px-2 py-0.5 rounded-full border border-white/20 transition ${
                   chatSize === sizeKey
                     ? 'bg-white/40 text-blue-900 shadow-sm'
                     : 'text-white/80 hover:bg-white/20'
@@ -752,7 +747,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
             <button
               type="button"
               onClick={() => setActiveTab('assistant')}
-              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition ${
+              className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
                 isAssistantTab
                   ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/80'
@@ -764,7 +759,7 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
             <button
               type="button"
               onClick={() => setActiveTab('chat')}
-              className={`text-[11px] font-semibold px-3 py-1 rounded-full transition ${
+              className={`text-xs font-semibold px-3 py-1 rounded-full transition ${
                 !isAssistantTab
                   ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-sm'
                   : 'text-slate-600 dark:text-slate-300 hover:bg-white/60 dark:hover:bg-slate-800/80'

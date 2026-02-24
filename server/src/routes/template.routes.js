@@ -3,10 +3,12 @@ import { body, param } from 'express-validator';
 import { TemplateController } from '../controllers/template.controller.js';
 import {
   authenticate,
+  requireCompany,
   requireOrganizationContext,
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -15,6 +17,7 @@ const router = express.Router();
 router.post(
   '/',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
@@ -39,7 +42,10 @@ router.post(
 router.get(
   '/',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
+  requireCompany,
   requireOrganizationContext,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
   TemplateController.listTemplates,
 );
 
@@ -47,6 +53,10 @@ router.get(
 router.get(
   '/public',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
+  requireCompany,
+  requireOrganizationContext,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
   TemplateController.listPublicTemplates,
 );
 
@@ -54,7 +64,10 @@ router.get(
 router.get(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
+  requireCompany,
   requireOrganizationContext,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
   [param('id').isString().notEmpty()],
   validateRequest,
   TemplateController.getTemplate,
@@ -64,6 +77,7 @@ router.get(
 router.put(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
@@ -89,6 +103,7 @@ router.put(
 router.post(
   '/:id/duplicate',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
@@ -101,6 +116,7 @@ router.post(
 router.delete(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),

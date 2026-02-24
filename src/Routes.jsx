@@ -1,5 +1,5 @@
 import React from "react";
-import { BrowserRouter, Routes as RouterRoutes, Route } from "react-router-dom";
+import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-router-dom";
 import ScrollToTop from "components/ScrollToTop";
 import PageTitleManager from "components/PageTitleManager";
 import ErrorBoundary from "components/ErrorBoundary";
@@ -15,6 +15,7 @@ import CompanyDashboard from './pages/company-dashboard';
 import Login from './pages/login';
 import AdminLogin from './pages/admin-login';
 import PracticeInterviewSetup from './pages/practice-interview-setup';
+import InterviewResultsPage from './pages/interview-results';
 import Register from './pages/register';
 import ResetPassword from './pages/reset-password';
 import CandidateDashboard from './pages/candidate-dashboard';
@@ -46,7 +47,8 @@ import CompanyInvitationsPage from './pages/company-invitations';
 import CompanyCandidatesPage from './pages/company-candidates';
 import CompanyAnalyticsPage from './pages/company-analytics';
 import CompanyTeamMembersPage from './pages/company-team-members';
-import ResearchToolsPage from './pages/research-tools';
+import CompanySettingsPage from './pages/company-settings';
+import CompanyBillingPage from './pages/company-billing';
 
 const Routes = () => {
   return (
@@ -77,6 +79,14 @@ const Routes = () => {
           )}
         />
         <Route
+          path="/interview-results/:interviewId"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <InterviewResultsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/company-dashboard"
           element={(
             <ProtectedRoute roles={['COMPANY']}>
@@ -87,7 +97,7 @@ const Routes = () => {
         <Route
           path="/company-jobs"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_JOBS_PAGE']}>
               <CompanyJobsPage />
             </ProtectedRoute>
           )}
@@ -95,7 +105,7 @@ const Routes = () => {
         <Route
           path="/company-applications"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_APPLICATIONS_PAGE']}>
               <CompanyApplicationsPage />
             </ProtectedRoute>
           )}
@@ -103,7 +113,7 @@ const Routes = () => {
         <Route
           path="/company-interviews"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INTERVIEWS_PAGE']}>
               <CompanyInterviewsPage />
             </ProtectedRoute>
           )}
@@ -111,7 +121,7 @@ const Routes = () => {
         <Route
           path="/company-invitations"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INVITATIONS_PAGE']}>
               <CompanyInvitationsPage />
             </ProtectedRoute>
           )}
@@ -119,7 +129,7 @@ const Routes = () => {
         <Route
           path="/company-candidates"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_CANDIDATES_PAGE']}>
               <CompanyCandidatesPage />
             </ProtectedRoute>
           )}
@@ -127,7 +137,7 @@ const Routes = () => {
         <Route
           path="/company-analytics"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_ANALYTICS_PAGE']}>
               <CompanyAnalyticsPage />
             </ProtectedRoute>
           )}
@@ -135,8 +145,24 @@ const Routes = () => {
         <Route
           path="/company-team-members"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_MEMBERS']}>
               <CompanyTeamMembersPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-settings"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanySettingsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-billing"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyBillingPage />
             </ProtectedRoute>
           )}
         />
@@ -194,7 +220,7 @@ const Routes = () => {
         <Route
           path="/jobs"
           element={(
-            <ProtectedRoute>
+            <ProtectedRoute roles={['CANDIDATE']}>
               <JobsPage />
             </ProtectedRoute>
           )}
@@ -202,7 +228,7 @@ const Routes = () => {
         <Route
           path="/jobs/:id"
           element={(
-            <ProtectedRoute>
+            <ProtectedRoute roles={['CANDIDATE']}>
               <JobDetailPage />
             </ProtectedRoute>
           )}
@@ -224,12 +250,20 @@ const Routes = () => {
           )}
         />
         <Route
-          path="/research-tools"
+          path="/system-admin-dashboard/:section"
           element={(
             <ProtectedRoute roles={['SYSTEM_ADMIN']}>
-              <ResearchToolsPage />
+              <SystemAdminDashboard />
             </ProtectedRoute>
           )}
+        />
+        <Route
+          path="/research-tools"
+          element={
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <Navigate to="/system-admin-dashboard/research-tools" replace />
+            </ProtectedRoute>
+          }
         />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>

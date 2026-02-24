@@ -1,11 +1,20 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
 import LoadingState from '../../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
@@ -17,6 +26,20 @@ import {
   APPLICATION_DISPOSITION_OPTIONS,
   getDispositionLabel,
 } from '../../../constants/applicationDisposition.js';
+import { hasPermission } from '../../../utils/rolePermissions';
+import {
+  COMPANY_APPLICATION_DATE_PRESET_FILTER_OPTIONS,
+  COMPANY_APPLICATION_JOB_STATE_FILTER_OPTIONS,
+  COMPANY_APPLICATION_REVIEW_STATE_FILTER_OPTIONS,
+  COMPANY_APPLICATION_SORT_FILTER_OPTIONS,
+  COMPANY_APPLICATION_STATUS_FILTER_OPTIONS,
+  DEFAULT_COMPANY_APPLICATION_FILTERS,
+  buildCompanyApplicationFilterOptions,
+  countActiveCompanyFilters,
+  filterCompanyApplications,
+  getDerivedApplicationStatus,
+  groupCompanyApplicationsByJob,
+} from '../utils/companyApplicationFilters.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -44,11 +67,17 @@ const getCandidateImageUrl = (candidate) => {
   return `${base}${photoUrl.startsWith('/') ? photoUrl : `/${photoUrl}`}`;
 };
 
-const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => {
-  const normalizedDispositionCode = String(dispositionCode || '').toUpperCase();
+const getStatusConfig = (applicationOrStatus, withdrawnBy = null, dispositionCode = null) => {
+  const application = typeof applicationOrStatus === 'object' && applicationOrStatus !== null
+    ? applicationOrStatus
+    : {
+      status: applicationOrStatus,
+      withdrawnBy,
+      dispositionCode,
+    };
+  const derivedStatus = getDerivedApplicationStatus(application);
 
-  // If status is REJECTED and withdrawnBy exists, it means the candidate withdrew
-  if (status === 'REJECTED' && withdrawnBy) {
+  if (derivedStatus === 'WITHDRAWN') {
     return {
       label: 'Withdrew',
       color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
@@ -56,7 +85,7 @@ const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => 
     };
   }
 
-  if (status === 'REJECTED' && normalizedDispositionCode === 'JOB_CLOSED') {
+  if (derivedStatus === 'POSITION_CLOSED') {
     return {
       label: 'Position Closed',
       color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
@@ -86,8 +115,8 @@ const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => 
       icon: 'Star',
     },
     REJECTED: {
-      label: 'Rejected',
-      color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+      label: 'Not Selected',
+      color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200',
       icon: 'XCircle',
     },
     HIRED: {
@@ -95,8 +124,13 @@ const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => 
       color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
       icon: 'CheckCircle',
     },
+    UNKNOWN: {
+      label: 'Unknown',
+      color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+      icon: 'HelpCircle',
+    },
   };
-  return configs[status] || configs.SUBMITTED;
+  return configs[derivedStatus] || configs.UNKNOWN;
 };
 
 // Helper to format dates
@@ -117,14 +151,22 @@ const formatDate = (dateInput) => {
   return date.toLocaleDateString();
 };
 
+const resolveReviewStartStatus = (status) => {
+  const normalizedStatus = String(status || '').trim().toUpperCase();
+  if (normalizedStatus === 'SUBMITTED') return 'SCREENING';
+  return null;
+};
+
 const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const navigate = useNavigate();
-  const { organization } = useAuth();
+  const { organization, user } = useAuth();
+  const organizationRole = user?.organizationContext?.membership?.role;
+  const canStartReview = hasPermission(organizationRole, 'START_CANDIDATE_REVIEW');
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [filters, setFilters] = useState(DEFAULT_COMPANY_APPLICATION_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState(null);
   const [showDetails, setShowDetails] = useState(false);
   const [updating, setUpdating] = useState(null);
@@ -132,6 +174,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const [startingReview, setStartingReview] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
+  const [rejectionModal, setRejectionModal] = useState({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
 
@@ -142,7 +185,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
+  }, [filters, jobId]);
+
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_COMPANY_APPLICATION_FILTERS);
+  };
 
   const loadApplications = async () => {
     try {
@@ -165,7 +219,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         setError('Failed to load applications');
       }
     } catch (err) {
-      console.error('Failed to load applications:', err);
       setError(err.message || 'Failed to load applications');
     } finally {
       setLoading(false);
@@ -203,50 +256,45 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     [],
   );
 
-  const promptRejectionDisposition = () => {
-    const selectableOptions = APPLICATION_DISPOSITION_OPTIONS.filter(
-      (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
-    );
-    const choiceText = selectableOptions
-      .map((option, index) => `${index + 1}. ${option.label}`)
-      .join('\n');
-    const selection = window.prompt(
-      `Select a rejection reason:\n${choiceText}\n\nEnter number (default: 1).`,
-      '1',
-    );
-    if (selection === null) return null;
-
-    const parsedIndex = Number.parseInt(String(selection).trim(), 10);
-    const selectedOption = Number.isInteger(parsedIndex) && parsedIndex >= 1 && parsedIndex <= selectableOptions.length
-      ? selectableOptions[parsedIndex - 1]
-      : selectableOptions[0];
-    const notes = window.prompt(
-      'Optional recruiter note for audit trail (leave blank to skip):',
-      '',
-    );
-    if (notes === null) return null;
-
-    return {
-      dispositionCode: selectedOption.value,
-      dispositionCategory: selectedOption.category,
-      dispositionReason: selectedOption.reason || selectedOption.label,
-      dispositionNotes: notes.trim() || null,
-    };
-  };
+  const REJECTION_DISPOSITION_OPTIONS = APPLICATION_DISPOSITION_OPTIONS.filter(
+    (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
+  );
 
   const handleStatusChange = async (applicationId, newStatus) => {
+    if (newStatus === 'REJECTED') {
+      setRejectionModal({ open: true, applicationId, dispositionCode: REJECTION_DISPOSITION_OPTIONS[0]?.value || 'PASSED_ON', notes: '' });
+      return;
+    }
     try {
       setUpdating(applicationId);
-      const payload = { status: newStatus };
-      if (newStatus === 'REJECTED') {
-        const rejectionDisposition = promptRejectionDisposition();
-        if (!rejectionDisposition) {
-          setUpdating(null);
-          return;
+      const result = await apiClient.applications.updateStatus(applicationId, { status: newStatus });
+      if (result.success) {
+        await loadApplications();
+        if (selectedApplication?.id === applicationId) {
+          setSelectedApplication(result.application);
         }
-        Object.assign(payload, rejectionDisposition);
       }
+    } catch (err) {
+      setError('Failed to update status: ' + (err.message || 'Please try again.'));
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setUpdating(null);
+    }
+  };
 
+  const confirmRejection = async () => {
+    const { applicationId, dispositionCode, notes } = rejectionModal;
+    setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
+    const selectedOption = REJECTION_DISPOSITION_OPTIONS.find((o) => o.value === dispositionCode) || REJECTION_DISPOSITION_OPTIONS[0];
+    const payload = {
+      status: 'REJECTED',
+      dispositionCode: selectedOption?.value,
+      dispositionCategory: selectedOption?.category,
+      dispositionReason: selectedOption?.reason || selectedOption?.label,
+      dispositionNotes: notes?.trim() || null,
+    };
+    try {
+      setUpdating(applicationId);
       const result = await apiClient.applications.updateStatus(applicationId, payload);
       if (result.success) {
         await loadApplications();
@@ -255,7 +303,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         }
       }
     } catch (err) {
-      alert('Failed to update status: ' + err.message);
+      setError('Failed to reject application: ' + (err.message || 'Please try again.'));
+      setTimeout(() => setError(''), 5000);
     } finally {
       setUpdating(null);
     }
@@ -271,11 +320,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   };
 
   const handleStartReview = async () => {
+    if (!canStartReview) {
+      setError('You do not have permission to start candidate reviews.');
+      setTimeout(() => setError(''), 5000);
+      return;
+    }
+
     if (!selectedApplication || !selectedApplication.candidateId) return;
 
     try {
       setStartingReview(true);
       setError('');
+      const statusToApply = resolveReviewStartStatus(selectedApplication.status);
 
       // Check if interview already exists for this application
       let interviewId = selectedApplication.interviewId;
@@ -299,17 +355,17 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         
         if (result.success && result.interview) {
           interviewId = result.interview.id;
-          
-          // Update the application to link it to the interview and set status to INTERVIEWING
-          try {
-            await apiClient.applications.updateStatus(selectedApplication.id, 'INTERVIEWING');
-            // Reload applications to get updated data
-            await loadApplications();
-          } catch (updateErr) {
-            console.warn('Failed to update application status:', updateErr);
-          }
         } else {
           throw new Error(result.error || 'Failed to create interview');
+        }
+      }
+
+      if (interviewId && statusToApply) {
+        try {
+          await apiClient.applications.updateStatus(selectedApplication.id, { status: statusToApply });
+          await loadApplications();
+        } catch {
+          // Status update failed silently; review navigation continues
         }
       }
 
@@ -319,7 +375,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         setShowDetails(false);
       }
     } catch (err) {
-      console.error('Failed to start review:', err);
       setError(err.message || 'Failed to start review. Please try again.');
       setTimeout(() => setError(''), 5000);
     } finally {
@@ -339,92 +394,56 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     });
   };
 
-  // Group applications by job
-  const groupedApplications = applications.reduce((acc, application) => {
-    const jobId = application.job?.id || application.jobId || `unknown-${application.id}`;
-    if (!acc[jobId]) {
-      acc[jobId] = {
-        job: application.job,
-        organization: application.organization, // Store organization data for logo
-        applications: [],
-        stats: {
-          total: 0,
-          new: 0,
-          screening: 0,
-          interviewing: 0,
-          shortlisted: 0,
-          rejected: 0,
-          withdrew: 0,
-          hired: 0,
-        }
-      };
-    }
-    
-    acc[jobId].applications.push(application);
-    acc[jobId].stats.total++;
-    
-    // Count by status
-    if (application.status === 'SUBMITTED') acc[jobId].stats.new++;
-    else if (application.status === 'SCREENING') acc[jobId].stats.screening++;
-    else if (application.status === 'INTERVIEWING') acc[jobId].stats.interviewing++;
-    else if (application.status === 'SHORTLISTED') acc[jobId].stats.shortlisted++;
-    else if (application.status === 'HIRED') acc[jobId].stats.hired++;
-    else if (application.status === 'REJECTED') {
-      if (application.withdrawnBy) acc[jobId].stats.withdrew++;
-      else acc[jobId].stats.rejected++;
-    }
-    
-    return acc;
-  }, {});
+  const effectiveFilters = useMemo(
+    () => (jobId ? { ...filters, jobFilter: String(jobId) } : filters),
+    [filters, jobId],
+  );
 
-  // Filter applications
-  const filteredGroupedApplications = Object.entries(groupedApplications).reduce((acc, [jobId, jobData]) => {
-    const filteredApps = jobData.applications.filter((application) => {
-      // Search filter
-      const matchesSearch = searchQuery
-        ? (application.candidate?.fullName || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.candidate?.email || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.job?.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.job?.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.job?.location || '').toLowerCase().includes(searchQuery.toLowerCase())
-        : true;
+  const filteredApplications = useMemo(
+    () => filterCompanyApplications(applications, effectiveFilters),
+    [applications, effectiveFilters],
+  );
 
-      // Status filter
-      let matchesStatus = true;
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'WITHDRAWN') {
-          matchesStatus = application.status === 'REJECTED' && application.withdrawnBy;
-        } else if (statusFilter === 'REJECTED') {
-          matchesStatus = application.status === 'REJECTED' && !application.withdrawnBy;
-        } else {
-          matchesStatus = application.status === statusFilter;
-        }
+  const groupedApplications = useMemo(
+    () => groupCompanyApplicationsByJob(filteredApplications, { sortBy: effectiveFilters.sortBy }),
+    [filteredApplications, effectiveFilters.sortBy],
+  );
+
+  const {
+    jobOptions,
+    companyOptions,
+    employmentTypeOptions,
+    dispositionOptions,
+  } = useMemo(
+    () => buildCompanyApplicationFilterOptions(applications),
+    [applications],
+  );
+
+  const activeFilterCount = useMemo(() => {
+    const filterStateForCount = jobId
+      ? { ...effectiveFilters, jobFilter: 'all' }
+      : effectiveFilters;
+    return countActiveCompanyFilters(filterStateForCount);
+  }, [effectiveFilters, jobId]);
+
+  useEffect(() => {
+    setExpandedJobs((previous) => {
+      const visibleJobIds = groupedApplications.map((group) => group.jobId);
+      const visibleLookup = new Set(visibleJobIds);
+      const next = new Set([...previous].filter((groupJobId) => visibleLookup.has(groupJobId)));
+
+      if (next.size === 0 && visibleJobIds.length > 0) {
+        next.add(visibleJobIds[0]);
       }
 
-      return matchesSearch && matchesStatus;
+      const previousIds = [...previous];
+      const nextIds = [...next];
+      const unchanged = previousIds.length === nextIds.length
+        && previousIds.every((groupJobId, index) => groupJobId === nextIds[index]);
+
+      return unchanged ? previous : next;
     });
-
-    if (filteredApps.length > 0) {
-      acc[jobId] = {
-        ...jobData,
-        applications: filteredApps,
-        filteredCount: filteredApps.length,
-      };
-    }
-
-    return acc;
-  }, {});
-
-  const statusOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'SUBMITTED', label: 'New' },
-    { value: 'SCREENING', label: 'Screening' },
-    { value: 'INTERVIEWING', label: 'Interviewing' },
-    { value: 'SHORTLISTED', label: 'Shortlisted' },
-    { value: 'REJECTED', label: 'Rejected' },
-    { value: 'WITHDRAWN', label: 'Withdrew' },
-    { value: 'HIRED', label: 'Hired' },
-  ];
+  }, [groupedApplications]);
 
   if (loading) {
     return (
@@ -467,11 +486,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     );
   }
 
-  const totalApplicationsCount = Object.values(filteredGroupedApplications).reduce((sum, jobData) => sum + jobData.filteredCount, 0);
-  const totalJobsCount = Object.keys(filteredGroupedApplications).length;
+  const totalApplicationsCount = groupedApplications.reduce((sum, jobData) => sum + jobData.filteredCount, 0);
+  const totalJobsCount = groupedApplications.length;
 
   // Pagination calculations
-  const jobsArray = Object.entries(filteredGroupedApplications);
+  const jobsArray = groupedApplications;
   const totalPages = Math.ceil(jobsArray.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -501,31 +520,131 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-slate-500 z-20 pointer-events-none" />
-            <input
+        <UnifiedFilterPanel
+          title="Application Filters"
+          description="Search candidates and refine applications by role, status, disposition, and hiring timeline."
+          activeCount={activeFilterCount}
+          onClear={clearFilters}
+          headerActions={(
+            <UnifiedFilterToggleButton
+              active={showAdvancedFilters}
+              onClick={() => setShowAdvancedFilters((previous) => !previous)}
+              label={showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
+            />
+          )}
+        >
+          <div className={FILTER_GRID_CLASS}>
+            <UnifiedSearchField
+              label="Search"
+              className="sm:col-span-2 xl:col-span-3"
               type="text"
-              placeholder="Search by candidate name, email, job title, location..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex h-11 sm:h-12 w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 pr-3 sm:pr-4 py-2.5 pl-10 text-base sm:text-sm text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200"
+              placeholder="Candidate, role, outcome, notes, or location"
+              value={filters.searchQuery}
+              onChange={(event) => updateFilter('searchQuery', event.target.value)}
+            />
+            <UnifiedFilterSelect
+              label="Status"
+              value={filters.statusFilter}
+              onChange={(value) => updateFilter('statusFilter', value)}
+              options={COMPANY_APPLICATION_STATUS_FILTER_OPTIONS}
+              placeholder="All statuses"
             />
           </div>
-          <div className="relative z-30 sm:w-[200px]">
-            <Select
-              value={statusFilter}
-              onChange={(value) => setStatusFilter(value)}
-              options={statusOptions}
-              placeholder="All Status"
-              className="w-full"
-            />
-          </div>
-        </div>
+
+          {showAdvancedFilters && (
+            <div className={FILTER_SUBPANEL_CLASS}>
+              <div className={FILTER_GRID_CLASS}>
+                {!jobId && (
+                  <UnifiedFilterSelect
+                    label="Job Role"
+                    value={filters.jobFilter}
+                    onChange={(value) => updateFilter('jobFilter', value)}
+                    options={jobOptions}
+                    placeholder="All roles"
+                  />
+                )}
+                <UnifiedFilterSelect
+                  label="Company"
+                  value={filters.companyFilter}
+                  onChange={(value) => updateFilter('companyFilter', value)}
+                  options={companyOptions}
+                  placeholder="All companies"
+                />
+                <UnifiedFilterSelect
+                  label="Employment Type"
+                  value={filters.employmentTypeFilter}
+                  onChange={(value) => updateFilter('employmentTypeFilter', value)}
+                  options={employmentTypeOptions}
+                  placeholder="All employment types"
+                />
+                <UnifiedFilterSelect
+                  label="Outcome"
+                  value={filters.dispositionFilter}
+                  onChange={(value) => updateFilter('dispositionFilter', value)}
+                  options={dispositionOptions}
+                  placeholder="All outcomes"
+                />
+                <UnifiedFilterSelect
+                  label="Review State"
+                  value={filters.reviewStateFilter}
+                  onChange={(value) => updateFilter('reviewStateFilter', value)}
+                  options={COMPANY_APPLICATION_REVIEW_STATE_FILTER_OPTIONS}
+                  placeholder="All review states"
+                />
+                <UnifiedFilterSelect
+                  label="Job State"
+                  value={filters.jobStateFilter}
+                  onChange={(value) => updateFilter('jobStateFilter', value)}
+                  options={COMPANY_APPLICATION_JOB_STATE_FILTER_OPTIONS}
+                  placeholder="All job states"
+                />
+                <UnifiedFilterSelect
+                  label="Date Range"
+                  value={filters.datePreset}
+                  onChange={(value) => {
+                    setFilters((previous) => ({
+                      ...previous,
+                      datePreset: value,
+                      ...(value === 'custom' ? {} : { appliedFrom: '', appliedTo: '' }),
+                    }));
+                  }}
+                  options={COMPANY_APPLICATION_DATE_PRESET_FILTER_OPTIONS}
+                  placeholder="All dates"
+                />
+                <UnifiedFilterSelect
+                  label="Sort By"
+                  value={filters.sortBy}
+                  onChange={(value) => updateFilter('sortBy', value)}
+                  options={COMPANY_APPLICATION_SORT_FILTER_OPTIONS}
+                  placeholder="Latest activity"
+                />
+              </div>
+
+              {filters.datePreset === 'custom' && (
+                <div className={FILTER_DATE_GRID_CLASS}>
+                  <UnifiedFilterField label="Applied From">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedFrom}
+                      onChange={(event) => updateFilter('appliedFrom', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                  <UnifiedFilterField label="Applied To">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedTo}
+                      onChange={(event) => updateFilter('appliedTo', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                </div>
+              )}
+            </div>
+          )}
+        </UnifiedFilterPanel>
 
         {/* Job Groups */}
         <div className="space-y-4">
-          {Object.keys(filteredGroupedApplications).length === 0 ? (
+          {groupedApplications.length === 0 ? (
             <div className="text-center py-12">
               <div className="p-3 rounded-full bg-gray-100 dark:bg-slate-800 inline-flex mb-4">
                 <Icon name="Search" className="w-8 h-8 text-gray-400 dark:text-slate-500" />
@@ -538,22 +657,20 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
               </p>
               <Button
                 variant="outline"
-                onClick={() => {
-                  setSearchQuery('');
-                  setStatusFilter('all');
-                }}
+                onClick={clearFilters}
               >
                 Clear Filters
               </Button>
             </div>
           ) : (
             <>
-            {paginatedJobs.map(([jobId, jobData], index) => {
-              const isExpanded = expandedJobs.has(jobId);
+            {paginatedJobs.map((jobData, index) => {
+              const groupJobId = jobData.jobId;
+              const isExpanded = expandedJobs.has(groupJobId);
               
               return (
                 <motion.div
-                  key={jobId}
+                  key={groupJobId}
                   initial={{ opacity: 0, y: 20 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: index * 0.05 }}
@@ -561,7 +678,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                 >
                   {/* Job Header */}
                   <button
-                    onClick={() => toggleJob(jobId)}
+                    onClick={() => toggleJob(groupJobId)}
                     className="w-full p-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-slate-800/50 transition-colors"
                   >
                     <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -589,7 +706,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                             {jobData.job?.title || 'Deleted Position'}
                           </h3>
                           {jobData.job?.isDeleted && (
-                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium shrink-0">
+                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-xs font-medium shrink-0">
                               Deleted
                             </span>
                           )}
@@ -604,9 +721,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     {/* Stats Summary */}
                     <div className="flex items-center gap-3 ml-4">
                       <div className="hidden sm:flex items-center gap-2">
-                        {jobData.stats.new > 0 && (
+                        {jobData.stats.submitted > 0 && (
                           <span className="px-2 py-1 rounded-full bg-blue-100 dark:bg-blue-900/30 text-xs font-medium text-blue-700 dark:text-blue-300">
-                            {jobData.stats.new} New
+                            {jobData.stats.submitted} New
                           </span>
                         )}
                         {jobData.stats.screening > 0 && (
@@ -639,11 +756,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       >
                         <div className="p-4 space-y-3 bg-gray-50/50 dark:bg-slate-800/30">
                           {jobData.applications.map((application, appIndex) => {
-                            const statusConfig = getStatusConfig(
-                              application.status,
-                              application.withdrawnBy,
-                              application.dispositionCode,
-                            );
+                            const statusConfig = getStatusConfig(application);
                             
                             return (
                               <motion.div
@@ -862,7 +975,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                           {selectedApplication.job?.title || 'Deleted Position'}
                         </p>
                         {selectedApplication.job?.isDeleted && (
-                          <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium">
+                          <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-xs font-medium">
                             Deleted
                           </span>
                         )}
@@ -909,12 +1022,12 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                                   key={status}
                                   onClick={() => !isCurrent && !isWithdrawnApp && handleStatusChange(selectedApplication.id, status)}
                                   disabled={updating === selectedApplication.id || isCurrent || isWithdrawnApp}
-                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                                     isCurrent
-                                      ? config.color
+                                      ? `${config.color} border-white/80 dark:border-slate-100/70 shadow-sm ring-1 ring-black/5 dark:ring-white/10`
                                       : isWithdrawnApp
-                                      ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 cursor-not-allowed'
-                                      : 'bg-gray-100 dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:bg-gray-200 dark:hover:bg-slate-700'
+                                      ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 border-gray-300 dark:border-slate-700 cursor-not-allowed'
+                                      : 'bg-white dark:bg-slate-800/80 text-gray-700 dark:text-slate-200 border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700'
                                   }`}
                                   title={isWithdrawnApp ? 'Cannot change status of withdrawn applications' : ''}
                                 >
@@ -1018,26 +1131,88 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     <Button
                       variant="outline"
                       onClick={() => setShowDetails(false)}
-                      className="flex-1"
+                      className="flex-1 border-gray-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700"
                     >
                       Close
                     </Button>
-                    <Button
-                      variant="primary"
-                      onClick={handleStartReview}
-                      loading={startingReview}
-                      disabled={startingReview || isWithdrawn(selectedApplication)}
-                      className="flex-1"
-                    >
-                      {!startingReview && <Icon name="Play" className="w-4 h-4 mr-2" />}
-                      {startingReview ? 'Starting...' : 'Start Review'}
-                    </Button>
+                    {canStartReview && (
+                      <Button
+                        variant="default"
+                        onClick={handleStartReview}
+                        loading={startingReview}
+                        disabled={startingReview || isWithdrawn(selectedApplication)}
+                        className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white font-semibold shadow-md"
+                      >
+                        {!startingReview && <Icon name="Play" className="w-4 h-4 mr-2" />}
+                        {startingReview ? 'Starting...' : 'Start Review'}
+                      </Button>
+                    )}
                   </div>
                 </div>
               </motion.div>
             </motion.div>
           )}
         </AnimatePresence>,
+        document.body
+      )}
+
+      {rejectionModal.open && createPortal(
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Reject Application</h3>
+              <button
+                type="button"
+                onClick={() => setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' })}
+                className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 rounded-full p-1"
+              >
+                <Icon name="X" size={16} />
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">Rejection reason</label>
+              <select
+                value={rejectionModal.dispositionCode}
+                onChange={(e) => setRejectionModal((prev) => ({ ...prev, dispositionCode: e.target.value }))}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent"
+              >
+                {REJECTION_DISPOSITION_OPTIONS.map((option) => (
+                  <option key={option.value} value={option.value}>{option.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="space-y-2">
+              <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
+                Recruiter note <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                value={rejectionModal.notes}
+                onChange={(e) => setRejectionModal((prev) => ({ ...prev, notes: e.target.value }))}
+                placeholder="Internal audit note..."
+                rows={3}
+                className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 dark:placeholder:text-slate-400 px-3 py-2 text-sm focus:ring-2 focus:ring-rose-500 focus:border-transparent resize-none"
+              />
+            </div>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                className="flex-1"
+                onClick={() => setRejectionModal({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' })}
+              >
+                Cancel
+              </Button>
+              <Button
+                className="flex-1 bg-rose-600 hover:bg-rose-700 text-white border-none"
+                onClick={confirmRejection}
+              >
+                Confirm Rejection
+              </Button>
+            </div>
+          </div>
+        </div>,
         document.body
       )}
     </div>

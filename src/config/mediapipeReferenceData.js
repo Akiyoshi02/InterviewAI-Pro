@@ -422,6 +422,10 @@ export const POSTURE_REFERENCE = {
       poor: 25,              // Within 25°
       slouching: 35,         // Significant slouch
     },
+    // Legacy aliases for useInterviewAnalytics (forward head distance thresholds)
+    maxForwardHeadThreshold: 0.03,
+    moderateForwardHeadThreshold: 0.06,
+    poorForwardHeadThreshold: 0.10,
   },
   
   // === HEAD POSITION ===
@@ -451,6 +455,10 @@ export const POSTURE_REFERENCE = {
       poor: 0.10,            // Notable forward
       severe: 0.15,          // Severe forward head
     },
+    // Legacy aliases for useInterviewAnalytics
+    loweredThreshold: 0.03,
+    poorTiltThreshold: 18,
+    maxTiltThreshold: 7,
   },
   
   // === UPPER BODY ===
@@ -482,6 +490,17 @@ export const POSTURE_REFERENCE = {
       veryRelaxed: { min: 110, max: 160 }, // Very relaxed
     },
   },
+
+  // === LEGACY ALIASES for useInterviewAnalytics ===
+  shoulder: {
+    poorSlopeThreshold: 0.080,     // shoulders.alignment.poor
+    moderateSlopeThreshold: 0.050, // shoulders.alignment.fair
+    maxSlopeThreshold: 0.030,      // shoulders.alignment.good
+  },
+  hands: {
+    historyWindow: 10,             // frames for fidgeting window
+    fidgetingThreshold: 0.06,      // normalized movement threshold
+  },
 };
 
 
@@ -508,6 +527,9 @@ export const FACE_REFERENCE = {
       lowRate: 10,           // Low (staring/tense)
       maxDuration: 400,      // Normal blink duration (ms)
     },
+    // Legacy aliases for useInterviewAnalytics
+    blinkThreshold: 0.16,
+    prolongedClosureFrames: 15,  // ~1.5s at 10fps = prolonged closure
     asymmetry: {
       symmetric: 0.03,       // Very symmetric
       slight: 0.06,          // Natural asymmetry
@@ -555,6 +577,13 @@ export const FACE_REFERENCE = {
       extremeUp: 40,         // Extreme up
       extremeDown: 35,       // Extreme down
     },
+    // Legacy aliases for useInterviewAnalytics (degrees)
+    poorYawThreshold: 40,
+    moderateYawThreshold: 25,
+    maxYawThreshold: 15,
+    poorPitchThreshold: 25,
+    moderatePitchThreshold: 15,
+    maxPitchThreshold: 8,
     roll: {
       level: 5,              // Level head
       slight: 10,            // Slight tilt
@@ -577,6 +606,7 @@ export const FACE_REFERENCE = {
       threshold: 0.12,       // MAR for speech
       minDuration: 200,      // Minimum ms
     },
+    speakingThreshold: 0.12,  // Legacy alias for useInterviewAnalytics
     smile: {
       neutral: 0.00,         // Neutral
       slight: 0.015,         // Slight smile
@@ -774,7 +804,17 @@ export const SCORING_WEIGHTS = {
     spine: 0.35,
     head: 0.20,
     upperBody: 0.15,
+    // Legacy aliases for useInterviewAnalytics
+    components: {
+      shoulderAlignment: 0.35,
+      spineAlignment: 0.35,
+      headPosition: 0.30,
+    },
+    weight: 0.20,
   },
+  attention: { weight: 0.25 },
+  bodyLanguage: { weight: 0.15 },
+  expression: { weight: 0.15 },
   
   eyeContact: {
     gazeDirection: 0.40,
@@ -1368,7 +1408,105 @@ export function getFeedbackMessage(category, score) {
 
 
 // ============================================================================
-// SECTION 11: DEFAULT EXPORT
+// SECTION 11: CALIBRATED OVERRIDE SUPPORT
+// ============================================================================
+
+const CALIBRATED_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
+
+/**
+ * Load calibrated threshold overrides from localStorage.
+ * Returns null if no calibrated values are stored.
+ */
+export function loadCalibratedOverrides() {
+  try {
+    const stored = localStorage.getItem(CALIBRATED_STORAGE_KEY);
+    if (!stored) return null;
+    return JSON.parse(stored);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Save calibrated threshold overrides to localStorage.
+ * @param {Object} calibrated - calibrated threshold object from the backend
+ */
+export function saveCalibratedOverrides(calibrated) {
+  try {
+    localStorage.setItem(
+      CALIBRATED_STORAGE_KEY,
+      JSON.stringify({ ...calibrated, appliedAt: new Date().toISOString() }),
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Clear calibrated overrides and revert to static reference values.
+ */
+export function clearCalibratedOverrides() {
+  try {
+    localStorage.removeItem(CALIBRATED_STORAGE_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Deep-merge calibrated values on top of the static reference object.
+ * Only overrides leaf values that exist in the calibrated set.
+ */
+function deepMerge(base, overrides) {
+  if (!overrides || typeof overrides !== 'object') return base;
+  const result = { ...base };
+  for (const key of Object.keys(overrides)) {
+    if (
+      result[key] &&
+      typeof result[key] === 'object' &&
+      !Array.isArray(result[key]) &&
+      typeof overrides[key] === 'object' &&
+      !Array.isArray(overrides[key])
+    ) {
+      result[key] = deepMerge(result[key], overrides[key]);
+    } else if (overrides[key] !== undefined && overrides[key] !== null) {
+      result[key] = overrides[key];
+    }
+  }
+  return result;
+}
+
+/**
+ * Get the effective POSTURE_REFERENCE with calibrated overrides applied.
+ */
+export function getEffectivePostureReference() {
+  const overrides = loadCalibratedOverrides();
+  if (!overrides?.posture) return POSTURE_REFERENCE;
+  return deepMerge(POSTURE_REFERENCE, overrides.posture);
+}
+
+/**
+ * Get the effective FACE_REFERENCE with calibrated overrides applied.
+ */
+export function getEffectiveFaceReference() {
+  const overrides = loadCalibratedOverrides();
+  if (!overrides?.eyeContact && !overrides?.facial) return FACE_REFERENCE;
+  return deepMerge(FACE_REFERENCE, { ...overrides.eyeContact, ...overrides.facial });
+}
+
+/**
+ * Get the effective SCORING_WEIGHTS with calibrated overrides applied.
+ */
+export function getEffectiveScoringWeights() {
+  const overrides = loadCalibratedOverrides();
+  if (!overrides?.scoringWeights) return SCORING_WEIGHTS;
+  return deepMerge(SCORING_WEIGHTS, overrides.scoringWeights);
+}
+
+// ============================================================================
+// SECTION 12: DEFAULT EXPORT
 // ============================================================================
 
 export default {
@@ -1415,4 +1553,12 @@ export default {
   getScoreColor,
   getScoreBgColor,
   getFeedbackMessage,
+
+  // Calibrated override functions
+  loadCalibratedOverrides,
+  saveCalibratedOverrides,
+  clearCalibratedOverrides,
+  getEffectivePostureReference,
+  getEffectiveFaceReference,
+  getEffectiveScoringWeights,
 };

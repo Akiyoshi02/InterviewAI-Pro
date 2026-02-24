@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import CandidateProgressDashboard from '../company-dashboard/components/CandidateProgressDashboard';
@@ -11,12 +12,13 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 const CompanyAnalyticsPage = () => {
   const { user, logout } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
+  const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const userType = user?.accountType === 'COMPANY' ? 'company' : null;
 
   const handleLogout = async () => {
     await logout();
-    window.location.href = '/login';
+    navigate('/login');
   };
 
   if (!userType) {

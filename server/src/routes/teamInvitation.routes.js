@@ -7,6 +7,7 @@ import {
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -15,6 +16,7 @@ const router = express.Router();
 router.post(
   '/',
   authenticate,
+  requireFeatureFlag('enableInvitations'),
   requireApprovedOrganization,
   requireOrganizationContext,
   requireOrgRole(['ADMIN']),
@@ -30,6 +32,7 @@ router.post(
 router.get(
   '/',
   authenticate,
+  requireFeatureFlag('enableInvitations'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN']),
   TeamInvitationController.listInvitations,
@@ -39,6 +42,7 @@ router.get(
 router.delete(
   '/:id',
   authenticate,
+  requireFeatureFlag('enableInvitations'),
   requireApprovedOrganization,
   requireOrganizationContext,
   requireOrgRole(['ADMIN']),
@@ -51,6 +55,7 @@ router.delete(
 router.post(
   '/:id/resend',
   authenticate,
+  requireFeatureFlag('enableInvitations'),
   requireApprovedOrganization,
   requireOrganizationContext,
   requireOrgRole(['ADMIN']),

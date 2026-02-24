@@ -7,13 +7,14 @@
  */
 
 const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
-const DEFAULT_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen2.5:7b-instruct';
+const DEFAULT_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen3:8b';
+const DEFAULT_FALLBACK_MODEL = import.meta.env.VITE_OLLAMA_FALLBACK_MODEL || 'qwen2.5:7b-instruct';
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
   top_p: 0.9,
   top_k: 40,
-  repeat_penalty: 1.08,
-  num_ctx: 8192,
+  repeat_penalty: 1.0,
+  num_ctx: 16384,
   num_batch: 256,
   gpu_layers: 999,
   num_predict: 4096,
@@ -33,43 +34,77 @@ const buildGenerationOptions = (options = {}) => ({
 });
 
 /**
- * Call Ollama API
+ * Strip Qwen3 thinking blocks from model output.
+ * Safety net in case think:false doesn't fully suppress reasoning traces.
+ */
+const stripThinkingTags = (text) => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+/**
+ * Call Ollama API.
+ * Uses think:false to disable Qwen3 internal chain-of-thought.
  */
 async function callOllama(messages, options = {}) {
-  try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: options.model || DEFAULT_MODEL,
-        messages: messages,
-        stream: false,
-        options: buildGenerationOptions(options),
-      }),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
+  const modelAttempts = [];
+  const pushUnique = (modelName) => {
+    if (typeof modelName === 'string' && modelName.trim() && !modelAttempts.includes(modelName.trim())) {
+      modelAttempts.push(modelName.trim());
     }
+  };
 
-    const data = await response.json();
-    return data.message.content;
-  } catch (error) {
-    console.error('Ollama API call failed:', error);
-    throw new Error(`LLM service unavailable. Make sure Ollama is running: ${error.message}`);
+  pushUnique(options.model || DEFAULT_MODEL);
+  pushUnique(DEFAULT_FALLBACK_MODEL);
+
+  let lastError = null;
+  for (let i = 0; i < modelAttempts.length; i += 1) {
+    const modelName = modelAttempts[i];
+    try {
+      const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          model: modelName,
+          messages,
+          stream: false,
+          think: options.think ?? false,
+          ...(options.format ? { format: options.format } : {}),
+          options: buildGenerationOptions(options),
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Ollama API error: ${response.status} - ${errorText}`);
+      }
+
+      const data = await response.json();
+      const content = data?.message?.content;
+      if (typeof content !== 'string' || !content.trim()) {
+        throw new Error('Ollama API returned empty content');
+      }
+      return stripThinkingTags(content);
+    } catch (error) {
+      lastError = error;
+      const nextModel = modelAttempts[i + 1] || null;
+      if (nextModel) {
+        console.warn(`Primary model "${modelName}" failed. Retrying with fallback "${nextModel}".`, error);
+        continue;
+      }
+    }
   }
+
+  console.error('Ollama API call failed:', lastError);
+  throw new Error(`LLM service unavailable. Make sure Ollama is running: ${lastError?.message || 'Unknown error'}`);
 }
 
 /**
- * Parse JSON response (handles markdown code blocks)
+ * Parse JSON response (handles markdown code blocks and Qwen3 thinking tags)
  */
 function parseJSONResponse(text) {
   try {
-    // Remove markdown code blocks if present
-    const cleaned = text.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+    const noThink = text.replace(/<think>[\s\S]*?<\/think>/g, '');
+    const cleaned = noThink.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
     return JSON.parse(cleaned);
   } catch (error) {
     console.error('Failed to parse JSON response:', text);
@@ -100,7 +135,7 @@ export async function checkOllamaHealth() {
     return { 
       healthy: false, 
       error: error.message,
-      help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen2.5:7b-instruct',
+      help: 'Install Ollama from https://ollama.ai and run: ollama pull qwen3:8b && ollama pull qwen2.5:7b-instruct',
       url: OLLAMA_BASE_URL
     };
   }

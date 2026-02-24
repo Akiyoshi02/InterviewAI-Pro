@@ -35,6 +35,7 @@ export const normalizeUploadsPublicPath = (value) => {
     'company-verifications/',
     'job-advert-images/',
     'job-advert-videos/',
+    'interviews/',
   ];
   const lower = normalizedSlashes.toLowerCase();
   const hasKnownPrefix = knownUploadPrefixes.some((prefix) => lower.startsWith(prefix));

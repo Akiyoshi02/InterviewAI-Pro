@@ -1,6 +1,17 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import jsPDF from 'jspdf';
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+} from 'recharts';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
@@ -67,8 +78,8 @@ const CandidateProgressDashboard = () => {
         jobs,
         stats,
       });
-    } catch (err) {
-      console.error('Failed to load dashboard data:', err);
+    } catch {
+      // Silent failure — charts remain empty; user can refresh
     } finally {
       setLoading(false);
     }
@@ -1260,6 +1271,69 @@ const CandidateProgressDashboard = () => {
           value={data.stats.byStatus.HIRED}
           color="emerald"
         />
+      </div>
+
+      {/* Applications trend (line chart) */}
+      {(() => {
+        const apps = data.applications || [];
+        const byDate = {};
+        apps.forEach((app) => {
+          const d = app.submittedAt ? new Date(app.submittedAt).toLocaleDateString('en-CA', { year: 'numeric', month: 'short', day: 'numeric' }) : null;
+          if (d) byDate[d] = (byDate[d] || 0) + 1;
+        });
+        const trendData = Object.entries(byDate)
+          .map(([date, count]) => ({ date, applications: count }))
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        if (trendData.length === 0) return null;
+        return (
+          <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
+            <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Applications over time</h3>
+            <div className="h-[240px] w-full">
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={trendData} margin={{ top: 8, right: 8, left: 8, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-slate-700" />
+                  <XAxis dataKey="date" tick={{ fontSize: 11 }} className="text-gray-600 dark:text-slate-400" />
+                  <YAxis tick={{ fontSize: 11 }} className="text-gray-600 dark:text-slate-400" />
+                  <Tooltip
+                    contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
+                    labelStyle={{ color: 'var(--muted-foreground)' }}
+                  />
+                  <Line type="monotone" dataKey="applications" stroke="#2563eb" strokeWidth={2} dot={{ fill: '#2563eb', r: 4 }} name="Applications" />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
+          </div>
+        );
+      })()}
+
+      {/* Pipeline funnel (bar chart) */}
+      <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
+        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Pipeline overview</h3>
+        <div className="h-[260px] w-full">
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={[
+                { status: 'Submitted', count: data.stats.byStatus.SUBMITTED || 0, fill: '#2563eb' },
+                { status: 'Screening', count: data.stats.byStatus.SCREENING || 0, fill: '#eab308' },
+                { status: 'Interviewing', count: data.stats.byStatus.INTERVIEWING || 0, fill: '#7c3aed' },
+                { status: 'Shortlisted', count: data.stats.byStatus.SHORTLISTED || 0, fill: '#16a34a' },
+                { status: 'Hired', count: data.stats.byStatus.HIRED || 0, fill: '#059669' },
+                { status: 'Rejected', count: data.stats.byStatus.REJECTED || 0, fill: '#64748b' },
+              ]}
+              margin={{ top: 8, right: 8, left: 8, bottom: 8 }}
+              layout="vertical"
+            >
+              <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-slate-700" />
+              <XAxis type="number" tick={{ fontSize: 11 }} className="text-gray-600 dark:text-slate-400" />
+              <YAxis type="category" dataKey="status" width={100} tick={{ fontSize: 11 }} className="text-gray-600 dark:text-slate-400" />
+              <Tooltip
+                contentStyle={{ borderRadius: '8px', border: '1px solid var(--border)' }}
+                formatter={(value) => [value, 'Candidates']}
+              />
+              <Bar dataKey="count" radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
       </div>
 
       {/* Application Status Distribution */}

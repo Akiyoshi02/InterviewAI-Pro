@@ -132,9 +132,14 @@ const InterviewLobby = () => {
             <p className="text-gray-600 dark:text-slate-400 mb-6">
               {error || 'Interview not found'}
             </p>
-            <Button onClick={() => navigate('/candidate-dashboard')}>
-              Back to Dashboard
-            </Button>
+            <div className="flex items-center justify-center gap-3 flex-wrap">
+              <Button variant="outline" onClick={loadInterview}>
+                Try Again
+              </Button>
+              <Button onClick={() => navigate('/candidate-dashboard')}>
+                Back to Dashboard
+              </Button>
+            </div>
           </div>
         </div>
       </div>

@@ -156,14 +156,6 @@ const graduationYearOptions = Array.from({ length: 40 }, (_, i) => {
   return { value: year.toString(), label: year.toString() };
 });
 
-const companySizeOptions = [
-  { value: '1-10', label: '1-10 employees' },
-  { value: '11-50', label: '11-50 employees' },
-  { value: '51-200', label: '51-200 employees' },
-  { value: '201-1000', label: '201-1000 employees' },
-  { value: '1000+', label: '1000+ employees' },
-];
-
 const departmentOptions = [
   { value: 'hr', label: 'Human Resources' },
   { value: 'engineering', label: 'Engineering' },
@@ -187,6 +179,13 @@ const companyPreferencesDefaults = {
   candidateAlerts: true,
   reviewerReminders: true,
   reportDigest: true,
+};
+
+const adminPreferencesDefaults = {
+  notificationCadence: 'daily',
+  securityAlerts: true,
+  auditDigest: true,
+  incidentEscalations: true,
 };
 
 const candidatePreferenceToggles = [
@@ -225,6 +224,24 @@ const companyPreferenceToggles = [
   },
 ];
 
+const adminPreferenceToggles = [
+  {
+    key: 'securityAlerts',
+    label: 'Security alerts',
+    description: 'Notify on suspicious activity, access risks, and policy violations.',
+  },
+  {
+    key: 'auditDigest',
+    label: 'Audit digest',
+    description: 'Receive periodic summaries of administrative activity and key changes.',
+  },
+  {
+    key: 'incidentEscalations',
+    label: 'Incident escalations',
+    description: 'Immediately flag high-priority operational incidents.',
+  },
+];
+
 const notificationCadenceOptions = {
   candidate: [
     { value: 'daily', label: 'Daily' },
@@ -236,6 +253,12 @@ const notificationCadenceOptions = {
     { value: 'instant', label: 'Instant' },
     { value: 'daily', label: 'Daily' },
     { value: 'weekly', label: 'Weekly' },
+  ],
+  admin: [
+    { value: 'instant', label: 'Instant' },
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'off', label: 'Off' },
   ],
 };
 
@@ -408,7 +431,11 @@ const PreferenceToggle = ({ id, label, description, checked, onChange, density =
   );
 };
 
-const buildProfileDefaults = (user, isCompany) => ({
+const buildProfileDefaults = (user, userType) => {
+  const isCompany = userType === 'company';
+  const isAdmin = userType === 'admin';
+
+  return ({
   fullName: user?.fullName || '',
   email: user?.email || '',
   targetRole: isCompany
@@ -437,7 +464,22 @@ const buildProfileDefaults = (user, isCompany) => ({
   preferredWorkType: user?.preferredWorkType || '',
   preferredEmploymentType: user?.preferredEmploymentType || '',
   expectedSalary: user?.expectedSalary || '',
+  // Admin profile fields
+  timezone: isAdmin ? user?.timezone || '' : '',
 });
+};
+
+const getPreferenceDefaultsByUserType = (userType) => {
+  if (userType === 'company') return companyPreferencesDefaults;
+  if (userType === 'admin') return adminPreferencesDefaults;
+  return candidatePreferencesDefaults;
+};
+
+const getPreferenceTogglesByUserType = (userType) => {
+  if (userType === 'company') return companyPreferenceToggles;
+  if (userType === 'admin') return adminPreferenceToggles;
+  return candidatePreferenceToggles;
+};
 
 const ProfileSettingsPanel = ({
   userType = 'candidate',
@@ -449,6 +491,8 @@ const ProfileSettingsPanel = ({
 }) => {
   const { user, setAuthenticatedUser } = useAuth();
   const isCompany = userType === 'company';
+  const isAdmin = userType === 'admin';
+  const isCandidate = userType === 'candidate';
   const fileInputRef = useRef(null);
   const isCompact = density === 'compact';
 
@@ -467,16 +511,10 @@ const ProfileSettingsPanel = ({
   const photoGap = isCompact ? 'gap-3' : 'gap-4';
   const titleSize = isCompact ? 'text-xl' : 'text-2xl';
 
-  const [profileForm, setProfileForm] = useState(() => buildProfileDefaults(user, isCompany));
+  const [profileForm, setProfileForm] = useState(() => buildProfileDefaults(user, userType));
   const [preferences, setPreferences] = useState(
-    isCompany ? companyPreferencesDefaults : candidatePreferencesDefaults,
+    getPreferenceDefaultsByUserType(userType),
   );
-  const [workingHours, setWorkingHours] = useState({
-    timezone: user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
-    startTime: '09:00',
-    endTime: '17:00',
-    workDays: ['mon', 'tue', 'wed', 'thu', 'fri'],
-  });
   const [photoFile, setPhotoFile] = useState(null);
   const [photoPreview, setPhotoPreview] = useState('');
   const [photoSourceIndex, setPhotoSourceIndex] = useState(0);
@@ -500,8 +538,8 @@ const ProfileSettingsPanel = ({
   }, [user?.id, user?.email, userType]);
 
   useEffect(() => {
-    setProfileForm(buildProfileDefaults(user, isCompany));
-  }, [user, isCompany]);
+    setProfileForm(buildProfileDefaults(user, userType));
+  }, [user, userType]);
 
   useEffect(() => {
     if (!photoFile) {
@@ -517,16 +555,16 @@ const ProfileSettingsPanel = ({
     if (typeof window === 'undefined') return;
     try {
       const stored = window.localStorage.getItem(preferencesKey);
-      const defaults = isCompany ? companyPreferencesDefaults : candidatePreferencesDefaults;
+      const defaults = getPreferenceDefaultsByUserType(userType);
       if (stored) {
         setPreferences({ ...defaults, ...JSON.parse(stored) });
       } else {
         setPreferences(defaults);
       }
     } catch {
-      setPreferences(isCompany ? companyPreferencesDefaults : candidatePreferencesDefaults);
+      setPreferences(getPreferenceDefaultsByUserType(userType));
     }
-  }, [preferencesKey, isCompany]);
+  }, [preferencesKey, userType]);
 
   const storedUser = useMemo(() => {
     if (typeof window === 'undefined') return null;
@@ -565,10 +603,10 @@ const ProfileSettingsPanel = ({
   const photoSource = photoPreview || fallbackPhotoSource;
   const photoLabel = isCompany ? 'Company logo' : 'Profile photo';
   const photoHelper = isCompany ? 'SVG, PNG, JPG, or WEBP. Max 5 MB.' : 'PNG, JPG, or WEBP. Max 5 MB.';
-  const photoIcon = isCompany ? 'Building2' : 'UserRound';
+  const photoIcon = isCompany ? 'Building2' : (isAdmin ? 'Shield' : 'UserRound');
   const photoUploadMethod = isCompany ? apiClient.auth.updateCompanyLogo : apiClient.auth.updateProfilePhoto;
-  const preferenceToggles = isCompany ? companyPreferenceToggles : candidatePreferenceToggles;
-  const cadenceOptions = notificationCadenceOptions[isCompany ? 'company' : 'candidate'];
+  const preferenceToggles = getPreferenceTogglesByUserType(userType);
+  const cadenceOptions = notificationCadenceOptions[userType === 'company' ? 'company' : userType === 'admin' ? 'admin' : 'candidate'];
   const resolvedJobRoleOptions = useMemo(
     () => appendCurrentOption(jobRoleOptions, profileForm.targetRole),
     [profileForm.targetRole]
@@ -584,6 +622,10 @@ const ProfileSettingsPanel = ({
   const resolvedInstitutionOptions = useMemo(
     () => appendCurrentOption(institutionOptions, profileForm.institutionName),
     [profileForm.institutionName]
+  );
+  const resolvedAdminDepartmentOptions = useMemo(
+    () => appendCurrentOption(departmentOptions, profileForm.department),
+    [profileForm.department]
   );
   const hasCustomCompanyDepartment = isCompany && Boolean(
     profileForm.department
@@ -685,29 +727,37 @@ const ProfileSettingsPanel = ({
               : profileForm.department || null,
             phoneNumber: profileForm.phoneNumber,
           }
-        : {
-            fullName: profileForm.fullName,
-            targetRole: profileForm.targetRole,
-            experienceLevel: profileForm.experienceLevel,
-            location: profileForm.location,
-            preferredLanguage: profileForm.preferredLanguage,
-            industry: profileForm.industry,
-            phoneNumber: profileForm.phoneNumber,
-            // Education fields
-            highestQualification: profileForm.highestQualification,
-            fieldOfStudy: profileForm.fieldOfStudy,
-            institutionName: profileForm.institutionName,
-            graduationYear: profileForm.graduationYear,
-            // Professional links
-            linkedinUrl: profileForm.linkedinUrl,
-            githubUrl: profileForm.githubUrl,
-            portfolioUrl: profileForm.portfolioUrl,
-            // Job preferences
-            availability: profileForm.availability,
-            preferredWorkType: profileForm.preferredWorkType,
-            preferredEmploymentType: profileForm.preferredEmploymentType,
-            expectedSalary: profileForm.expectedSalary,
-          };
+        : isAdmin
+          ? {
+              fullName: profileForm.fullName,
+              jobTitle: profileForm.jobTitle || null,
+              department: profileForm.department || null,
+              phoneNumber: profileForm.phoneNumber || null,
+              timezone: profileForm.timezone || null,
+            }
+          : {
+              fullName: profileForm.fullName,
+              targetRole: profileForm.targetRole,
+              experienceLevel: profileForm.experienceLevel,
+              location: profileForm.location,
+              preferredLanguage: profileForm.preferredLanguage,
+              industry: profileForm.industry,
+              phoneNumber: profileForm.phoneNumber,
+              // Education fields
+              highestQualification: profileForm.highestQualification,
+              fieldOfStudy: profileForm.fieldOfStudy,
+              institutionName: profileForm.institutionName,
+              graduationYear: profileForm.graduationYear,
+              // Professional links
+              linkedinUrl: profileForm.linkedinUrl,
+              githubUrl: profileForm.githubUrl,
+              portfolioUrl: profileForm.portfolioUrl,
+              // Job preferences
+              availability: profileForm.availability,
+              preferredWorkType: profileForm.preferredWorkType,
+              preferredEmploymentType: profileForm.preferredEmploymentType,
+              expectedSalary: profileForm.expectedSalary,
+            };
 
       const response = await apiClient.auth.updateProfile(payload);
       if (!response?.success || !response?.user) {
@@ -910,7 +960,7 @@ const ProfileSettingsPanel = ({
       <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${headerMargin} ${headerGap}`}>
         <div className={`flex items-center ${headerGap}`}>
           <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <Icon name={isCompany ? 'Building2' : 'UserCircle'} size={22} color="white" />
+            <Icon name={isCompany ? 'Building2' : (isAdmin ? 'Shield' : 'UserCircle')} size={22} color="white" />
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.35em] text-blue-600 dark:text-blue-400">
@@ -920,13 +970,15 @@ const ProfileSettingsPanel = ({
               Profile & Preferences
             </h2>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              Update your details, photo, and notification settings.
+              {isAdmin
+                ? 'Manage your administrator profile and alert preferences.'
+                : 'Update your details, photo, and notification settings.'}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/60 text-xs text-gray-500 dark:text-slate-400 ${badgePadding}`}>
-            {isCompany ? 'Company workspace' : 'Candidate workspace'}
+            {isCompany ? 'Company workspace' : (isAdmin ? 'Admin workspace' : 'Candidate workspace')}
           </div>
           {headerAction}
         </div>
@@ -994,7 +1046,11 @@ const ProfileSettingsPanel = ({
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Profile details</h3>
                 <p className="text-sm text-gray-500 dark:text-slate-400">
-                  {isCompany ? 'Keep your company profile current for candidates.' : 'Keep your candidate profile up to date.'}
+                  {isCompany
+                    ? 'Keep your company profile current for candidates.'
+                    : isAdmin
+                      ? 'Keep your administrator identity and contact details current.'
+                      : 'Keep your candidate profile up to date.'}
                 </p>
               </div>
               <Button
@@ -1066,6 +1122,34 @@ const ProfileSettingsPanel = ({
                     label="Phone number"
                     value={profileForm.phoneNumber}
                     onChange={(value) => handleProfileFieldChange('phoneNumber', value)}
+                  />
+                </>
+              ) : isAdmin ? (
+                <>
+                  <Input
+                    label="Job title"
+                    value={profileForm.jobTitle}
+                    onChange={(event) => handleProfileFieldChange('jobTitle', event.target.value)}
+                    placeholder="System Administrator"
+                  />
+                  <Select
+                    label="Department"
+                    options={resolvedAdminDepartmentOptions}
+                    value={profileForm.department}
+                    onChange={(value) => handleProfileFieldChange('department', value)}
+                    placeholder="Select department"
+                    clearable
+                  />
+                  <PhoneInput
+                    label="Phone number"
+                    value={profileForm.phoneNumber}
+                    onChange={(value) => handleProfileFieldChange('phoneNumber', value)}
+                  />
+                  <Input
+                    label="Timezone"
+                    value={profileForm.timezone}
+                    onChange={(event) => handleProfileFieldChange('timezone', event.target.value)}
+                    placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}
                   />
                 </>
               ) : (
@@ -1154,7 +1238,7 @@ const ProfileSettingsPanel = ({
           </div>
 
           {/* Educational Background Section - Only for Candidates */}
-          {!isCompany && (
+          {isCandidate && (
             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
               <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
                 <div className="flex items-center gap-3">
@@ -1206,7 +1290,7 @@ const ProfileSettingsPanel = ({
           )}
 
           {/* Professional Links Section - Only for Candidates */}
-          {!isCompany && (
+          {isCandidate && (
             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
               <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
                 <div className="flex items-center gap-3">
@@ -1246,7 +1330,7 @@ const ProfileSettingsPanel = ({
           )}
 
           {/* Job Preferences Section - Only for Candidates */}
-          {!isCompany && (
+          {isCandidate && (
             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
               <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
                 <div className="flex items-center gap-3">
@@ -1293,9 +1377,9 @@ const ProfileSettingsPanel = ({
           )}
         </div>
 
-         <div className={columnSpacing}>
-           {/* Profile Photo Upload Section - Only for Candidates */}
-           {!isCompany && (
+          <div className={columnSpacing}>
+            {/* Profile Photo Upload Section - Candidates only */}
+           {isCandidate && (
              <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
                <div className="flex items-center justify-between">
                  <div>
@@ -1382,7 +1466,7 @@ const ProfileSettingsPanel = ({
            )}
 
           {/* Resume Upload Section - Only for Candidates */}
-          {!isCompany && (
+          {isCandidate && (
             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
               <div className="flex items-center justify-between">
                 <div>

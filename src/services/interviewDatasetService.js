@@ -185,7 +185,7 @@ export class InterviewDatasetCollector {
     
     // Also create individual Q&A training examples
     for (const qa of this.questionAnswerPairs) {
-      if (qa.evaluation.score >= 6) { // Only include good answers
+      if ((qa.evaluation?.score ?? 0) >= 6) { // Only include good answers
         trainingExamples.push({
           messages: [
             systemMessage,
@@ -194,8 +194,8 @@ export class InterviewDatasetCollector {
           ],
           metadata: {
             type: 'qa_pair',
-            questionType: qa.question.type,
-            score: qa.evaluation.score,
+            questionType: qa.question?.type,
+            score: qa.evaluation?.score ?? 0,
             jobRole: qa.config.jobRole,
             experienceLevel: qa.config.experienceLevel,
           },

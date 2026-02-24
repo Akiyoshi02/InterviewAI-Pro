@@ -6,6 +6,7 @@ import {
   requireOrganizationContext,
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -13,6 +14,7 @@ const router = express.Router();
 router.get(
   '/',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   PipelineController.getPipeline,
@@ -21,6 +23,7 @@ router.get(
 router.patch(
   '/:interviewId',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [

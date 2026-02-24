@@ -3,6 +3,7 @@ import {
   organizationMemberStore,
   organizationStore,
   publishOrganizationRealtimeUpdate,
+  systemSettingsStore,
   userStore,
 } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
@@ -73,6 +74,7 @@ export class OrganizationController {
 
       const allowedFields = ['name', 'displayName', 'industry', 'companySize', 'branding', 'settings'];
       const payload = {};
+      let retentionWarning = null;
 
       allowedFields.forEach((field) => {
         if (req.body[field] !== undefined) {
@@ -87,6 +89,27 @@ export class OrganizationController {
         });
       }
 
+      if (payload.settings && typeof payload.settings === 'object' && payload.settings.retentionPolicyDays !== undefined) {
+        const rawRetention = Number(payload.settings.retentionPolicyDays);
+        const systemSettings = await systemSettingsStore.get();
+        const maxRetention = Math.max(
+          30,
+          Number(systemSettings?.dataRetention?.interviewDataDays) || 365,
+        );
+        const normalizedRetention = Number.isFinite(rawRetention)
+          ? Math.round(Math.min(maxRetention, Math.max(30, rawRetention)))
+          : 365;
+
+        if (!Number.isFinite(rawRetention) || normalizedRetention !== rawRetention) {
+          retentionWarning = `Retention policy was adjusted to ${normalizedRetention} days to comply with system limits.`;
+        }
+
+        payload.settings = {
+          ...payload.settings,
+          retentionPolicyDays: normalizedRetention,
+        };
+      }
+
       const updated = await organizationStore.update(context.organization.id, payload);
 
       await publishOrganizationRealtimeUpdate(context.organization.id, 'organization-updated', {
@@ -96,6 +119,7 @@ export class OrganizationController {
       res.json({
         success: true,
         organization: sanitizeOrganization(updated),
+        ...(retentionWarning ? { warning: retentionWarning } : {}),
       });
     } catch (error) {
       logger.error('Update organization error:', error);
@@ -138,6 +162,28 @@ export class OrganizationController {
       const { userId, role, status, permissions } = req.body;
       if (!userId) {
         return res.status(400).json({ error: 'userId is required' });
+      }
+
+      // CRITICAL FIX: Prevent removing last admin
+      // Check if this would demote or deactivate the last admin
+      const existingMembership = await organizationMemberStore.getMember(organization.id, userId);
+      const isCurrentlyAdmin = existingMembership?.role === 'ADMIN' && existingMembership?.status === 'ACTIVE';
+      const wouldBeDemotedOrDeactivated = (role && role !== 'ADMIN') || (status && status !== 'ACTIVE');
+
+      if (isCurrentlyAdmin && wouldBeDemotedOrDeactivated) {
+        // Count active admins in the organization
+        const allMembers = await organizationMemberStore.listByOrganization(organization.id);
+        const activeAdminCount = allMembers.filter(
+          (m) => m.role === 'ADMIN' && m.status === 'ACTIVE'
+        ).length;
+
+        // If this is the last active admin, prevent the change
+        if (activeAdminCount <= 1) {
+          return res.status(409).json({
+            error: 'Cannot demote or deactivate the last admin. Please assign another admin first.',
+            code: 'LAST_ADMIN_PROTECTION',
+          });
+        }
       }
 
       const membership = await organizationMemberStore.addMember({

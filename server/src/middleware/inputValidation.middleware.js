@@ -126,8 +126,10 @@ const ALLOWED_VALUES = {
   JOB_STATUS: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
   INTERVIEW_MODE: ['PRACTICE', 'HIRING'],
   INTERVIEW_STATUS: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED'],
+  INTERVIEW_SCHEDULE_STATUS: ['SCHEDULED', 'RESCHEDULED', 'CANCELLED'],
   PIPELINE_STATUS: ['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED'],
   MEMBER_STATUS: ['ACTIVE', 'INACTIVE'],
+  USER_ACCOUNT_STATUS: ['ACTIVE', 'SUSPENDED'],
   PLAN_ID: ['free', 'starter', 'professional', 'enterprise'],
   EMPLOYMENT_TYPE: ['FULL_TIME', 'PART_TIME', 'CONTRACT', 'INTERNSHIP', 'TEMPORARY'],
   WORK_TYPE: ['REMOTE', 'ONSITE', 'HYBRID'],
@@ -763,6 +765,7 @@ export const validationSchemas = {
         'duration', 'difficulty', 'personality', 'totalQuestions', 'skillFocus',
         'candidateId', 'jobId', 'jobStage', 'invitationId', 'status',
         'pipelineStatus', 'reviewerAssignments', 'config',
+        'scheduledFor', 'timezone', 'meetingLink', 'scheduleStatus',
       ],
       validators: [
         commonValidators.enum('mode', ALLOWED_VALUES.INTERVIEW_MODE, true),
@@ -792,10 +795,68 @@ export const validationSchemas = {
           .isLength({ min: 1, max: LENGTH_LIMITS.ID })
           .withMessage('invitationId must be a valid identifier'),
         commonValidators.enum('status', ALLOWED_VALUES.INTERVIEW_STATUS),
+        commonValidators.enum('scheduleStatus', ALLOWED_VALUES.INTERVIEW_SCHEDULE_STATUS),
         commonValidators.enum('pipelineStatus', ALLOWED_VALUES.PIPELINE_STATUS),
         body('reviewerAssignments').optional().isArray({ max: 20 }),
         body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
         body('config').optional().isObject(),
+        body('scheduledFor')
+          .optional()
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    schedule: {
+      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      validators: [
+        body('scheduledFor')
+          .trim()
+          .notEmpty()
+          .withMessage('scheduledFor is required')
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    reschedule: {
+      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      validators: [
+        body('scheduledFor')
+          .trim()
+          .notEmpty()
+          .withMessage('scheduledFor is required')
+          .isISO8601()
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+        commonValidators.url('meetingLink'),
+      ],
+    },
+
+    cancel: {
+      allowedFields: ['reason'],
+      validators: [
+        body('reason')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.SHORT_TEXT })
+          .withMessage('reason must be at most 200 characters'),
       ],
     },
     
@@ -1016,6 +1077,29 @@ export const validationSchemas = {
         commonValidators.longText('reason', true),
       ],
     },
+
+    updateUserStatus: {
+      allowedFields: ['status', 'reason'],
+      validators: [
+        body('status')
+          .trim()
+          .toUpperCase()
+          .isIn(ALLOWED_VALUES.USER_ACCOUNT_STATUS)
+          .withMessage('Invalid user status'),
+        body('reason')
+          .optional()
+          .trim()
+          .isLength({ min: 5, max: LENGTH_LIMITS.LONG_TEXT })
+          .withMessage('Reason must be between 5 and 2000 characters'),
+        body('reason').custom((value, { req }) => {
+          const status = (req.body?.status || '').toString().trim().toUpperCase();
+          if (status === 'SUSPENDED' && (!value || !String(value).trim())) {
+            throw new Error('Suspension reason is required');
+          }
+          return true;
+        }),
+      ],
+    },
     
     updateSettings: {
       allowedFields: ['featureFlags', 'maintenanceMode', 'nonverbalFeedbackEnabled', 'defaultAIConfig', 'dataRetention'],
@@ -1025,6 +1109,18 @@ export const validationSchemas = {
         body('nonverbalFeedbackEnabled').optional().isBoolean(),
         body('defaultAIConfig').optional().isObject(),
         body('dataRetention').optional().isObject(),
+      ],
+    },
+
+    runDataRetentionCleanup: {
+      allowedFields: ['dryRun', 'maxDocuments'],
+      validators: [
+        body('dryRun').optional().isBoolean(),
+        body('maxDocuments')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 1000 })
+          .withMessage('maxDocuments must be between 1 and 1000'),
       ],
     },
   },
@@ -1079,6 +1175,58 @@ export const validationSchemas = {
         commonValidators.longText('feedback'),
         commonValidators.shortText('recommendation'),
         commonValidators.longText('notes'),
+      ],
+    },
+  },
+
+  // GAP FEATURE: Saved Answer schemas
+  savedAnswer: {
+    create: {
+      allowedFields: ['questionText', 'answer', 'interviewId', 'questionId', 'notes', 'tags', 'rating'],
+      validators: [
+        body('questionText')
+          .trim()
+          .notEmpty()
+          .withMessage('Question text is required')
+          .isLength({ max: LENGTH_LIMITS.LONG_TEXT }),
+        body('answer')
+          .trim()
+          .notEmpty()
+          .withMessage('Answer is required')
+          .isLength({ max: LENGTH_LIMITS.VERY_LONG_TEXT }),
+        body('interviewId')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.ID }),
+        body('questionId')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.ID }),
+        commonValidators.longText('notes'),
+        body('tags')
+          .optional()
+          .isArray()
+          .withMessage('Tags must be an array'),
+        body('rating')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 5 })
+          .withMessage('Rating must be between 1 and 5'),
+      ],
+    },
+    update: {
+      allowedFields: ['notes', 'tags', 'rating'],
+      validators: [
+        commonValidators.longText('notes'),
+        body('tags')
+          .optional()
+          .isArray()
+          .withMessage('Tags must be an array'),
+        body('rating')
+          .optional()
+          .toInt()
+          .isInt({ min: 1, max: 5 })
+          .withMessage('Rating must be between 1 and 5'),
       ],
     },
   },

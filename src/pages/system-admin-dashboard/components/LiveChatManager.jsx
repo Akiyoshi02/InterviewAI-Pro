@@ -14,8 +14,22 @@ import { auth, realtimeDb } from '../../../config/firebase.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import Button from '../../../components/ui/Button.jsx';
 import Icon from '../../../components/AppIcon.jsx';
+import UnifiedFilterPanel, {
+  UnifiedFilterSelect,
+  UnifiedSearchField,
+} from '../../../components/ui/UnifiedFilterPanel.jsx';
 import apiClient from '../../../services/apiClient.js';
 import { useLLM } from '../../../hooks/useLLM.js';
+import {
+  ADMIN_LIVE_CHAT_ACTIVITY_FILTER_OPTIONS,
+  ADMIN_LIVE_CHAT_RESPONSE_FILTER_OPTIONS,
+  ADMIN_LIVE_CHAT_SORT_FILTER_OPTIONS,
+  ADMIN_LIVE_CHAT_STATUS_FILTER_OPTIONS,
+  DEFAULT_ADMIN_LIVE_CHAT_FILTERS,
+  buildAdminLiveChatFilterOptions,
+  countActiveAdminLiveChatFilters,
+  filterAdminLiveChats,
+} from '../utils/adminDashboardFilters.js';
 
 const CHAT_ROOT = 'liveChats';
 
@@ -32,8 +46,7 @@ const LiveChatManager = () => {
   const [selectedChatId, setSelectedChatId] = useState(null);
   const [selectedChat, setSelectedChat] = useState(null);
   const [messages, setMessages] = useState([]);
-  const [activeFilter, setActiveFilter] = useState('open');
-  const [search, setSearch] = useState('');
+  const [chatFilters, setChatFilters] = useState(DEFAULT_ADMIN_LIVE_CHAT_FILTERS);
   const [draft, setDraft] = useState('');
   const [isSending, setIsSending] = useState(false);
   const [isReady, setIsReady] = useState(false);
@@ -52,8 +65,8 @@ const LiveChatManager = () => {
     const registerAdmin = async () => {
       try {
         await apiClient.admin.registerLiveChatAdmin();
-      } catch (error) {
-        console.error('Failed to register live chat admin:', error);
+      } catch {
+        // Silent failure — admin proceeds without registration
       } finally {
         if (isMounted) {
           setIsReady(true);
@@ -83,12 +96,6 @@ const LiveChatManager = () => {
     });
     return () => unsubscribe();
   }, [isReady]);
-
-  useEffect(() => {
-    if (!selectedChatId && chats.length > 0) {
-      setSelectedChatId(chats[0].id);
-    }
-  }, [chats, selectedChatId]);
 
   useEffect(() => {
     shouldStickToBottomRef.current = true;
@@ -161,22 +168,20 @@ const LiveChatManager = () => {
     shouldStickToBottomRef.current = distanceFromBottom < 80;
   };
 
-  const filteredChats = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
-    return chats.filter((chat) => {
-      if (activeFilter === 'open' && chat.status === 'closed') return false;
-      if (activeFilter === 'closed' && chat.status !== 'closed') return false;
-      if (!normalizedSearch) return true;
-      const name = chat.user?.displayName || '';
-      const email = chat.user?.email || '';
-      const company = chat.user?.companyName || '';
-      return (
-        name.toLowerCase().includes(normalizedSearch) ||
-        email.toLowerCase().includes(normalizedSearch) ||
-        company.toLowerCase().includes(normalizedSearch)
-      );
-    });
-  }, [activeFilter, chats, search]);
+  const filteredChats = useMemo(
+    () => filterAdminLiveChats(chats, chatFilters),
+    [chats, chatFilters],
+  );
+
+  const chatFilterOptions = useMemo(
+    () => buildAdminLiveChatFilterOptions(chats),
+    [chats],
+  );
+
+  const activeFilterCount = useMemo(
+    () => countActiveAdminLiveChatFilters(chatFilters),
+    [chatFilters],
+  );
 
   const openCount = useMemo(
     () => chats.filter((chat) => chat.status !== 'closed').length,
@@ -186,6 +191,20 @@ const LiveChatManager = () => {
     () => chats.filter((chat) => chat.status === 'closed').length,
     [chats],
   );
+
+  useEffect(() => {
+    if (filteredChats.length === 0) {
+      setSelectedChatId(null);
+      return;
+    }
+    if (!selectedChatId || !filteredChats.some((chat) => chat.id === selectedChatId)) {
+      setSelectedChatId(filteredChats[0].id);
+    }
+  }, [filteredChats, selectedChatId]);
+
+  const clearFilters = () => {
+    setChatFilters(DEFAULT_ADMIN_LIVE_CHAT_FILTERS);
+  };
 
   const handleSendMessage = useCallback(async () => {
     const trimmed = draft.trim();
@@ -211,8 +230,8 @@ const LiveChatManager = () => {
         respondedBy: adminName,
       });
       setDraft('');
-    } catch (error) {
-      console.error('Failed to send admin message:', error);
+    } catch {
+      // Silent failure — message send failed; user can retry
     } finally {
       setIsSending(false);
     }
@@ -230,8 +249,8 @@ const LiveChatManager = () => {
           name: adminName,
         },
       });
-    } catch (error) {
-      console.error('Failed to close chat:', error);
+    } catch {
+      // Silent failure — chat close failed; user can retry
     }
   }, [adminName, selectedChatId]);
 
@@ -335,40 +354,59 @@ const LiveChatManager = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
         <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 shadow-lg h-full">
-          <div className="flex items-center gap-2 mb-4">
-            <button
-              type="button"
-              onClick={() => setActiveFilter('open')}
-              className={`flex-1 rounded-full px-3 py-2 text-xs font-semibold transition ${
-                activeFilter === 'open'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-500/30'
-                  : 'bg-slate-100 dark:bg-slate-700/40 text-gray-600 dark:text-slate-300'
-              }`}
-            >
-              Active
-            </button>
-            <button
-              type="button"
-              onClick={() => setActiveFilter('closed')}
-              className={`flex-1 rounded-full px-3 py-2 text-xs font-semibold transition ${
-                activeFilter === 'closed'
-                  ? 'bg-purple-600 text-white shadow-md shadow-purple-500/30'
-                  : 'bg-slate-100 dark:bg-slate-700/40 text-gray-600 dark:text-slate-300'
-              }`}
-            >
-              Closed
-            </button>
-          </div>
-          <div className="relative mb-4">
-            <Icon name="Search" className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search chats"
-              className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-8 py-2 text-xs text-gray-700 dark:text-slate-200"
-            />
-          </div>
+          <UnifiedFilterPanel
+            className="mb-4 p-3 sm:p-4"
+            title="Chat Filters"
+            description="Filter by session status, response urgency, audience, and activity."
+            activeCount={activeFilterCount}
+            onClear={clearFilters}
+            clearLabel="Clear Filters"
+          >
+            <div className="grid grid-cols-1 gap-3">
+              <UnifiedSearchField
+                label="Search"
+                type="text"
+                value={chatFilters.searchQuery}
+                onChange={(event) => setChatFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
+                placeholder="Visitor, message text, or account type"
+              />
+              <UnifiedFilterSelect
+                label="Chat Status"
+                value={chatFilters.statusFilter}
+                onChange={(value) => setChatFilters((prev) => ({ ...prev, statusFilter: value }))}
+                options={ADMIN_LIVE_CHAT_STATUS_FILTER_OPTIONS}
+                placeholder="All statuses"
+              />
+              <UnifiedFilterSelect
+                label="Response State"
+                value={chatFilters.responseStateFilter}
+                onChange={(value) => setChatFilters((prev) => ({ ...prev, responseStateFilter: value }))}
+                options={ADMIN_LIVE_CHAT_RESPONSE_FILTER_OPTIONS}
+                placeholder="All response states"
+              />
+              <UnifiedFilterSelect
+                label="Audience"
+                value={chatFilters.audienceFilter}
+                onChange={(value) => setChatFilters((prev) => ({ ...prev, audienceFilter: value }))}
+                options={chatFilterOptions.audienceOptions}
+                placeholder="All audiences"
+              />
+              <UnifiedFilterSelect
+                label="Activity Window"
+                value={chatFilters.activityPreset}
+                onChange={(value) => setChatFilters((prev) => ({ ...prev, activityPreset: value }))}
+                options={ADMIN_LIVE_CHAT_ACTIVITY_FILTER_OPTIONS}
+                placeholder="All activity windows"
+              />
+              <UnifiedFilterSelect
+                label="Sort By"
+                value={chatFilters.sortBy}
+                onChange={(value) => setChatFilters((prev) => ({ ...prev, sortBy: value }))}
+                options={ADMIN_LIVE_CHAT_SORT_FILTER_OPTIONS}
+                placeholder="Sort chats"
+              />
+            </div>
+          </UnifiedFilterPanel>
           <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
             {filteredChats.length === 0 ? (
               <div className="text-center text-xs text-gray-500 dark:text-slate-400 py-6">
@@ -391,13 +429,13 @@ const LiveChatManager = () => {
                       <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
                         {chat.user?.displayName || 'Guest Visitor'}
                       </p>
-                      <p className="text-[11px] text-gray-500 dark:text-slate-400">
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
                         {chat.user?.accountType || 'ANONYMOUS'}
                         {chat.user?.companyName ? ` - ${chat.user.companyName}` : ''}
                       </p>
                     </div>
                     <span
-                      className={`text-[10px] px-2 py-1 rounded-full font-semibold ${
+                      className={`text-xs px-2 py-1 rounded-full font-semibold ${
                         chat.status === 'closed'
                           ? 'bg-slate-100 dark:bg-slate-700/60 text-slate-500 dark:text-slate-200'
                           : 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-600 dark:text-emerald-300'
@@ -409,7 +447,7 @@ const LiveChatManager = () => {
                   <p className="mt-2 text-xs text-gray-500 dark:text-slate-400 line-clamp-2">
                     {chat.lastMessagePreview || 'Session started.'}
                   </p>
-                  <p className="mt-2 text-[10px] text-gray-400 dark:text-slate-500">
+                  <p className="mt-2 text-xs text-gray-400 dark:text-slate-500">
                     {formatTimestamp(chat.lastMessageAt)}
                   </p>
                 </button>
@@ -447,7 +485,7 @@ const LiveChatManager = () => {
                 </div>
                 <div className="flex items-center space-x-2">
                   <span
-                    className={`text-[11px] font-semibold px-3 py-1 rounded-full ${
+                    className={`text-xs font-semibold px-3 py-1 rounded-full ${
                       selectedChat.status === 'closed'
                         ? 'bg-white/15 text-white/80'
                         : 'bg-white/25 text-white'
@@ -459,7 +497,7 @@ const LiveChatManager = () => {
                     <button
                       type="button"
                       onClick={handleCloseChat}
-                      className="text-[11px] font-semibold px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition"
+                      className="text-xs font-semibold px-3 py-1 rounded-full bg-white/20 hover:bg-white/30 transition"
                     >
                       Close Chat
                     </button>
@@ -499,7 +537,7 @@ const LiveChatManager = () => {
                           <p className={`text-xs font-semibold ${isAdmin ? 'text-white/85' : 'text-gray-500 dark:text-slate-400'}`}>
                             {isAdmin ? 'System Admin' : message?.sender?.displayName || 'Visitor'}
                           </p>
-                          <p className="text-[14px] whitespace-pre-wrap text-left">{message.text}</p>
+                          <p className="text-sm whitespace-pre-wrap text-left">{message.text}</p>
                           <p className={`text-xs mt-2 ${isAdmin ? 'text-white/80' : 'text-gray-400 dark:text-slate-500'}`}>
                             {formatTimestamp(message.createdAt)}
                           </p>
@@ -520,7 +558,7 @@ const LiveChatManager = () => {
                   {shouldShowSuggestions && (
                     <div className="flex flex-wrap items-center gap-2">
                       {suggestionsLoading ? (
-                        <span className="text-[11px] text-gray-500 dark:text-slate-400">
+                        <span className="text-xs text-gray-500 dark:text-slate-400">
                           Generating suggestions...
                         </span>
                       ) : (
@@ -531,7 +569,7 @@ const LiveChatManager = () => {
                             onClick={() => handleSuggestionClick(suggestion)}
                             variant="outline"
                             size="xs"
-                            className="max-w-full whitespace-normal break-words text-left rounded-full border border-gray-200 dark:border-slate-700 text-[11px] leading-snug text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                            className="max-w-full whitespace-normal break-words text-left rounded-full border border-gray-200 dark:border-slate-700 text-xs leading-snug text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
                           >
                             {suggestion}
                           </Button>
@@ -547,7 +585,7 @@ const LiveChatManager = () => {
                       onChange={(event) => setDraft(event.target.value)}
                       onKeyDown={handleMessageKeyDown}
                       placeholder="Reply to the visitor..."
-                      className="min-w-0 w-full resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-2 text-[15px] text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 min-h-[44px]"
+                      className="min-w-0 w-full resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-2 text-base text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 min-h-[44px]"
                     />
                     <Button
                       size="icon"

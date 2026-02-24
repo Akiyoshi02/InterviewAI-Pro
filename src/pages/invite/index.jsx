@@ -183,8 +183,8 @@ const InvitePage = () => {
                           <Button variant="outline" onClick={() => navigate('/practice-interview-setup')}>
                             Warm up session
                           </Button>
-                          <Button onClick={() => navigate('/live-interview-session')}>
-                            Join live interview
+                          <Button onClick={() => navigate('/candidate-dashboard')}>
+                            Go to dashboard
                           </Button>
                         </div>
                       </div>

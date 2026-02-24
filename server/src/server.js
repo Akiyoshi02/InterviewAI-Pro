@@ -29,6 +29,7 @@ import { setupRoutes } from './routes/index.js';
 import { setupSocketIO } from './socket/interview.socket.js';
 import { setupSecurity } from './middleware/security.middleware.js';
 import { setupErrorHandling } from './middleware/error.middleware.js';
+import { LLMService } from './services/llm.service.js';
 import logger from './utils/logger.js';
 
 const app = express();
@@ -84,4 +85,20 @@ process.on('SIGINT', async () => {
 httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on port ${PORT}`);
   logger.info(`📡 Socket.IO server ready`);
+
+  const enableWarmup = String(process.env.OLLAMA_WARMUP_ON_BOOT ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true'))
+    .toLowerCase() === 'true';
+  if (enableWarmup) {
+    void LLMService.warmUp()
+      .then((result) => {
+        if (result?.ok) {
+          logger.info(`🤖 Ollama warm-up complete for model ${result.model}`);
+        } else {
+          logger.warn(`⚠️ Ollama warm-up skipped/unavailable: ${result?.error || 'unknown error'}`);
+        }
+      })
+      .catch((error) => {
+        logger.warn(`⚠️ Ollama warm-up failed: ${error?.message || String(error)}`);
+      });
+  }
 });

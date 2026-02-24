@@ -19,7 +19,9 @@ import templateRoutes from './template.routes.js';
 import billingRoutes from './billing.routes.js';
 import newsletterRoutes from './newsletter.routes.js';
 import datasetRoutes from './dataset.routes.js';
+import savedAnswerRoutes from './savedAnswer.routes.js'; // GAP FEATURE: Personal Answer Library
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
+import { LLMService } from '../services/llm.service.js';
 
 const router = express.Router();
 
@@ -44,6 +46,7 @@ export function setupRoutes(app) {
   app.use('/api/billing', billingRoutes);
   app.use('/api/newsletter', newsletterRoutes);
   app.use('/api/datasets', datasetRoutes);
+  app.use('/api/saved-answers', savedAnswerRoutes); // GAP FEATURE: Personal Answer Library
   app.use('/api', applicationRoutes);
 
   // Add maintenance header to all API responses
@@ -52,6 +55,37 @@ export function setupRoutes(app) {
   // Health check
   app.get('/health', (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // AI health check (used for demo readiness verification).
+  app.get('/api/ai/health', async (req, res) => {
+    try {
+      const expectedModel = process.env.OLLAMA_MODEL || 'qwen3:8b';
+      const runtimeModel = LLMService.getRuntimeModelStatus();
+      const [ollama, whisper] = await Promise.all([
+        LLMService.healthCheck({ expectedModel }),
+        LLMService.getWhisperHealth(),
+      ]);
+
+      res.json({
+        success: true,
+        timestamp: new Date().toISOString(),
+        model: expectedModel,
+        ollamaReachable: Boolean(ollama.healthy),
+        modelReady: Boolean(ollama.modelReady),
+        ollama,
+        runtimeModel,
+        whisperReachable: whisper.reachable,
+        whisperConfigured: whisper.configured,
+      });
+    } catch (error) {
+      res.status(500).json({
+        success: false,
+        timestamp: new Date().toISOString(),
+        error: error?.message || 'AI health check failed',
+        runtimeModel: LLMService.getRuntimeModelStatus(),
+      });
+    }
   });
 }
 

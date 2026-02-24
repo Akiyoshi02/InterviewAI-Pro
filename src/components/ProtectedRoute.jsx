@@ -6,8 +6,9 @@ import {
   buildPendingApprovalRoute,
   isRestrictedCompanyUser,
 } from '../utils/organizationAccess.js';
+import { hasPermission } from '../utils/rolePermissions.js';
 
-const ProtectedRoute = ({ children, roles = [] }) => {
+const ProtectedRoute = ({ children, roles = [], requiredOrgPermissions = [] }) => {
   const location = useLocation();
   const { status, user } = useAuth();
   const currentPath = `${location.pathname}${location.search || ''}`;
@@ -15,8 +16,8 @@ const ProtectedRoute = ({ children, roles = [] }) => {
   if (status === 'loading') {
     return (
       <LoadingState
-        title="Checking your session"
-        message="Verifying your secure access before continuing."
+        title="Checking your session and syncing your data"
+        message="Verifying secure access and preparing your workspace."
         variant="fullscreen"
         tone="primary"
       />
@@ -32,8 +33,9 @@ const ProtectedRoute = ({ children, roles = [] }) => {
     return <Navigate to={buildPendingApprovalRoute(user)} replace state={{ from: currentPath }} />;
   }
 
+  const normalizedRole = (user.accountType || user.account_type || '').toString().toUpperCase();
+
   if (roles.length > 0) {
-    const normalizedRole = (user.accountType || user.account_type || '').toString().toUpperCase();
     const isAllowed = roles.some(
       (role) => role.toUpperCase() === normalizedRole,
     );
@@ -51,6 +53,31 @@ const ProtectedRoute = ({ children, roles = [] }) => {
         fallback = '/system-admin-dashboard';
       }
       return <Navigate to={fallback} replace />;
+    }
+  }
+
+  if (requiredOrgPermissions.length > 0) {
+    // Organization permissions only apply to company users.
+    if (normalizedRole !== 'COMPANY') {
+      if (normalizedRole === 'CANDIDATE') {
+        return <Navigate to="/candidate-dashboard" replace state={{ from: currentPath }} />;
+      }
+      if (normalizedRole === 'SYSTEM_ADMIN') {
+        return <Navigate to="/system-admin-dashboard" replace state={{ from: currentPath }} />;
+      }
+      return <Navigate to="/" replace state={{ from: currentPath }} />;
+    }
+
+    const organizationRole = (user.organizationContext?.membership?.role || '').toString().toUpperCase();
+    const hasRequiredPermission = requiredOrgPermissions.some((permission) =>
+      hasPermission(organizationRole, permission),
+    );
+
+    if (!hasRequiredPermission) {
+      const fallback = isRestrictedCompanyUser(user)
+        ? buildPendingApprovalRoute(user)
+        : '/company-dashboard';
+      return <Navigate to={fallback} replace state={{ from: currentPath }} />;
     }
   }
 

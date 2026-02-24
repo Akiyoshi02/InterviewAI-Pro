@@ -26,10 +26,11 @@ const formatInterviewDate = (value) => {
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleDateString();
 };
 
-// Accept `progressData` (legacy), `analytics`, `interviews`, and `dashboardMetrics` props from parent.
-const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashboardMetrics }) => {
+// Accept `progressData` (legacy), `analytics`, `interviews`, `dashboardMetrics`, and `practiceStats` (or `user`) from parent.
+const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashboardMetrics, practiceStats: practiceStatsProp, user }) => {
   // Prefer explicit progressData, then analytics, then an empty object
   const data = progressData || analytics || {};
+  const practiceStats = practiceStatsProp ?? user?.practiceStats ?? null;
 
   // Use comparison metrics if available
   const scoreMetrics = dashboardMetrics?.averageScore;
@@ -68,7 +69,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
   
   // Use grade from metrics or calculate
   const getGrade = (score) => {
-    if (!score || score === 0) return '—';
+    if (!score || score === 0) return 'N/A';
     if (score >= 90) return 'A+';
     if (score >= 85) return 'A';
     if (score >= 80) return 'B+';
@@ -146,6 +147,28 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
           </div>
         </div>
       </div>
+      {/* Practice streak */}
+      {practiceStats && (practiceStats.currentStreak > 0 || practiceStats.longestStreak > 0) && (
+        <div className="rounded-xl border border-amber-200/60 dark:border-amber-600/40 bg-gradient-to-r from-amber-50 to-orange-50 dark:from-amber-900/20 dark:to-orange-900/20 p-3 mb-4">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <Icon name="Flame" size={18} className="text-amber-500 dark:text-amber-400" />
+              <span className="text-sm font-medium text-gray-900 dark:text-slate-100">Practice streak</span>
+            </div>
+            <div className="flex items-center gap-3 text-sm">
+              <span className="text-amber-600 dark:text-amber-400 font-semibold">
+                {practiceStats.currentStreak || 0} day{(practiceStats.currentStreak || 0) !== 1 ? 's' : ''}
+              </span>
+              <span className="text-gray-500 dark:text-slate-400">Best: {practiceStats.longestStreak || 0}</span>
+            </div>
+          </div>
+          {practiceStats.lastPracticeDate && (
+            <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+              Last practice: {new Date(practiceStats.lastPracticeDate).toLocaleDateString()}
+            </div>
+          )}
+        </div>
+      )}
       {/* Stats Grid */}
       <div className="grid grid-cols-3 gap-3 mb-4">
         <div className="text-center">
@@ -156,11 +179,11 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
         </div>
         <div className="text-center">
           <div className="text-base sm:text-lg font-semibold text-green-600 dark:text-green-400">
-            {averageScore > 0 ? `${Math.round(averageScore)}%` : '—'}
+            {averageScore > 0 ? `${Math.round(averageScore)}%` : 'N/A'}
           </div>
           <div className="text-xs text-gray-500 dark:text-slate-400">Avg Score</div>
           {scoreMetrics?.changeText && (
-            <div className={`text-[10px] font-medium mt-0.5 ${getChangeColor(scoreMetrics.changeType)}`}>
+            <div className={`text-xs font-medium mt-0.5 ${getChangeColor(scoreMetrics.changeType)}`}>
               {scoreMetrics.changeText}
             </div>
           )}
@@ -169,7 +192,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
           <div className="text-base sm:text-lg font-semibold text-purple-600 dark:text-purple-400">{currentGrade}</div>
           <div className="text-xs text-gray-500 dark:text-slate-400">Grade</div>
           {gradeMetrics?.changeText && gradeMetrics.changeText !== 'Maintained' && (
-            <div className={`text-[10px] font-medium mt-0.5 ${getChangeColor(gradeMetrics.changeType)}`}>
+            <div className={`text-xs font-medium mt-0.5 ${getChangeColor(gradeMetrics.changeType)}`}>
               {gradeMetrics.changeText}
             </div>
           )}

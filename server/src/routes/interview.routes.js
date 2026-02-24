@@ -14,7 +14,12 @@
 
 import express from 'express';
 import { param, body, query } from 'express-validator';
-import { authenticate, requireCandidate, requireCompany } from '../middleware/auth.middleware.js';
+import {
+  authenticate,
+  requireCandidate,
+  requireCompany,
+  requireOrgRole,
+} from '../middleware/auth.middleware.js';
 import { 
   validateRequest, 
   stripUnexpectedFields,
@@ -23,6 +28,7 @@ import {
 } from '../middleware/inputValidation.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
 import { InterviewController } from '../controllers/interview.controller.js';
+import { interviewRecordingUpload } from '../middleware/upload.middleware.js';
 
 const router = express.Router();
 
@@ -73,6 +79,7 @@ router.get(
   authenticate,
   requireCompany,
   requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
   [query('limit').optional().toInt().isInt({ min: 1, max: 200 })],
   validateRequest,
   InterviewController.getCompanyInterviews
@@ -140,6 +147,103 @@ router.patch(
 );
 
 /**
+ * POST /api/interviews/:id/schedule
+ * Schedule interview timing and meeting link.
+ */
+router.post(
+  '/:id/schedule',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.schedule.allowedFields),
+  validationSchemas.interview.schedule.validators,
+  validateRequest,
+  InterviewController.scheduleInterview,
+);
+
+/**
+ * PATCH /api/interviews/:id/reschedule
+ * Reschedule existing interview.
+ */
+router.patch(
+  '/:id/reschedule',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.reschedule.allowedFields),
+  validationSchemas.interview.reschedule.validators,
+  validateRequest,
+  InterviewController.rescheduleInterview,
+);
+
+/**
+ * POST /api/interviews/:id/cancel
+ * Cancel an interview schedule.
+ */
+router.post(
+  '/:id/cancel',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.cancel.allowedFields),
+  validationSchemas.interview.cancel.validators,
+  validateRequest,
+  InterviewController.cancelInterview,
+);
+
+/**
+ * POST /api/interviews/:id/recording
+ * Upload full-session recording file for an interview.
+ */
+router.post(
+  '/:id/recording',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  interviewRecordingUpload.single('recording'),
+  InterviewController.uploadRecording,
+);
+
+/**
+ * GET /api/interviews/:id/recording-url
+ * Retrieve authorized playback URL for full-session recording.
+ */
+router.get(
+  '/:id/recording-url',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.getRecordingUrl,
+);
+
+/**
  * POST /api/interviews/:id/start
  * Start an interview session
  */
@@ -173,6 +277,24 @@ router.post(
   ],
   validateRequest,
   InterviewController.endInterview
+);
+
+/**
+ * POST /api/interviews/:id/run-evaluation
+ * Run interview evaluation now (idempotent).
+ */
+router.post(
+  '/:id/run-evaluation',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.runEvaluation,
 );
 
 // =============================================================================
@@ -220,6 +342,34 @@ router.post(
   validationSchemas.interview.submitAnswer.validators,
   validateRequest,
   InterviewController.submitAnswer
+);
+
+/**
+ * PATCH /api/interviews/:id/question/:questionId/notes
+ * GAP FEATURE: Save prep notes for a question
+ */
+router.patch(
+  '/:id/question/:questionId/notes',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    param('questionId')
+      .trim()
+      .notEmpty()
+      .withMessage('Question ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    body('prepNotes')
+      .optional()
+      .isString()
+      .isLength({ max: 500 })
+      .withMessage('Prep notes must be 500 characters or less'),
+  ],
+  validateRequest,
+  InterviewController.saveQuestionNotes
 );
 
 export default router;

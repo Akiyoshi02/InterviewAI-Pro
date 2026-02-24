@@ -124,6 +124,28 @@ export class ReviewController {
         return res.status(403).json({ error: 'Access denied' });
       }
 
+      // GAP FIX: Prevent reviews on incomplete interviews
+      if (interview.status !== 'COMPLETED') {
+        return res.status(409).json({
+          error: 'Can only review completed interviews',
+          code: 'INTERVIEW_NOT_COMPLETED',
+          currentStatus: interview.status,
+        });
+      }
+
+      // GAP FIX: Validate reviewer assignment (if assignments exist)
+      if (interview.reviewerAssignments && interview.reviewerAssignments.length > 0) {
+        const isAssigned = interview.reviewerAssignments.includes(req.user.id);
+        const isAdmin = req.user.organizationContext?.membership?.role === 'ADMIN';
+        
+        if (!isAssigned && !isAdmin) {
+          return res.status(403).json({
+            error: 'You are not assigned to review this interview',
+            code: 'NOT_ASSIGNED_REVIEWER',
+          });
+        }
+      }
+
       const aiOverallScoreAtReview =
         interview.overallScore != null ? Number(interview.overallScore) : null;
       const smeOverallScore = computeSmeOverallScore(req.body);

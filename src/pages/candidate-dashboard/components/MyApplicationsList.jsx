@@ -1,16 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
-import Select from '../../../components/ui/Select';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 import { CANDIDATE_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
 import { getDispositionLabel } from '../../../constants/applicationDisposition.js';
+import {
+  APPLICATION_DATE_PRESET_FILTER_OPTIONS,
+  APPLICATION_JOB_STATE_FILTER_OPTIONS,
+  APPLICATION_REVIEW_STATE_FILTER_OPTIONS,
+  APPLICATION_SORT_FILTER_OPTIONS,
+  APPLICATION_STATUS_FILTER_OPTIONS,
+  APPLICATION_WITHDRAWAL_FILTER_OPTIONS,
+  DEFAULT_CANDIDATE_APPLICATION_FILTERS,
+  buildCandidateApplicationFilterOptions,
+  canCandidateWithdrawApplication,
+  countActiveCandidateFilters,
+  filterCandidateApplications,
+  getDerivedApplicationStatus,
+  groupCandidateApplicationsByJob,
+} from '../utils/candidateApplicationFilters.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -50,26 +74,23 @@ const formatEmploymentType = (type) => {
   return formatted.charAt(0).toUpperCase() + formatted.slice(1);
 };
 
-const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => {
-  const normalizedDispositionCode = String(dispositionCode || '').toUpperCase();
-
-  // If status is REJECTED and withdrawnBy exists, it means the candidate withdrew
-  if (status === 'REJECTED' && withdrawnBy) {
+const getStatusConfig = (application = {}) => {
+  const derivedStatus = getDerivedApplicationStatus(application);
+  if (derivedStatus === 'WITHDRAWN') {
     return {
       label: 'Withdrew',
       color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300',
       icon: 'XCircle',
     };
   }
-
-  if (status === 'REJECTED' && normalizedDispositionCode === 'JOB_CLOSED') {
+  if (derivedStatus === 'POSITION_CLOSED') {
     return {
       label: 'Position Closed',
       color: 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-200',
       icon: 'Archive',
     };
   }
-  
+
   const configs = {
     SUBMITTED: {
       label: 'Submitted',
@@ -101,8 +122,13 @@ const getStatusConfig = (status, withdrawnBy = null, dispositionCode = null) => 
       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
       icon: 'CheckCircle',
     },
+    UNKNOWN: {
+      label: 'Unknown',
+      color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
+      icon: 'HelpCircle',
+    },
   };
-  return configs[status] || configs.SUBMITTED;
+  return configs[derivedStatus] || configs.UNKNOWN;
 };
 
 const MyApplicationsList = () => {
@@ -111,10 +137,11 @@ const MyApplicationsList = () => {
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [searchQuery, setSearchQuery] = useState('');
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [filters, setFilters] = useState(DEFAULT_CANDIDATE_APPLICATION_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [withdrawDialog, setWithdrawDialog] = useState({ open: false, applicationId: null });
   const [isWithdrawing, setIsWithdrawing] = useState(false);
+  const [withdrawSuccess, setWithdrawSuccess] = useState('');
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
@@ -128,7 +155,18 @@ const MyApplicationsList = () => {
   // Reset to page 1 when filters change
   useEffect(() => {
     setCurrentPage(1);
-  }, [statusFilter, searchQuery]);
+  }, [filters]);
+
+  const updateFilter = (key, value) => {
+    setFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_CANDIDATE_APPLICATION_FILTERS);
+  };
 
   const loadApplications = async () => {
     try {
@@ -149,7 +187,6 @@ const MyApplicationsList = () => {
         setError('Failed to load applications');
       }
     } catch (err) {
-      console.error('Load applications error:', err);
       setError(err.message || 'Failed to load applications');
     } finally {
       setLoading(false);
@@ -196,6 +233,8 @@ const MyApplicationsList = () => {
       const result = await apiClient.applications.withdraw(withdrawDialog.applicationId);
       if (result.success) {
         setWithdrawDialog({ open: false, applicationId: null });
+        setWithdrawSuccess('Application withdrawn successfully.');
+        setTimeout(() => setWithdrawSuccess(''), 4000);
         loadApplications();
       } else {
         throw new Error(result.error || 'Failed to withdraw application');
@@ -225,67 +264,45 @@ const MyApplicationsList = () => {
     });
   };
 
-  // Group applications by job and company
-  const groupedApplications = applications.reduce((acc, application) => {
-    const jobId = application.job?.id || application.jobId || `unknown-${application.id}`;
-    if (!acc[jobId]) {
-      acc[jobId] = {
-        job: application.job,
-        organization: application.organization,
-        applications: [],
-      };
-    }
-    acc[jobId].applications.push(application);
-    return acc;
-  }, {});
+  const filteredApplications = useMemo(
+    () => filterCandidateApplications(applications, filters),
+    [applications, filters],
+  );
 
-  // Filter applications
-  const filteredGroupedApplications = Object.entries(groupedApplications).reduce((acc, [jobId, jobData]) => {
-    const filteredApps = jobData.applications.filter((application) => {
-      // Search filter
-      const matchesSearch = searchQuery
-        ? (application.job?.title || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.job?.department || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.organization?.name || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-          (application.job?.location || '').toLowerCase().includes(searchQuery.toLowerCase())
-        : true;
+  const groupedApplications = useMemo(
+    () => groupCandidateApplicationsByJob(filteredApplications, { sortBy: filters.sortBy }),
+    [filteredApplications, filters.sortBy],
+  );
 
-      // Status filter
-      let matchesStatus = true;
-      if (statusFilter !== 'all') {
-        if (statusFilter === 'WITHDRAWN') {
-          matchesStatus = application.status === 'REJECTED' && application.withdrawnBy;
-        } else if (statusFilter === 'REJECTED') {
-          matchesStatus = application.status === 'REJECTED' && !application.withdrawnBy;
-        } else {
-          matchesStatus = application.status === statusFilter;
-        }
+  const {
+    companyOptions,
+    employmentTypeOptions,
+    dispositionOptions,
+  } = useMemo(() => buildCandidateApplicationFilterOptions(applications), [applications]);
+
+  const activeFilterCount = useMemo(
+    () => countActiveCandidateFilters(filters),
+    [filters],
+  );
+
+  useEffect(() => {
+    setExpandedJobs((previous) => {
+      const visibleJobIds = groupedApplications.map((group) => group.jobId);
+      const visibleLookup = new Set(visibleJobIds);
+      const next = new Set([...previous].filter((jobId) => visibleLookup.has(jobId)));
+
+      if (next.size === 0 && visibleJobIds.length > 0) {
+        next.add(visibleJobIds[0]);
       }
 
-      return matchesSearch && matchesStatus;
+      const previousIds = [...previous];
+      const nextIds = [...next];
+      const unchanged = previousIds.length === nextIds.length
+        && previousIds.every((jobId, index) => jobId === nextIds[index]);
+
+      return unchanged ? previous : next;
     });
-
-    if (filteredApps.length > 0) {
-      acc[jobId] = {
-        ...jobData,
-        applications: filteredApps,
-        filteredCount: filteredApps.length,
-      };
-    }
-
-    return acc;
-  }, {});
-
-  const statusOptions = [
-    { value: 'all', label: 'All Status' },
-    { value: 'SUBMITTED', label: 'Submitted' },
-    { value: 'SCREENING', label: 'Under Review' },
-    { value: 'INTERVIEWING', label: 'Interviewing' },
-    { value: 'SHORTLISTED', label: 'Shortlisted' },
-    { value: 'WITHDRAWN', label: 'Withdrew' },
-    { value: 'REJECTED', label: 'Not Selected' },
-    { value: 'HIRED', label: 'Hired' },
-  ];
+  }, [groupedApplications]);
 
   if (loading) {
     return (
@@ -332,11 +349,11 @@ const MyApplicationsList = () => {
     );
   }
 
-  const totalApplicationsCount = Object.values(filteredGroupedApplications).reduce((sum, jobData) => sum + jobData.filteredCount, 0);
-  const totalJobsCount = Object.keys(filteredGroupedApplications).length;
+  const totalApplicationsCount = groupedApplications.reduce((sum, jobData) => sum + jobData.filteredCount, 0);
+  const totalJobsCount = groupedApplications.length;
 
   // Pagination calculations
-  const jobsArray = Object.entries(filteredGroupedApplications);
+  const jobsArray = groupedApplications;
   const totalPages = Math.ceil(jobsArray.length / itemsPerPage);
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
@@ -344,6 +361,11 @@ const MyApplicationsList = () => {
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
+      {withdrawSuccess && (
+        <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+          {withdrawSuccess}
+        </div>
+      )}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
@@ -353,6 +375,11 @@ const MyApplicationsList = () => {
             <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
               {totalApplicationsCount} {totalApplicationsCount === 1 ? 'application' : 'applications'} to {totalJobsCount} {totalJobsCount === 1 ? 'position' : 'positions'}
             </p>
+            {activeFilterCount > 0 && (
+              <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                Filtered view enabled
+              </p>
+            )}
           </div>
           <Button
             variant="ghost"
@@ -366,31 +393,129 @@ const MyApplicationsList = () => {
         </div>
 
         {/* Filters */}
-        <div className="flex flex-col sm:flex-row gap-3">
-          <div className="flex-1 relative">
-            <Icon name="Search" className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 dark:text-slate-500 z-20 pointer-events-none" />
-            <input
+        <UnifiedFilterPanel
+          title="Application Filters"
+          description="Narrow applications by status, company, outcome, review state, and submission timeline."
+          activeCount={activeFilterCount}
+          onClear={clearFilters}
+          headerActions={(
+            <UnifiedFilterToggleButton
+              active={showAdvancedFilters}
+              onClick={() => setShowAdvancedFilters((previous) => !previous)}
+              label={showAdvancedFilters ? 'Hide Advanced Filters' : 'Show Advanced Filters'}
+            />
+          )}
+        >
+          <div className={FILTER_GRID_CLASS}>
+            <UnifiedSearchField
+              label="Search"
+              className="sm:col-span-2 xl:col-span-3"
               type="text"
-              placeholder="Search by job title, company, location..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="flex h-11 sm:h-12 w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 pr-3 sm:pr-4 py-2.5 pl-10 text-base sm:text-sm text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200"
+              placeholder="Role, company, location, status, or outcome"
+              value={filters.searchQuery}
+              onChange={(event) => updateFilter('searchQuery', event.target.value)}
+            />
+            <UnifiedFilterSelect
+              label="Status"
+              value={filters.statusFilter}
+              onChange={(value) => updateFilter('statusFilter', value)}
+              options={APPLICATION_STATUS_FILTER_OPTIONS}
+              placeholder="All statuses"
             />
           </div>
-          <div className="relative z-30 sm:w-[200px]">
-            <Select
-              value={statusFilter}
-              onChange={(value) => setStatusFilter(value)}
-              options={statusOptions}
-              placeholder="All Status"
-              className="w-full"
-            />
-          </div>
-        </div>
+
+          {showAdvancedFilters && (
+            <div className={FILTER_SUBPANEL_CLASS}>
+              <div className={FILTER_GRID_CLASS}>
+                <UnifiedFilterSelect
+                  label="Company"
+                  value={filters.companyFilter}
+                  onChange={(value) => updateFilter('companyFilter', value)}
+                  options={companyOptions}
+                  placeholder="All companies"
+                />
+                <UnifiedFilterSelect
+                  label="Employment Type"
+                  value={filters.employmentTypeFilter}
+                  onChange={(value) => updateFilter('employmentTypeFilter', value)}
+                  options={employmentTypeOptions}
+                  placeholder="All employment types"
+                />
+                <UnifiedFilterSelect
+                  label="Outcome"
+                  value={filters.dispositionFilter}
+                  onChange={(value) => updateFilter('dispositionFilter', value)}
+                  options={dispositionOptions}
+                  placeholder="All outcomes"
+                />
+                <UnifiedFilterSelect
+                  label="Job State"
+                  value={filters.jobStateFilter}
+                  onChange={(value) => updateFilter('jobStateFilter', value)}
+                  options={APPLICATION_JOB_STATE_FILTER_OPTIONS}
+                  placeholder="All job states"
+                />
+                <UnifiedFilterSelect
+                  label="Review State"
+                  value={filters.reviewStateFilter}
+                  onChange={(value) => updateFilter('reviewStateFilter', value)}
+                  options={APPLICATION_REVIEW_STATE_FILTER_OPTIONS}
+                  placeholder="All review states"
+                />
+                <UnifiedFilterSelect
+                  label="Withdrawal State"
+                  value={filters.withdrawalFilter}
+                  onChange={(value) => updateFilter('withdrawalFilter', value)}
+                  options={APPLICATION_WITHDRAWAL_FILTER_OPTIONS}
+                  placeholder="All withdrawal states"
+                />
+                <UnifiedFilterSelect
+                  label="Date Range"
+                  value={filters.datePreset}
+                  onChange={(value) => {
+                    setFilters((previous) => ({
+                      ...previous,
+                      datePreset: value,
+                      ...(value === 'custom' ? {} : { appliedFrom: '', appliedTo: '' }),
+                    }));
+                  }}
+                  options={APPLICATION_DATE_PRESET_FILTER_OPTIONS}
+                  placeholder="All dates"
+                />
+                <UnifiedFilterSelect
+                  label="Sort By"
+                  value={filters.sortBy}
+                  onChange={(value) => updateFilter('sortBy', value)}
+                  options={APPLICATION_SORT_FILTER_OPTIONS}
+                  placeholder="Latest activity"
+                />
+              </div>
+
+              {filters.datePreset === 'custom' && (
+                <div className={FILTER_DATE_GRID_CLASS}>
+                  <UnifiedFilterField label="Applied From">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedFrom}
+                      onChange={(event) => updateFilter('appliedFrom', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                  <UnifiedFilterField label="Applied To">
+                    <UnifiedTextInput
+                      type="date"
+                      value={filters.appliedTo}
+                      onChange={(event) => updateFilter('appliedTo', event.target.value)}
+                    />
+                  </UnifiedFilterField>
+                </div>
+              )}
+            </div>
+          )}
+        </UnifiedFilterPanel>
 
         {/* Job Groups */}
         <div className="space-y-4">
-          {Object.keys(filteredGroupedApplications).length === 0 ? (
+          {groupedApplications.length === 0 ? (
             <div className="text-center py-12">
               <div className="p-3 rounded-full bg-gray-100 dark:bg-slate-800 inline-flex mb-4">
                 <Icon name="Search" className="w-8 h-8 text-gray-400 dark:text-slate-500" />
@@ -404,10 +529,7 @@ const MyApplicationsList = () => {
               <div className="flex gap-2 justify-center">
                 <Button
                   variant="outline"
-                  onClick={() => {
-                    setSearchQuery('');
-                    setStatusFilter('all');
-                  }}
+                  onClick={clearFilters}
                 >
                   Clear Filters
                 </Button>
@@ -419,14 +541,11 @@ const MyApplicationsList = () => {
             </div>
           ) : (
             <>
-            {paginatedJobs.map(([jobId, jobData], index) => {
+            {paginatedJobs.map((jobData, index) => {
+              const jobId = jobData.jobId;
               const isExpanded = expandedJobs.has(jobId);
               const latestApplication = jobData.applications[0]; // Most recent application
-              const statusConfig = getStatusConfig(
-                latestApplication.status,
-                latestApplication.withdrawnBy,
-                latestApplication.dispositionCode,
-              );
+              const statusConfig = getStatusConfig(latestApplication);
               
               return (
                 <motion.div
@@ -466,7 +585,7 @@ const MyApplicationsList = () => {
                             {jobData.job?.title || 'Deleted Position'}
                           </h3>
                           {jobData.job?.isDeleted && (
-                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-[11px] font-medium shrink-0">
+                            <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 dark:bg-slate-700 dark:text-slate-200 text-xs font-medium shrink-0">
                               Deleted
                             </span>
                           )}
@@ -503,12 +622,8 @@ const MyApplicationsList = () => {
                       >
                         <div className="p-4 space-y-4 bg-gray-50/50 dark:bg-slate-800/30">
                           {jobData.applications.map((application, appIndex) => {
-                            const appStatusConfig = getStatusConfig(
-                              application.status,
-                              application.withdrawnBy,
-                              application.dispositionCode,
-                            );
-                            const canWithdraw = !['HIRED', 'INTERVIEWING', 'REJECTED'].includes(application.status) && !application.withdrawnBy;
+                            const appStatusConfig = getStatusConfig(application);
+                            const canWithdraw = canCandidateWithdrawApplication(application);
                             
                             return (
                               <motion.div

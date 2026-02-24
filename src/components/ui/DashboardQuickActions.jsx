@@ -8,7 +8,7 @@ const DashboardQuickActions = ({
   recentActivity = [],
   onActionClick,
   className = '',
-  // Stats props for real data (optional - will show "—" if not provided)
+  // Stats props for real data (optional - will show "N/A" if not provided)
   stats = {}
 }) => {
   const navigate = useNavigate();
@@ -37,7 +37,7 @@ const DashboardQuickActions = ({
       description: 'Check your interview performance',
       icon: 'TrendingUp',
       variant: 'outline',
-      path: '/candidate-dashboard',
+      path: '/candidate-dashboard#recent-activity',
       color: 'bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30'
     }
   ];
@@ -216,38 +216,38 @@ const DashboardQuickActions = ({
         {userType === 'candidate' ? (
           <>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.practiceSessions ?? '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.practiceSessions ?? 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Practice Sessions</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.avgScore != null ? `${stats.avgScore}%` : '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.avgScore != null ? `${stats.avgScore}%` : 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Score</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.liveInterviews ?? '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.liveInterviews ?? 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Live Interviews</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.totalPracticeTime ?? '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.totalPracticeTime ?? 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Total Practice</div>
             </div>
           </>
         ) : (
           <>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.totalCandidates ?? '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-blue-600 dark:text-blue-400">{stats.totalCandidates ?? 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Candidates</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.completionRate != null ? `${stats.completionRate}%` : '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-green-600 dark:text-green-400">{stats.completionRate != null ? `${stats.completionRate}%` : 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Completion Rate</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.activeSessions ?? '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-purple-600 dark:text-purple-400">{stats.activeSessions ?? 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Active Sessions</div>
             </div>
             <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 p-3 sm:p-4 text-center shadow-sm">
-              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.avgScore != null ? stats.avgScore : '—'}</div>
+              <div className="text-xl sm:text-2xl font-bold text-cyan-600 dark:text-cyan-400">{stats.avgScore != null ? stats.avgScore : 'N/A'}</div>
               <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Score</div>
             </div>
           </>
@@ -258,3 +258,4 @@ const DashboardQuickActions = ({
 };
 
 export default DashboardQuickActions;
+

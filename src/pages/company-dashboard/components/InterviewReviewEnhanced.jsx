@@ -43,6 +43,13 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     overrideOverall: false,
   });
   const [submitting, setSubmitting] = useState(false);
+  const [reviewFormError, setReviewFormError] = useState('');
+  const [reviewFormSuccess, setReviewFormSuccess] = useState('');
+  const [evaluationError, setEvaluationError] = useState('');
+  const [recordingPlaybackUrl, setRecordingPlaybackUrl] = useState('');
+  const [recordingLoading, setRecordingLoading] = useState(false);
+  const [recordingError, setRecordingError] = useState('');
+  const [runningEvaluation, setRunningEvaluation] = useState(false);
   const loadInterviewRef = useRef(null);
   const realtimeRefreshTimeoutRef = useRef(null);
 
@@ -55,8 +62,8 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
         // Load existing review if any
         await loadExistingReview();
       }
-    } catch (err) {
-      console.error('Failed to load interview:', err);
+    } catch {
+      // Error state handled by interview === null check in render
     } finally {
       setLoading(false);
     }
@@ -69,6 +76,48 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   useEffect(() => {
     loadInterviewRef.current = loadInterview;
   }, [loadInterview]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const hydrateRecordingUrl = async () => {
+      if (!interview?.id || !interview?.recordingUrl) {
+        setRecordingPlaybackUrl('');
+        setRecordingError('');
+        return;
+      }
+
+      setRecordingLoading(true);
+      setRecordingError('');
+      try {
+        const signed = await apiClient.interviews.getRecordingUrl(interview.id);
+        if (!cancelled && signed?.success && signed?.recordingUrl) {
+          setRecordingPlaybackUrl(signed.recordingUrl);
+          return;
+        }
+
+        const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+        if (!cancelled) {
+          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setRecordingError(error?.message || 'Unable to resolve recording playback URL.');
+          const fallback = await apiClient.uploads.getDownloadUrl(interview.recordingUrl);
+          setRecordingPlaybackUrl(fallback || interview.recordingUrl);
+        }
+      } finally {
+        if (!cancelled) {
+          setRecordingLoading(false);
+        }
+      }
+    };
+
+    void hydrateRecordingUrl();
+    return () => {
+      cancelled = true;
+    };
+  }, [interview?.id, interview?.recordingUrl]);
 
   useInterviewRealtimeFeed({
     userId: user?.id,
@@ -118,8 +167,10 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   };
 
   const handleSubmitReview = async () => {
+    setReviewFormError('');
+    setReviewFormSuccess('');
     if (!review.notes.trim()) {
-      alert('Please provide review notes');
+      setReviewFormError('Please provide review notes before submitting.');
       return;
     }
 
@@ -132,18 +183,48 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
       });
 
       if (result.success) {
-        alert('Review submitted successfully!');
+        setReviewFormSuccess('Review submitted successfully!');
         const interviewResult = await apiClient.interviews.getInterview(interviewId);
         if (interviewResult.success && interviewResult.interview) {
           setInterview(interviewResult.interview);
         }
-        if (onClose) onClose();
+        setTimeout(() => {
+          if (onClose) onClose();
+        }, 1200);
       }
     } catch (err) {
-      alert('Failed to submit review: ' + err.message);
+      setReviewFormError('Failed to submit review: ' + (err.message || 'Please try again.'));
     } finally {
       setSubmitting(false);
     }
+  };
+
+  const handleRunEvaluationNow = async () => {
+    setEvaluationError('');
+    try {
+      setRunningEvaluation(true);
+      const result = await apiClient.interviews.runEvaluation(interviewId);
+      if (result?.success && result?.interview) {
+        setInterview(result.interview);
+      } else {
+        const refreshed = await apiClient.interviews.getInterview(interviewId);
+        if (refreshed?.success && refreshed?.interview) {
+          setInterview(refreshed.interview);
+        }
+      }
+    } catch (error) {
+      setEvaluationError(error?.message || 'Failed to run evaluation right now.');
+    } finally {
+      setRunningEvaluation(false);
+    }
+  };
+
+  const SLIDER_TRACK_CLASSES = {
+    purple: 'bg-gradient-to-r from-gray-200 to-purple-600 dark:from-slate-700 dark:to-purple-600',
+    blue: 'bg-gradient-to-r from-gray-200 to-blue-600 dark:from-slate-700 dark:to-blue-600',
+    green: 'bg-gradient-to-r from-gray-200 to-green-600 dark:from-slate-700 dark:to-green-600',
+    orange: 'bg-gradient-to-r from-gray-200 to-orange-500 dark:from-slate-700 dark:to-orange-500',
+    pink: 'bg-gradient-to-r from-gray-200 to-pink-500 dark:from-slate-700 dark:to-pink-500',
   };
 
   const ScoreSlider = ({ label, value, onChange, color = 'purple' }) => (
@@ -162,7 +243,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
         max="10"
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className={`w-full h-2 rounded-lg appearance-none cursor-pointer bg-gradient-to-r from-gray-200 to-${color}-600 dark:from-slate-700 dark:to-${color}-600`}
+        className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${SLIDER_TRACK_CLASSES[color] || SLIDER_TRACK_CLASSES.purple}`}
       />
       <div className="flex justify-between text-xs text-gray-500 dark:text-slate-500">
         <span>Poor</span>
@@ -621,10 +702,20 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
 
               {interview.recordingUrl ? (
                 <div className="rounded-xl overflow-hidden bg-black">
+                  {recordingLoading && (
+                    <div className="px-4 py-3 text-sm text-blue-200 bg-blue-900/40">
+                      Resolving secure recording URL...
+                    </div>
+                  )}
+                  {recordingError && (
+                    <div className="px-4 py-3 text-xs text-amber-200 bg-amber-900/50 border-b border-amber-700/40">
+                      {recordingError}
+                    </div>
+                  )}
                   <video
                     controls
                     className="w-full"
-                    src={interview.recordingUrl}
+                    src={recordingPlaybackUrl || interview.recordingUrl}
                   >
                     Your browser does not support video playback.
                   </video>
@@ -640,15 +731,62 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                   </p>
                 </div>
               )}
+
+              {interview.recording && (
+                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 p-4">
+                  <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3">Recording Metadata</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-gray-600 dark:text-slate-400">
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Path:</span>{' '}
+                      <span className="break-all">{interview.recording.path || interview.recordingUrl}</span>
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Mime Type:</span>{' '}
+                      {interview.recording.mimeType || 'UNKNOWN'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Size:</span>{' '}
+                      {Number.isFinite(Number(interview.recording.size))
+                        ? `${Math.round(Number(interview.recording.size) / 1024)} KB`
+                        : 'UNKNOWN'}
+                    </div>
+                    <div>
+                      <span className="font-medium text-gray-900 dark:text-slate-200">Created At:</span>{' '}
+                      {interview.recording.createdAt
+                        ? new Date(interview.recording.createdAt).toLocaleString()
+                        : 'UNKNOWN'}
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
           )}
 
           {/* AI Evaluation Tab — rubric-tied explainability for recruiters/SMEs */}
           {activeTab === 'evaluation' && (
             <div className="space-y-6">
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
-                AI-Generated Evaluation
-              </h3>
+              <div className="flex items-center justify-between gap-3">
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
+                  AI-Generated Evaluation
+                </h3>
+                {(interview?.pendingEvaluation || interview?.llmUnavailable) && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={handleRunEvaluationNow}
+                    disabled={runningEvaluation}
+                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white"
+                  >
+                    {runningEvaluation ? 'Deep Analysis Running...' : 'Run AI Evaluation Now'}
+                  </Button>
+                )}
+              </div>
+
+              {evaluationError && (
+                <div className="rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                  {evaluationError}
+                </div>
+              )}
 
               {interview.evaluation ? (
                 <>
@@ -658,7 +796,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                       <p className="text-sm text-gray-600 dark:text-slate-400 mb-2">
                         Overall Score
                       </p>
-                      <div className="text-5xl font-bold text-purple-600 dark:text-purple-400">
+                      <div className="text-3xl font-bold text-purple-600 dark:text-purple-400">
                         {interview.overallScore != null ? interview.overallScore : 'N/A'}
                       </div>
                       <p className="text-sm text-gray-600 dark:text-slate-400 mt-2">
@@ -952,29 +1090,23 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 </h4>
                 <div className="grid grid-cols-3 gap-3">
                   {[
-                    { value: 'STRONG_YES', label: 'Strong Yes', color: 'green' },
-                    { value: 'YES', label: 'Yes', color: 'blue' },
-                    { value: 'MAYBE', label: 'Maybe', color: 'yellow' },
-                    { value: 'NO', label: 'No', color: 'red' },
-                    { value: 'STRONG_NO', label: 'Strong No', color: 'red' },
-                    { value: 'UNDECIDED', label: 'Undecided', color: 'gray' },
+                    { value: 'STRONG_YES', label: 'Strong Yes', activeClass: 'border-green-600 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300' },
+                    { value: 'YES', label: 'Yes', activeClass: 'border-blue-600 bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' },
+                    { value: 'MAYBE', label: 'Maybe', activeClass: 'border-yellow-500 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-300' },
+                    { value: 'NO', label: 'No', activeClass: 'border-red-600 bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300' },
+                    { value: 'STRONG_NO', label: 'Strong No', activeClass: 'border-red-700 bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200' },
+                    { value: 'UNDECIDED', label: 'Undecided', activeClass: 'border-gray-500 bg-gray-50 dark:bg-gray-900/20 text-gray-700 dark:text-gray-300' },
                   ].map((rec) => (
                     <button
                       key={rec.value}
                       onClick={() => setReview({ ...review, recommendation: rec.value })}
                       className={`p-3 rounded-lg border-2 transition-all ${
                         review.recommendation === rec.value
-                          ? `border-${rec.color}-600 bg-${rec.color}-50 dark:bg-${rec.color}-900/20`
-                          : 'border-gray-200 dark:border-slate-700 hover:border-gray-300 dark:hover:border-slate-600'
+                          ? rec.activeClass
+                          : 'border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-gray-300 dark:hover:border-slate-600'
                       }`}
                     >
-                      <p className={`text-sm font-medium ${
-                        review.recommendation === rec.value
-                          ? `text-${rec.color}-700 dark:text-${rec.color}-300`
-                          : 'text-gray-700 dark:text-slate-300'
-                      }`}>
-                        {rec.label}
-                      </p>
+                      <p className="text-sm font-medium">{rec.label}</p>
                     </button>
                   ))}
                 </div>
@@ -996,6 +1128,17 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                   Include specific examples and observations from the interview
                 </p>
               </div>
+
+              {reviewFormError && (
+                <div className="rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                  {reviewFormError}
+                </div>
+              )}
+              {reviewFormSuccess && (
+                <div className="rounded-xl border border-green-200 dark:border-green-500/30 bg-green-50 dark:bg-green-500/10 px-4 py-3 text-sm text-green-700 dark:text-green-300">
+                  {reviewFormSuccess}
+                </div>
+              )}
 
               {/* Submit Button */}
               <div className="flex gap-3">

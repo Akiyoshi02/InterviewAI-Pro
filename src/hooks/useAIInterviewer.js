@@ -13,6 +13,17 @@ import audioRecorderService from '../services/audioRecorderService';
 import { transcribeWithFallback, checkLocalWhisperHealth } from '../services/localWhisperService';
 import InterviewBackendSync from '../services/interviewBackendSync';
 
+const normalizeWhisperLanguage = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return 'en';
+  return value.trim().toLowerCase().split('-')[0] || 'en';
+};
+
+const normalizeSpeechLanguage = (value) => {
+  if (typeof value !== 'string' || !value.trim()) return 'en-US';
+  const normalized = value.trim();
+  return normalized.includes('-') ? normalized : `${normalized}-US`;
+};
+
 export const useAIInterviewer = (config = {}) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [currentMessage, setCurrentMessage] = useState('');
@@ -31,6 +42,7 @@ export const useAIInterviewer = (config = {}) => {
   const interviewerRef = useRef(null);
   const backendSyncRef = useRef(null);
   const currentQuestionIdRef = useRef(null); // Track current question ID from backend
+  const activeInterviewConfigRef = useRef({});
 
   useEffect(() => {
     return () => {
@@ -50,11 +62,20 @@ export const useAIInterviewer = (config = {}) => {
     try {
       setIsSpeaking(true);
       setCanCandidateSpeak(false); // AI is speaking, candidate cannot
+
+      const activeConfig = activeInterviewConfigRef.current || {};
+      const selectedVoice = activeConfig?.voice || null;
+      const language = normalizeSpeechLanguage(
+        activeConfig?.advancedSettings?.language || activeConfig?.language || 'en',
+      );
       
       await speechService.speak(message, {
         rate: 0.95,
         pitch: 1.0,
         volume: 1.0,
+        lang: language,
+        voice: selectedVoice,
+        voiceCriteria: { lang: language },
         onEnd: () => {
           setIsSpeaking(false);
           setCanCandidateSpeak(true); // AI finished, candidate can now speak
@@ -120,7 +141,12 @@ export const useAIInterviewer = (config = {}) => {
       setIsListening(false);
       setIsTranscribing(true);
       try {
-        const result = await transcribeWithFallback(blob, { language: 'en' });
+        const activeConfig = activeInterviewConfigRef.current || {};
+        const result = await transcribeWithFallback(blob, {
+          language: normalizeWhisperLanguage(
+            activeConfig?.advancedSettings?.language || activeConfig?.language || 'en',
+          ),
+        });
         setIsTranscribing(false);
         return result.text;
       } catch (err) {
@@ -147,6 +173,11 @@ export const useAIInterviewer = (config = {}) => {
     try {
       setIsProcessing(true);
       setError(null);
+      const mergedConfig = {
+        ...config,
+        ...interviewConfig,
+      };
+      activeInterviewConfigRef.current = mergedConfig;
 
       // Check local whisper server once at init
       try {
@@ -157,7 +188,7 @@ export const useAIInterviewer = (config = {}) => {
       }
 
       // Initialize backend sync if interviewId is provided
-      const interviewId = config.interviewId || interviewConfig.interviewId;
+      const interviewId = mergedConfig.interviewId;
       if (interviewId) {
         try {
           backendSyncRef.current = new InterviewBackendSync(interviewId);
@@ -170,7 +201,11 @@ export const useAIInterviewer = (config = {}) => {
           const backendQuestions = backendSyncRef.current.getQuestions();
           if (backendQuestions && backendQuestions.length > 0) {
             // Update config with backend question count
-            interviewConfig.totalQuestions = backendQuestions.length;
+            mergedConfig.totalQuestions = backendQuestions.length;
+            activeInterviewConfigRef.current = {
+              ...activeInterviewConfigRef.current,
+              totalQuestions: backendQuestions.length,
+            };
           }
 
           backendSyncRef.current.subscribeToRealtime((event) => {
@@ -187,8 +222,7 @@ export const useAIInterviewer = (config = {}) => {
 
       // Create interviewer instance
       const interviewer = createAIInterviewer({
-        ...config,
-        ...interviewConfig
+        ...mergedConfig,
       });
       
       interviewerRef.current = interviewer;
@@ -486,6 +520,7 @@ export const useAIInterviewer = (config = {}) => {
     interviewerRef.current = null;
     backendSyncRef.current = null;
     currentQuestionIdRef.current = null;
+    activeInterviewConfigRef.current = {};
     setIsInitialized(false);
     setCurrentMessage('');
     setPhase('not_started');
@@ -499,6 +534,11 @@ export const useAIInterviewer = (config = {}) => {
    */
   const clearError = useCallback(() => {
     setError(null);
+  }, []);
+
+  const clearConversation = useCallback(() => {
+    setConversationHistory([]);
+    setCurrentTranscript('');
   }, []);
 
   return {
@@ -526,6 +566,7 @@ export const useAIInterviewer = (config = {}) => {
     exportInterview,
     resetInterview,
     clearError,
+    clearConversation,
     speakMessage,
     startListening,
     stopListening,

@@ -12,7 +12,10 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
   const location = useLocation();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
-  const currentPath = useMemo(() => location.pathname || '', [location.pathname]);
+  const currentPath = useMemo(
+    () => `${location.pathname || ''}${location.hash || ''}`,
+    [location.pathname, location.hash]
+  );
 
   // Handle scroll effect for header
   useEffect(() => {
@@ -115,14 +118,65 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       fullLabel: 'Team Members', 
       requiredPermission: 'MANAGE_MEMBERS' 
     },
+    { 
+      key: 'settings',
+      label: 'Settings', 
+      path: '/company-settings', 
+      icon: 'Settings', 
+      fullLabel: 'Settings' 
+    },
+    { 
+      key: 'billing',
+      label: 'Billing', 
+      path: '/company-billing', 
+      icon: 'CreditCard', 
+      fullLabel: 'Billing' 
+    },
   ];
 
-  const adminNavItems = []; // Admin dashboard has its own tab navigation, no header nav needed
+  const adminNavItems = [
+    { key: 'dashboard', label: 'Overview', path: '/system-admin-dashboard', exact: true, icon: 'LayoutDashboard', fullLabel: 'Admin Overview' },
+    {
+      key: 'organizations',
+      label: 'Organizations',
+      icon: 'Building2',
+      items: [
+        { label: 'Approvals', path: '/system-admin-dashboard/approvals', icon: 'CheckCircle', fullLabel: 'Pending Approvals' },
+        { label: 'All Organizations', path: '/system-admin-dashboard/organizations', icon: 'Building', fullLabel: 'All Organizations' },
+      ],
+    },
+    { key: 'users', label: 'Users', path: '/system-admin-dashboard/users', icon: 'Users', fullLabel: 'User Management' },
+    { key: 'operations', label: 'Operations', path: '/system-admin-dashboard/operations', icon: 'Wallet', fullLabel: 'Platform Operations' },
+    {
+      key: 'governance',
+      label: 'Governance',
+      icon: 'Scale',
+      items: [
+        { label: 'Fairness', path: '/system-admin-dashboard/fairness', icon: 'Scale' },
+        { label: 'Settings', path: '/system-admin-dashboard/settings', icon: 'Settings', fullLabel: 'System Settings' },
+        { label: 'Audit Logs', path: '/system-admin-dashboard/audit', icon: 'FileText' },
+      ],
+    },
+    {
+      key: 'research',
+      label: 'Data & AI',
+      icon: 'Database',
+      fullLabel: 'Data & AI',
+      items: [
+        { label: 'Training Data', path: '/system-admin-dashboard/training-data', icon: 'Database' },
+        { label: 'Classification Metrics', path: '/system-admin-dashboard/classification', icon: 'Grid3X3' },
+        { label: 'Model Fine-Tuning', path: '/system-admin-dashboard/fine-tuning', icon: 'Cpu' },
+        { label: 'MediaPipe Calibration', path: '/system-admin-dashboard/mediapipe-calibration', icon: 'ScanFace' },
+        { label: 'Research Tools', path: '/system-admin-dashboard/research-tools', icon: 'FlaskConical' },
+      ],
+    },
+    { key: 'support', label: 'Live Chat', path: '/system-admin-dashboard/live-chat', icon: 'MessageSquare' },
+  ];
 
   const getNavigationItems = () => {
     if (!isAuthenticated) return [];
     if (userType === 'candidate') return candidateNavItems;
-    if (userType === 'admin') return adminNavItems; // Empty array - admin uses tab navigation
+    if (userType === 'admin') return adminNavItems;
     
     // For company users, filter navigation based on organization role
     if (userType === 'company') {
@@ -137,27 +191,8 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
     if (!path || typeof path !== 'string') {
       return;
     }
-    
-    // Handle hash routes specially
-    if (path.includes('#')) {
-      const [basePath, hash] = path.split('#');
-      // If we're already on the base path, just update the hash
-      if (location.pathname === basePath) {
-        window.location.hash = hash;
-        // Trigger hashchange event manually for consistency
-        window.dispatchEvent(new HashChangeEvent('hashchange'));
-      } else {
-        // Navigate to base path first, then set hash
-        navigate(basePath);
-        setTimeout(() => {
-          window.location.hash = hash;
-          // Trigger hashchange event manually
-          window.dispatchEvent(new HashChangeEvent('hashchange'));
-        }, 50);
-      }
-    } else {
-      navigate(path);
-    }
+
+    navigate(path);
     setIsMenuOpen(false);
   };
 
@@ -186,20 +221,22 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
             : 'border-b border-white/20 dark:border-slate-800/50 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl'
         }`}
       >
-        <div className={`flex ${userType === 'admin' ? 'justify-between' : 'lg:grid lg:grid-cols-[1fr_auto_1fr]'} items-center h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto ${
-          isAuthenticated && userType !== 'admin' ? 'justify-end lg:justify-between' : 'justify-between'
+        <div className={`flex items-center h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto ${
+          isAuthenticated
+            ? 'justify-end lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-between'
+            : 'justify-between'
         }`}>
           {/* Only show logo in header when NOT authenticated (no sidebar visible) */}
           {!isAuthenticated ? (
             <Logo />
           ) : (
             <>
-              {/* Show logo when authenticated - always visible for admin, mobile for others */}
-              <div className={userType === 'admin' ? 'mr-auto' : 'lg:hidden mr-auto'}>
+              {/* Show logo when authenticated on mobile only (desktop uses sidebar branding) */}
+              <div className="lg:hidden mr-auto">
                 <Logo />
               </div>
-              {/* Empty spacer on desktop to maintain layout (only for non-admin) */}
-              {userType !== 'admin' && <div className="hidden lg:block" />}
+              {/* Empty spacer on desktop to maintain layout */}
+              <div className="hidden lg:block" />
             </>
           )}
           

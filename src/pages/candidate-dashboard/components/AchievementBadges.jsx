@@ -1,77 +1,86 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { deriveAchievementBadges } from '../utils/candidateInsights.js';
 
-const AchievementBadges = ({ badges = [] }) => {
-  const mockBadges = [
-    {
-      id: 1,
-      name: 'First Steps',
-      description: 'Completed your first practice interview',
-      icon: 'Award',
-      color: 'bg-gradient-to-br from-emerald-500 to-teal-500',
-      earned: true,
-      earnedDate: '2025-10-15',
-      rarity: 'common'
-    },
-    {
-      id: 2,
-      name: 'Communication Expert',
-      description: 'Achieved 90%+ in communication skills assessment',
-      icon: 'MessageCircle',
-      color: 'bg-gradient-to-br from-blue-600 to-purple-600',
-      earned: true,
-      earnedDate: '2025-10-28',
-      rarity: 'rare'
-    },
-    {
-      id: 3,
-      name: 'Technical Wizard',
-      description: 'Scored 95%+ on advanced technical questions',
-      icon: 'Code',
-      color: 'bg-gradient-to-br from-cyan-500 to-blue-500',
-      earned: true,
-      earnedDate: '2025-10-30',
-      rarity: 'epic'
-    },
-    {
-      id: 4,
-      name: 'Consistency Champion',
-      description: 'Completed 10 practice sessions in a month',
-      icon: 'Target',
-      color: 'bg-gradient-to-br from-purple-500 to-pink-500',
-      earned: false,
-      progress: 7,
-      total: 10,
-      rarity: 'rare'
-    },
-    {
-      id: 5,
-      name: 'Speed Demon',
-      description: 'Completed interview in under 20 minutes',
-      icon: 'Zap',
-      color: 'bg-gradient-to-br from-amber-500 to-orange-500',
-      earned: false,
-      progress: 0,
-      total: 1,
-      rarity: 'uncommon'
-    },
-    {
-      id: 6,
-      name: 'Perfect Score',
-      description: 'Achieved 100% score in any category',
-      icon: 'Star',
-      color: 'bg-gradient-to-br from-rose-500 to-pink-500',
-      earned: false,
-      progress: 0,
-      total: 1,
-      rarity: 'legendary'
+const raritySortOrder = Object.freeze({
+  legendary: 5,
+  epic: 4,
+  rare: 3,
+  uncommon: 2,
+  common: 1,
+});
+
+const toProgressPercent = (badge = {}) => {
+  const total = Number(badge?.total) || 1;
+  const progress = Number(badge?.progress) || 0;
+  return Math.max(0, Math.min(100, Math.round((progress / total) * 100)));
+};
+
+const getRaritySortValue = (rarity) => raritySortOrder[String(rarity || '').toLowerCase()] || 0;
+
+const AchievementBadges = ({
+  badges = [],
+  interviews = [],
+  dashboardMetrics = null,
+  analytics = null,
+  applications = [],
+  onViewAll,
+  onViewLeaderboard,
+}) => {
+  const [showAllAvailable, setShowAllAvailable] = useState(false);
+  const [leaderboardMode, setLeaderboardMode] = useState(false);
+
+  const derivedBadges = useMemo(
+    () => deriveAchievementBadges({ interviews, dashboardMetrics, analytics, applications }),
+    [interviews, dashboardMetrics, analytics, applications],
+  );
+
+  const badgeData = useMemo(() => {
+    const source = Array.isArray(badges) && badges.length > 0 ? badges : derivedBadges;
+    const items = [...source];
+    if (leaderboardMode) {
+      items.sort((left, right) => {
+        const progressDelta = toProgressPercent(right) - toProgressPercent(left);
+        if (progressDelta !== 0) return progressDelta;
+        return String(left?.name || '').localeCompare(String(right?.name || ''));
+      });
+      return items;
     }
-  ];
 
-  const badgeData = badges?.length > 0 ? badges : mockBadges;
-  const earnedBadges = badgeData?.filter(badge => badge?.earned);
-  const availableBadges = badgeData?.filter(badge => !badge?.earned);
+    items.sort((left, right) => {
+      if (Boolean(right?.earned) !== Boolean(left?.earned)) {
+        return Number(Boolean(right?.earned)) - Number(Boolean(left?.earned));
+      }
+      const rarityDelta = getRaritySortValue(right?.rarity) - getRaritySortValue(left?.rarity);
+      if (rarityDelta !== 0) return rarityDelta;
+      return String(left?.name || '').localeCompare(String(right?.name || ''));
+    });
+    return items;
+  }, [badges, derivedBadges, leaderboardMode]);
+
+  const earnedBadges = badgeData.filter((badge) => badge?.earned);
+  const availableBadges = badgeData.filter((badge) => !badge?.earned);
+  const visibleAvailableBadges = showAllAvailable ? availableBadges : availableBadges.slice(0, 6);
+  const overallProgressPercent = badgeData.length
+    ? Math.round((earnedBadges.length / badgeData.length) * 100)
+    : 0;
+
+  const handleLeaderboardClick = () => {
+    if (typeof onViewLeaderboard === 'function') {
+      onViewLeaderboard({ badges: badgeData, leaderboardMode });
+      return;
+    }
+    setLeaderboardMode((prev) => !prev);
+  };
+
+  const handleViewAllClick = () => {
+    if (typeof onViewAll === 'function') {
+      onViewAll({ badges: badgeData, showAllAvailable });
+      return;
+    }
+    setShowAllAvailable((prev) => !prev);
+  };
 
   const getRarityColor = (rarity) => {
     const colorMap = {
@@ -109,9 +118,10 @@ const AchievementBadges = ({ badges = [] }) => {
           size="sm"
           iconName="Trophy"
           iconPosition="left"
+          onClick={handleLeaderboardClick}
           className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400 w-full xs:w-auto"
         >
-          Leaderboard
+          {leaderboardMode ? 'Default Order' : 'Leaderboard'}
         </Button>
       </div>
       {/* Progress Overview */}
@@ -119,13 +129,13 @@ const AchievementBadges = ({ badges = [] }) => {
         <div className="flex items-center justify-between text-xs mb-1.5">
           <span className="text-gray-500 dark:text-slate-400">Overall Progress</span>
           <span className="font-medium text-gray-900 dark:text-slate-100">
-            {Math.round((earnedBadges?.length / badgeData?.length) * 100)}%
+            {overallProgressPercent}%
           </span>
         </div>
         <div className="w-full bg-gray-100 dark:bg-slate-900/70 rounded-full h-2">
           <div
             className="h-2 rounded-full transition-all duration-500 bg-gradient-to-r from-blue-600 to-purple-600"
-            style={{ width: `${(earnedBadges?.length / badgeData?.length) * 100}%` }}
+            style={{ width: `${overallProgressPercent}%` }}
           ></div>
         </div>
       </div>
@@ -167,7 +177,7 @@ const AchievementBadges = ({ badges = [] }) => {
         <div>
           <h3 className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-3">Available Badges</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-            {availableBadges?.slice(0, 6)?.map((badge) => (
+            {visibleAvailableBadges?.map((badge) => (
               <div
                 key={badge?.id}
                 className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-3 text-center opacity-70 hover:opacity-95 transition-all duration-200 cursor-pointer bg-white/70 dark:bg-slate-900/70`}
@@ -212,9 +222,10 @@ const AchievementBadges = ({ badges = [] }) => {
           fullWidth
           iconName="Trophy"
           iconPosition="left"
+          onClick={handleViewAllClick}
           className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
         >
-          View All Achievements
+          {showAllAvailable ? 'Show Fewer Achievements' : 'View All Achievements'}
         </Button>
       </div>
     </div>

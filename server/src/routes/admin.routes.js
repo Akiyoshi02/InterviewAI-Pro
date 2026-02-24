@@ -13,8 +13,9 @@
  */
 
 import express from 'express';
+import { timingSafeEqual } from 'crypto';
 import { param, query } from 'express-validator';
-import { authenticate } from '../middleware/auth.middleware.js';
+import { authenticate, optionalAuth } from '../middleware/auth.middleware.js';
 import { requireSystemAdmin } from '../middleware/admin.middleware.js';
 import { 
   validateRequest, 
@@ -25,8 +26,38 @@ import {
   ALLOWED_VALUES,
 } from '../middleware/inputValidation.middleware.js';
 import { AdminController } from '../controllers/admin.controller.js';
+import { FineTuningController } from '../controllers/fineTuning.controller.js';
 
 const router = express.Router();
+
+const secureCompare = (left, right) => {
+  const leftBuffer = Buffer.from(String(left || ''));
+  const rightBuffer = Buffer.from(String(right || ''));
+  if (leftBuffer.length !== rightBuffer.length) return false;
+  return timingSafeEqual(leftBuffer, rightBuffer);
+};
+
+const requireAdminSetupToken = (req, res, next) => {
+  const expectedToken = process.env.ADMIN_SETUP_TOKEN;
+  if (!expectedToken) {
+    return res.status(503).json({
+      success: false,
+      error: 'Admin bootstrap is not configured on this environment.',
+      code: 'ADMIN_SETUP_DISABLED',
+    });
+  }
+
+  const providedToken = req.headers['x-admin-setup-token'];
+  if (!providedToken || !secureCompare(providedToken, expectedToken)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Invalid setup token.',
+      code: 'INVALID_SETUP_TOKEN',
+    });
+  }
+
+  return next();
+};
 
 // =============================================================================
 // ADMIN BOOTSTRAP ENDPOINTS (Rate limited: 3 per day)
@@ -41,6 +72,8 @@ const router = express.Router();
  */
 router.post(
   '/auth/bootstrap-admin',
+  optionalAuth,
+  requireAdminSetupToken,
   stripUnexpectedFields(validationSchemas.admin.bootstrapAdmin.allowedFields),
   validationSchemas.admin.bootstrapAdmin.validators,
   validateRequest,
@@ -56,6 +89,8 @@ router.post(
  */
 router.post(
   '/auth/seed-admin',
+  optionalAuth,
+  requireAdminSetupToken,
   stripUnexpectedFields(validationSchemas.admin.seedAdmin.allowedFields),
   validationSchemas.admin.seedAdmin.validators,
   validateRequest,
@@ -250,6 +285,52 @@ router.get('/stats', AdminController.getStats);
  */
 router.get('/fairness-calibration', AdminController.getFairnessCalibration);
 
+/**
+ * GET /api/admin/classification-metrics
+ * Get confusion matrix and classification metrics (AI vs SME)
+ */
+router.get('/classification-metrics', AdminController.getClassificationMetrics);
+
+/**
+ * GET /api/admin/mediapipe-calibration
+ * Get MediaPipe threshold calibration data (static vs data-driven)
+ */
+router.get('/mediapipe-calibration', AdminController.getMediaPipeCalibration);
+
+// =============================================================================
+// MODEL FINE-TUNING
+// =============================================================================
+
+/**
+ * POST /api/admin/fine-tune
+ * Trigger model fine-tuning from collected data
+ */
+router.post('/fine-tune', FineTuningController.triggerFineTune);
+
+/**
+ * GET /api/admin/fine-tune/status
+ * Get fine-tuning status and model info
+ */
+router.get('/fine-tune/status', FineTuningController.getStatus);
+
+/**
+ * POST /api/admin/fine-tune/evaluate
+ * Run before/after model evaluation
+ */
+router.post('/fine-tune/evaluate', FineTuningController.evaluate);
+
+/**
+ * GET /api/admin/fine-tune/export
+ * Export training data as JSONL for LoRA fine-tuning with scripts/fine_tune_lora.py
+ */
+router.get('/fine-tune/export', FineTuningController.exportTrainingData);
+
+/**
+ * POST /api/admin/fine-tune/import-gguf
+ * Register a LoRA-trained GGUF file with Ollama as the fine-tuned model
+ */
+router.post('/fine-tune/import-gguf', FineTuningController.importGGUF);
+
 // =============================================================================
 // INTEGRATIONS
 // =============================================================================
@@ -275,10 +356,59 @@ router.get(
       .optional()
       .isIn(['CANDIDATE', 'COMPANY', 'SYSTEM_ADMIN'])
       .withMessage('Invalid account type'),
+    query('status')
+      .optional()
+      .isIn(['ACTIVE', 'SUSPENDED'])
+      .withMessage('Invalid status'),
+    query('q')
+      .optional()
+      .trim()
+      .isLength({ max: 200 })
+      .withMessage('Search query must be 200 characters or fewer'),
     commonValidators.queryParam.limit(100, 500),
+    commonValidators.queryParam.offset(),
   ],
   validateRequest,
   AdminController.listUsers,
+);
+
+router.patch(
+  '/users/:id/status',
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('User ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.admin.updateUserStatus.allowedFields),
+  validationSchemas.admin.updateUserStatus.validators,
+  validateRequest,
+  AdminController.updateUserStatus,
+);
+
+router.post(
+  '/users/:id/promote-system-admin',
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('User ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  AdminController.promoteToSystemAdmin,
+);
+
+router.get('/billing-overview', AdminController.getBillingOverview);
+router.get('/newsletter-stats', AdminController.getNewsletterStats);
+router.get('/data-retention/summary', AdminController.getDataRetentionSummary);
+router.post(
+  '/data-retention/run',
+  stripUnexpectedFields(validationSchemas.admin.runDataRetentionCleanup.allowedFields),
+  validationSchemas.admin.runDataRetentionCleanup.validators,
+  validateRequest,
+  AdminController.runDataRetentionCleanup,
 );
 
 export default router;

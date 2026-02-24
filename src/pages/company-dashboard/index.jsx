@@ -10,6 +10,7 @@ import CandidateTable from './components/CandidateTable';
 import HiringMetrics from './components/HiringMetrics';
 import QuickActions from './components/QuickActions';
 import ReviewerPanel from './components/ReviewerPanel';
+import InterviewReviewEnhanced from './components/InterviewReviewEnhanced';
 import PendingApprovalBanner from './components/PendingApprovalBanner';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
@@ -38,6 +39,10 @@ const CompanyDashboard = () => {
   const [dashboardMetrics, setDashboardMetrics] = useState(null);
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [selectedReviewInterviewId, setSelectedReviewInterviewId] = useState(null);
+  const [actionMessage, setActionMessage] = useState('');
+  const [statusUpdateModal, setStatusUpdateModal] = useState({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+  const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
   const realtimeRefreshTimeoutRef = useRef(null);
   const fetchCompanyDataRef = useRef(null);
 
@@ -240,21 +245,22 @@ const CompanyDashboard = () => {
     };
   }, []);
 
-  if (status === 'loading' || !user) {
+  // Calculate derived data before conditional returns.
+  const safeInterviews = Array.isArray(interviews) ? interviews : [];
+  const safeJobs = Array.isArray(jobs) ? jobs : [];
+  const showInitialLoader = dataLoading && !safeInterviews.length && !metrics;
+
+  if (status === 'loading' || !user || showInitialLoader) {
     return (
       <LoadingState
-        title="Loading your dashboard"
-        message="Gathering hiring metrics, interviews, and pipeline health."
+        title="Checking your session and syncing your company data"
+        message="Verifying secure access and loading interviews, jobs, and hiring metrics."
         variant="fullscreen"
         tone="primary"
       />
     );
   }
 
-  // Calculate derived data - must be before conditional returns (Rules of Hooks)
-  const safeInterviews = Array.isArray(interviews) ? interviews : [];
-  const safeJobs = Array.isArray(jobs) ? jobs : [];
-  
   // Count active (published) job postings
   const activeJobPostings = safeJobs.filter(job => job?.status === 'PUBLISHED').length;
   
@@ -330,60 +336,119 @@ const CompanyDashboard = () => {
     );
   }
 
-  const showInitialLoader = dataLoading && !safeInterviews.length && !metrics;
-
-  const handleViewRecording = (candidateId) => {
-    console.log('Viewing recording for candidate:', candidateId);
-    // Navigate to recording viewer
+  const findInterviewForCandidate = (candidateId) => {
+    const matches = safeInterviews.filter((interview) => (
+      interview?.candidate?.id === candidateId || interview?.candidateId === candidateId
+    ));
+    if (!matches.length) return null;
+    return [...matches].sort((left, right) => {
+      const leftTs = new Date(left?.endedAt || left?.updatedAt || left?.createdAt || 0).getTime();
+      const rightTs = new Date(right?.endedAt || right?.updatedAt || right?.createdAt || 0).getTime();
+      return rightTs - leftTs;
+    })[0];
   };
 
-  const handleViewAnalysis = (candidateId) => {
-    console.log('Viewing analysis for candidate:', candidateId);
-    // Navigate to analysis report
+  const handleViewRecording = async (candidateId) => {
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+
+    try {
+      await apiClient.interviews.getRecordingUrl(interview.id);
+      setSelectedReviewInterviewId(interview.id);
+      setActionMessage('');
+    } catch (error) {
+      setActionMessage(error?.message || 'Recording is not available for this interview.');
+      setSelectedReviewInterviewId(interview.id);
+    }
+  };
+
+  const handleViewAnalysis = async (candidateId) => {
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+
+    try {
+      await apiClient.interviews.getEvaluation(interview.id);
+      setSelectedReviewInterviewId(interview.id);
+      setActionMessage('');
+    } catch (error) {
+      setActionMessage(error?.message || 'Evaluation not available yet.');
+      setSelectedReviewInterviewId(interview.id);
+    }
   };
 
   const handleUpdateStatus = (candidateId) => {
-    console.log('Updating status for candidate:', candidateId);
-    // Open status update modal
+    const interview = findInterviewForCandidate(candidateId);
+    if (!interview?.id) {
+      setActionMessage('No interview found for this candidate.');
+      return;
+    }
+    setStatusUpdateModal({ open: true, interviewId: interview.id, currentStatus: interview.pipelineStatus || interview.status || 'SCREENING' });
   };
 
   const handleScheduleInterview = () => {
-    window.location.href = '/practice-interview-setup';
+    navigate('/practice-interview-setup');
   };
 
   const handleCreateTemplate = () => {
-    window.location.href = '/practice-interview-setup';
+    navigate('/practice-interview-setup');
   };
 
   const handleGenerateReport = () => {
-    console.log('Generating hiring report...');
-    // Generate and download report
+    navigate('/company-analytics');
   };
 
   const handleExportReport = () => {
-    console.log('Exporting metrics report...');
-    // Export metrics data
+    navigate('/company-analytics');
+  };
+
+  const PIPELINE_STAGE_OPTIONS = [
+    { value: 'SCREENING', label: 'Screening' },
+    { value: 'INTERVIEW', label: 'Interview' },
+    { value: 'OFFER', label: 'Offer' },
+    { value: 'HIRED', label: 'Hired' },
+    { value: 'REJECTED', label: 'Rejected' },
+  ];
+
+  const handleStatusUpdateSubmit = async (newStatus) => {
+    if (!statusUpdateModal.interviewId || !newStatus) return;
+    setStatusUpdateLoading(true);
+    try {
+      await apiClient.pipeline.move(statusUpdateModal.interviewId, { pipelineStatus: newStatus });
+      setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+      setActionMessage('');
+      await fetchCompanyData();
+    } catch (err) {
+      setActionMessage(err?.message || 'Failed to update status. Please try again.');
+      setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' });
+    } finally {
+      setStatusUpdateLoading(false);
+    }
   };
 
   const handleActionClick = (action) => {
     switch (action?.id) {
       case 'setup-interview':
-        window.location.href = '/practice-interview-setup';
+        navigate('/practice-interview-setup');
         break;
       case 'review-candidates':
-        // Navigate to candidates page
         navigate('/company-candidates');
         break;
       case 'live-session':
-        window.location.href = '/live-interview-session';
+        navigate('/live-interview-session');
         break;
       default:
-        console.log('Action clicked:', action?.id);
+        break;
     }
   };
 
   return (
-    <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
+    <div className="dashboard-shell">
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-0 overflow-hidden z-0"
@@ -422,21 +487,10 @@ const CompanyDashboard = () => {
               variants={sectionReveal}
               initial="hidden"
               animate="visible"
-              className="container-responsive py-2 xs:py-3 sm:py-4 space-y-2 xs:space-y-3 sm:space-y-4"
+              className="dashboard-layout"
             >
-              {showInitialLoader && (
-                <motion.div variants={fadeUpChild}>
-                  <LoadingState
-                    title="Syncing your company data"
-                    message="Updating pipeline insights and latest interviews."
-                    variant="card"
-                    tone="primary"
-                  />
-                </motion.div>
-              )}
-
               {/* Pending Approval Banner */}
-              {!showInitialLoader && user?.organizationContext?.organization && (
+              {user?.organizationContext?.organization && (
                 <PendingApprovalBanner organization={user.organizationContext.organization} />
               )}
               
@@ -448,7 +502,7 @@ const CompanyDashboard = () => {
                 <div className="absolute inset-0 opacity-80 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
                 <div className="relative z-10 flex flex-col gap-2 sm:gap-3 lg:flex-row lg:items-center lg:justify-between">
                   <div className="space-y-1 sm:space-y-1.5">
-                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-[10px] xs:text-xs font-semibold text-blue-700 dark:text-blue-300">
+                    <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
                       <span>AI-powered hiring control center</span>
                     </div>
@@ -461,7 +515,7 @@ const CompanyDashboard = () => {
                     </p>
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
-                    <p className="text-[10px] xs:text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
+                    <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
                     <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
                       {latestCompanyName}
                     </div>
@@ -476,13 +530,19 @@ const CompanyDashboard = () => {
                       key={item.label}
                       className="rounded-lg border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 px-2 py-1.5 xs:px-2.5 xs:py-2 shadow-sm"
                     >
-                      <p className="text-[10px] xs:text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
+                      <p className="text-xs uppercase tracking-wider sm:tracking-[0.2em] text-gray-500 dark:text-slate-400 truncate">{item.label}</p>
                       <p className="text-base xs:text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">{item.value}</p>
-                      <p className="text-[10px] xs:text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400 truncate">{item.detail}</p>
                     </div>
                   ))}
                 </div>
               </motion.div>
+
+              {actionMessage && (
+                <motion.div variants={fadeUpChild} className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">
+                  {actionMessage}
+                </motion.div>
+              )}
 
               {/* Quick Actions */}
               <motion.div variants={fadeUpChild}>
@@ -553,6 +613,54 @@ const CompanyDashboard = () => {
             </motion.section>
           </main>
         </div>
+
+        {selectedReviewInterviewId && (
+          <InterviewReviewEnhanced
+            interviewId={selectedReviewInterviewId}
+            onClose={() => setSelectedReviewInterviewId(null)}
+          />
+        )}
+
+        {statusUpdateModal.open && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+            <div className="w-full max-w-sm rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Update Pipeline Status</h3>
+                <button
+                  type="button"
+                  onClick={() => setStatusUpdateModal({ open: false, interviewId: null, currentStatus: 'SCREENING' })}
+                  className="text-gray-400 hover:text-gray-600 dark:hover:text-slate-300 rounded-full p-1"
+                >
+                  <Icon name="X" size={16} />
+                </button>
+              </div>
+              <p className="text-sm text-gray-600 dark:text-slate-400">Move this candidate to a new stage in your hiring pipeline.</p>
+              <div className="space-y-2">
+                {PIPELINE_STAGE_OPTIONS.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    disabled={statusUpdateLoading}
+                    onClick={() => handleStatusUpdateSubmit(option.value)}
+                    className={`w-full text-left px-4 py-2.5 rounded-xl border text-sm font-medium transition-colors ${
+                      statusUpdateModal.currentStatus === option.value
+                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300'
+                        : 'border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-300 hover:border-blue-400 dark:hover:border-blue-500'
+                    } disabled:opacity-50`}
+                  >
+                    {option.label}
+                    {statusUpdateModal.currentStatus === option.value && (
+                      <span className="ml-2 text-xs text-blue-500 dark:text-blue-400">(current)</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {statusUpdateLoading && (
+                <p className="text-xs text-center text-gray-500 dark:text-slate-400">Updating...</p>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Floating Action Button - Mobile Only - ADMIN and RECRUITER only */}
         {hasPermission(organizationRole, 'SEND_INVITATIONS') && (

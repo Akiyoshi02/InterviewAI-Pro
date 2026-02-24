@@ -14,6 +14,32 @@ import CompanyAIChatAssistant from '../../pages/company-dashboard/components/AIC
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
 
+const buildCurrentRoute = (pathname = '', hash = '') => `${pathname || ''}${hash || ''}`;
+
+const normalizeRoute = (value = '') => {
+  const raw = typeof value === 'string' ? value : '';
+  const [pathnamePart = '', hashPart = ''] = raw.split('#');
+  const trimmedPathname = pathnamePart.replace(/\/+$/, '');
+  const pathname = trimmedPathname || '/';
+  const hash = hashPart ? `#${hashPart}` : '';
+  return { pathname, hash };
+};
+
+const isRouteMatch = (currentRoute, targetRoute, { exact = false } = {}) => {
+  if (!targetRoute || typeof targetRoute !== 'string') return false;
+
+  const current = normalizeRoute(currentRoute);
+  const target = normalizeRoute(targetRoute);
+
+  if (target.hash) {
+    return current.pathname === target.pathname && current.hash === target.hash;
+  }
+
+  if (exact) return current.pathname === target.pathname;
+  if (target.pathname === '/') return current.pathname === '/';
+  return current.pathname === target.pathname || current.pathname.startsWith(`${target.pathname}/`);
+};
+
 const normalizeUploadsPath = (value) => {
   if (!value || typeof value !== 'string') return '';
   const trimmed = value.trim();
@@ -108,7 +134,7 @@ const UserContextNavigation = ({
   const navigate = useNavigate();
   const location = useLocation();
   const mobileNavRef = useRef(null);
-  const [activeItem, setActiveItem] = useState(location.pathname);
+  const [activeItem, setActiveItem] = useState(buildCurrentRoute(location.pathname, location.hash));
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [profileImageIndex, setProfileImageIndex] = useState(0);
@@ -116,9 +142,9 @@ const UserContextNavigation = ({
   const [mobileGroupMenuKey, setMobileGroupMenuKey] = useState(null);
 
   useEffect(() => {
-    setActiveItem(location.pathname);
+    setActiveItem(buildCurrentRoute(location.pathname, location.hash));
     setMobileGroupMenuKey(null);
-  }, [location.pathname]);
+  }, [location.pathname, location.hash]);
 
   useEffect(() => {
     if (!mobileGroupMenuKey) return undefined;
@@ -211,11 +237,142 @@ const UserContextNavigation = ({
       description: 'Manage team members and invitations',
       requiredPermission: 'MANAGE_MEMBERS'
     },
+    { 
+      key: 'settings',
+      label: 'Settings', 
+      path: '/company-settings', 
+      icon: 'Settings',
+      description: 'Organization and user profile settings'
+    },
+    { 
+      key: 'billing',
+      label: 'Billing', 
+      path: '/company-billing', 
+      icon: 'CreditCard',
+      description: 'Plan, usage, and billing history'
+    },
+  ];
+
+  const adminNavItems = [
+    {
+      key: 'overview',
+      label: 'Overview',
+      path: '/system-admin-dashboard',
+      exact: true,
+      icon: 'LayoutDashboard',
+      description: 'Platform stats and quick actions'
+    },
+    {
+      key: 'organizations',
+      label: 'Organizations',
+      icon: 'Building2',
+      description: 'Approvals and organization controls',
+      items: [
+        {
+          label: 'Pending Approvals',
+          path: '/system-admin-dashboard/approvals',
+          icon: 'CheckCircle',
+          description: 'Review pending organizations'
+        },
+        {
+          label: 'All Organizations',
+          path: '/system-admin-dashboard/organizations',
+          icon: 'Building',
+          description: 'Manage organization lifecycle'
+        },
+      ],
+    },
+    {
+      key: 'users',
+      label: 'Users',
+      path: '/system-admin-dashboard/users',
+      icon: 'Users',
+      description: 'Manage users and admin promotions'
+    },
+    {
+      key: 'operations',
+      label: 'Operations',
+      path: '/system-admin-dashboard/operations',
+      icon: 'Wallet',
+      description: 'Billing, retention, and newsletters'
+    },
+    {
+      key: 'governance',
+      label: 'Governance',
+      icon: 'Scale',
+      description: 'Policy, fairness, and auditing',
+      items: [
+        {
+          label: 'Fairness',
+          path: '/system-admin-dashboard/fairness',
+          icon: 'Scale',
+          description: 'Calibration and fairness checks'
+        },
+        {
+          label: 'System Settings',
+          path: '/system-admin-dashboard/settings',
+          icon: 'Settings',
+          description: 'Maintenance and platform flags'
+        },
+        {
+          label: 'Audit Logs',
+          path: '/system-admin-dashboard/audit',
+          icon: 'FileText',
+          description: 'Trace administrative events'
+        },
+      ],
+    },
+    {
+      key: 'data-research',
+      label: 'Data & AI',
+      icon: 'Database',
+      description: 'Datasets, models, and research tools',
+      items: [
+        {
+          label: 'Training Data',
+          path: '/system-admin-dashboard/training-data',
+          icon: 'Database',
+          description: 'Inspect and export datasets'
+        },
+        {
+          label: 'Classification Metrics',
+          path: '/system-admin-dashboard/classification',
+          icon: 'Grid3X3',
+          description: 'Confusion matrix and precision/recall'
+        },
+        {
+          label: 'Model Fine-Tuning',
+          path: '/system-admin-dashboard/fine-tuning',
+          icon: 'Cpu',
+          description: 'Train LLM from interview data'
+        },
+        {
+          label: 'MediaPipe Calibration',
+          path: '/system-admin-dashboard/mediapipe-calibration',
+          icon: 'ScanFace',
+          description: 'Posture and face threshold calibration'
+        },
+        {
+          label: 'Research Tools',
+          path: '/system-admin-dashboard/research-tools',
+          icon: 'FlaskConical',
+          description: 'Record posture, analyze videos, add datasets'
+        },
+      ],
+    },
+    {
+      key: 'support',
+      label: 'Live Chat',
+      path: '/system-admin-dashboard/live-chat',
+      icon: 'MessageSquare',
+      description: 'Respond to user support chats'
+    },
   ];
 
   // Filter navigation items based on organization role for company users
   const navigationItems = useMemo(() => {
     if (userType === 'candidate') return candidateNavItems;
+    if (userType === 'admin') return adminNavItems;
     if (userType === 'company') {
       const role = user?.organizationContext?.membership?.role;
       return filterNavByRole(companyNavItems, role);
@@ -236,12 +393,12 @@ const UserContextNavigation = ({
   const isNavigationItemActive = (item, currentPath) => {
     if (!item || !currentPath) return false;
     const directPath = resolveItemPath(item);
-    if (directPath && currentPath.startsWith(directPath)) return true;
+    if (directPath && isRouteMatch(currentPath, directPath, { exact: item.exact === true })) return true;
     if (!Array.isArray(item.items)) return false;
 
     return item.items.some((subItem) => {
       const subPath = resolveItemPath(subItem);
-      return !!subPath && currentPath.startsWith(subPath);
+      return !!subPath && isRouteMatch(currentPath, subPath, { exact: subItem.exact === true });
     });
   };
 
@@ -256,6 +413,7 @@ const UserContextNavigation = ({
     if (!path || typeof path !== 'string') return;
     setMobileGroupMenuKey(null);
     setActiveItem(path);
+
     navigate(path);
   };
 
@@ -327,7 +485,7 @@ const UserContextNavigation = ({
     || storedUser?.fullName
     || user?.email?.split('@')?.[0]
     || storedUser?.email?.split('@')?.[0]
-    || (userType === 'candidate' ? 'Candidate' : 'Team');
+    || (userType === 'candidate' ? 'Candidate' : userType === 'admin' ? 'Admin' : 'Team');
 
   const candidateRoleRaw = user?.targetRole
     || storedUser?.targetRole
@@ -338,6 +496,7 @@ const UserContextNavigation = ({
   const companyRole = user?.jobTitle
     || storedUser?.jobTitle
     || 'Hiring Manager';
+  const adminRole = 'System Administrator';
   const mobilePrimaryItems = navigationItems?.slice(0, 4) || [];
 
   return (
@@ -409,7 +568,7 @@ const UserContextNavigation = ({
                     />
                   ) : (
                     <Icon
-                      name={userType === 'company' ? 'Building2' : 'UserRound'}
+                      name={userType === 'company' ? 'Building2' : userType === 'admin' ? 'Shield' : 'UserRound'}
                       size={isCollapsed ? 18 : 22}
                       className="text-blue-600 dark:text-blue-400"
                     />
@@ -422,7 +581,11 @@ const UserContextNavigation = ({
                       {displayName}
                     </div>
                     <div className="text-xs text-gray-500 dark:text-slate-400 truncate">
-                      {userType === 'candidate' ? candidateRole : companyRole}
+                      {userType === 'candidate'
+                        ? candidateRole
+                        : userType === 'admin'
+                          ? adminRole
+                          : companyRole}
                     </div>
                   </div>
                 )}
@@ -463,7 +626,7 @@ const UserContextNavigation = ({
                   >
                     <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2.5 h-2.5 rotate-45 bg-white/96 dark:bg-slate-900/96 border-r border-b border-gray-200/70 dark:border-slate-700/80" />
                     <div className="px-2 py-1.5">
-                      <p className="text-[10px] uppercase tracking-wide text-gray-500 dark:text-slate-400 px-1 pb-1">
+                      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 px-1 pb-1">
                         {item?.label}
                       </p>
                       <div className="space-y-1">
@@ -519,7 +682,7 @@ const UserContextNavigation = ({
                       className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
                     />
                   </div>
-                  <span className="text-[10px] xs:text-[11px] font-medium text-center whitespace-nowrap">
+                  <span className="text-xs font-medium text-center whitespace-nowrap">
                     {item?.label?.split(' ')[0]}
                   </span>
                 </button>
@@ -543,13 +706,13 @@ const UserContextNavigation = ({
                 />
               ) : (
                 <Icon
-                  name={userType === 'company' ? 'Building2' : 'UserRound'}
+                  name={userType === 'company' ? 'Building2' : userType === 'admin' ? 'Shield' : 'UserRound'}
                   size={14}
                   className="text-gray-400 dark:text-slate-500"
                 />
               )}
             </div>
-            <span className="text-[10px] xs:text-xs font-medium">Profile</span>
+            <span className="text-xs font-medium">Profile</span>
           </button>
         </div>
       </nav>
@@ -566,12 +729,12 @@ const UserContextNavigation = ({
           onToggle={handleToggleAIChat}
           {...assistantProps}
         />
-      ) : (
+      ) : userType === 'candidate' ? (
         <CandidateAIChatAssistant
           isOpen={isAIChatOpen}
           onToggle={handleToggleAIChat}
         />
-      )}
+      ) : null}
     </>
   );
 };

@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import Button from '../../../components/ui/Button';
 import Select from '../../../components/ui/Select';
 import Icon from '../../../components/AppIcon';
@@ -115,7 +115,7 @@ const CandidatePipeline = () => {
         );
       }
     } catch (err) {
-      console.error('Failed to move candidate', err);
+      setError(err?.message || 'Failed to move candidate. Please try again.');
     } finally {
       setMoving((prev) => ({ ...prev, [interviewId]: false }));
     }
@@ -193,9 +193,19 @@ const CandidatePipeline = () => {
                   </div>
                 ))}
                 {!candidates.length && (
-                  <p className="text-xs text-gray-500 dark:text-slate-400 text-center py-2">
-                    {loading ? 'Syncing...' : 'Empty'}
-                  </p>
+                  <div className="text-center py-4 space-y-1">
+                    {loading ? (
+                      <div className="flex flex-col gap-2 animate-pulse">
+                        <div className="h-10 rounded-lg bg-gray-100 dark:bg-slate-700/60" />
+                        <div className="h-10 rounded-lg bg-gray-100 dark:bg-slate-700/60" />
+                      </div>
+                    ) : (
+                      <>
+                        <Icon name="Users" size={20} className="mx-auto text-gray-300 dark:text-slate-600" />
+                        <p className="text-xs text-gray-400 dark:text-slate-500">No candidates here yet</p>
+                      </>
+                    )}
+                  </div>
                 )}
               </div>
             </div>

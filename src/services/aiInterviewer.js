@@ -13,20 +13,52 @@
 
 import { callOllama, parseJSONResponse } from './llmClient.js';
 
+const INTERVIEW_SCHEMAS = {
+  introduction: {
+    type: 'object',
+    properties: {
+      message: { type: 'string' },
+      type: { type: 'string' },
+      insights: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['message', 'type', 'insights'],
+  },
+  answerEvaluation: {
+    type: 'object',
+    properties: {
+      score: { type: 'number' },
+      action: { type: 'string' },
+      questionType: { type: 'string' },
+      message: { type: 'string' },
+    },
+    required: ['score', 'action', 'questionType', 'message'],
+  },
+};
+
 /**
  * AI Interviewer Class
  * Manages the entire interview conversation flow
  */
 export class AIInterviewer {
   constructor(config = {}) {
+    const advancedSettings = config?.advancedSettings || {};
+    const interviewTypes = Array.isArray(config.interviewTypes) && config.interviewTypes.length > 0
+      ? config.interviewTypes
+      : ['technical', 'behavioral'];
     this.config = {
       jobRole: config.jobRole || 'Software Engineer',
       company: config.company || 'Tech Company',
       experienceLevel: config.experienceLevel || 'Mid-level',
       industry: config.industry || 'Technology',
-      interviewTypes: config.interviewTypes || ['technical', 'behavioral'],
+      interviewTypes,
       interviewDuration: config.interviewDuration || 30,
       totalQuestions: config.totalQuestions || 10,
+      skillFocus: config.skillFocus || advancedSettings.skillFocus || [],
+      followUpQuestions: config.followUpQuestions ?? advancedSettings.followUpQuestions ?? true,
+      practiceMode: config.practiceMode ?? advancedSettings.practiceMode ?? false,
+      language: config.language || advancedSettings.language || 'en',
+      personality: config.personality || null,
+      interviewerName: config.interviewerName || 'AI Interviewer',
       ...config
     };
     
@@ -46,7 +78,9 @@ export class AIInterviewer {
    * Initialize the interview with a personalized introduction
    */
   async startInterview() {
-    const systemPrompt = `You're an interviewer for ${this.config.jobRole} at ${this.config.company}. Welcome the candidate warmly and ask them to introduce themselves. Keep it brief (2-3 sentences).`;
+    const systemPrompt = `You are ${this.config.interviewerName}, interviewing for ${this.config.jobRole} at ${this.config.company}.
+Interview style: ${this.config.personality || 'professional and encouraging'}.
+Welcome the candidate warmly and ask them to introduce themselves. Keep it brief (2-3 sentences).`;
 
     const userPrompt = `Welcome the candidate and ask for their introduction.`;
 
@@ -92,6 +126,8 @@ export class AIInterviewer {
 
     const systemPrompt = `You're interviewing for ${this.config.jobRole} at ${this.config.company}.
 Candidate introduced themselves. Acknowledge briefly and ask a relevant interview question.
+Interview types to prioritize: ${this.config.interviewTypes.join(', ')}.
+Focus areas: ${this.config.skillFocus.join(', ') || 'general competency'}.
 
 Respond in JSON:
 {
@@ -112,7 +148,8 @@ Acknowledge and ask first question.`;
 
       const response = await callOllama(messages, { 
         temperature: 0.7,
-        max_tokens: 400
+        max_tokens: 400,
+        format: INTERVIEW_SCHEMAS.introduction,
       });
 
       const parsed = parseJSONResponse(response);
@@ -120,6 +157,7 @@ Acknowledge and ask first question.`;
       // Update context memory
       this.contextMemory.candidateBackground = parsed.insights?.join(', ') || '';
       this.contextMemory.strengths = parsed.insights || [];
+      const questionType = parsed?.type || this.config.interviewTypes[0] || 'behavioral';
       
       // Update phase
       this.currentPhase = 'questions';
@@ -130,7 +168,8 @@ Acknowledge and ask first question.`;
         content: parsed.message,
         timestamp: new Date().toISOString(),
         phase: 'questions',
-        questionNumber: 1
+        questionNumber: 1,
+        questionType,
       });
 
       return {
@@ -138,6 +177,7 @@ Acknowledge and ask first question.`;
         phase: 'questions',
         questionNumber: 1,
         totalQuestions: this.config.totalQuestions,
+        questionType,
         nextAction: 'wait_for_answer'
       };
     } catch (error) {
@@ -166,7 +206,13 @@ Acknowledge and ask first question.`;
       .map(msg => `${msg.role === 'interviewer' ? 'You' : 'Candidate'}: ${msg.content}`)
       .join('\n');
 
+    const followUpEnabled = Boolean(this.config.followUpQuestions);
+    const allowedActions = followUpEnabled
+      ? 'next_question|follow_up|correction'
+      : 'next_question|correction';
     const systemPrompt = `You're interviewing for ${this.config.jobRole}. Question ${this.questionsAsked}/${this.config.totalQuestions}.
+Interview types: ${this.config.interviewTypes.join(', ')}.
+Follow-up questions enabled: ${followUpEnabled ? 'yes' : 'no'}.
 
 Recent exchange:
 ${recentContext}
@@ -176,7 +222,8 @@ Evaluate answer (1-10) and respond as interviewer.
 JSON format:
 {
   "score": 7,
-  "action": "next_question|follow_up|correction",
+  "action": "${allowedActions}",
+  "questionType": "behavioral|technical|situational",
   "message": "Your response + next question if action is next_question"
 }
 
@@ -191,17 +238,24 @@ JSON format:
       ];
 
       const response = await callOllama(messages, { 
-        temperature: 0.6,
-        max_tokens: 350
+        temperature: 0.55,
+        max_tokens: 400,
+        format: INTERVIEW_SCHEMAS.answerEvaluation,
       });
 
       const parsed = parseJSONResponse(response);
+
+      let action = parsed.action || 'next_question';
+      if (!followUpEnabled && action === 'follow_up') {
+        action = 'next_question';
+      }
+      const questionType = parsed?.questionType || this.config.interviewTypes[0] || 'behavioral';
 
       // Update score
       this.candidateScore += (parsed.score || 5);
 
       // Determine if moving to next question
-      if (parsed.action === 'next_question') {
+      if (action === 'next_question') {
         this.questionsAsked++;
       }
 
@@ -211,7 +265,8 @@ JSON format:
         timestamp: new Date().toISOString(),
         phase: 'questions',
         questionNumber: this.questionsAsked,
-        actionType: parsed.action,
+        actionType: action,
+        questionType,
         evaluation: { score: parsed.score }
       });
 
@@ -223,7 +278,8 @@ JSON format:
         phase: shouldEndQuestions ? 'candidate_questions' : 'questions',
         questionNumber: this.questionsAsked,
         totalQuestions: this.config.totalQuestions,
-        actionType: parsed.action,
+        actionType: action,
+        questionType,
         evaluation: { score: parsed.score },
         nextAction: shouldEndQuestions ? 'ask_candidate_questions' : 'wait_for_answer'
       };

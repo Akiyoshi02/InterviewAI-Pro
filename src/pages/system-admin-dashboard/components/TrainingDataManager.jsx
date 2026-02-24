@@ -11,16 +11,39 @@
  * For system administrators only.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingIndicator from '../../../components/ui/LoadingIndicator';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import { useToast } from '../../../components/ui/Toast';
 import apiClient from '../../../services/apiClient';
 import { downloadJSONL, downloadJSON } from '../../../services/interviewDatasetService';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
+import {
+  ADMIN_ANALYTICS_DATASET_BOOLEAN_FILTER_OPTIONS,
+  ADMIN_ANALYTICS_DATASET_SORT_OPTIONS,
+  ADMIN_ANALYTICS_FRAME_BAND_OPTIONS,
+  ADMIN_DATE_PRESET_FILTER_OPTIONS,
+  ADMIN_INTERVIEW_DATASET_QUALITY_BAND_OPTIONS,
+  ADMIN_INTERVIEW_DATASET_SORT_OPTIONS,
+  DEFAULT_ADMIN_ANALYTICS_DATASET_FILTERS,
+  DEFAULT_ADMIN_INTERVIEW_DATASET_FILTERS,
+  buildInterviewDatasetFilterOptions,
+  countActiveAnalyticsDatasetFilters,
+  countActiveInterviewDatasetFilters,
+  filterAnalyticsDatasets,
+  filterInterviewDatasets,
+} from '../utils/adminDashboardFilters.js';
 
 /**
  * Statistics Card Component
@@ -59,11 +82,14 @@ const StatCard = ({ icon, title, value, subtitle, color = 'blue' }) => {
  */
 const DatasetCard = ({ dataset, type, onDelete, onExport }) => {
   const [isDeleting, setIsDeleting] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const handleDelete = async () => {
-    if (!window.confirm('Are you sure you want to delete this dataset? This action cannot be undone.')) {
+    if (!confirmDelete) {
+      setConfirmDelete(true);
       return;
     }
+    setConfirmDelete(false);
     setIsDeleting(true);
     await onDelete(dataset.id, type);
     setIsDeleting(false);
@@ -133,28 +159,52 @@ const DatasetCard = ({ dataset, type, onDelete, onExport }) => {
       </div>
 
       {/* Actions */}
-      <div className="flex items-center gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          iconName="Download"
-          iconPosition="left"
-          onClick={() => onExport(dataset, type)}
-          className="flex-1 text-xs"
-        >
-          Export
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          iconName="Trash2"
-          onClick={handleDelete}
-          loading={isDeleting}
-          className="text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
-        >
-          Delete
-        </Button>
-      </div>
+      {confirmDelete ? (
+        <div className="rounded-lg bg-red-50 dark:bg-red-500/10 border border-red-200 dark:border-red-500/30 p-3">
+          <p className="text-xs text-red-700 dark:text-red-300 font-medium mb-2">Delete this dataset? This cannot be undone.</p>
+          <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setConfirmDelete(false)}
+              className="flex-1 text-xs"
+            >
+              Cancel
+            </Button>
+            <Button
+              size="sm"
+              onClick={handleDelete}
+              loading={isDeleting}
+              className="flex-1 text-xs bg-red-600 hover:bg-red-700 text-white border-red-600"
+            >
+              Confirm Delete
+            </Button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="Download"
+            iconPosition="left"
+            onClick={() => onExport(dataset, type)}
+            className="flex-1 text-xs"
+          >
+            Export
+          </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            iconName="Trash2"
+            onClick={handleDelete}
+            loading={isDeleting}
+            className="text-xs text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-500/10"
+          >
+            Delete
+          </Button>
+        </div>
+      )}
     </div>
   );
 };
@@ -170,6 +220,8 @@ const TrainingDataManager = () => {
   const [datasets, setDatasets] = useState({ interview: [], analytics: [] });
   const [activeTab, setActiveTab] = useState('overview');
   const [isExporting, setIsExporting] = useState(false);
+  const [interviewFilters, setInterviewFilters] = useState(DEFAULT_ADMIN_INTERVIEW_DATASET_FILTERS);
+  const [analyticsFilters, setAnalyticsFilters] = useState(DEFAULT_ADMIN_ANALYTICS_DATASET_FILTERS);
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadDataRef = useRef(null);
 
@@ -190,7 +242,6 @@ const TrainingDataManager = () => {
         setDatasets(datasetsResult.datasets);
       }
     } catch (error) {
-      console.error('Failed to load training data:', error);
       showError('Failed to load training data');
     } finally {
       setIsLoading(false);
@@ -229,6 +280,31 @@ const TrainingDataManager = () => {
     loadData();
   }, [loadData]);
 
+  const interviewFilterOptions = useMemo(
+    () => buildInterviewDatasetFilterOptions(datasets.interview || []),
+    [datasets.interview],
+  );
+
+  const filteredInterviewDatasets = useMemo(
+    () => filterInterviewDatasets(datasets.interview || [], interviewFilters),
+    [datasets.interview, interviewFilters],
+  );
+
+  const filteredAnalyticsDatasets = useMemo(
+    () => filterAnalyticsDatasets(datasets.analytics || [], analyticsFilters),
+    [datasets.analytics, analyticsFilters],
+  );
+
+  const interviewActiveFilterCount = useMemo(
+    () => countActiveInterviewDatasetFilters(interviewFilters),
+    [interviewFilters],
+  );
+
+  const analyticsActiveFilterCount = useMemo(
+    () => countActiveAnalyticsDatasetFilters(analyticsFilters),
+    [analyticsFilters],
+  );
+
   // Handle delete
   const handleDelete = async (id, type) => {
     try {
@@ -238,7 +314,6 @@ const TrainingDataManager = () => {
         await loadData();
       }
     } catch (error) {
-      console.error('Failed to delete dataset:', error);
       showError('Failed to delete dataset');
     }
   };
@@ -254,18 +329,27 @@ const TrainingDataManager = () => {
   const handleBulkExport = async (type) => {
     setIsExporting(true);
     try {
-      const result = await apiClient.datasets.export(type, 'jsonl', 0);
+      const minQuality = type === 'interview'
+        ? Math.max(0, Number(interviewFilters.minQuality) || 0)
+        : 0;
+      const result = await apiClient.datasets.export(type, 'jsonl', minQuality);
       if (result.success && result.content) {
         const filename = `${type}_training_data_${new Date().toISOString().split('T')[0]}.jsonl`;
         downloadJSONL(result.content, filename);
         showSuccess(`Exported ${type} data successfully`);
       }
     } catch (error) {
-      console.error('Failed to export datasets:', error);
       showError('Failed to export datasets');
     } finally {
       setIsExporting(false);
     }
+  };
+
+  const handleExportFiltered = (type) => {
+    const filtered = type === 'interview' ? filteredInterviewDatasets : filteredAnalyticsDatasets;
+    const filename = `${type}_filtered_data_${new Date().toISOString().split('T')[0]}.json`;
+    downloadJSON(filtered, filename);
+    showSuccess(`Exported ${filtered.length} filtered ${type} datasets`);
   };
 
   if (isLoading) {
@@ -464,29 +548,138 @@ const TrainingDataManager = () => {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          <UnifiedFilterPanel
+            title="Interview Dataset Filters"
+            description="Search interview sessions and refine by role, experience, industry, quality, and date range."
+            activeCount={interviewActiveFilterCount}
+            onClear={() => setInterviewFilters(DEFAULT_ADMIN_INTERVIEW_DATASET_FILTERS)}
+          >
+            <div className={FILTER_GRID_CLASS}>
+              <UnifiedSearchField
+                label="Search"
+                className="sm:col-span-2 xl:col-span-2"
+                type="text"
+                value={interviewFilters.searchQuery}
+                onChange={(event) => setInterviewFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
+                placeholder="Session id, role, summary, or company"
+              />
+              <UnifiedFilterSelect
+                label="Job Role"
+                value={interviewFilters.jobRoleFilter}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, jobRoleFilter: value }))}
+                options={interviewFilterOptions.roleOptions}
+                placeholder="All job roles"
+              />
+              <UnifiedFilterSelect
+                label="Experience Level"
+                value={interviewFilters.experienceFilter}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, experienceFilter: value }))}
+                options={interviewFilterOptions.experienceOptions}
+                placeholder="All experience levels"
+              />
+              <UnifiedFilterSelect
+                label="Industry"
+                value={interviewFilters.industryFilter}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, industryFilter: value }))}
+                options={interviewFilterOptions.industryOptions}
+                placeholder="All industries"
+              />
+              <UnifiedFilterSelect
+                label="Quality Band"
+                value={interviewFilters.qualityBandFilter}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, qualityBandFilter: value }))}
+                options={ADMIN_INTERVIEW_DATASET_QUALITY_BAND_OPTIONS}
+                placeholder="All quality bands"
+              />
+              <UnifiedFilterSelect
+                label="Created Date"
+                value={interviewFilters.datePreset}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, datePreset: value }))}
+                options={ADMIN_DATE_PRESET_FILTER_OPTIONS}
+                placeholder="All dates"
+              />
+              <UnifiedFilterSelect
+                label="Sort By"
+                value={interviewFilters.sortBy}
+                onChange={(value) => setInterviewFilters((prev) => ({ ...prev, sortBy: value }))}
+                options={ADMIN_INTERVIEW_DATASET_SORT_OPTIONS}
+                placeholder="Sort sessions"
+              />
+              <UnifiedFilterField label="Minimum Quality">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={interviewFilters.minQuality}
+                  onChange={(event) => setInterviewFilters((prev) => ({ ...prev, minQuality: event.target.value }))}
+                  placeholder="0"
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Maximum Quality">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={interviewFilters.maxQuality}
+                  onChange={(event) => setInterviewFilters((prev) => ({ ...prev, maxQuality: event.target.value }))}
+                  placeholder="100"
+                />
+              </UnifiedFilterField>
+            </div>
+            {interviewFilters.datePreset === 'custom' && (
+              <div className={FILTER_DATE_GRID_CLASS}>
+                <UnifiedFilterField label="Created From">
+                  <UnifiedTextInput
+                    type="date"
+                    value={interviewFilters.createdFrom}
+                    onChange={(event) => setInterviewFilters((prev) => ({ ...prev, createdFrom: event.target.value }))}
+                  />
+                </UnifiedFilterField>
+                <UnifiedFilterField label="Created To">
+                  <UnifiedTextInput
+                    type="date"
+                    value={interviewFilters.createdTo}
+                    onChange={(event) => setInterviewFilters((prev) => ({ ...prev, createdTo: event.target.value }))}
+                  />
+                </UnifiedFilterField>
+              </div>
+            )}
+          </UnifiedFilterPanel>
+
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              {datasets.interview.length} interview dataset(s)
+              Showing {filteredInterviewDatasets.length} of {datasets.interview.length} interview dataset(s)
             </p>
-            <Button
-              iconName="Download"
-              iconPosition="left"
-              onClick={() => handleBulkExport('interview')}
-              loading={isExporting}
-              size="sm"
-            >
-              Export All JSONL
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                iconName="Download"
+                iconPosition="left"
+                onClick={() => handleExportFiltered('interview')}
+                size="sm"
+                variant="outline"
+              >
+                Export Filtered JSON
+              </Button>
+              <Button
+                iconName="Download"
+                iconPosition="left"
+                onClick={() => handleBulkExport('interview')}
+                loading={isExporting}
+                size="sm"
+              >
+                Export All JSONL
+              </Button>
+            </div>
           </div>
-          
-          {datasets.interview.length === 0 ? (
+
+          {filteredInterviewDatasets.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-slate-400">
               <Icon name="MessageSquare" size={48} className="mx-auto mb-4 opacity-30" />
-              <p>No interview datasets collected yet</p>
+              <p>No interview datasets match the selected filters</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {datasets.interview.map((dataset) => (
+              {filteredInterviewDatasets.map((dataset) => (
                 <DatasetCard
                   key={dataset.id}
                   dataset={dataset}
@@ -507,29 +700,153 @@ const TrainingDataManager = () => {
           animate={{ opacity: 1, y: 0 }}
           className="space-y-4"
         >
+          <UnifiedFilterPanel
+            title="Analytics Dataset Filters"
+            description="Filter analytics sessions by capture flags, frame ranges, duration windows, and creation date."
+            activeCount={analyticsActiveFilterCount}
+            onClear={() => setAnalyticsFilters(DEFAULT_ADMIN_ANALYTICS_DATASET_FILTERS)}
+          >
+            <div className={FILTER_GRID_CLASS}>
+              <UnifiedSearchField
+                label="Search"
+                className="sm:col-span-2 xl:col-span-2"
+                type="text"
+                value={analyticsFilters.searchQuery}
+                onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
+                placeholder="Session id, config, model, or source"
+              />
+              <UnifiedFilterSelect
+                label="Pose Detection"
+                value={analyticsFilters.poseFilter}
+                onChange={(value) => setAnalyticsFilters((prev) => ({ ...prev, poseFilter: value }))}
+                options={ADMIN_ANALYTICS_DATASET_BOOLEAN_FILTER_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: `Pose: ${option.label}`,
+                }))}
+                placeholder="Any pose state"
+              />
+              <UnifiedFilterSelect
+                label="Face Detection"
+                value={analyticsFilters.faceFilter}
+                onChange={(value) => setAnalyticsFilters((prev) => ({ ...prev, faceFilter: value }))}
+                options={ADMIN_ANALYTICS_DATASET_BOOLEAN_FILTER_OPTIONS.map((option) => ({
+                  value: option.value,
+                  label: `Face: ${option.label}`,
+                }))}
+                placeholder="Any face state"
+              />
+              <UnifiedFilterSelect
+                label="Frame Band"
+                value={analyticsFilters.frameBandFilter}
+                onChange={(value) => setAnalyticsFilters((prev) => ({ ...prev, frameBandFilter: value }))}
+                options={ADMIN_ANALYTICS_FRAME_BAND_OPTIONS}
+                placeholder="All frame bands"
+              />
+              <UnifiedFilterSelect
+                label="Created Date"
+                value={analyticsFilters.datePreset}
+                onChange={(value) => setAnalyticsFilters((prev) => ({ ...prev, datePreset: value }))}
+                options={ADMIN_DATE_PRESET_FILTER_OPTIONS}
+                placeholder="All dates"
+              />
+              <UnifiedFilterSelect
+                label="Sort By"
+                value={analyticsFilters.sortBy}
+                onChange={(value) => setAnalyticsFilters((prev) => ({ ...prev, sortBy: value }))}
+                options={ADMIN_ANALYTICS_DATASET_SORT_OPTIONS}
+                placeholder="Sort analytics"
+              />
+              <UnifiedFilterField label="Minimum Frames">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  value={analyticsFilters.minFrames}
+                  onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, minFrames: event.target.value }))}
+                  placeholder="0"
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Maximum Frames">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  value={analyticsFilters.maxFrames}
+                  onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, maxFrames: event.target.value }))}
+                  placeholder="Any"
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Min Duration (seconds)">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  value={analyticsFilters.minDurationSeconds}
+                  onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, minDurationSeconds: event.target.value }))}
+                  placeholder="0"
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Max Duration (seconds)">
+                <UnifiedTextInput
+                  type="number"
+                  min="0"
+                  value={analyticsFilters.maxDurationSeconds}
+                  onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, maxDurationSeconds: event.target.value }))}
+                  placeholder="Any"
+                />
+              </UnifiedFilterField>
+            </div>
+            {analyticsFilters.datePreset === 'custom' && (
+              <div className={FILTER_DATE_GRID_CLASS}>
+                <UnifiedFilterField label="Created From">
+                  <UnifiedTextInput
+                    type="date"
+                    value={analyticsFilters.createdFrom}
+                    onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, createdFrom: event.target.value }))}
+                  />
+                </UnifiedFilterField>
+                <UnifiedFilterField label="Created To">
+                  <UnifiedTextInput
+                    type="date"
+                    value={analyticsFilters.createdTo}
+                    onChange={(event) => setAnalyticsFilters((prev) => ({ ...prev, createdTo: event.target.value }))}
+                  />
+                </UnifiedFilterField>
+              </div>
+            )}
+          </UnifiedFilterPanel>
+
           <div className="flex items-center justify-between">
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              {datasets.analytics.length} analytics dataset(s)
+              Showing {filteredAnalyticsDatasets.length} of {datasets.analytics.length} analytics dataset(s)
             </p>
-            <Button
-              iconName="Download"
-              iconPosition="left"
-              onClick={() => handleBulkExport('analytics')}
-              loading={isExporting}
-              size="sm"
-            >
-              Export All JSONL
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                iconName="Download"
+                iconPosition="left"
+                onClick={() => handleExportFiltered('analytics')}
+                size="sm"
+                variant="outline"
+              >
+                Export Filtered JSON
+              </Button>
+              <Button
+                iconName="Download"
+                iconPosition="left"
+                onClick={() => handleBulkExport('analytics')}
+                loading={isExporting}
+                size="sm"
+              >
+                Export All JSONL
+              </Button>
+            </div>
           </div>
-          
-          {datasets.analytics.length === 0 ? (
+
+          {filteredAnalyticsDatasets.length === 0 ? (
             <div className="text-center py-12 text-gray-500 dark:text-slate-400">
               <Icon name="Camera" size={48} className="mx-auto mb-4 opacity-30" />
-              <p>No analytics datasets collected yet</p>
+              <p>No analytics datasets match the selected filters</p>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-              {datasets.analytics.map((dataset) => (
+              {filteredAnalyticsDatasets.map((dataset) => (
                 <DatasetCard
                   key={dataset.id}
                   dataset={dataset}

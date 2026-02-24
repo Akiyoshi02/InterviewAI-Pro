@@ -7,6 +7,13 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
+import UnifiedFilterPanel, {
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+} from '../../components/ui/UnifiedFilterPanel';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
@@ -22,6 +29,58 @@ const roleOptions = [
   { value: 'RECRUITER', label: 'Recruiter' },
   { value: 'REVIEWER', label: 'Reviewer' },
 ];
+
+const MEMBER_STATUS_FILTER_OPTIONS = [
+  { value: 'all', label: 'All Membership Statuses' },
+  { value: 'ACTIVE', label: 'Active' },
+  { value: 'INACTIVE', label: 'Inactive' },
+];
+
+const MEMBER_SORT_OPTIONS = [
+  { value: 'nameAsc', label: 'Name (A-Z)' },
+  { value: 'nameDesc', label: 'Name (Z-A)' },
+  { value: 'roleAsc', label: 'Role (A-Z)' },
+  { value: 'recent', label: 'Most Recently Added' },
+];
+
+const INVITATION_SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'emailAsc', label: 'Email (A-Z)' },
+  { value: 'roleAsc', label: 'Role (A-Z)' },
+];
+
+const DEFAULT_TEAM_MEMBER_FILTERS = {
+  searchQuery: '',
+  roleFilter: 'all',
+  statusFilter: 'all',
+  sortBy: 'nameAsc',
+};
+
+const DEFAULT_TEAM_INVITATION_FILTERS = {
+  searchQuery: '',
+  roleFilter: 'all',
+  sortBy: 'newest',
+};
+
+const normalizeFilterString = (value) => (value || '').toString().trim().toLowerCase();
+
+const countActiveMemberFilters = (filters = {}) => {
+  let count = 0;
+  if (normalizeFilterString(filters.searchQuery)) count += 1;
+  if ((filters.roleFilter || 'all') !== 'all') count += 1;
+  if ((filters.statusFilter || 'all') !== 'all') count += 1;
+  if ((filters.sortBy || 'nameAsc') !== 'nameAsc') count += 1;
+  return count;
+};
+
+const countActiveInvitationFilters = (filters = {}) => {
+  let count = 0;
+  if (normalizeFilterString(filters.searchQuery)) count += 1;
+  if ((filters.roleFilter || 'all') !== 'all') count += 1;
+  if ((filters.sortBy || 'newest') !== 'newest') count += 1;
+  return count;
+};
 
 const CompanyTeamMembersPage = () => {
   const navigate = useNavigate();
@@ -39,7 +98,12 @@ const CompanyTeamMembersPage = () => {
   const [inviteRole, setInviteRole] = useState('REVIEWER');
   const [inviting, setInviting] = useState(false);
   const [statusMessage, setStatusMessage] = useState('');
-  const [memberSearch, setMemberSearch] = useState('');
+  const [removeMemberConfirm, setRemoveMemberConfirm] = useState(null);
+  const [updatingRoleId, setUpdatingRoleId] = useState(null);
+  const [memberFilters, setMemberFilters] = useState(DEFAULT_TEAM_MEMBER_FILTERS);
+  const [invitationFilters, setInvitationFilters] = useState(DEFAULT_TEAM_INVITATION_FILTERS);
+  const [showAdvancedMemberFilters, setShowAdvancedMemberFilters] = useState(false);
+  const [showAdvancedInvitationFilters, setShowAdvancedInvitationFilters] = useState(false);
   const [teamInvitations, setTeamInvitations] = useState([]);
   const [loadingInvitations, setLoadingInvitations] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -55,8 +119,8 @@ const CompanyTeamMembersPage = () => {
       if (result.success) {
         setMembers(result.members || []);
       }
-    } catch (err) {
-      console.error('Failed to load members', err);
+    } catch {
+      // Silent failure — table stays empty; user can refresh
     } finally {
       setLoadingMembers(false);
     }
@@ -70,8 +134,8 @@ const CompanyTeamMembersPage = () => {
       if (result.success) {
         setTeamInvitations(result.invitations || []);
       }
-    } catch (err) {
-      console.error('Failed to load invitations', err);
+    } catch {
+      // Silent failure — table stays empty; user can refresh
     } finally {
       setLoadingInvitations(false);
     }
@@ -148,9 +212,14 @@ const CompanyTeamMembersPage = () => {
     }
   };
 
-  const handleRemoveMember = async (userId) => {
-    if (!organization?.id) return;
-    if (!window.confirm('Are you sure you want to remove this member?')) return;
+  const handleRemoveMember = (userId) => {
+    setRemoveMemberConfirm(userId);
+  };
+
+  const confirmRemoveMember = async () => {
+    const userId = removeMemberConfirm;
+    setRemoveMemberConfirm(null);
+    if (!organization?.id || !userId) return;
     try {
       const result = await apiClient.organizations.removeMember(userId);
       if (result.success) {
@@ -165,6 +234,7 @@ const CompanyTeamMembersPage = () => {
 
   const handleUpdateMemberRole = async (userId, newRole) => {
     if (!organization?.id) return;
+    setUpdatingRoleId(userId);
     try {
       const result = await apiClient.organizations.updateMemberRole(userId, newRole);
       if (result.success) {
@@ -176,22 +246,106 @@ const CompanyTeamMembersPage = () => {
     } catch (err) {
       const errorMsg = err?.message || (typeof err === 'string' ? err : 'Failed to update role.');
       setStatusMessage(errorMsg);
+    } finally {
+      setUpdatingRoleId(null);
     }
   };
 
+  const updateMemberFilter = (key, value) => {
+    setMemberFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const updateInvitationFilter = (key, value) => {
+    setInvitationFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearMemberFilters = () => {
+    setMemberFilters(DEFAULT_TEAM_MEMBER_FILTERS);
+    setShowAdvancedMemberFilters(false);
+  };
+
+  const clearInvitationFilters = () => {
+    setInvitationFilters(DEFAULT_TEAM_INVITATION_FILTERS);
+    setShowAdvancedInvitationFilters(false);
+  };
+
+  const activeMemberFilterCount = countActiveMemberFilters(memberFilters);
+  const activeInvitationFilterCount = countActiveInvitationFilters(invitationFilters);
+
   const filteredMembers = useMemo(() => {
-    const search = memberSearch.toLowerCase();
-    return members.filter(
-      (m) =>
-        m.user?.fullName?.toLowerCase().includes(search) ||
-        m.user?.email?.toLowerCase().includes(search),
-    );
-  }, [members, memberSearch]);
+    const search = normalizeFilterString(memberFilters.searchQuery);
+    const tokens = search.split(' ').filter(Boolean);
+
+    return members
+      .filter((member) => {
+        const role = (member?.role || '').toString().toUpperCase();
+        const membershipStatus = (member?.status || 'ACTIVE').toString().toUpperCase();
+        const searchableText = [
+          member?.user?.fullName || '',
+          member?.user?.email || '',
+          role,
+          membershipStatus,
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        if (memberFilters.roleFilter !== 'all' && role !== memberFilters.roleFilter) return false;
+        if (memberFilters.statusFilter !== 'all' && membershipStatus !== memberFilters.statusFilter) return false;
+        if (tokens.length && !tokens.every((token) => searchableText.includes(token))) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftName = (left?.user?.fullName || left?.user?.email || '').toLowerCase();
+        const rightName = (right?.user?.fullName || right?.user?.email || '').toLowerCase();
+        if (memberFilters.sortBy === 'nameDesc') return rightName.localeCompare(leftName);
+        if (memberFilters.sortBy === 'roleAsc') return (left?.role || '').localeCompare(right?.role || '');
+        if (memberFilters.sortBy === 'recent') {
+          const leftCreated = new Date(left?.createdAt || 0).getTime() || 0;
+          const rightCreated = new Date(right?.createdAt || 0).getTime() || 0;
+          return rightCreated - leftCreated;
+        }
+        return leftName.localeCompare(rightName);
+      });
+  }, [memberFilters, members]);
 
   // Filter to only show truly pending invitations (not accepted or rejected)
   const pendingInvitations = useMemo(() => {
     return teamInvitations.filter((inv) => inv.status === 'PENDING');
   }, [teamInvitations]);
+
+  const filteredPendingInvitations = useMemo(() => {
+    const search = normalizeFilterString(invitationFilters.searchQuery);
+    const tokens = search.split(' ').filter(Boolean);
+    return pendingInvitations
+      .filter((invitation) => {
+        const role = (invitation?.role || '').toString().toUpperCase();
+        const searchableText = [
+          invitation?.email || '',
+          role,
+          invitation?.status || '',
+        ]
+          .join(' ')
+          .toLowerCase();
+
+        if (invitationFilters.roleFilter !== 'all' && role !== invitationFilters.roleFilter) return false;
+        if (tokens.length && !tokens.every((token) => searchableText.includes(token))) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const leftInvited = new Date(left?.invitedAt || left?.createdAt || 0).getTime() || 0;
+        const rightInvited = new Date(right?.invitedAt || right?.createdAt || 0).getTime() || 0;
+        if (invitationFilters.sortBy === 'oldest') return leftInvited - rightInvited;
+        if (invitationFilters.sortBy === 'emailAsc') return (left?.email || '').localeCompare(right?.email || '');
+        if (invitationFilters.sortBy === 'roleAsc') return (left?.role || '').localeCompare(right?.role || '');
+        return rightInvited - leftInvited;
+      });
+  }, [invitationFilters, pendingInvitations]);
 
   const handleRevokeInvitation = async (id) => {
     try {
@@ -360,7 +514,7 @@ const CompanyTeamMembersPage = () => {
                           Pending Invitations
                         </h3>
                         <p className="text-xs text-gray-500 dark:text-slate-400">
-                          {pendingInvitations.length} pending invitation{pendingInvitations.length !== 1 ? 's' : ''}
+                          Showing {filteredPendingInvitations.length} of {pendingInvitations.length} pending invitation{pendingInvitations.length !== 1 ? 's' : ''}
                         </p>
                       </div>
                       <Button
@@ -372,17 +526,64 @@ const CompanyTeamMembersPage = () => {
                         className="h-8 w-8 rounded-full text-gray-400 hover:text-blue-500 dark:hover:text-blue-400"
                       />
                     </div>
+
+                    <UnifiedFilterPanel
+                      className="mb-4"
+                      title="Invitation Filters"
+                      description="Filter pending invitations by email, role, and ordering."
+                      activeCount={activeInvitationFilterCount}
+                      onClear={clearInvitationFilters}
+                      headerActions={(
+                        <UnifiedFilterToggleButton
+                          active={showAdvancedInvitationFilters}
+                          onClick={() => setShowAdvancedInvitationFilters((previous) => !previous)}
+                          label="Advanced Filters"
+                        />
+                      )}
+                    >
+                      <div className={FILTER_GRID_CLASS}>
+                        <UnifiedSearchField
+                          label="Search"
+                          className="sm:col-span-2 xl:col-span-2"
+                          type="text"
+                          value={invitationFilters.searchQuery}
+                          onChange={(event) => updateInvitationFilter('searchQuery', event.target.value)}
+                          placeholder="Email or role"
+                        />
+                        <UnifiedFilterSelect
+                          label="Role"
+                          value={invitationFilters.roleFilter}
+                          onChange={(value) => updateInvitationFilter('roleFilter', value)}
+                          options={[{ value: 'all', label: 'All Roles' }, ...roleOptions]}
+                        />
+                      </div>
+                      {showAdvancedInvitationFilters && (
+                        <div className={FILTER_SUBPANEL_CLASS}>
+                          <div className={FILTER_GRID_CLASS}>
+                            <UnifiedFilterSelect
+                              label="Sort By"
+                              value={invitationFilters.sortBy}
+                              onChange={(value) => updateInvitationFilter('sortBy', value)}
+                              options={INVITATION_SORT_OPTIONS}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </UnifiedFilterPanel>
+
                     {loadingInvitations && (
                       <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-4">Loading invitations...</p>
                     )}
-                    {!loadingInvitations && pendingInvitations.length === 0 && (
+                    {!loadingInvitations && filteredPendingInvitations.length === 0 && (
                       <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-4">
-                        No pending invitations.
+                        {activeInvitationFilterCount > 0
+                          ? 'No pending invitations match the selected filters.'
+                          : 'No pending invitations.'}
                       </p>
                     )}
-                    {!loadingInvitations && pendingInvitations.length > 0 && (
+                    {!loadingInvitations && filteredPendingInvitations.length > 0 && (
                       <div className="space-y-2 max-h-64 overflow-y-auto">
-                        {pendingInvitations.map((inv) => (
+                        {filteredPendingInvitations.map((inv) => (
                           <div
                             key={inv.id}
                             className="flex items-center justify-between p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50"
@@ -427,20 +628,60 @@ const CompanyTeamMembersPage = () => {
                       Team Members
                     </h2>
                     <p className="text-sm text-gray-500 dark:text-slate-400">
-                      {members.length} member{members.length !== 1 ? 's' : ''} in your organization
+                      Showing {filteredMembers.length} of {members.length} member{members.length !== 1 ? 's' : ''} in your organization
                     </p>
                   </div>
                 </div>
 
-                {/* Member Search */}
-                <div className="mb-4">
-                  <Input
-                    placeholder="Search members..."
-                    value={memberSearch}
-                    onChange={(e) => setMemberSearch(e.target.value)}
-                    iconName="Search"
-                  />
-                </div>
+                <UnifiedFilterPanel
+                  className="mb-4"
+                  title="Member Filters"
+                  description="Filter team members by name, role, membership status, and sorting."
+                  activeCount={activeMemberFilterCount}
+                  onClear={clearMemberFilters}
+                  headerActions={(
+                    <UnifiedFilterToggleButton
+                      active={showAdvancedMemberFilters}
+                      onClick={() => setShowAdvancedMemberFilters((previous) => !previous)}
+                      label="Advanced Filters"
+                    />
+                  )}
+                >
+                  <div className={FILTER_GRID_CLASS}>
+                    <UnifiedSearchField
+                      label="Search"
+                      className="sm:col-span-2 xl:col-span-2"
+                      type="text"
+                      value={memberFilters.searchQuery}
+                      onChange={(event) => updateMemberFilter('searchQuery', event.target.value)}
+                      placeholder="Name, email, role, or status"
+                    />
+                    <UnifiedFilterSelect
+                      label="Role"
+                      value={memberFilters.roleFilter}
+                      onChange={(value) => updateMemberFilter('roleFilter', value)}
+                      options={[{ value: 'all', label: 'All Roles' }, ...roleOptions]}
+                    />
+                  </div>
+                  {showAdvancedMemberFilters && (
+                    <div className={FILTER_SUBPANEL_CLASS}>
+                      <div className={FILTER_GRID_CLASS}>
+                        <UnifiedFilterSelect
+                          label="Membership Status"
+                          value={memberFilters.statusFilter}
+                          onChange={(value) => updateMemberFilter('statusFilter', value)}
+                          options={MEMBER_STATUS_FILTER_OPTIONS}
+                        />
+                        <UnifiedFilterSelect
+                          label="Sort By"
+                          value={memberFilters.sortBy}
+                          onChange={(value) => updateMemberFilter('sortBy', value)}
+                          options={MEMBER_SORT_OPTIONS}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </UnifiedFilterPanel>
 
                 {/* Members List */}
                 <div className="space-y-3">
@@ -449,7 +690,7 @@ const CompanyTeamMembersPage = () => {
                   )}
                   {!loadingMembers && filteredMembers.length === 0 && (
                     <p className="text-sm text-gray-500 dark:text-slate-400 text-center py-8">
-                      {memberSearch ? 'No members found matching your search.' : 'No members found.'}
+                      {activeMemberFilterCount > 0 ? 'No members match the selected filters.' : 'No members found.'}
                     </p>
                   )}
                   {filteredMembers.map((member) => (
@@ -509,6 +750,7 @@ const CompanyTeamMembersPage = () => {
                               options={roleOptions}
                               value={member.role}
                               onChange={(value) => handleUpdateMemberRole(member.userId, value)}
+                              loading={updatingRoleId === member.userId}
                               className="w-32"
                             />
                             <Button
@@ -534,6 +776,30 @@ const CompanyTeamMembersPage = () => {
           </main>
         </div>
       </div>
+
+      {removeMemberConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40 backdrop-blur-sm">
+          <div className="w-full max-w-sm rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-4">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center flex-shrink-0">
+                <Icon name="UserMinus" size={18} className="text-red-600 dark:text-red-400" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-slate-100">Remove member?</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">This will revoke their access to the organization.</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <Button variant="outline" className="flex-1" onClick={() => setRemoveMemberConfirm(null)}>
+                Cancel
+              </Button>
+              <Button className="flex-1 bg-red-600 hover:bg-red-700 text-white border-none" onClick={confirmRemoveMember}>
+                Remove
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

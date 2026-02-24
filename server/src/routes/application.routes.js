@@ -12,6 +12,7 @@ import {
   requireOrgRole,
 } from '../middleware/auth.middleware.js';
 import { requireApprovedOrganization } from '../middleware/admin.middleware.js';
+import { requireFeatureFlag } from '../middleware/featureFlags.middleware.js';
 import { validateRequest } from '../middleware/validation.middleware.js';
 
 const router = express.Router();
@@ -20,6 +21,7 @@ const router = express.Router();
 router.post(
   '/jobs/:jobId/apply',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireCandidate,
   [
     param('jobId').isString().notEmpty(),
@@ -40,6 +42,7 @@ router.post(
 router.get(
   '/candidates/applications',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireCandidate,
   [
     query('status').optional().isIn(APPLICATION_STATUSES).withMessage('Invalid status filter'),
@@ -54,6 +57,7 @@ router.get(
 router.get(
   '/applications/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   [param('id').isString().notEmpty()],
   validateRequest,
   ApplicationController.getApplication,
@@ -63,6 +67,7 @@ router.get(
 router.delete(
   '/applications/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireCandidate,
   [param('id').isString().notEmpty()],
   validateRequest,
@@ -73,6 +78,7 @@ router.delete(
 router.get(
   '/jobs/:jobId/applications',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [
@@ -89,6 +95,7 @@ router.get(
 router.get(
   '/organizations/applications',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [
@@ -104,6 +111,7 @@ router.get(
 router.patch(
   '/applications/bulk/status',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [
@@ -132,6 +140,7 @@ router.patch(
 router.patch(
   '/applications/:id',
   authenticate,
+  requireFeatureFlag('enableJobPosting'),
   requireApprovedOrganization,
   requireOrgRole(['ADMIN', 'RECRUITER']),
   [

@@ -1,21 +1,40 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { motion } from 'framer-motion';
 import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import ConfirmDialog from '../../../components/ui/ConfirmDialog';
 import LoadingState from '../../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  UnifiedFilterField,
+  UnifiedFilterSelect,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../../components/ui/UnifiedFilterPanel';
 import { useToast } from '../../../components/ui/Toast.jsx';
 import apiClient from '../../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../../hooks/useRealtimePathFeed';
 import { ADMIN_FEED_EVENTS } from '../../../constants/realtimeFeedEvents.js';
+import {
+  ADMIN_DATE_PRESET_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_OWNER_DOMAIN_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_REREVIEW_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_SORT_FILTER_OPTIONS,
+  ADMIN_ORGANIZATION_STATUS_FILTER_OPTIONS,
+  DEFAULT_ADMIN_ORGANIZATION_FILTERS,
+  buildAdminOrganizationFilterOptions,
+  countActiveAdminOrganizationFilters,
+  filterAdminOrganizations,
+} from '../utils/adminDashboardFilters.js';
 
 const MIN_SUSPENSION_REASON_LENGTH = 10;
 
 const AllOrganizationsList = () => {
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [statusFilter, setStatusFilter] = useState(null);
+  const [filters, setFilters] = useState(DEFAULT_ADMIN_ORGANIZATION_FILTERS);
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [suspendDialog, setSuspendDialog] = useState({ open: false, org: null });
@@ -25,24 +44,24 @@ const AllOrganizationsList = () => {
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadOrganizationsRef = useRef(null);
 
-  useEffect(() => {
-    loadOrganizations();
-  }, [statusFilter]);
-
-  const loadOrganizations = async () => {
+  const loadOrganizations = useCallback(async () => {
     try {
       setLoading(true);
-      const result = await apiClient.admin.listOrganizations(statusFilter, 100);
+      const statusForQuery = filters.statusFilter !== 'all' ? filters.statusFilter : null;
+      const result = await apiClient.admin.listOrganizations(statusForQuery, 100);
       if (result.success) {
         setOrganizations(result.organizations || []);
       }
     } catch (error) {
-      console.error('Failed to load organizations:', error);
       showErrorToast('Failed to load organizations.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters.statusFilter, showErrorToast]);
+
+  useEffect(() => {
+    loadOrganizations();
+  }, [loadOrganizations]);
 
   useEffect(() => {
     loadOrganizationsRef.current = loadOrganizations;
@@ -101,7 +120,6 @@ const AllOrganizationsList = () => {
         setSelectedOrg({ ...org, ...result.organization, stats: result.stats });
       }
     } catch (error) {
-      console.error('Failed to load organization details:', error);
       showErrorToast('Failed to load organization details.');
     }
   };
@@ -118,7 +136,7 @@ const AllOrganizationsList = () => {
           : org
       ));
 
-      if (statusFilter && statusFilter !== normalizedStatus) {
+      if (filters.statusFilter !== 'all' && filters.statusFilter !== normalizedStatus) {
         return next.filter((org) => org.id !== updatedOrganization.id);
       }
 
@@ -173,7 +191,6 @@ const AllOrganizationsList = () => {
       setSuspensionReason('');
       showSuccessToast('Organization suspended successfully.');
     } catch (error) {
-      console.error('Failed to suspend organization:', error);
       showErrorToast(error?.message || 'Failed to suspend organization.');
     } finally {
       setActionLoading(null);
@@ -195,7 +212,6 @@ const AllOrganizationsList = () => {
       setActivateDialog({ open: false, org: null });
       showSuccessToast('Organization reactivated successfully.');
     } catch (error) {
-      console.error('Failed to reactivate organization:', error);
       showErrorToast(error?.message || 'Failed to reactivate organization.');
     } finally {
       setActionLoading(null);
@@ -229,6 +245,25 @@ const AllOrganizationsList = () => {
     };
   }, [selectedOrg, suspendDialog.open]);
 
+  const filterOptions = useMemo(
+    () => buildAdminOrganizationFilterOptions(organizations),
+    [organizations],
+  );
+
+  const filteredOrganizations = useMemo(
+    () => filterAdminOrganizations(organizations, filters),
+    [organizations, filters],
+  );
+
+  const activeFilterCount = useMemo(
+    () => countActiveAdminOrganizationFilters(filters),
+    [filters],
+  );
+
+  const clearFilters = () => {
+    setFilters(DEFAULT_ADMIN_ORGANIZATION_FILTERS);
+  };
+
   if (loading && organizations.length === 0) {
     return (
       <LoadingState
@@ -249,7 +284,7 @@ const AllOrganizationsList = () => {
               All Organizations
             </h2>
             <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
-              {organizations.length} organization{organizations.length !== 1 ? 's' : ''} total
+              Showing {filteredOrganizations.length} of {organizations.length} organization{organizations.length !== 1 ? 's' : ''}
             </p>
           </div>
           <Button
@@ -263,55 +298,102 @@ const AllOrganizationsList = () => {
           </Button>
         </div>
 
-        {/* Status Filter */}
-        <div className="flex items-center gap-2 mb-6 flex-wrap">
-          <Button
-            variant={statusFilter === null ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatusFilter(null)}
-          >
-            All
-          </Button>
-          <Button
-            variant={statusFilter === 'PENDING' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatusFilter('PENDING')}
-          >
-            Pending
-          </Button>
-          <Button
-            variant={statusFilter === 'APPROVED' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatusFilter('APPROVED')}
-          >
-            Approved
-          </Button>
-          <Button
-            variant={statusFilter === 'REJECTED' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatusFilter('REJECTED')}
-          >
-            Rejected
-          </Button>
-          <Button
-            variant={statusFilter === 'SUSPENDED' ? 'default' : 'outline'}
-            size="sm"
-            onClick={() => setStatusFilter('SUSPENDED')}
-          >
-            Suspended
-          </Button>
-        </div>
+        <UnifiedFilterPanel
+          className="mb-6"
+          title="Organization Filters"
+          description="Filter organizations by status, profile attributes, re-review flags, and registration date."
+          activeCount={activeFilterCount}
+          onClear={clearFilters}
+        >
+          <div className={FILTER_GRID_CLASS}>
+            <UnifiedSearchField
+              label="Search"
+              className="sm:col-span-2 xl:col-span-2"
+              type="text"
+              value={filters.searchQuery}
+              onChange={(event) => setFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
+              placeholder="Organization, owner, domain, or review note"
+            />
+            <UnifiedFilterSelect
+              label="Status"
+              value={filters.statusFilter}
+              onChange={(value) => setFilters((prev) => ({ ...prev, statusFilter: value }))}
+              options={ADMIN_ORGANIZATION_STATUS_FILTER_OPTIONS}
+              placeholder="All statuses"
+            />
+            <UnifiedFilterSelect
+              label="Industry"
+              value={filters.industryFilter}
+              onChange={(value) => setFilters((prev) => ({ ...prev, industryFilter: value }))}
+              options={filterOptions.industryOptions}
+              placeholder="All industries"
+            />
+            <UnifiedFilterSelect
+              label="Company Size"
+              value={filters.companySizeFilter}
+              onChange={(value) => setFilters((prev) => ({ ...prev, companySizeFilter: value }))}
+              options={filterOptions.companySizeOptions}
+              placeholder="All company sizes"
+            />
+            <UnifiedFilterSelect
+              label="Owner Email Domain"
+              value={filters.ownerDomainFilter}
+              onChange={(value) => setFilters((prev) => ({ ...prev, ownerDomainFilter: value }))}
+              options={ADMIN_ORGANIZATION_OWNER_DOMAIN_FILTER_OPTIONS}
+              placeholder="Any domain"
+            />
+            <UnifiedFilterSelect
+              label="Re-review"
+              value={filters.reReviewFilter}
+              onChange={(value) => setFilters((prev) => ({ ...prev, reReviewFilter: value }))}
+              options={ADMIN_ORGANIZATION_REREVIEW_FILTER_OPTIONS}
+              placeholder="Any re-review state"
+            />
+            <UnifiedFilterSelect
+              label="Registration Date"
+              value={filters.registrationDatePreset}
+              onChange={(value) => setFilters((prev) => ({ ...prev, registrationDatePreset: value }))}
+              options={ADMIN_DATE_PRESET_FILTER_OPTIONS}
+              placeholder="All dates"
+            />
+            <UnifiedFilterSelect
+              label="Sort By"
+              value={filters.sortBy}
+              onChange={(value) => setFilters((prev) => ({ ...prev, sortBy: value }))}
+              options={ADMIN_ORGANIZATION_SORT_FILTER_OPTIONS}
+              placeholder="Sort organizations"
+            />
+          </div>
+          {filters.registrationDatePreset === 'custom' && (
+            <div className={FILTER_DATE_GRID_CLASS}>
+              <UnifiedFilterField label="Registration From">
+                <UnifiedTextInput
+                  type="date"
+                  value={filters.registrationFrom}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, registrationFrom: event.target.value }))}
+                />
+              </UnifiedFilterField>
+              <UnifiedFilterField label="Registration To">
+                <UnifiedTextInput
+                  type="date"
+                  value={filters.registrationTo}
+                  onChange={(event) => setFilters((prev) => ({ ...prev, registrationTo: event.target.value }))}
+                />
+              </UnifiedFilterField>
+            </div>
+          )}
+        </UnifiedFilterPanel>
 
-        {organizations.length === 0 ? (
+        {filteredOrganizations.length === 0 ? (
           <div className="text-center py-12">
             <Icon name="Building" className="w-12 h-12 text-gray-400 mx-auto mb-3" />
             <p className="text-gray-600 dark:text-slate-400">
-              {statusFilter ? `No ${statusFilter.toLowerCase()} organizations found.` : 'No organizations found.'}
+              No organizations match the selected filters.
             </p>
           </div>
         ) : (
           <div className="space-y-4">
-            {organizations.map((org) => (
+            {filteredOrganizations.map((org) => (
               <motion.div
                 key={org.id}
                 initial={{ opacity: 0, y: 20 }}
@@ -535,7 +617,7 @@ const AllOrganizationsList = () => {
                   <div className="space-y-2">
                     {selectedOrg.suspensionReason && (
                       <div className="rounded-lg border border-orange-200 dark:border-orange-900/40 bg-orange-50/70 dark:bg-orange-900/20 p-3">
-                        <p className="text-[11px] font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-orange-700 dark:text-orange-300">
                           Suspension reason
                         </p>
                         <p className="mt-1 text-sm text-orange-800 dark:text-orange-200 break-words">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useNavigate } from 'react-router-dom';
@@ -10,6 +10,15 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import LoadingIndicator from '../../components/ui/LoadingIndicator';
 import LoadingState from '../../components/ui/LoadingState';
+import UnifiedFilterPanel, {
+  FILTER_DATE_GRID_CLASS,
+  FILTER_GRID_CLASS,
+  FILTER_SUBPANEL_CLASS,
+  UnifiedFilterSelect,
+  UnifiedFilterToggleButton,
+  UnifiedSearchField,
+  UnifiedTextInput,
+} from '../../components/ui/UnifiedFilterPanel';
 import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
@@ -36,6 +45,115 @@ const PRESET_JOB_SKILLS = [
   'Testing/QA',
   'Other',
 ];
+
+const COMPANY_JOB_DATE_PRESET_OPTIONS = [
+  { value: 'all', label: 'All Dates' },
+  { value: 'last7', label: 'Last 7 Days' },
+  { value: 'last30', label: 'Last 30 Days' },
+  { value: 'last90', label: 'Last 90 Days' },
+  { value: 'custom', label: 'Custom Range' },
+];
+
+const COMPANY_JOB_LOCATION_MODE_OPTIONS = [
+  { value: 'all', label: 'All Location Modes' },
+  { value: 'remote', label: 'Remote' },
+  { value: 'hybrid', label: 'Hybrid' },
+  { value: 'onsite', label: 'On-site' },
+];
+
+const COMPANY_JOB_APPLICATION_STATE_OPTIONS = [
+  { value: 'all', label: 'All Application Volumes' },
+  { value: 'with-applications', label: 'With Applications' },
+  { value: 'without-applications', label: 'Without Applications' },
+];
+
+const COMPANY_JOB_PUBLISH_STATE_OPTIONS = [
+  { value: 'all', label: 'All Publish States' },
+  { value: 'scheduled', label: 'Scheduled Publish' },
+  { value: 'live', label: 'Published (Live)' },
+  { value: 'draft', label: 'Draft' },
+  { value: 'archived', label: 'Archived' },
+];
+
+const COMPANY_JOB_SORT_OPTIONS = [
+  { value: 'newest', label: 'Newest First' },
+  { value: 'oldest', label: 'Oldest First' },
+  { value: 'applicationsDesc', label: 'Most Applications' },
+  { value: 'titleAsc', label: 'Role Name (A-Z)' },
+  { value: 'status', label: 'Status (A-Z)' },
+];
+
+const DEFAULT_COMPANY_JOB_FILTERS = {
+  searchQuery: '',
+  status: 'all',
+  employmentType: 'all',
+  experienceLevel: 'all',
+  department: 'all',
+  locationMode: 'all',
+  applicationState: 'all',
+  publishState: 'all',
+  datePreset: 'all',
+  from: '',
+  to: '',
+  sortBy: 'newest',
+};
+
+const normalizeFilterValue = (value) => (value || '').toString().trim().toLowerCase();
+
+const getCompanyJobDateWindow = (filters = {}) => {
+  const preset = normalizeFilterValue(filters.datePreset || 'all');
+  if (preset === 'all') return { from: null, to: null };
+
+  if (preset === 'custom') {
+    const from = filters.from ? new Date(filters.from) : null;
+    const to = filters.to ? new Date(filters.to) : null;
+    if (from && !Number.isNaN(from.getTime())) from.setHours(0, 0, 0, 0);
+    if (to && !Number.isNaN(to.getTime())) to.setHours(23, 59, 59, 999);
+    return {
+      from: from && !Number.isNaN(from.getTime()) ? from : null,
+      to: to && !Number.isNaN(to.getTime()) ? to : null,
+    };
+  }
+
+  const now = new Date();
+  const from = new Date(now);
+  if (preset === 'last7') from.setDate(from.getDate() - 7);
+  if (preset === 'last30') from.setDate(from.getDate() - 30);
+  if (preset === 'last90') from.setDate(from.getDate() - 90);
+  from.setHours(0, 0, 0, 0);
+  return { from, to: null };
+};
+
+const getCompanyJobLocationMode = (location) => {
+  const normalized = normalizeFilterValue(location);
+  if (!normalized || normalized === 'remote' || normalized.includes('remote')) return 'remote';
+  if (normalized.includes('hybrid')) return 'hybrid';
+  return 'onsite';
+};
+
+const getCompanyJobPublishState = (job = {}) => {
+  const status = (job?.status || '').toString().toUpperCase();
+  if (status === 'ARCHIVED') return 'archived';
+  if (status === 'DRAFT') return 'draft';
+  if (status === 'PUBLISHED' && job?.scheduledPublishAt && !job?.publishedAt) return 'scheduled';
+  if (status === 'PUBLISHED') return 'live';
+  return 'all';
+};
+
+const countActiveCompanyJobFilters = (filters = {}) => {
+  let count = 0;
+  if (normalizeFilterValue(filters.searchQuery)) count += 1;
+  if ((filters.status || 'all') !== 'all') count += 1;
+  if ((filters.employmentType || 'all') !== 'all') count += 1;
+  if ((filters.experienceLevel || 'all') !== 'all') count += 1;
+  if ((filters.department || 'all') !== 'all') count += 1;
+  if ((filters.locationMode || 'all') !== 'all') count += 1;
+  if ((filters.applicationState || 'all') !== 'all') count += 1;
+  if ((filters.publishState || 'all') !== 'all') count += 1;
+  if ((filters.datePreset || 'all') !== 'all') count += 1;
+  if ((filters.sortBy || 'newest') !== 'newest') count += 1;
+  return count;
+};
 
 const normalizeSkillValue = (value = '') => value.trim().toLowerCase();
 
@@ -481,8 +599,8 @@ const CompanyJobsPage = () => {
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
-  const [filterStatus, setFilterStatus] = useState('all');
-  const [searchQuery, setSearchQuery] = useState('');
+  const [jobFilters, setJobFilters] = useState(DEFAULT_COMPANY_JOB_FILTERS);
+  const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const keySkillsInputRef = useRef(null);
   const [showAddSkillsSection, setShowAddSkillsSection] = useState(false);
   const advertImageInputRef = useRef(null);
@@ -618,8 +736,6 @@ const CompanyJobsPage = () => {
       // Clear location feedback on success
       setLocationFeedback({ status: 'success', message: '' });
     } catch (error) {
-      console.error('Location detection error:', error);
-
       let friendlyMessage = error?.message || 'Unable to detect your location. Please enter it manually.';
 
       if (error?.code === 1 || error?.message?.toLowerCase().includes('permission')) {
@@ -687,8 +803,7 @@ const CompanyJobsPage = () => {
         setPendingRealtimeJobUpdates(0);
       }
     } catch (err) {
-      console.error('Failed to load jobs:', err);
-      setError('Failed to load jobs');
+      setError(err?.message || 'Failed to load jobs');
     } finally {
       setLoading(false);
     }
@@ -1063,7 +1178,6 @@ const CompanyJobsPage = () => {
       await loadJobs();
       closeCreateModal();
     } catch (err) {
-      console.error('Job submission error:', err);
       // Extract validation errors from response
       if (err.errors && Array.isArray(err.errors)) {
         const errorMessages = err.errors.map(e => `${e.param || e.field}: ${e.msg || e.message}`).join(', ');
@@ -1120,7 +1234,6 @@ const CompanyJobsPage = () => {
           if (archiveErr?.code === 'ACTIVE_APPLICATIONS_REQUIRE_RESOLUTION') {
             deleteError = archiveErr;
           } else {
-            console.error('Failed to archive job before delete:', archiveErr);
             setError(archiveErr.message || 'Failed to archive job before deleting');
             return;
           }
@@ -1163,13 +1276,11 @@ const CompanyJobsPage = () => {
           }
           return;
         } catch (resolveErr) {
-          console.error('Failed to resolve active applications before delete:', resolveErr);
           setError(resolveErr.message || 'Failed to resolve applications and delete job');
           return;
         }
       }
 
-      console.error('Failed to delete job:', deleteError);
       setError(deleteError.message || 'Failed to delete job');
     }
   };
@@ -1181,8 +1292,7 @@ const CompanyJobsPage = () => {
         await loadJobs();
       }
     } catch (err) {
-      console.error('Failed to publish job:', err);
-      setError('Failed to publish job');
+      setError(err?.message || 'Failed to publish job');
     }
   };
 
@@ -1193,37 +1303,120 @@ const CompanyJobsPage = () => {
         await loadJobs();
       }
     } catch (err) {
-      console.error('Failed to archive job:', err);
-      setError('Failed to archive job');
+      setError(err?.message || 'Failed to archive job');
     }
   };
 
-  const filteredJobs = jobs.filter((job) => {
-    // Filter by status
-    if (filterStatus !== 'all' && job.status !== filterStatus) return false;
-    
-    // Filter by search query (searches multiple fields)
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase().trim();
-      if (!query) return true; // Empty query shows all
-      
-      // Search in multiple fields
-      const searchableText = [
-        job.title || '',
-        job.department || '',
-        job.location || '',
-        job.description || '',
-        job.employmentType || '',
-        job.experienceLevel || '',
-      ]
-        .join(' ')
-        .toLowerCase();
-      
-      return searchableText.includes(query);
-    }
-    
-    return true;
-  });
+  const updateJobFilter = (key, value) => {
+    setJobFilters((previous) => ({
+      ...previous,
+      [key]: value,
+    }));
+  };
+
+  const clearJobFilters = () => {
+    setJobFilters(DEFAULT_COMPANY_JOB_FILTERS);
+    setShowAdvancedFilters(false);
+  };
+
+  const jobFilterOptions = useMemo(() => ({
+    employmentTypeOptions: [
+      { value: 'all', label: 'All Employment Types' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.employmentType)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) })),
+    ],
+    experienceLevelOptions: [
+      { value: 'all', label: 'All Experience Levels' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.experienceLevel)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: value.replace(/_/g, ' ').replace(/\b\w/g, (char) => char.toUpperCase()) })),
+    ],
+    departmentOptions: [
+      { value: 'all', label: 'All Departments' },
+      ...Array.from(
+        new Set(
+          jobs
+            .map((job) => job?.department)
+            .map((value) => value?.toString?.().trim())
+            .filter(Boolean),
+        ),
+      ).map((value) => ({ value, label: value })),
+    ],
+  }), [jobs]);
+
+  const activeJobFilterCount = countActiveCompanyJobFilters(jobFilters);
+  const normalizedJobSearch = normalizeFilterValue(jobFilters.searchQuery);
+  const jobSearchTokens = normalizedJobSearch.split(' ').filter(Boolean);
+
+  const filteredJobs = useMemo(
+    () => {
+      const jobDateWindow = getCompanyJobDateWindow(jobFilters);
+      return jobs
+      .filter((job) => {
+        const status = (job?.status || '').toString().toUpperCase();
+        const applicationCount = Number(job?.applicationsCount || 0);
+        const publishState = getCompanyJobPublishState(job);
+        const locationMode = getCompanyJobLocationMode(job?.location);
+        const createdAtValue = job?.createdAt || job?.publishedAt || null;
+        const createdAt = createdAtValue ? new Date(createdAtValue) : null;
+        const hasValidDate = createdAt && !Number.isNaN(createdAt.getTime());
+
+        if (jobFilters.status !== 'all' && status !== jobFilters.status) return false;
+        if (jobFilters.employmentType !== 'all' && (job?.employmentType || '') !== jobFilters.employmentType) return false;
+        if (jobFilters.experienceLevel !== 'all' && (job?.experienceLevel || '') !== jobFilters.experienceLevel) return false;
+        if (jobFilters.department !== 'all' && (job?.department || '') !== jobFilters.department) return false;
+        if (jobFilters.locationMode !== 'all' && locationMode !== jobFilters.locationMode) return false;
+        if (jobFilters.publishState !== 'all' && publishState !== jobFilters.publishState) return false;
+
+        if (jobFilters.applicationState === 'with-applications' && applicationCount <= 0) return false;
+        if (jobFilters.applicationState === 'without-applications' && applicationCount > 0) return false;
+
+        if (jobDateWindow.from || jobDateWindow.to) {
+          if (!hasValidDate) return false;
+          if (jobDateWindow.from && createdAt < jobDateWindow.from) return false;
+          if (jobDateWindow.to && createdAt > jobDateWindow.to) return false;
+        }
+
+        if (jobSearchTokens.length) {
+          const searchableText = [
+            job?.title || '',
+            job?.department || '',
+            job?.location || '',
+            job?.description || '',
+            job?.employmentType || '',
+            job?.experienceLevel || '',
+            ...(Array.isArray(job?.skills) ? job.skills : []),
+          ]
+            .join(' ')
+            .toLowerCase();
+          if (!jobSearchTokens.every((token) => searchableText.includes(token))) return false;
+        }
+
+        return true;
+      })
+      .sort((left, right) => {
+        const leftDate = new Date(left?.createdAt || left?.publishedAt || 0).getTime() || 0;
+        const rightDate = new Date(right?.createdAt || right?.publishedAt || 0).getTime() || 0;
+        if (jobFilters.sortBy === 'oldest') return leftDate - rightDate;
+        if (jobFilters.sortBy === 'applicationsDesc') return Number(right?.applicationsCount || 0) - Number(left?.applicationsCount || 0);
+        if (jobFilters.sortBy === 'titleAsc') return (left?.title || '').localeCompare(right?.title || '');
+        if (jobFilters.sortBy === 'status') return (left?.status || '').localeCompare(right?.status || '');
+        return rightDate - leftDate;
+      });
+    },
+    [jobs, jobFilters],
+  );
 
   const existingAdvertImagePreviewItems = (formData.advertImageUrls || [])
     .map((url, index) => ({
@@ -1455,8 +1648,8 @@ const CompanyJobsPage = () => {
                         try {
                           await refresh();
                           await loadJobs();
-                        } catch (err) {
-                          console.error('Failed to refresh:', err);
+                        } catch {
+                          // Silent failure — page remains as-is
                         } finally {
                           setRefreshing(false);
                         }
@@ -1471,28 +1664,117 @@ const CompanyJobsPage = () => {
               ) : (
                 <div className="space-y-6">
               {/* Filters */}
-              <div className="card-base p-4 sm:p-6 relative z-20">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Input
-                    placeholder="Search jobs..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    icon="Search"
+              <UnifiedFilterPanel
+                title="Job Posting Filters"
+                description="Filter postings by status, publish state, role metadata, application volume, and date windows."
+                activeCount={activeJobFilterCount}
+                onClear={clearJobFilters}
+                headerActions={(
+                  <UnifiedFilterToggleButton
+                    active={showAdvancedFilters}
+                    onClick={() => setShowAdvancedFilters((previous) => !previous)}
+                    label="Advanced Filters"
                   />
-                  <div className="relative z-30">
-                    <Select
-                      value={filterStatus}
-                      onChange={setFilterStatus}
-                      options={[
-                        { value: 'all', label: 'All Status' },
-                        { value: 'DRAFT', label: 'Draft' },
-                        { value: 'PUBLISHED', label: 'Published' },
-                        { value: 'ARCHIVED', label: 'Archived' },
-                      ]}
-                    />
-                  </div>
+                )}
+              >
+                <div className={FILTER_GRID_CLASS}>
+                  <UnifiedSearchField
+                    label="Search"
+                    className="sm:col-span-2 xl:col-span-2"
+                    type="text"
+                    value={jobFilters.searchQuery}
+                    onChange={(event) => updateJobFilter('searchQuery', event.target.value)}
+                    placeholder="Role, department, location, skill, or description"
+                  />
+                  <UnifiedFilterSelect
+                    label="Status"
+                    value={jobFilters.status}
+                    onChange={(value) => updateJobFilter('status', value)}
+                    options={[
+                      { value: 'all', label: 'All Statuses' },
+                      { value: 'DRAFT', label: 'Draft' },
+                      { value: 'PUBLISHED', label: 'Published' },
+                      { value: 'ARCHIVED', label: 'Archived' },
+                    ]}
+                  />
+                  <UnifiedFilterSelect
+                    label="Publish State"
+                    value={jobFilters.publishState}
+                    onChange={(value) => updateJobFilter('publishState', value)}
+                    options={COMPANY_JOB_PUBLISH_STATE_OPTIONS}
+                  />
+                  <UnifiedFilterSelect
+                    label="Employment Type"
+                    value={jobFilters.employmentType}
+                    onChange={(value) => updateJobFilter('employmentType', value)}
+                    options={jobFilterOptions.employmentTypeOptions}
+                  />
+                  <UnifiedFilterSelect
+                    label="Experience Level"
+                    value={jobFilters.experienceLevel}
+                    onChange={(value) => updateJobFilter('experienceLevel', value)}
+                    options={jobFilterOptions.experienceLevelOptions}
+                  />
                 </div>
-              </div>
+
+                {showAdvancedFilters && (
+                  <div className={FILTER_SUBPANEL_CLASS}>
+                    <div className={FILTER_GRID_CLASS}>
+                      <UnifiedFilterSelect
+                        label="Department"
+                        value={jobFilters.department}
+                        onChange={(value) => updateJobFilter('department', value)}
+                        options={jobFilterOptions.departmentOptions}
+                      />
+                      <UnifiedFilterSelect
+                        label="Location Mode"
+                        value={jobFilters.locationMode}
+                        onChange={(value) => updateJobFilter('locationMode', value)}
+                        options={COMPANY_JOB_LOCATION_MODE_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Applications"
+                        value={jobFilters.applicationState}
+                        onChange={(value) => updateJobFilter('applicationState', value)}
+                        options={COMPANY_JOB_APPLICATION_STATE_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Created Date"
+                        value={jobFilters.datePreset}
+                        onChange={(value) => updateJobFilter('datePreset', value)}
+                        options={COMPANY_JOB_DATE_PRESET_OPTIONS}
+                      />
+                      <UnifiedFilterSelect
+                        label="Sort By"
+                        value={jobFilters.sortBy}
+                        onChange={(value) => updateJobFilter('sortBy', value)}
+                        options={COMPANY_JOB_SORT_OPTIONS}
+                      />
+                    </div>
+
+                    {jobFilters.datePreset === 'custom' && (
+                      <div className={FILTER_DATE_GRID_CLASS}>
+                        <label className="space-y-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">Created From</span>
+                          <UnifiedTextInput
+                            type="date"
+                            value={jobFilters.from}
+                            onChange={(event) => updateJobFilter('from', event.target.value)}
+                          />
+                        </label>
+                        <label className="space-y-1.5">
+                          <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 dark:text-slate-400">Created To</span>
+                          <UnifiedTextInput
+                            type="date"
+                            value={jobFilters.to}
+                            onChange={(event) => updateJobFilter('to', event.target.value)}
+                          />
+                        </label>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </UnifiedFilterPanel>
 
               {/* Jobs List */}
               {loading ? (
@@ -1509,7 +1791,9 @@ const CompanyJobsPage = () => {
                     No jobs found
                   </h3>
                   <p className="text-gray-600 dark:text-slate-400 mb-4">
-                    Create your first job posting to start receiving applications
+                    {activeJobFilterCount > 0
+                      ? 'No job postings match your selected filters. Clear filters to broaden your results.'
+                      : 'Create your first job posting to start receiving applications.'}
                   </p>
                   {organizationContext?.organization?.status !== 'PENDING' && (
                     <Button onClick={handleCreateJob}>
