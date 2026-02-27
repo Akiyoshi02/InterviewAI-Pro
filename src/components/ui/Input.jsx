@@ -24,7 +24,10 @@ const Input = React.forwardRef(({
             <input
                 type="checkbox"
                 className={cn(
-                    "h-5 w-5 sm:h-4 sm:w-4 rounded border border-input bg-background text-primary focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 cursor-pointer transition-colors",
+                    "h-5 w-5 sm:h-4 sm:w-4 rounded-full border border-input bg-background appearance-none shrink-0 cursor-pointer transition-colors focus:ring-2 focus:ring-ring focus:ring-offset-2",
+                    "checked:border-primary checked:bg-primary checked:bg-center checked:bg-no-repeat checked:bg-[length:65%_65%]",
+                    "checked:bg-[url('data:image/svg+xml,%3Csvg%20xmlns=%22http://www.w3.org/2000/svg%22%20viewBox=%220%200%2020%2020%22%20fill=%22none%22%20stroke=%22white%22%20stroke-width=%223%22%20stroke-linecap=%22round%22%20stroke-linejoin=%22round%22%3E%3Cpath%20d=%22M4%2010l4%204%208-8%22/%3E%3C/svg%3E')]",
+                    "disabled:cursor-not-allowed disabled:opacity-50",
                     className
                 )}
                 ref={ref}

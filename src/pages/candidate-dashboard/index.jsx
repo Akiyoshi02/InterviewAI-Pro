@@ -12,6 +12,7 @@ import SchedulingWidget from './components/SchedulingWidget';
 import AchievementBadges from './components/AchievementBadges';
 import SavedAnswersPanel from './components/SavedAnswersPanel';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
+import InterviewCalendar from '../../components/ui/InterviewCalendar';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import LoadingState from '../../components/ui/LoadingState';
@@ -504,6 +505,10 @@ const CandidateDashboard = () => {
                     <div id="saved-answers">
                       <SavedAnswersPanel />
                     </div>
+                    <InterviewCalendar
+                      interviews={safeInterviews}
+                      userType="candidate"
+                    />
                   </motion.div>
                 </div>
               </motion.div>

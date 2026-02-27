@@ -1,6 +1,7 @@
 import { LLMService } from '../services/llm.service.js';
 import fs from 'fs/promises';
 import path from 'path';
+import crypto from 'crypto';
 import {
   activityLogStore,
   hydrateInterviewParticipants,
@@ -8,6 +9,7 @@ import {
   invitationStore,
   jobApplicationStore,
   jobStore,
+  notificationStore,
   publishAdminRealtimeUpdate,
   publishOrganizationRealtimeUpdate,
   recordRealtimeEvent,
@@ -1126,6 +1128,19 @@ export class InterviewController {
         logger.warn('Failed to publish interview-ended realtime event:', eventError);
       }
 
+      // Emit in-app notification for interview completion
+      if (updatedInterview.candidateId) {
+        notificationStore.create({
+          userId: updatedInterview.candidateId,
+          type: pendingEvaluation ? 'interview_completed' : 'evaluation_ready',
+          title: pendingEvaluation ? 'Interview Completed' : 'Your Results Are Ready',
+          message: pendingEvaluation
+            ? `Your ${updatedInterview.jobRole || 'interview'} session has been saved. Evaluation is pending.`
+            : `Your ${updatedInterview.jobRole || 'interview'} session has been evaluated. Score: ${updatedInterview.overallScore != null ? Math.round(updatedInterview.overallScore) + '%' : 'N/A'}`,
+          link: `/interview-results/${updatedInterview.id}`,
+        }).catch(() => {});
+      }
+
       const hydrated = await attachSingleInterviewParticipants({
         ...updatedInterview,
         questions: interview.questions,
@@ -1490,6 +1505,71 @@ export class InterviewController {
       });
     } catch (error) {
       logger.error('Save question notes error:', error);
+      next(error);
+    }
+  }
+
+  static async createShareToken(req, res, next) {
+    try {
+      const { id } = req.params;
+      const interview = await interviewStore.getById(id);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (interview.status !== 'COMPLETED') {
+        return res.status(400).json({ error: 'Only completed interviews can be shared.' });
+      }
+
+      // Reuse existing token or generate new one
+      const token = interview.shareToken || crypto.randomBytes(20).toString('hex');
+      const expiresAt = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString(); // 30 days
+
+      await interviewStore.update(id, { shareToken: token, shareTokenExpiresAt: expiresAt });
+
+      res.json({ success: true, token, expiresAt });
+    } catch (error) {
+      logger.error('Create share token error:', error);
+      next(error);
+    }
+  }
+
+  static async getSharedResults(req, res, next) {
+    try {
+      const { token } = req.params;
+      if (!token || typeof token !== 'string') {
+        return res.status(400).json({ error: 'Invalid token.' });
+      }
+
+      const interviews = await interviewStore.findByShareToken(token);
+      if (!interviews || interviews.length === 0) {
+        return res.status(404).json({ error: 'Shared results not found or token has expired.' });
+      }
+
+      const interview = interviews[0];
+      if (interview.shareTokenExpiresAt && new Date(interview.shareTokenExpiresAt) < new Date()) {
+        return res.status(410).json({ error: 'This share link has expired.' });
+      }
+
+      const safeInterview = {
+        jobRole: interview.jobRole || interview.position || 'Interview',
+        completedAt: interview.completedAt || interview.updatedAt,
+        overallScore: interview.overallScore,
+        readinessLevel: interview.readinessLevel,
+        evaluation: interview.evaluation,
+        questions: (interview.questions || []).map((q) => ({
+          question: q.question,
+          score: q.score,
+          feedback: q.feedback,
+          strengths: q.strengths,
+          weaknesses: q.weaknesses,
+        })),
+      };
+
+      res.json({ success: true, interview: safeInterview });
+    } catch (error) {
+      logger.error('Get shared results error:', error);
       next(error);
     }
   }

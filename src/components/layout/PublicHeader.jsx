@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Sparkles, Menu, X } from 'lucide-react';
+import { Brain, Menu, X } from 'lucide-react';
 import Icon from '../AppIcon';
 import Button from '../ui/Button';
 import {
@@ -141,7 +141,7 @@ const PublicHeader = () => {
         <div className="flex items-center justify-between h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto">
           {/* Logo */}
           <div className="flex items-center gap-2 xs:gap-3 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/')}>
-            <Sparkles className="h-5 w-5 xs:h-6 xs:w-6 text-blue-600" />
+            <Brain className="h-5 w-5 xs:h-6 xs:w-6 text-blue-600" />
             <div>
               <p className="text-sm xs:text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-slate-100">
                 InterviewAI <span className="text-blue-600 dark:text-blue-400">Pro</span>
@@ -280,7 +280,7 @@ const PublicHeader = () => {
 
       {/* Mobile Menu Panel - Slides in from right below the header */}
       <div 
-        className={`fixed top-14 xs:top-16 right-0 bottom-0 z-[101] w-full md:hidden transform transition-transform duration-300 ease-out ${
+        className={`fixed top-14 xs:top-16 right-0 bottom-0 z-[10001] w-full md:hidden transform transition-transform duration-300 ease-out ${
           isNavOpen ? 'translate-x-0' : 'translate-x-full'
         }`}
       >

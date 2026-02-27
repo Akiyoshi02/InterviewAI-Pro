@@ -5,6 +5,7 @@ import BrandMark from '../BrandMark';
 import Button from './Button';
 import RoleBadge from './RoleBadge';
 import NavigationMenu from './NavigationMenu';
+import NotificationCenter from './NotificationCenter';
 import { filterNavByRole } from '../../utils/rolePermissions';
 
 const Header = ({ userType = null, isAuthenticated = false, onLogout, organizationRole = null }) => {
@@ -59,7 +60,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
 
   const Logo = () => (
     <BrandMark
-      className="items-center"
+      className="items-center justify-center"
       iconWrapperClassName="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10"
       textClassName="text-sm xs:text-base sm:text-lg md:text-xl"
       taglineClassName="text-[9px] xs:text-[10px] text-gray-500 hidden xs:block"
@@ -68,10 +69,17 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
   );
 
   const candidateNavItems = [
-    { label: 'Dashboard', path: '/candidate-dashboard', icon: 'LayoutDashboard' },
-    { label: 'Jobs', path: '/jobs', icon: 'Briefcase' },
-    { label: 'Applications', path: '/my-applications', icon: 'FileText', fullLabel: 'My Applications' },
-    { label: 'Practice', path: '/practice-interview-setup', icon: 'Play', fullLabel: 'Practice Interview' },
+    { key: 'dashboard', label: 'Dashboard', path: '/candidate-dashboard', icon: 'LayoutDashboard' },
+    { key: 'jobs', label: 'Jobs', path: '/jobs', icon: 'Briefcase' },
+    { key: 'companies', label: 'Companies', path: '/companies', icon: 'Building2', fullLabel: 'Companies Directory' },
+    { key: 'applications', label: 'Applications', path: '/my-applications', icon: 'FileText', fullLabel: 'My Applications' },
+    { key: 'practice', label: 'Practice', path: '/practice-interview-setup', icon: 'Play', fullLabel: 'Practice Interview' },
+    { key: 'analytics', label: 'Analytics', path: '/candidate-analytics', icon: 'BarChart2', fullLabel: 'My Analytics' },
+    { key: 'achievements', label: 'Achievements', path: '/gamification', icon: 'Trophy' },
+    { key: 'prep', label: 'Prep Library', path: '/interview-prep-library', icon: 'BookOpen', fullLabel: 'Interview Prep Library' },
+    { key: 'referral', label: 'Referral', path: '/referral-program', icon: 'Gift', fullLabel: 'Referral Program' },
+    { key: 'privacy', label: 'Privacy', path: '/privacy-settings', icon: 'Shield', fullLabel: 'Privacy & Data' },
+    { key: 'settings', label: 'Settings', path: '/candidate-settings', icon: 'Settings', fullLabel: 'Settings' },
   ];
 
   const companyNavItems = [
@@ -121,10 +129,15 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
     { 
       key: 'settings',
       label: 'Settings', 
-      path: '/company-settings', 
       icon: 'Settings', 
-      fullLabel: 'Settings' 
-    },
+      fullLabel: 'Settings',
+      items: [
+        { label: 'General Settings', path: '/company-settings', icon: 'Settings', fullLabel: 'Company Settings' },
+        { label: 'Public Profile', path: '/company-profile-editor', icon: 'Globe', fullLabel: 'Company Public Profile' },
+        { label: 'Webhooks', path: '/company-webhooks', icon: 'Webhook', fullLabel: 'Webhook Integrations' },
+        { label: 'Privacy & Data', path: '/privacy-settings', icon: 'Shield', fullLabel: 'Privacy & Data' },
+      ],
+    }, 
     { 
       key: 'billing',
       label: 'Billing', 
@@ -203,15 +216,6 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
     setIsMenuOpen(false);
   };
 
-  const isActivePath = (path) => currentPath?.startsWith(path);
-
-  const navButtonClass = (path) =>
-    `flex items-center gap-1.5 xl:gap-2 text-xs xl:text-sm font-medium transition-all duration-200 px-2.5 xl:px-3 py-2 rounded-full min-h-touch ${
-      isActivePath(path)
-        ? 'bg-gradient-to-r from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/30'
-        : 'text-gray-500 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-100 hover:bg-white/60 dark:hover:bg-slate-800/60'
-    }`;
-
   return (
     <>
       <header 
@@ -223,7 +227,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       >
         <div className={`flex items-center h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto ${
           isAuthenticated
-            ? 'justify-end lg:grid lg:grid-cols-[1fr_auto_1fr] lg:justify-between'
+            ? 'justify-end lg:grid lg:grid-cols-[1fr_auto_1fr]'
             : 'justify-between'
         }`}>
           {/* Only show logo in header when NOT authenticated (no sidebar visible) */}
@@ -235,21 +239,12 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
               <div className="lg:hidden mr-auto">
                 <Logo />
               </div>
-              {/* Empty spacer on desktop to maintain layout */}
-              <div className="hidden lg:block" />
+              {/* Keep a left spacer and center brand on desktop */}
+              <div className="hidden lg:block lg:justify-self-start" />
+              <div className="hidden lg:flex lg:justify-self-center">
+                <Logo />
+              </div>
             </>
-          )}
-          
-          {/* Desktop Navigation */}
-          {getNavigationItems() && getNavigationItems().length > 0 && (
-            <div className="hidden lg:block lg:justify-self-center">
-              <NavigationMenu
-                items={getNavigationItems()}
-                variant="dropdown"
-                onItemClick={handleNavClick}
-                activeItem={currentPath}
-              />
-            </div>
           )}
 
           {/* Desktop Auth Actions */}
@@ -276,6 +271,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
                 {userType === 'company' && organizationRole && (
                   <RoleBadge role={organizationRole} className="mr-1" />
                 )}
+                <NotificationCenter />
                 <Button
                   variant="outline"
                   iconName="LogOut"

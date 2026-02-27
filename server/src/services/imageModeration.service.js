@@ -122,3 +122,17 @@ export const validateCompanyLogo = async (filePath) => {
   }
 };
 
+export const validateCompanyCover = async (filePath) => {
+  const result = await performModeration({
+    filePath,
+    models: ['nudity-2.0', 'weapon', 'alcohol'],
+  });
+
+  if (!result) return;
+
+  const unsafeMessage = checkForUnsafeContent(result);
+  if (unsafeMessage) {
+    throw new Error(`${unsafeMessage} Please upload an appropriate cover image.`);
+  }
+};
+

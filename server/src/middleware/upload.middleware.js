@@ -8,6 +8,7 @@ const uploadsRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '
 const profilePhotosDir = path.join(uploadsRoot, 'profile-photos');
 const resumesDir = path.join(uploadsRoot, 'resumes');
 const companyLogosDir = path.join(uploadsRoot, 'company-logos');
+const companyCoversDir = path.join(uploadsRoot, 'company-covers');
 const companyProofsDir = path.join(uploadsRoot, 'company-verifications');
 const jobAdvertImagesDir = path.join(uploadsRoot, 'job-advert-images');
 const jobAdvertVideosDir = path.join(uploadsRoot, 'job-advert-videos');
@@ -24,6 +25,7 @@ const ensureDir = (dirPath) => {
   profilePhotosDir,
   resumesDir,
   companyLogosDir,
+  companyCoversDir,
   companyProofsDir,
   jobAdvertImagesDir,
   jobAdvertVideosDir,
@@ -34,6 +36,7 @@ const fileDestinationMap = {
   profilePhoto: profilePhotosDir,
   resumeFile: resumesDir,
   companyLogo: companyLogosDir,
+  companyCover: companyCoversDir,
   companyProof: companyProofsDir,
   jobAdvertImage: jobAdvertImagesDir,
   jobAdvertVideo: jobAdvertVideosDir,
@@ -54,24 +57,39 @@ const storage = multer.diskStorage({
 const allowedMimeTypes = {
   profilePhoto: ['image/jpeg', 'image/png', 'image/webp'],
   companyLogo: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
+  companyCover: ['image/jpeg', 'image/png', 'image/webp'],
   file: ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml'],
   jobAdvertImage: ['image/jpeg', 'image/png', 'image/webp', 'image/gif'],
   jobAdvertVideo: ['video/mp4', 'video/webm', 'video/quicktime', 'video/x-matroska', 'video/ogg'],
   resumeFile: [
     'application/pdf',
     'application/msword',
+    'application/vnd.ms-word',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
   companyProof: [
     'application/pdf',
     'application/msword',
+    'application/vnd.ms-word',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
   ],
+};
+
+const allowedExtensions = {
+  profilePhoto: ['.jpg', '.jpeg', '.png', '.webp'],
+  companyLogo: ['.jpg', '.jpeg', '.png', '.webp', '.svg'],
+  companyCover: ['.jpg', '.jpeg', '.png', '.webp'],
+  file: ['.jpg', '.jpeg', '.png', '.webp', '.svg'],
+  jobAdvertImage: ['.jpg', '.jpeg', '.png', '.webp', '.gif'],
+  jobAdvertVideo: ['.mp4', '.webm', '.mov', '.mkv', '.ogg'],
+  resumeFile: ['.pdf', '.doc', '.docx'],
+  companyProof: ['.pdf', '.doc', '.docx'],
 };
 
 const errorMessages = {
   profilePhoto: 'Profile photo must be a JPG, PNG, or WEBP image.',
   companyLogo: 'Company logo must be a JPG, PNG, WEBP, or SVG image.',
+  companyCover: 'Company cover image must be a JPG, PNG, or WEBP image.',
   file: 'Image must be JPG, PNG, WEBP, or SVG.',
   jobAdvertImage: 'Job advert image must be JPG, PNG, WEBP, or GIF.',
   jobAdvertVideo: 'Job advert video must be MP4, WEBM, MOV, MKV, or OGG.',
@@ -80,14 +98,22 @@ const errorMessages = {
 };
 
 const { MulterError } = multer;
+const extensionFallbackFields = new Set(['resumeFile', 'companyProof']);
 
 const fileFilter = (req, file, cb) => {
   const allowed = allowedMimeTypes[file.fieldname];
+  const extensions = allowedExtensions[file.fieldname] || [];
+  const extension = path.extname(file.originalname || '').toLowerCase();
+
   if (!allowed) {
     return cb(new MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname));
   }
 
-  if (!allowed.includes(file.mimetype)) {
+  const mimeAccepted = allowed.includes(file.mimetype);
+  const extensionAccepted = extensions.includes(extension);
+  const allowByExtension = extensionFallbackFields.has(file.fieldname) && extensionAccepted;
+
+  if (!mimeAccepted && !allowByExtension) {
     const error = new MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
     error.message = errorMessages[file.fieldname] || 'Unsupported file type.';
     return cb(error);
@@ -170,6 +196,7 @@ export const uploadsPaths = {
   profilePhotosDir,
   resumesDir,
   companyLogosDir,
+  companyCoversDir,
   companyProofsDir,
   jobAdvertImagesDir,
   jobAdvertVideosDir,

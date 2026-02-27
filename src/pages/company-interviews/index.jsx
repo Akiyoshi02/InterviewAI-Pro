@@ -6,6 +6,9 @@ import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import LoadingState from '../../components/ui/LoadingState';
+import InterviewCalendar from '../../components/ui/InterviewCalendar';
+import ScheduleInterviewModal from '../../components/ui/ScheduleInterviewModal';
+import InterviewScorecard from '../../components/ui/InterviewScorecard';
 import UnifiedFilterPanel, {
   FILTER_DATE_GRID_CLASS,
   FILTER_GRID_CLASS,
@@ -107,6 +110,8 @@ const CompanyInterviews = () => {
   const navigate = useNavigate();
   const { user, logout, status } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [viewMode, setViewMode] = useState('list'); // list | calendar
+  const [scheduleModal, setScheduleModal] = useState(null); // { interview } | null
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -364,17 +369,54 @@ const CompanyInterviews = () => {
                     </p>
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  iconName="RefreshCw"
-                  onClick={loadInterviews}
-                  disabled={loading}
-                  className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
-                >
-                  Refresh
-                </Button>
+                <div className="flex items-center gap-2">
+                  {/* View Mode Toggle */}
+                  <div className="flex items-center bg-gray-100 dark:bg-slate-700 rounded-lg p-0.5">
+                    <button
+                      onClick={() => setViewMode('list')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                        viewMode === 'list'
+                          ? 'bg-white dark:bg-slate-600 text-gray-900 dark:text-slate-100 shadow-sm'
+                          : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon name="List" size={13} /> List
+                    </button>
+                    <button
+                      onClick={() => setViewMode('calendar')}
+                      className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                        viewMode === 'calendar'
+                          ? 'bg-white dark:bg-slate-600 text-gray-900 dark:text-slate-100 shadow-sm'
+                          : 'text-gray-500 dark:text-slate-400 hover:text-gray-700 dark:hover:text-slate-200'
+                      }`}
+                    >
+                      <Icon name="CalendarDays" size={13} /> Calendar
+                    </button>
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    iconName="RefreshCw"
+                    onClick={loadInterviews}
+                    disabled={loading}
+                    className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
+                  >
+                    Refresh
+                  </Button>
+                </div>
               </div>
+
+              {/* Calendar View */}
+              {viewMode === 'calendar' && (
+                <InterviewCalendar
+                  interviews={interviews}
+                  userType="company"
+                  onViewInterview={(iv) => {
+                    // Scroll to list and highlight, or navigate
+                    setViewMode('list');
+                  }}
+                />
+              )}
 
               {pendingRealtimeInterviewUpdates > 0 && (
                 <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -512,7 +554,7 @@ const CompanyInterviews = () => {
               )}
 
               {/* Interviews List */}
-              {loading ? (
+              {viewMode === 'calendar' ? null : loading ? (
                 <LoadingState
                   title="Loading interviews"
                   message="Updating interview schedules and status."
@@ -574,8 +616,18 @@ const CompanyInterviews = () => {
                             </div>
                           </div>
                         </div>
-                        <div className="flex items-center gap-3 sm:gap-4">
+                        <div className="flex items-center gap-2 sm:gap-3">
                           {getStatusBadge(interview.status)}
+                          {(interview.status === 'SCHEDULED' || interview.status === 'PENDING' || !interview.scheduledFor) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              iconName={interview.scheduledFor ? 'CalendarClock' : 'CalendarPlus'}
+                              onClick={() => setScheduleModal({ interview })}
+                              className="rounded-full text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                              title={interview.scheduledFor ? 'Reschedule' : 'Schedule'}
+                            />
+                          )}
                           <Button
                             variant="outline"
                             size="sm"
@@ -790,9 +842,42 @@ const CompanyInterviews = () => {
                   </div>
                 )}
               </div>
+
+              <div className="mt-6">
+                {selectedInterview.status === 'COMPLETED' && (
+                  <div className="mb-4">
+                    <InterviewScorecard
+                      jobTitle={selectedInterview.jobRole}
+                      onSubmit={(data) => console.log('Scorecard submitted:', data)}
+                    />
+                  </div>
+                )}
+                <div className="flex gap-2">
+                  {(selectedInterview.status === 'SCHEDULED' || !selectedInterview.scheduledFor) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      iconName={selectedInterview.scheduledFor ? 'CalendarClock' : 'CalendarPlus'}
+                      onClick={() => { setShowDetails(false); setScheduleModal({ interview: selectedInterview }); }}
+                      className="flex-1"
+                    >
+                      {selectedInterview.scheduledFor ? 'Reschedule' : 'Schedule'}
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           </motion.div>
         </div>
+      )}
+      {/* Schedule / Reschedule Modal */}
+      {scheduleModal && (
+        <ScheduleInterviewModal
+          interview={scheduleModal.interview}
+          isOpen={true}
+          onClose={() => setScheduleModal(null)}
+          onScheduled={() => { setScheduleModal(null); loadInterviews(); }}
+        />
       )}
     </div>
   );

@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
@@ -15,6 +15,7 @@ const CompanyBillingPage = () => {
   const { user, logout } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [plans, setPlans] = useState([]);
   const [subscription, setSubscription] = useState(null);
@@ -23,6 +24,18 @@ const CompanyBillingPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [upgradeMessage, setUpgradeMessage] = useState(null);
+
+  // Handle Stripe redirect status
+  useEffect(() => {
+    const status = searchParams.get('status');
+    if (status === 'success') {
+      setUpgradeMessage('Payment successful! Your subscription has been activated.');
+      setSearchParams({}, { replace: true });
+    } else if (status === 'cancelled') {
+      setUpgradeMessage('Checkout was cancelled. You can try again whenever you\'re ready.');
+      setSearchParams({}, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const userType = user?.accountType === 'COMPANY' ? 'company' : null;
   const isAdmin = user?.organizationContext?.membership?.role === 'ADMIN';

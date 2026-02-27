@@ -12,6 +12,7 @@ import RealTimeFeedbackPanel from './components/RealTimeFeedbackPanel';
 import QuestionProgressIndicator from './components/QuestionProgressIndicator';
 import ScreenSharingPanel from './components/ScreenSharingPanel';
 import PoseAnalysisPanel from '../../components/ui/PoseAnalysisPanel';
+import EmotionDetector from '../../components/ui/EmotionDetector';
 import LoadingState from '../../components/ui/LoadingState';
 import RecordingConsentScreen from './components/RecordingConsentScreen';
 import { useAuth } from '../../contexts/AuthContext.jsx';
@@ -81,6 +82,7 @@ const LiveInterviewSession = () => {
   const datasetCollectorRef = useRef(null);
   const analyticsDataRef = useRef({ collectedData: [], interviewId: null });
   const mediaStreamRef = useRef(null);
+  const emotionVideoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordingChunksRef = useRef([]);
   const hasInitializedInterviewRef = useRef(false);
@@ -473,6 +475,11 @@ const LiveInterviewSession = () => {
 
   const handleMediaStreamReady = useCallback((stream) => {
     mediaStreamRef.current = stream || null;
+    // Attach stream to hidden video for emotion analysis
+    if (stream && emotionVideoRef.current) {
+      emotionVideoRef.current.srcObject = stream;
+      emotionVideoRef.current.play().catch(() => {});
+    }
   }, []);
 
   const startSessionRecording = useCallback(() => {
@@ -1128,6 +1135,14 @@ const LiveInterviewSession = () => {
               nextQuestionType={getNextQuestionType()}
             />
             {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
+            {/* Hidden video for emotion analysis */}
+            <video ref={emotionVideoRef} muted playsInline className="hidden" />
+            <EmotionDetector
+              videoRef={emotionVideoRef}
+              interviewId={interviewId.current}
+              isActive={!!(sessionState?.isActive && !sessionState?.isPaused)}
+              onUpdate={(summary) => { if (analyticsDataRef.current) analyticsDataRef.current.emotionSummary = summary; }}
+            />
             <div className="flex-1 min-h-[300px]">
               <RealTimeFeedbackPanel
                 isActive={sessionState?.isActive}

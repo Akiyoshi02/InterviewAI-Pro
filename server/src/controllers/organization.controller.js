@@ -14,8 +14,20 @@ const sanitizeOrganization = (organization) => {
     id: organization.id,
     name: organization.name,
     displayName: organization.displayName,
+    tagline: organization.tagline || null,
     industry: organization.industry,
+    companyType: organization.companyType || null,
     companySize: organization.companySize,
+    website: organization.website || null,
+    location: organization.location || null,
+    headquartersLocation: organization.headquartersLocation || null,
+    contactEmail: organization.contactEmail || null,
+    contactPhone: organization.contactPhone || null,
+    careersPageUrl: organization.careersPageUrl || null,
+    linkedinUrl: organization.linkedinUrl || null,
+    address: organization.address || null,
+    description: organization.description || null,
+    profile: organization.profile || {},
     branding: organization.branding || { theme: 'default' },
     settings: organization.settings || {},
     createdAt: organization.createdAt,
@@ -72,13 +84,59 @@ export class OrganizationController {
         return res.status(404).json({ error: 'Organization not found' });
       }
 
-      const allowedFields = ['name', 'displayName', 'industry', 'companySize', 'branding', 'settings'];
+      const allowedFields = [
+        'name',
+        'displayName',
+        'tagline',
+        'industry',
+        'companyType',
+        'companySize',
+        'website',
+        'location',
+        'headquartersLocation',
+        'contactEmail',
+        'contactPhone',
+        'careersPageUrl',
+        'linkedinUrl',
+        'address',
+        'description',
+        'branding',
+        'settings',
+      ];
       const payload = {};
       let retentionWarning = null;
+      const normalizeOptionalText = (value) => {
+        if (value === undefined) return undefined;
+        if (value === null) return null;
+        const nextValue = String(value).trim();
+        return nextValue || null;
+      };
 
       allowedFields.forEach((field) => {
         if (req.body[field] !== undefined) {
           payload[field] = req.body[field];
+        }
+      });
+
+      [
+        'name',
+        'displayName',
+        'tagline',
+        'industry',
+        'companyType',
+        'companySize',
+        'website',
+        'location',
+        'headquartersLocation',
+        'contactEmail',
+        'contactPhone',
+        'careersPageUrl',
+        'linkedinUrl',
+        'address',
+        'description',
+      ].forEach((field) => {
+        if (payload[field] !== undefined && typeof payload[field] !== 'object') {
+          payload[field] = normalizeOptionalText(payload[field]);
         }
       });
 
@@ -107,6 +165,20 @@ export class OrganizationController {
         payload.settings = {
           ...payload.settings,
           retentionPolicyDays: normalizedRetention,
+        };
+      }
+
+      // Keep shared candidate-facing fields in sync with public profile data.
+      const sharedProfileFields = {};
+      if (payload.tagline !== undefined) sharedProfileFields.tagline = payload.tagline;
+      if (payload.website !== undefined) sharedProfileFields.website = payload.website;
+      if (payload.location !== undefined) sharedProfileFields.location = payload.location;
+      if (Object.keys(sharedProfileFields).length > 0) {
+        payload.profile = {
+          ...(context.organization?.profile && typeof context.organization.profile === 'object'
+            ? context.organization.profile
+            : {}),
+          ...sharedProfileFields,
         };
       }
 

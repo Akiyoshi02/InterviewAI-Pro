@@ -1,5 +1,6 @@
 import multer from 'multer';
 import logger from '../utils/logger.js';
+import * as Sentry from '@sentry/node';
 
 const { MulterError } = multer;
 
@@ -14,6 +15,11 @@ export function setupErrorHandling(app) {
 
   // Global error handler
   app.use((err, req, res, next) => {
+    // Report to Sentry (if configured)
+    if (process.env.SENTRY_DSN && err.status !== 401 && err.status !== 403) {
+      Sentry.captureException(err);
+    }
+
     logger.error('Error:', {
       error: err.message,
       stack: err.stack,

@@ -17,6 +17,9 @@ const CandidateFields = ({
   uploadModeration = {},
   onModerateUpload,
   onResetModeration,
+  resumePrefillState = { status: 'idle', message: '', suggestions: [] },
+  onApplyResumeSuggestion,
+  onDismissResumeSuggestion,
 }) => {
   const genders = [
     { value: 'male', label: 'Male' },
@@ -230,6 +233,14 @@ const CandidateFields = ({
       ? 'text-rose-500 dark:text-rose-400'
       : 'text-slate-500 dark:text-slate-400';
   const detectingForCandidate = isDetectingLocation && locationHelper?.targetField === 'location';
+  const showResumePrefillState = Boolean(
+    resumePrefillState?.status
+    && resumePrefillState.status !== 'idle'
+    && resumePrefillState?.message,
+  );
+  const resumeSuggestions = Array.isArray(resumePrefillState?.suggestions)
+    ? resumePrefillState.suggestions
+    : [];
 
   const profileUploadRef = React.useRef(null);
   const resumeUploadRef = React.useRef(null);
@@ -246,6 +257,8 @@ const CandidateFields = ({
 
   const combinedSkillOptions = buildCombinedOptions(availableSkills, formData?.skills);
   const combinedCertificationOptions = buildCombinedOptions(availableCertifications, formData?.certifications);
+  const combinedFieldOfStudyOptions = buildCombinedOptions(fieldOfStudyOptions, [formData?.fieldOfStudy]);
+  const combinedInstitutionOptions = buildCombinedOptions(institutionOptions, [formData?.institutionName]);
   const selectedSkills = (formData?.skills || [])
     .filter((value) => normalizeValue(value) !== normalizeValue(otherSkillValue));
   const selectedCertifications = (formData?.certifications || [])
@@ -579,66 +592,197 @@ const CandidateFields = ({
 
   return (
     <div className={`space-y-4 ${className}`}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Select
-          label="Gender"
-          placeholder="Select your gender"
-          options={genders}
-          value={formData?.gender}
-          onChange={(value) => onFieldChange('gender', value)}
-          error={errors?.gender}
-          required
-        />
-        <PhoneInput
-          label="Phone Number"
-          value={formData?.phoneNumber}
-          onChange={(value) => onFieldChange('phoneNumber', value)}
-          error={errors?.phoneNumber}
-        />
+      <div className="space-y-3">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
+              Profile & Documents
+            </p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              Upload a photo and CV. We’ll pre-fill details, and you can edit before submitting.
+            </p>
+          </div>
+          <div className="hidden md:flex w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 items-center justify-center text-blue-600 dark:text-blue-300">
+            <Icon name="FileText" size={18} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {fileUploads.map((config) => (
+            <UploadCard key={config.fieldKey} {...config} />
+          ))}
+        </div>
+        {showResumePrefillState && (
+          <div
+            className={`rounded-xl border px-3 py-2.5 flex items-start gap-2 ${
+              resumePrefillState.status === 'error'
+                ? 'border-rose-300/70 bg-rose-50/80 dark:border-rose-700/60 dark:bg-rose-900/30'
+                : resumePrefillState.status === 'parsing'
+                  ? 'border-blue-300/70 bg-blue-50/80 dark:border-blue-700/60 dark:bg-blue-900/30'
+                  : 'border-emerald-300/70 bg-emerald-50/80 dark:border-emerald-700/60 dark:bg-emerald-900/30'
+            }`}
+            role="status"
+            aria-live="polite"
+          >
+            {resumePrefillState.status === 'parsing' ? (
+              <LoadingIndicator size={14} tone="current" className="mt-0.5 text-blue-600 dark:text-blue-300" />
+            ) : (
+              <Icon
+                name={resumePrefillState.status === 'error' ? 'AlertCircle' : 'CheckCircle2'}
+                size={14}
+                className={`mt-0.5 ${
+                  resumePrefillState.status === 'error'
+                    ? 'text-rose-500 dark:text-rose-400'
+                    : 'text-emerald-500 dark:text-emerald-400'
+                }`}
+              />
+            )}
+            <p
+              className={`text-xs leading-relaxed ${
+                resumePrefillState.status === 'error'
+                  ? 'text-rose-700 dark:text-rose-300'
+                  : resumePrefillState.status === 'parsing'
+                    ? 'text-blue-700 dark:text-blue-300'
+                    : 'text-emerald-700 dark:text-emerald-300'
+              }`}
+            >
+              {resumePrefillState.message}
+            </p>
+          </div>
+        )}
+        {resumeSuggestions.length > 0 && (
+          <div className="rounded-xl border border-amber-300/70 bg-amber-50/80 dark:border-amber-700/60 dark:bg-amber-900/25 px-3 py-2.5 space-y-2">
+            <div className="flex items-center gap-1.5">
+              <Icon name="AlertTriangle" size={14} className="text-amber-600 dark:text-amber-300" />
+              <p className="text-xs font-semibold text-amber-700 dark:text-amber-200">
+                Review suggestions before applying
+              </p>
+            </div>
+            <div className="space-y-1.5">
+              {resumeSuggestions.map((suggestion) => (
+                <div
+                  key={`${suggestion.field}-${suggestion.displayValue}`}
+                  className="rounded-lg border border-amber-200/70 dark:border-amber-800/60 bg-white/80 dark:bg-slate-900/50 px-2.5 py-2 flex items-start justify-between gap-2"
+                >
+                  <div className="min-w-0">
+                    <p className="text-xs font-medium text-gray-900 dark:text-slate-100 capitalize">
+                      {suggestion.label}
+                      {typeof suggestion.confidence === 'number' && (
+                        <span className="ml-2 text-[11px] font-normal text-amber-700 dark:text-amber-300">
+                          {(suggestion.confidence * 100).toFixed(0)}% confidence
+                        </span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-600 dark:text-slate-300 break-words">
+                      {suggestion.displayValue}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    {onDismissResumeSuggestion && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="xs"
+                        className="rounded-full text-slate-600 dark:text-slate-300"
+                        onClick={() => onDismissResumeSuggestion(suggestion)}
+                      >
+                        Dismiss
+                      </Button>
+                    )}
+                    {onApplyResumeSuggestion && (
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="xs"
+                        className="rounded-full"
+                        onClick={() => onApplyResumeSuggestion(suggestion)}
+                      >
+                        Apply
+                      </Button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <Select
-          label="Experience Level"
-          placeholder="Select your experience level"
-          options={experienceLevels}
-          value={formData?.experienceLevel}
-          onChange={(value) => onFieldChange('experienceLevel', value)}
-          error={errors?.experienceLevel}
-          required
-        />
 
+      {/* Profile Details Section */}
+      <div className="space-y-3 pt-2">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
+              Profile Details
+            </p>
+            <p className="text-sm text-gray-500 dark:text-slate-400">
+              Add your core details so we can personalize interview prep and recommendations.
+            </p>
+          </div>
+          <div className="hidden md:flex w-10 h-10 rounded-2xl bg-cyan-50 dark:bg-cyan-900/30 items-center justify-center text-cyan-600 dark:text-cyan-300">
+            <Icon name="UserRound" size={18} />
+          </div>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Select
+            label="Gender"
+            placeholder="Select your gender"
+            options={genders}
+            value={formData?.gender}
+            onChange={(value) => onFieldChange('gender', value)}
+            error={errors?.gender}
+            required
+          />
+          <PhoneInput
+            label="Phone Number"
+            value={formData?.phoneNumber}
+            onChange={(value) => onFieldChange('phoneNumber', value)}
+            error={errors?.phoneNumber}
+          />
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <Select
+            label="Experience Level"
+            placeholder="Select your experience level"
+            options={experienceLevels}
+            value={formData?.experienceLevel}
+            onChange={(value) => onFieldChange('experienceLevel', value)}
+            error={errors?.experienceLevel}
+            required
+          />
+
+          <Select
+            label="Industry"
+            placeholder="Select your industry"
+            options={industries}
+            value={formData?.industry}
+            onChange={(value) => onFieldChange('industry', value)}
+            error={errors?.industry}
+            searchable
+            required
+          />
+        </div>
         <Select
-          label="Industry"
-          placeholder="Select your industry"
-          options={industries}
-          value={formData?.industry}
-          onChange={(value) => onFieldChange('industry', value)}
-          error={errors?.industry}
+          label="Target Job Role"
+          placeholder="Select your target job role"
+          description="This helps us customize interview questions for you"
+          options={jobRoles}
+          value={formData?.targetRole}
+          onChange={(value) => onFieldChange('targetRole', value)}
+          error={errors?.targetRole}
           searchable
           required
         />
+        <Input
+          label="Career Goals"
+          type="text"
+          placeholder="e.g., Become a senior software engineer at a tech company"
+          description="Brief description of your career aspirations (optional)"
+          value={formData?.careerGoals}
+          onChange={(e) => onFieldChange('careerGoals', e?.target?.value)}
+          error={errors?.careerGoals}
+          maxLength={200}
+        />
       </div>
-      <Select
-        label="Target Job Role"
-        placeholder="Select your target job role"
-        description="This helps us customize interview questions for you"
-        options={jobRoles}
-        value={formData?.targetRole}
-        onChange={(value) => onFieldChange('targetRole', value)}
-        error={errors?.targetRole}
-        searchable
-        required
-      />
-      <Input
-        label="Career Goals"
-        type="text"
-        placeholder="e.g., Become a senior software engineer at a tech company"
-        description="Brief description of your career aspirations (optional)"
-        value={formData?.careerGoals}
-        onChange={(e) => onFieldChange('careerGoals', e?.target?.value)}
-        error={errors?.careerGoals}
-        maxLength={200}
-      />
 
       {/* Educational Background Section */}
       <div className="space-y-3 pt-2 pb-4">
@@ -668,7 +812,7 @@ const CandidateFields = ({
           <Select
             label="Field of Study"
             placeholder="Select your field of study"
-            options={fieldOfStudyOptions}
+            options={combinedFieldOfStudyOptions}
             value={formData?.fieldOfStudy}
             onChange={(value) => onFieldChange('fieldOfStudy', value)}
             error={errors?.fieldOfStudy}
@@ -680,7 +824,7 @@ const CandidateFields = ({
           <Select
             label="Institution Name"
             placeholder="Select your institution"
-            options={institutionOptions}
+            options={combinedInstitutionOptions}
             value={formData?.institutionName}
             onChange={(value) => onFieldChange('institutionName', value)}
             error={errors?.institutionName}
@@ -1068,26 +1212,6 @@ const CandidateFields = ({
             onChange={(value) => onFieldChange('preferredLanguage', value)}
             error={errors?.preferredLanguage}
           />
-        </div>
-      </div>
-      <div className="space-y-3 pt-2">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-base font-semibold text-gray-900 dark:text-slate-100">
-              Profile & Documents
-            </p>
-            <p className="text-sm text-gray-500 dark:text-slate-400">
-              Upload a photo and CV to personalize your practice experience.
-            </p>
-          </div>
-          <div className="hidden md:flex w-10 h-10 rounded-2xl bg-blue-50 dark:bg-blue-900/30 items-center justify-center text-blue-600 dark:text-blue-300">
-            <Icon name="Sparkles" size={18} />
-          </div>
-        </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {fileUploads.map((config) => (
-            <UploadCard key={config.fieldKey} {...config} />
-          ))}
         </div>
       </div>
     </div>

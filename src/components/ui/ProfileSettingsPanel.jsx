@@ -412,7 +412,7 @@ const PreferenceToggle = ({ id, label, description, checked, onChange, density =
   return (
   <label
     htmlFor={id}
-    className={`flex items-start rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/50 transition-colors hover:border-blue-200 dark:hover:border-blue-600 ${
+    className={`flex items-center rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/50 transition-colors hover:border-blue-200 dark:hover:border-blue-600 ${
       isCompact ? 'gap-2 p-2' : 'gap-3 p-3'
     }`}
   >
@@ -421,7 +421,7 @@ const PreferenceToggle = ({ id, label, description, checked, onChange, density =
       type="checkbox"
       checked={checked}
       onChange={(event) => onChange(event.target.checked)}
-      className="mt-1"
+      className="rounded-full"
     />
     <div>
       <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{label}</p>
@@ -530,6 +530,9 @@ const ProfileSettingsPanel = ({
   const [photoStatus, setPhotoStatus] = useState(null);
   const [resumeStatus, setResumeStatus] = useState(null);
   const [preferencesStatus, setPreferencesStatus] = useState(null);
+  const [saveAllStatus, setSaveAllStatus] = useState(null);
+  const [saveOrganizationSettings, setSaveOrganizationSettings] = useState(null);
+  const [isSavingOrganizationSettings, setIsSavingOrganizationSettings] = useState(false);
   const [activeTab, setActiveTab] = useState(isCompany ? 'company' : 'user');
 
   const preferencesKey = useMemo(() => {
@@ -591,6 +594,10 @@ const ProfileSettingsPanel = ({
     () => buildAssetSources(profilePhotoUrl),
     [profilePhotoUrl]
   );
+  const resumeSources = useMemo(
+    () => buildAssetSources(user?.resumeUrl),
+    [user?.resumeUrl]
+  );
 
   useEffect(() => {
     setPhotoSourceIndex(0);
@@ -640,6 +647,9 @@ const ProfileSettingsPanel = ({
 
   const handleProfileFieldChange = (field, value) => {
     setProfileForm((prev) => ({ ...prev, [field]: value }));
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
     if (profileStatus) {
       setProfileStatus(null);
     }
@@ -659,6 +669,9 @@ const ProfileSettingsPanel = ({
     const allowedLabel = isCompany ? 'PNG, JPG, WEBP, or SVG' : 'PNG, JPG, or WEBP';
 
     setPhotoStatus(null);
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
 
     if (!allowedTypes.includes(file.type)) {
       setPhotoStatus({ type: 'error', message: `Unsupported image type. Please upload a ${allowedLabel}.` });
@@ -679,10 +692,13 @@ const ProfileSettingsPanel = ({
     setPhotoFile(file);
   };
 
-  const handleSavePhoto = async () => {
+  const handleSavePhoto = async ({ showStatus = true } = {}) => {
     if (!photoFile) return;
-    setPhotoStatus(null);
+    if (showStatus) {
+      setPhotoStatus(null);
+    }
     setIsSavingPhoto(true);
+    let success = false;
     try {
       const response = await photoUploadMethod(photoFile);
       if (!response?.success || !response?.user) {
@@ -693,30 +709,41 @@ const ProfileSettingsPanel = ({
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      setPhotoStatus({
-        type: 'success',
-        message: isCompany ? 'Company logo updated.' : 'Profile photo updated.',
-      });
+      if (showStatus) {
+        setPhotoStatus({
+          type: 'success',
+          message: isCompany ? 'Company logo updated.' : 'Profile photo updated.',
+        });
+      }
+      success = true;
     } catch (error) {
-      setPhotoStatus({
-        type: 'error',
-        message: error?.message || 'Failed to update photo.',
-      });
+      if (showStatus) {
+        setPhotoStatus({
+          type: 'error',
+          message: error?.message || 'Failed to update photo.',
+        });
+      }
     } finally {
       setIsSavingPhoto(false);
     }
+    return success;
   };
 
-  const handleSaveProfile = async () => {
-    setProfileStatus(null);
+  const handleSaveProfile = async ({ showStatus = true } = {}) => {
+    if (showStatus) {
+      setProfileStatus(null);
+    }
     if (isCompany && selectedCompanyDepartment === OTHER_DEPARTMENT_VALUE && !customCompanyDepartment.trim()) {
-      setProfileStatus({
-        type: 'error',
-        message: 'Please specify your department when selecting "Other".',
-      });
-      return;
+      if (showStatus) {
+        setProfileStatus({
+          type: 'error',
+          message: 'Please specify your department when selecting "Other".',
+        });
+      }
+      return false;
     }
     setIsSavingProfile(true);
+    let success = false;
     try {
       const payload = isCompany
         ? {
@@ -764,15 +791,21 @@ const ProfileSettingsPanel = ({
         throw new Error('Unable to update profile. Please try again.');
       }
       setAuthenticatedUser(response.user);
-      setProfileStatus({ type: 'success', message: 'Profile updated successfully.' });
+      if (showStatus) {
+        setProfileStatus({ type: 'success', message: 'Profile updated successfully.' });
+      }
+      success = true;
     } catch (error) {
-      setProfileStatus({
-        type: 'error',
-        message: error?.message || 'Failed to update profile.',
-      });
+      if (showStatus) {
+        setProfileStatus({
+          type: 'error',
+          message: error?.message || 'Failed to update profile.',
+        });
+      }
     } finally {
       setIsSavingProfile(false);
     }
+    return success;
   };
 
   const handleDetectLocation = async () => {
@@ -853,20 +886,31 @@ const ProfileSettingsPanel = ({
     }
   };
 
-  const handleSavePreferences = () => {
-    setPreferencesStatus(null);
+  const handleSavePreferences = ({ showStatus = true } = {}) => {
+    if (showStatus) {
+      setPreferencesStatus(null);
+    }
     try {
       if (typeof window !== 'undefined') {
         window.localStorage.setItem(preferencesKey, JSON.stringify(preferences));
       }
-      setPreferencesStatus({ type: 'success', message: 'Preferences saved.' });
+      if (showStatus) {
+        setPreferencesStatus({ type: 'success', message: 'Preferences saved.' });
+      }
+      return true;
     } catch {
-      setPreferencesStatus({ type: 'error', message: 'Unable to save preferences.' });
+      if (showStatus) {
+        setPreferencesStatus({ type: 'error', message: 'Unable to save preferences.' });
+      }
+      return false;
     }
   };
 
   const handlePreferenceChange = (key, value) => {
     setPreferences((prev) => ({ ...prev, [key]: value }));
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
     if (preferencesStatus) {
       setPreferencesStatus(null);
     }
@@ -885,12 +929,20 @@ const ProfileSettingsPanel = ({
     const file = event?.target?.files?.[0];
     if (!file) {
       setResumeFile(null);
+      setResumeStatus(null);
+      if (saveAllStatus) {
+        setSaveAllStatus(null);
+      }
       return;
     }
 
-    // Validate file type
+    // Validate file type (MIME and extension fallback for browsers that omit MIME)
     const allowedTypes = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
-    if (!allowedTypes.includes(file.type)) {
+    const allowedExtensions = ['.pdf', '.doc', '.docx'];
+    const fileName = (file.name || '').toLowerCase();
+    const hasAllowedType = allowedTypes.includes(file.type);
+    const hasAllowedExtension = allowedExtensions.some((ext) => fileName.endsWith(ext));
+    if (!hasAllowedType && !hasAllowedExtension) {
       setResumeStatus({
         type: 'error',
         message: 'Resume must be a PDF or Word document.',
@@ -917,13 +969,19 @@ const ProfileSettingsPanel = ({
     }
 
     setResumeStatus(null);
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
     setResumeFile(file);
   };
 
-  const handleSaveResume = async () => {
+  const handleSaveResume = async ({ showStatus = true } = {}) => {
     if (!resumeFile) return;
-    setResumeStatus(null);
+    if (showStatus) {
+      setResumeStatus(null);
+    }
     setIsSavingResume(true);
+    let success = false;
     try {
       const response = await apiClient.auth.updateResume(resumeFile);
       if (!response?.success || !response?.user) {
@@ -934,19 +992,96 @@ const ProfileSettingsPanel = ({
       if (resumeInputRef.current) {
         resumeInputRef.current.value = '';
       }
-      setResumeStatus({
-        type: 'success',
-        message: 'Resume updated successfully.',
-      });
+      if (showStatus) {
+        setResumeStatus({
+          type: 'success',
+          message: 'Resume updated successfully.',
+        });
+      }
+      success = true;
     } catch (error) {
-      setResumeStatus({
-        type: 'error',
-        message: error?.message || 'Failed to update resume.',
-      });
+      if (showStatus) {
+        setResumeStatus({
+          type: 'error',
+          message: error?.message || 'Failed to update resume.',
+        });
+      }
     } finally {
       setIsSavingResume(false);
     }
+    return success;
   };
+
+  const handleSaveAllCandidate = async () => {
+    if (!isCandidate) return;
+
+    setSaveAllStatus(null);
+    const results = [];
+
+    const profileSaved = await handleSaveProfile({ showStatus: true });
+    results.push(profileSaved);
+
+    if (photoFile) {
+      const photoSaved = await handleSavePhoto({ showStatus: true });
+      results.push(Boolean(photoSaved));
+    }
+
+    if (resumeFile) {
+      const resumeSaved = await handleSaveResume({ showStatus: true });
+      results.push(Boolean(resumeSaved));
+    }
+
+    const preferencesSaved = handleSavePreferences({ showStatus: true });
+    results.push(Boolean(preferencesSaved));
+
+    const hasFailure = results.some((value) => !value);
+    if (hasFailure) {
+      setSaveAllStatus({
+        type: 'error',
+        message: 'Some changes could not be saved. Please check the messages above.',
+      });
+      return;
+    }
+
+    setSaveAllStatus({
+      type: 'success',
+      message: 'All changes saved successfully.',
+    });
+  };
+
+  const handleSaveAllCompany = async () => {
+    if (!isCompany) return;
+
+    setSaveAllStatus(null);
+    const results = [];
+
+    if (typeof saveOrganizationSettings === 'function') {
+      const orgSaved = await saveOrganizationSettings({ showStatus: true });
+      results.push(Boolean(orgSaved));
+    }
+
+    const profileSaved = await handleSaveProfile({ showStatus: true });
+    results.push(Boolean(profileSaved));
+
+    const preferencesSaved = handleSavePreferences({ showStatus: true });
+    results.push(Boolean(preferencesSaved));
+
+    const hasFailure = results.some((value) => !value);
+    if (hasFailure) {
+      setSaveAllStatus({
+        type: 'error',
+        message: 'Some changes could not be saved. Please check the messages above.',
+      });
+      return;
+    }
+
+    setSaveAllStatus({
+      type: 'success',
+      message: 'All changes saved successfully.',
+    });
+  };
+
+  const isSavingAny = isSavingProfile || isSavingPhoto || isSavingResume || isSavingOrganizationSettings;
 
   return (
     <section
@@ -957,32 +1092,32 @@ const ProfileSettingsPanel = ({
           : 'scroll-mt-24 rounded-3xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-6 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur'
       } ${className}`}
     >
-      <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${headerMargin} ${headerGap}`}>
-        <div className={`flex items-center ${headerGap}`}>
-          <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-            <Icon name={isCompany ? 'Building2' : (isAdmin ? 'Shield' : 'UserCircle')} size={22} color="white" />
+      {isAdmin && (
+        <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${headerMargin} ${headerGap}`}>
+          <div className={`flex items-center ${headerGap}`}>
+            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+              <Icon name="Shield" size={22} color="white" />
+            </div>
+            <div>
+              <p className="text-xs uppercase tracking-[0.35em] text-blue-600 dark:text-blue-400">
+                Profile Center
+              </p>
+              <h2 className={`${titleSize} font-semibold text-gray-900 dark:text-slate-100`}>
+                Profile & Preferences
+              </h2>
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Manage your administrator profile and alert preferences.
+              </p>
+            </div>
           </div>
-          <div>
-            <p className="text-xs uppercase tracking-[0.35em] text-blue-600 dark:text-blue-400">
-              Profile Center
-            </p>
-            <h2 className={`${titleSize} font-semibold text-gray-900 dark:text-slate-100`}>
-              Profile & Preferences
-            </h2>
-            <p className="text-sm text-gray-500 dark:text-slate-400">
-              {isAdmin
-                ? 'Manage your administrator profile and alert preferences.'
-                : 'Update your details, photo, and notification settings.'}
-            </p>
+          <div className="flex items-center gap-3">
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/60 text-xs text-gray-500 dark:text-slate-400 ${badgePadding}`}>
+              Admin workspace
+            </div>
+            {headerAction}
           </div>
         </div>
-        <div className="flex items-center gap-3">
-          <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/60 text-xs text-gray-500 dark:text-slate-400 ${badgePadding}`}>
-            {isCompany ? 'Company workspace' : (isAdmin ? 'Admin workspace' : 'Candidate workspace')}
-          </div>
-          {headerAction}
-        </div>
-      </div>
+      )}
 
       {/* Tabs for Company Users */}
       {isCompany && (
@@ -1030,7 +1165,11 @@ const ProfileSettingsPanel = ({
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.2 }}
         >
-          <OrganizationSettings />
+          <OrganizationSettings
+            hideSaveActions
+            onRegisterSaveHandler={(handler) => setSaveOrganizationSettings(() => handler)}
+            onSavingStateChange={setIsSavingOrganizationSettings}
+          />
         </motion.div>
       ) : (
         <motion.div
@@ -1043,26 +1182,33 @@ const ProfileSettingsPanel = ({
           <div className={columnSpacing}>
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
             <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Profile details</h3>
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                  {isCompany
-                    ? 'Keep your company profile current for candidates.'
-                    : isAdmin
-                      ? 'Keep your administrator identity and contact details current.'
-                      : 'Keep your candidate profile up to date.'}
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                  <Icon name="UserCircle" size={18} className="text-blue-600 dark:text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Profile Details</h3>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    {isCompany
+                      ? 'Keep your company profile current for candidates.'
+                      : isAdmin
+                        ? 'Keep your administrator identity and contact details current.'
+                        : 'Keep your candidate profile up to date.'}
+                  </p>
+                </div>
               </div>
-              <Button
-                type="button"
-                variant="default"
-                size="sm"
-                onClick={handleSaveProfile}
-                disabled={isSavingProfile}
-                className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-              >
-                {isSavingProfile ? 'Saving...' : 'Save profile'}
-              </Button>
+              {isAdmin && (
+                <Button
+                  type="button"
+                  variant="default"
+                  size="sm"
+                  onClick={handleSaveProfile}
+                  disabled={isSavingProfile}
+                  className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                >
+                  {isSavingProfile ? 'Saving...' : 'Save profile'}
+                </Button>
+              )}
             </div>
 
             <div className={formGrid}>
@@ -1230,6 +1376,7 @@ const ProfileSettingsPanel = ({
                     onChange={(value) => handleProfileFieldChange('industry', value)}
                     placeholder="Select industry"
                     searchable
+                    dropdownPlacement="bottom"
                   />
                 </>
               )}
@@ -1378,188 +1525,185 @@ const ProfileSettingsPanel = ({
         </div>
 
           <div className={columnSpacing}>
-            {/* Profile Photo Upload Section - Candidates only */}
-           {isCandidate && (
-             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
-               <div className="flex items-center justify-between">
-                 <div>
-                   <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{photoLabel}</h3>
-                   <p className="text-sm text-gray-500 dark:text-slate-400">Keep your profile visuals fresh.</p>
-                 </div>
-               </div>
+            {/* Candidate media cards in one row (left: photo, right: resume) */}
+            {isCandidate && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* Profile Photo Upload Section */}
+                <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 flex items-center justify-center">
+                        <Icon name="Image" size={18} className="text-cyan-600 dark:text-cyan-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{photoLabel}</h3>
+                        <p className="text-sm text-gray-500 dark:text-slate-400">Keep your profile visuals fresh.</p>
+                      </div>
+                    </div>
+                  </div>
 
-               <div className={`flex items-center ${photoGap}`}>
-                 <div className={`relative rounded-full border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-visible ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
-                   {photoSource ? (
-                     <>
-                       <div className={`w-full h-full rounded-full overflow-hidden ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
-                         <img
-                           src={photoSource}
-                           alt={photoLabel}
-                           className="w-full h-full object-cover"
-                           onError={handlePhotoError}
-                         />
-                       </div>
-                       {photoFile && (
-                         <button
-                           type="button"
-                           onClick={() => {
-                             setPhotoFile(null);
-                             setPhotoStatus(null);
-                             if (fileInputRef.current) {
-                               fileInputRef.current.value = '';
-                             }
-                           }}
-                           className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
-                           aria-label="Cancel upload"
-                         >
-                           <Icon name="X" size={12} color="white" />
-                         </button>
-                       )}
-                     </>
-                   ) : (
-                     <Icon name={photoIcon} size={28} className="text-blue-600 dark:text-blue-400" />
-                   )}
-                 </div>
-                 <div className="flex-1">
-                   <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                     {photoFile?.name || (photoSource ? 'Current image' : 'No image uploaded')}
-                   </p>
-                   <p className="text-xs text-gray-500 dark:text-slate-400">{photoHelper}</p>
-                   <StatusMessage status={photoStatus} />
-                 </div>
-               </div>
+                  <div className={`mx-auto flex w-fit max-w-full items-center justify-center ${photoGap}`}>
+                    <div className={`relative rounded-full border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-visible ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                      {photoSource ? (
+                        <>
+                          <div className={`w-full h-full rounded-full overflow-hidden ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                            <img
+                              src={photoSource}
+                              alt={photoLabel}
+                              className="w-full h-full object-cover"
+                              onError={handlePhotoError}
+                            />
+                          </div>
+                          {photoFile && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPhotoFile(null);
+                                setPhotoStatus(null);
+                                if (saveAllStatus) {
+                                  setSaveAllStatus(null);
+                                }
+                                if (fileInputRef.current) {
+                                  fileInputRef.current.value = '';
+                                }
+                              }}
+                              className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                              aria-label="Cancel upload"
+                            >
+                              <Icon name="X" size={12} color="white" />
+                            </button>
+                          )}
+                        </>
+                      ) : (
+                        <Icon name={photoIcon} size={28} className="text-blue-600 dark:text-blue-400" />
+                      )}
+                    </div>
+                    <div className="min-w-0 max-w-[26rem]">
+                      <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                        {photoFile?.name || (photoSource ? 'Current image' : 'No image uploaded')}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">{photoHelper}</p>
+                      <StatusMessage status={photoStatus} />
+                    </div>
+                  </div>
 
-               <div className="flex flex-wrap gap-2 justify-center">
-                 <Button
-                   type="button"
-                   variant="default"
-                   size="sm"
-                   iconName="Upload"
-                   className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-                   onClick={() => fileInputRef.current?.click()}
-                 >
-                   Choose file
-                 </Button>
-                 {photoFile && (
-                   <Button
-                     type="button"
-                     variant="outline"
-                     size="sm"
-                     className="rounded-full"
-                     onClick={handleSavePhoto}
-                     disabled={isSavingPhoto}
-                   >
-                     {isSavingPhoto ? 'Saving...' : 'Save photo'}
-                   </Button>
-                 )}
-               </div>
-
-               <input
-                 ref={fileInputRef}
-                 type="file"
-                 accept="image/*"
-                 onChange={handlePhotoFileChange}
-                 className="hidden"
-               />
-             </div>
-           )}
-
-          {/* Resume Upload Section - Only for Candidates */}
-          {isCandidate && (
-            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Resume / CV</h3>
-                  <p className="text-sm text-gray-500 dark:text-slate-400">Keep your resume up to date with your latest achievements.</p>
-                </div>
-              </div>
-
-              <div className={`flex items-center ${photoGap}`}>
-                <div className={`rounded-lg border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
-                  <Icon name="FileText" size={28} className="text-blue-600 dark:text-blue-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
-                    {resumeFile?.name || (user?.resumeOriginalName ? user.resumeOriginalName : 'No resume uploaded')}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-slate-400">
-                    {user?.resumeUrl ? 'Current resume is on file. Upload a new one to replace it.' : 'Upload your resume (PDF or Word document, max 10 MB)'}
-                  </p>
-                  <StatusMessage status={resumeStatus} />
-                </div>
-              </div>
-
-              <div className={`flex flex-wrap gap-2 ${resumeFile ? '' : 'justify-center'}`}>
-                <Button
-                  type="button"
-                  variant="default"
-                  size="sm"
-                  iconName="Upload"
-                  className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
-                  onClick={() => resumeInputRef.current?.click()}
-                >
-                  {user?.resumeUrl ? 'Update Resume' : 'Upload Resume'}
-                </Button>
-                {resumeFile && (
-                  <>
+                  <div className="flex flex-wrap gap-2 justify-center">
                     <Button
                       type="button"
-                      variant="outline"
+                      variant="default"
                       size="sm"
-                      className="rounded-full"
-                      onClick={handleSaveResume}
-                      disabled={isSavingResume}
+                      iconName="Upload"
+                      className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                      onClick={() => fileInputRef.current?.click()}
                     >
-                      {isSavingResume ? 'Saving...' : 'Save Resume'}
+                      Choose file
                     </Button>
+                  </div>
+
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handlePhotoFileChange}
+                    className="hidden"
+                  />
+                </div>
+
+                {/* Resume Upload Section */}
+                <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-xl bg-emerald-50 dark:bg-emerald-900/30 flex items-center justify-center">
+                        <Icon name="FileText" size={18} className="text-emerald-600 dark:text-emerald-400" />
+                      </div>
+                      <div>
+                        <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Resume / CV</h3>
+                        <p className="text-sm text-gray-500 dark:text-slate-400">Keep your resume up to date with your latest achievements.</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className={`mx-auto flex w-fit max-w-full items-center justify-center ${photoGap}`}>
+                    <div className={`relative rounded-lg border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-visible ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                      <Icon name="FileText" size={28} className="text-blue-600 dark:text-blue-400" />
+                      {resumeFile && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setResumeFile(null);
+                            setResumeStatus(null);
+                            if (saveAllStatus) {
+                              setSaveAllStatus(null);
+                            }
+                            if (resumeInputRef.current) {
+                              resumeInputRef.current.value = '';
+                            }
+                          }}
+                          className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                          aria-label="Remove selected resume"
+                        >
+                          <Icon name="X" size={12} color="white" />
+                        </button>
+                      )}
+                    </div>
+                    <div className="min-w-0 max-w-[26rem]">
+                      <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                        {resumeFile?.name || (user?.resumeOriginalName ? user.resumeOriginalName : 'No resume uploaded')}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        {user?.resumeUrl ? 'Current resume is on file. Upload a new one to replace it.' : 'Upload your resume (PDF or Word document, max 10 MB)'}
+                      </p>
+                      <StatusMessage status={resumeStatus} />
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap justify-center gap-2">
                     <Button
                       type="button"
-                      variant="ghost"
+                      variant="default"
                       size="sm"
-                      className="rounded-full text-gray-500 hover:text-gray-700 dark:text-slate-400 dark:hover:text-slate-200"
-                      onClick={() => {
-                        setResumeFile(null);
-                        setResumeStatus(null);
-                        if (resumeInputRef.current) {
-                          resumeInputRef.current.value = '';
-                        }
-                      }}
+                      iconName="Upload"
+                      className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                      onClick={() => resumeInputRef.current?.click()}
                     >
-                      Cancel
+                      Choose file
                     </Button>
-                  </>
-                )}
-                {user?.resumeUrl && !resumeFile && (
-                  <a
-                    href={`${API_BASE_URL}${normalizeUploadsPath(user.resumeUrl)}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
-                  >
-                    <Icon name="Download" size={14} />
-                    View Current Resume
-                  </a>
-                )}
-              </div>
+                    {resumeSources[0] && !resumeFile && (
+                      <a
+                        href={resumeSources[0]}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 rounded-full border border-blue-200 dark:border-blue-800 hover:border-blue-300 dark:hover:border-blue-700 transition-colors"
+                      >
+                        <Icon name="Download" size={14} />
+                        View Current Resume
+                      </a>
+                    )}
+                  </div>
 
-              <input
-                ref={resumeInputRef}
-                type="file"
-                accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                onChange={handleResumeFileChange}
-                className="hidden"
-              />
-            </div>
-          )}
+                  <input
+                    ref={resumeInputRef}
+                    type="file"
+                    accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    onChange={handleResumeFileChange}
+                    className="hidden"
+                  />
+                </div>
+              </div>
+            )}
 
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
             <div className="flex items-center justify-between">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Preferences</h3>
-                <p className="text-sm text-gray-500 dark:text-slate-400">
-                  Configure notifications and workflow settings.
-                </p>
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-50 dark:bg-amber-900/30 flex items-center justify-center">
+                  <Icon name="SlidersHorizontal" size={18} className="text-amber-600 dark:text-amber-400" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Preferences</h3>
+                  <p className="text-sm text-gray-500 dark:text-slate-400">
+                    Configure notifications and workflow settings.
+                  </p>
+                </div>
               </div>
             </div>
 
@@ -1586,19 +1730,48 @@ const ProfileSettingsPanel = ({
 
             <div className="flex items-center justify-between">
               <StatusMessage status={preferencesStatus} />
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                className="rounded-full"
-                onClick={handleSavePreferences}
-              >
-                Save preferences
-              </Button>
+              {isAdmin && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  className="rounded-full"
+                  onClick={handleSavePreferences}
+                >
+                  Save preferences
+                </Button>
+              )}
             </div>
           </div>
+
         </div>
         </motion.div>
+      )}
+      {(isCandidate || isCompany) && (
+        <div className="mt-4 rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-900/55 px-4 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="min-h-[20px]">
+            {saveAllStatus?.message ? (
+              <p className={`text-sm ${saveAllStatus.type === 'success' ? 'text-green-600 dark:text-green-400' : 'text-red-500 dark:text-red-400'}`}>
+                {saveAllStatus.message}
+              </p>
+            ) : (
+              <p className="text-sm text-gray-500 dark:text-slate-400">
+                Save to publish your latest profile updates.
+              </p>
+            )}
+          </div>
+          <Button
+            type="button"
+            variant="default"
+            size="sm"
+            iconName="Save"
+            className="rounded-2xl px-6"
+            onClick={isCompany ? handleSaveAllCompany : handleSaveAllCandidate}
+            disabled={isSavingAny}
+          >
+            {isSavingAny ? 'Saving...' : 'Save profile'}
+          </Button>
+        </div>
       )}
     </section>
   );

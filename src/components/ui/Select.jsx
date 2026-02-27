@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import { ChevronDown, Check, Search, X } from "lucide-react";
 import { cn } from "../../utils/cn";
-import Button from "./Button";
 import Input from "./Input";
 import LoadingIndicator from "./LoadingIndicator";
 
@@ -25,6 +24,7 @@ const Select = React.forwardRef(({
     id,
     name,
     dropdownZIndex = 2147483000,
+    dropdownPlacement = "auto",
     onChange,
     onOpenChange,
     ...props
@@ -101,7 +101,11 @@ const Select = React.forwardRef(({
             const minimumVisibleHeight = 180;
             const availableBelow = window.innerHeight - triggerRect.bottom - viewportPadding;
             const availableAbove = triggerRect.top - viewportPadding;
-            const openUpward = availableBelow < minimumVisibleHeight && availableAbove > availableBelow;
+            const openUpward = dropdownPlacement === "top"
+                ? true
+                : dropdownPlacement === "bottom"
+                    ? false
+                    : (availableBelow < minimumVisibleHeight && availableAbove > availableBelow);
             const availableSpace = Math.max(96, openUpward ? availableAbove : availableBelow);
             const maxHeight = Math.min(desiredMaxHeight, Math.max(96, availableSpace - 8));
             const unclampedTop = openUpward
@@ -128,7 +132,7 @@ const Select = React.forwardRef(({
             window.removeEventListener("resize", positionDropdown);
             window.removeEventListener("scroll", positionDropdown, true);
         };
-    }, [isOpen]);
+    }, [isOpen, dropdownPlacement]);
 
     // Filter options based on search
     const filteredOptions = searchable && searchTerm
@@ -320,14 +324,19 @@ const Select = React.forwardRef(({
                         )}
 
                         {clearable && hasValue && !loading && (
-                            <Button
-                                variant="ghost"
-                                size="icon"
-                                className="h-5 w-5 sm:h-4 sm:w-4"
+                            <span
+                                role="button"
+                                tabIndex={0}
+                                className="inline-flex h-5 w-5 sm:h-4 sm:w-4 items-center justify-center cursor-pointer rounded"
                                 onClick={handleClear}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        handleClear(event);
+                                    }
+                                }}
                             >
                                 <X className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-                            </Button>
+                            </span>
                         )}
 
                         <ChevronDown className={cn("h-5 w-5 sm:h-4 sm:w-4 transition-transform", isOpen && "rotate-180")} />

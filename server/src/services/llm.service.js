@@ -184,6 +184,8 @@ const OLLAMA_THINKING_TIMEOUT_MS = Math.max(
   Number.parseInt(process.env.OLLAMA_THINKING_TIMEOUT_MS || '120000', 10) || 120000,
 );
 const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
+const THINKING_UNSUPPORTED_ERROR_PATTERN = /does not support thinking/i;
+const _modelsWithoutThinkingSupport = new Set();
 
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
@@ -499,102 +501,128 @@ async function callOllama(messages, options = {}) {
   const requestedModel = typeof options?.model === 'string' && options.model.trim()
     ? options.model.trim()
     : null;
+  const requestedThink = options.think ?? false;
   let fallbackAttempted = false;
   let lastError = null;
 
   for (let index = 0; index < modelAttempts.length; index += 1) {
     const modelName = modelAttempts[index];
+    let modelError = null;
+    let includeThink = !_modelsWithoutThinkingSupport.has(modelName);
 
-    try {
-      const response = await fetchWithTimeout(
-        `${OLLAMA_BASE_URL}/api/chat`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
+    while (true) {
+      try {
+        const response = await fetchWithTimeout(
+          `${OLLAMA_BASE_URL}/api/chat`,
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              model: modelName,
+              messages,
+              stream: false,
+              ...(includeThink ? { think: requestedThink } : {}),
+              ...(options.format ? { format: options.format } : {}),
+              options: buildGenerationOptions(options),
+            }),
           },
-          body: JSON.stringify({
-            model: modelName,
-            messages,
-            stream: false,
-            think: options.think ?? false,
-            ...(options.format ? { format: options.format } : {}),
-            options: buildGenerationOptions(options),
-          }),
-        },
-        options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS,
-      );
+          options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS,
+        );
 
-      if (!response.ok) {
-        let bodyMessage = '';
-        try {
-          const bodyText = await response.text();
-          if (bodyText) {
-            try {
-              const bodyJson = JSON.parse(bodyText);
-              if (typeof bodyJson?.error === 'string') {
-                bodyMessage = ` - ${bodyJson.error}`;
-              } else {
-                bodyMessage = ` - ${bodyText.slice(0, 200)}`;
+        if (!response.ok) {
+          let bodyMessage = '';
+          let rawBodyText = '';
+          try {
+            const bodyText = await response.text();
+            rawBodyText = bodyText || '';
+            if (bodyText) {
+              try {
+                const bodyJson = JSON.parse(bodyText);
+                if (typeof bodyJson?.error === 'string') {
+                  bodyMessage = ` - ${bodyJson.error}`;
+                } else {
+                  bodyMessage = ` - ${bodyText.slice(0, 200)}`;
+                }
+              } catch {
+                bodyMessage = bodyText.slice(0, 200) ? ` - ${bodyText.slice(0, 200)}` : '';
               }
-            } catch {
-              bodyMessage = bodyText.slice(0, 200) ? ` - ${bodyText.slice(0, 200)}` : '';
             }
+          } catch (_) {
+            // ignore body read errors
           }
-        } catch (_) {
-          // ignore body read errors
+
+          const isThinkingUnsupported = (
+            response.status === 400
+            && includeThink
+            && THINKING_UNSUPPORTED_ERROR_PATTERN.test(rawBodyText || bodyMessage)
+          );
+
+          if (isThinkingUnsupported) {
+            _modelsWithoutThinkingSupport.add(modelName);
+            includeThink = false;
+            logger.warn('Ollama model does not support thinking; retrying without think parameter.', {
+              model: modelName,
+            });
+            continue;
+          }
+
+          const message = `Ollama API error: ${response.status} ${response.statusText}${bodyMessage}`;
+          logger.error('Ollama API error response', {
+            model: modelName,
+            status: response.status,
+            statusText: response.statusText,
+            body: bodyMessage,
+          });
+          throw new Error(message);
         }
-        const message = `Ollama API error: ${response.status} ${response.statusText}${bodyMessage}`;
-        logger.error('Ollama API error response', {
-          model: modelName,
-          status: response.status,
-          statusText: response.statusText,
-          body: bodyMessage,
-        });
-        throw new Error(message);
-      }
 
-      const data = await response.json();
-      const content = data?.message?.content;
-      if (typeof content !== 'string' || !content.trim()) {
-        throw new Error('Ollama API returned empty content');
-      }
-      const usedFallback = index > 0;
-      recordModelRuntimeCall({
-        requestedModel,
-        attemptedModels: modelAttempts,
-        successfulModel: modelName,
-        usedFallback,
-        fallbackAttempted,
-      });
-      return stripThinkingTags(content);
-    } catch (error) {
-      lastError = error;
-      const nextModel = modelAttempts[index + 1] || null;
-      if (nextModel) {
-        fallbackAttempted = true;
-        logger.warn('Ollama call failed, retrying with fallback model.', {
-          failedModel: modelName,
-          fallbackModel: nextModel,
-          error: error?.message || String(error),
+        const data = await response.json();
+        const content = data?.message?.content;
+        if (typeof content !== 'string' || !content.trim()) {
+          throw new Error('Ollama API returned empty content');
+        }
+        const usedFallback = index > 0;
+        recordModelRuntimeCall({
+          requestedModel,
+          attemptedModels: modelAttempts,
+          successfulModel: modelName,
+          usedFallback,
+          fallbackAttempted,
         });
-        continue;
+        return stripThinkingTags(content);
+      } catch (error) {
+        modelError = error;
+        break;
       }
-
-      logger.error('Ollama API call failed:', {
-        model: modelName,
-        error: error?.message || String(error),
-      });
-      recordModelRuntimeCall({
-        requestedModel,
-        attemptedModels: modelAttempts,
-        successfulModel: null,
-        usedFallback: false,
-        fallbackAttempted,
-        error: error?.message || String(error),
-      });
-      throw error;
     }
+
+    lastError = modelError;
+    const nextModel = modelAttempts[index + 1] || null;
+    if (nextModel) {
+      fallbackAttempted = true;
+      logger.warn('Ollama call failed, retrying with fallback model.', {
+        failedModel: modelName,
+        fallbackModel: nextModel,
+        error: modelError?.message || String(modelError),
+      });
+      continue;
+    }
+
+    logger.error('Ollama API call failed:', {
+      model: modelName,
+      error: modelError?.message || String(modelError),
+    });
+    recordModelRuntimeCall({
+      requestedModel,
+      attemptedModels: modelAttempts,
+      successfulModel: null,
+      usedFallback: false,
+      fallbackAttempted,
+      error: modelError?.message || String(modelError),
+    });
+    throw modelError;
   }
 
   recordModelRuntimeCall({
@@ -1127,5 +1155,24 @@ Confidence must be between 0 and 1.`;
       return { ok: false, model, url: OLLAMA_BASE_URL, error: error.message };
     }
   }
-}
 
+  /**
+   * Generic text generation with a system + user message.
+   * Returns raw text response.
+   */
+  static async generateWithFallback({ systemPrompt, userMessage, llmOptions = {} }) {
+    const resolvedOptions = resolveLlmOptions(llmOptions, {
+      model: DEFAULT_MODEL,
+      temperature: 0.3,
+      maxTokens: 1000,
+    });
+    const messages = [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ];
+    return callOllama(messages, {
+      ...resolvedOptions,
+      timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+    });
+  }
+}

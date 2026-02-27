@@ -372,4 +372,39 @@ router.patch(
   InterviewController.saveQuestionNotes
 );
 
+/**
+ * POST /api/interviews/:id/share-token
+ * Generate or retrieve a share token for interview results
+ */
+router.post(
+  '/:id/share-token',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.createShareToken
+);
+
+/**
+ * GET /api/interviews/shared/:token
+ * Get shared interview results by token (public, no auth required)
+ */
+router.get(
+  '/shared/:token',
+  [
+    param('token')
+      .trim()
+      .notEmpty()
+      .withMessage('Token is required')
+      .isLength({ max: 64 }),
+  ],
+  validateRequest,
+  InterviewController.getSharedResults
+);
+
 export default router;

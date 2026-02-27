@@ -1075,7 +1075,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                     type="checkbox"
                     checked={review.overrideOverall}
                     onChange={(e) => setReview({ ...review, overrideOverall: e.target.checked })}
-                    className="mt-1 h-5 w-5 rounded border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
+                    className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
                   />
                   <span className="text-sm text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-slate-100">
                     <strong>Use my overall score as the final score (override AI).</strong> When checked, the interview&apos;s final score will be your overall rating (0–10 scaled to 0–100) instead of the AI score. This supports SME calibration and human oversight.

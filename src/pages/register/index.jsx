@@ -29,6 +29,10 @@ import {
   passwordMeetsAllRequirements,
   PASSWORD_REQUIREMENT_MESSAGE,
 } from '../../utils/passwordValidation';
+import {
+  deriveCandidatePrefillUpdates,
+  formatAppliedPrefillFields,
+} from '../../utils/candidateResumePrefill.js';
 
 const MIN_REREVIEW_NOTE_LENGTH = 15;
 
@@ -109,6 +113,11 @@ const Register = () => {
     resumeFile: { status: 'idle', error: '' },
     companyLogo: { status: 'idle', error: '' },
     companyProof: { status: 'idle', error: '' },
+  });
+  const [resumePrefillState, setResumePrefillState] = useState({
+    status: 'idle', // idle | parsing | success | error
+    message: '',
+    suggestions: [],
   });
   const [emailVerification, setEmailVerification] = useState({
     status: 'idle',
@@ -264,6 +273,75 @@ const Register = () => {
     }));
   };
 
+  const handleCandidateModerateUpload = async (type, file, options = {}) => {
+    await moderateUpload(type, file, options);
+
+    if (type !== 'resumeFile' || !file) {
+      return true;
+    }
+
+    setResumePrefillState({
+      status: 'parsing',
+      message: `Parsing ${file.name} and pre-filling candidate details...`,
+      suggestions: [],
+    });
+
+    try {
+      const result = await apiClient.auth.parseResume(file, { accountType: 'candidate' });
+
+      if (!result?.success || !result?.extracted) {
+        throw new Error(result?.error || 'Resume parsing was unsuccessful.');
+      }
+
+      let appliedFields = [];
+      let suggestedFields = [];
+      setFormData((prev) => {
+        const { updates, appliedFields: applied, suggestions } = deriveCandidatePrefillUpdates(
+          prev,
+          result.extracted,
+          { confidence: result?.confidence || {} },
+        );
+        appliedFields = applied;
+        suggestedFields = suggestions;
+        return applied.length > 0 ? { ...prev, ...updates } : prev;
+      });
+
+      if (appliedFields.length > 0) {
+        setErrors((prev) => {
+          if (!prev || Object.keys(prev).length === 0) return prev;
+          const next = { ...prev };
+          appliedFields.forEach((field) => {
+            delete next[field];
+          });
+          return next;
+        });
+        setResumePrefillState({
+          status: 'success',
+          message: suggestedFields.length > 0
+            ? `Pre-filled ${appliedFields.length} field${appliedFields.length === 1 ? '' : 's'}: ${formatAppliedPrefillFields(appliedFields)}. Some fields need your review before applying.`
+            : `Pre-filled ${appliedFields.length} field${appliedFields.length === 1 ? '' : 's'}: ${formatAppliedPrefillFields(appliedFields)}. You can edit anything before creating the account.`,
+          suggestions: suggestedFields,
+        });
+      } else {
+        setResumePrefillState({
+          status: 'success',
+          message: suggestedFields.length > 0
+            ? 'Resume parsed. No high-confidence updates were auto-applied. Review suggested values below.'
+            : 'Resume parsed. Existing form values were kept. You can still edit all details manually.',
+          suggestions: suggestedFields,
+        });
+      }
+    } catch (error) {
+      setResumePrefillState({
+        status: 'error',
+        message: friendlyRateLimitMessage(error?.message) || 'Could not parse this resume right now. You can fill the details manually and continue.',
+        suggestions: [],
+      });
+    }
+
+    return true;
+  };
+
   useEffect(() => {
     if (formData.accountType === 'candidate') {
       setUploadModeration((prev) => ({
@@ -277,6 +355,7 @@ const Register = () => {
         profilePhoto: { status: 'idle', error: '' },
         resumeFile: { status: 'idle', error: '' },
       }));
+      setResumePrefillState({ status: 'idle', message: '', suggestions: [] });
     }
   }, [formData.accountType]);
 
@@ -501,6 +580,9 @@ const Register = () => {
 
   const handleFieldChange = (field, value) => {
     setFormData(prev => ({ ...prev, [field]: value }));
+    if (field === 'resumeFile' && !value) {
+      setResumePrefillState({ status: 'idle', message: '', suggestions: [] });
+    }
     if (errors?.[field]) {
       setErrors(prev => ({ ...prev, [field]: '' }));
     }
@@ -1729,6 +1811,31 @@ const Register = () => {
 
   const isCompanyStepFour = formData?.accountType === 'company' && currentStep === 4;
   const showOrganizationStatusSidebar = isCompanyStepFour && organizationStatus && organizationStatus !== 'PENDING';
+
+  const handleApplyResumeSuggestion = (suggestion) => {
+    if (!suggestion?.field) return;
+    setFormData((prev) => ({ ...prev, [suggestion.field]: suggestion.value }));
+    setErrors((prev) => {
+      if (!prev || Object.keys(prev).length === 0) return prev;
+      const next = { ...prev };
+      delete next[suggestion.field];
+      return next;
+    });
+    setResumePrefillState((prev) => ({
+      ...prev,
+      suggestions: (prev?.suggestions || []).filter((item) => item.field !== suggestion.field),
+    }));
+  };
+
+  const handleDismissResumeSuggestion = (suggestion) => {
+    if (!suggestion?.field) return;
+    setResumePrefillState((prev) => ({
+      ...prev,
+      suggestions: (prev?.suggestions || []).filter((item) => (
+        !(item.field === suggestion.field && item.displayValue === suggestion.displayValue)
+      )),
+    }));
+  };
   const organizationSidebarStatusConfig = organizationStatus === 'REJECTED'
     ? {
       title: 'Review Required',
@@ -2039,8 +2146,11 @@ const Register = () => {
                               isDetectingLocation={isDetectingLocation}
                               locationHelper={locationHelper}
                               uploadModeration={uploadModeration}
-                              onModerateUpload={moderateUpload}
+                              onModerateUpload={handleCandidateModerateUpload}
                               onResetModeration={resetUploadModeration}
+                              resumePrefillState={resumePrefillState}
+                              onApplyResumeSuggestion={handleApplyResumeSuggestion}
+                              onDismissResumeSuggestion={handleDismissResumeSuggestion}
                             />
                           ) : (
                             <CompanyFields
@@ -2492,4 +2602,3 @@ const Register = () => {
 };
 
 export default Register;
-

@@ -74,7 +74,7 @@ const CompanySettingsPage = () => {
                     Settings
                   </h1>
                   <p className="text-sm text-gray-600 dark:text-slate-400">
-                    Manage your organization profile and user preferences.
+                    Manage your company profile, account details, and notification preferences.
                   </p>
                 </div>
               </div>

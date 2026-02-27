@@ -24,6 +24,7 @@ import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 import { cn } from '../../utils/cn';
 import { ORGANIZATION_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
+import ApplicationFormBuilder from '../../components/ui/ApplicationFormBuilder';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const MAX_ADVERT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -783,6 +784,7 @@ const CompanyJobsPage = () => {
       skillFocus: [],
       duration: 30,
     },
+    customFormFields: [],
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
@@ -1021,6 +1023,7 @@ const CompanyJobsPage = () => {
         skillFocus: [],
         duration: 30,
       },
+      customFormFields: Array.isArray(job.customFormFields) ? job.customFormFields : [],
     });
     setShowCreateModal(true);
   };
@@ -1126,6 +1129,8 @@ const CompanyJobsPage = () => {
           : undefined,
         // Include templateConfig if provided
         templateConfig: formData.templateConfig || undefined,
+        // Include custom application form fields if any
+        customFormFields: formData.customFormFields?.length > 0 ? formData.customFormFields : undefined,
       };
 
       // Remove undefined fields
@@ -2477,6 +2482,12 @@ const CompanyJobsPage = () => {
                   onChange={(e) => setFormData({ ...formData, postingDuration: e.target.value })}
                   placeholder="30"
                   description="Controls how long the job stays active before it expires."
+                />
+
+                {/* Custom Application Form Builder */}
+                <ApplicationFormBuilder
+                  fields={formData.customFormFields || []}
+                  onChange={(fields) => setFormData((p) => ({ ...p, customFormFields: fields }))}
                 />
 
                 <div className="flex gap-3 pt-4">

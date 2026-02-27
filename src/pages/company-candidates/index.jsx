@@ -5,6 +5,7 @@ import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import CandidateManager from '../company-dashboard/components/CandidateManager';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
+import EmailTemplatesManager from '../../components/ui/EmailTemplatesManager';
 import Icon from '../../components/AppIcon';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -87,6 +88,7 @@ const CompanyCandidatesPage = () => {
               </div>
               
               <CandidateManager canStartReview={canStartReview} />
+              <EmailTemplatesManager />
             </motion.section>
           </main>
         </div>

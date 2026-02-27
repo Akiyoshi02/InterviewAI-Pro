@@ -12,7 +12,7 @@ import {
 import logger from '../utils/logger.js';
 import { unlink } from 'fs/promises';
 import { createHmac, randomInt, timingSafeEqual } from 'crypto';
-import { validateCandidateProfilePhoto, validateCompanyLogo } from '../services/imageModeration.service.js';
+import { validateCandidateProfilePhoto, validateCompanyCover, validateCompanyLogo } from '../services/imageModeration.service.js';
 import { validateBusinessVerificationDocument, validateResumeDocument } from '../services/documentModeration.service.js';
 import { emailService } from '../services/email.service.js';
 
@@ -65,6 +65,7 @@ const sanitizeUser = (user) => {
     resumeUrl: user.resumeUrl || null,
     resumeOriginalName: user.resumeOriginalName || null,
     companyLogoUrl: user.companyLogoUrl || null,
+    companyCoverUrl: user.companyCoverUrl || null,
     companyVerificationUrl: user.companyVerificationUrl || null,
     companyVerificationOriginalName: user.companyVerificationOriginalName || null,
     primaryOrganizationId: user.primaryOrganizationId || null,
@@ -80,8 +81,20 @@ const sanitizeOrganization = (organization) => {
     id: organization.id,
     name: organization.name,
     displayName: organization.displayName,
+    tagline: organization.tagline || null,
     industry: organization.industry,
+    companyType: organization.companyType || null,
     companySize: organization.companySize,
+    website: organization.website || null,
+    location: organization.location || null,
+    headquartersLocation: organization.headquartersLocation || null,
+    contactEmail: organization.contactEmail || null,
+    contactPhone: organization.contactPhone || null,
+    careersPageUrl: organization.careersPageUrl || null,
+    linkedinUrl: organization.linkedinUrl || null,
+    address: organization.address || null,
+    description: organization.description || null,
+    profile: organization.profile || {},
     status: organization.status || 'PENDING', // Include status for approval workflow
     approvedAt: organization.approvedAt || null,
     rejectedReason: organization.rejectedReason || null,
@@ -129,10 +142,12 @@ const buildUserResponse = (user, organization = null, membership = null) => ({
 const PROFILE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const RESUME_MAX_BYTES = 10 * 1024 * 1024;
 const COMPANY_LOGO_MAX_BYTES = 5 * 1024 * 1024;
+const COMPANY_COVER_MAX_BYTES = 8 * 1024 * 1024;
 const COMPANY_PROOF_MAX_BYTES = 15 * 1024 * 1024;
 const PROFILE_PHOTO_BASE_PATH = '/uploads/profile-photos';
 const RESUME_BASE_PATH = '/uploads/resumes';
 const COMPANY_LOGO_BASE_PATH = '/uploads/company-logos';
+const COMPANY_COVER_BASE_PATH = '/uploads/company-covers';
 const COMPANY_PROOF_BASE_PATH = '/uploads/company-verifications';
 
 const EMAIL_VERIFICATION_CODE_LENGTH = 8;
@@ -508,15 +523,28 @@ export class AuthController {
           ownerId: firebaseUid,
           name: companyName || `${fullName || 'New'} Organization`,
           displayName: companyName || `${fullName || 'New'} Organization`,
+          tagline: null,
           industry: industry || null,
           companySize: companySize || null,
           companyType: companyType || null,
+          location: companyLocation || null,
+          headquartersLocation: companyLocation || null,
+          contactEmail: companyEmail || null,
           logo: logoUrl,
           website: companyWebsite || null,
           address: companyAddress || null,
           description: companyDescription || null,
           facebookUrl: facebookUrl || null,
           linkedinUrl: companyLinkedinUrl || null,
+          profile: {
+            tagline: null,
+            website: companyWebsite || null,
+            location: companyLocation || null,
+            about: companyDescription || null,
+            socialLinks: {
+              linkedin: companyLinkedinUrl || null,
+            },
+          },
         });
 
         membership = await organizationMemberStore.addMember({
@@ -618,6 +646,7 @@ export class AuthController {
           accountTypeEnum === 'COMPANY'
             ? buildUploadUrl(COMPANY_LOGO_BASE_PATH, companyLogo?.filename)
             : null,
+        companyCoverUrl: null,
         companyVerificationUrl:
           accountTypeEnum === 'COMPANY'
             ? buildUploadUrl(COMPANY_PROOF_BASE_PATH, companyProof?.filename)
@@ -929,6 +958,59 @@ export class AuthController {
     }
   }
 
+  static async updateCompanyCover(req, res, next) {
+    const companyCover = req.file;
+    const uploadedPaths = [];
+    if (companyCover?.path) uploadedPaths.push(companyCover.path);
+
+    try {
+      if (!companyCover) {
+        const error = new Error('Company cover image is required.');
+        error.status = 400;
+        throw error;
+      }
+      if (companyCover.size > COMPANY_COVER_MAX_BYTES) {
+        const error = new Error('Company cover image must be 8 MB or less.');
+        error.status = 400;
+        throw error;
+      }
+
+      await validateCompanyCover(companyCover.path);
+      const coverUrl = buildUploadUrl(COMPANY_COVER_BASE_PATH, companyCover.filename);
+
+      const organizationId = req.user.primaryOrganizationId || req.user.organizationContext?.organization?.id;
+      if (!organizationId) {
+        const error = new Error('Organization context required to update cover image.');
+        error.status = 403;
+        throw error;
+      }
+
+      await organizationStore.updateProfileCover(organizationId, coverUrl);
+
+      const updated = await userStore.update(req.user.uid, {
+        companyCoverUrl: coverUrl,
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'organization-updated', {
+        organizationId,
+        coverUpdated: true,
+      });
+
+      const organization = req.user.organizationContext?.organization || null;
+      const membership = req.user.organizationContext?.membership || null;
+
+      res.json({
+        success: true,
+        coverUrl,
+        user: buildUserResponse(updated, organization, membership),
+      });
+    } catch (error) {
+      await cleanupUploadedFiles(uploadedPaths);
+      logger.error('Update company cover error:', error);
+      next(error);
+    }
+  }
+
   static async updateCompanyVerificationDocument(req, res, next) {
     const companyProof = req.file;
     const uploadedPaths = [];
@@ -1020,6 +1102,462 @@ export class AuthController {
     } catch (error) {
       await cleanupUploadedFiles(uploadedPaths);
       logger.error('Update resume error:', error);
+      next(error);
+    }
+  }
+
+  static async parseResume(req, res, next) {
+    const resumeFile = req.file;
+    try {
+      const user = await userStore.getByUid(req.user.uid);
+      const persistedAccountType = (user?.accountType || '').toString().toUpperCase();
+      const hintedAccountType = (req.body?.accountType || req.user?.metadata?.accountType || '')
+        .toString()
+        .toUpperCase();
+
+      if (persistedAccountType && persistedAccountType !== 'CANDIDATE') {
+        return res.status(403).json({ success: false, error: 'Candidate access required.' });
+      }
+
+      if (!persistedAccountType && hintedAccountType !== 'CANDIDATE') {
+        return res.status(403).json({ success: false, error: 'Candidate access required.' });
+      }
+
+      let resumeText = '';
+
+      if (resumeFile) {
+        // Parse uploaded file
+        const ext = (resumeFile.originalname || '').split('.').pop().toLowerCase();
+        if (ext === 'pdf') {
+          const { PDFParse } = await import('pdf-parse');
+          const fs = await import('fs/promises');
+          const buffer = await fs.readFile(resumeFile.path);
+          const parser = new PDFParse({ data: buffer });
+          const data = await parser.getText();
+          resumeText = data?.text || '';
+          await parser.destroy();
+        } else if (ext === 'docx' || ext === 'doc') {
+          const mammoth = await import('mammoth');
+          const result = await mammoth.extractRawText({ path: resumeFile.path });
+          resumeText = result.value || '';
+        } else {
+          const fs = await import('fs/promises');
+          resumeText = await fs.readFile(resumeFile.path, 'utf-8');
+        }
+        // Cleanup temp file
+        try { await import('fs/promises').then((fs) => fs.unlink(resumeFile.path)); } catch {}
+      } else if (user?.resumeUrl) {
+        return res.status(400).json({ success: false, error: 'Please upload a resume file to parse.' });
+      } else {
+        return res.status(400).json({ success: false, error: 'No resume file provided.' });
+      }
+
+      if (!resumeText || resumeText.trim().length < 50) {
+        return res.status(422).json({ success: false, error: 'Could not extract text from the resume. Please try a different file.' });
+      }
+
+      const normalizeText = (value) => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '');
+      const normalizeUrl = (value) => {
+        const raw = normalizeText(value);
+        if (!raw) return null;
+        const withScheme = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+        try {
+          const parsed = new URL(withScheme);
+          return parsed.href.replace(/\/+$/, '');
+        } catch {
+          return null;
+        }
+      };
+      const toNumberOrNull = (value) => {
+        if (typeof value === 'number' && Number.isFinite(value)) return value;
+        if (typeof value !== 'string') return null;
+        const parsed = Number.parseFloat(value);
+        return Number.isFinite(parsed) ? parsed : null;
+      };
+      const toStringArray = (value, limit = 25) => {
+        const rawList = Array.isArray(value)
+          ? value
+          : typeof value === 'string'
+            ? value.split(/[,\n|/\u2022·]/)
+            : [];
+        const seen = new Set();
+        const normalized = [];
+        rawList.forEach((item) => {
+          const cleaned = normalizeText(item);
+          if (!cleaned || cleaned.length > 120) return;
+          const key = cleaned.toLowerCase();
+          if (seen.has(key)) return;
+          seen.add(key);
+          normalized.push(cleaned);
+        });
+        return normalized.slice(0, limit);
+      };
+      const hasValue = (value) => {
+        if (Array.isArray(value)) return value.length > 0;
+        if (typeof value === 'number') return Number.isFinite(value);
+        if (value === null || value === undefined) return false;
+        return String(value).trim().length > 0;
+      };
+      const compareScalar = (first, second) => {
+        const firstNormalized = normalizeText(first).toLowerCase();
+        const secondNormalized = normalizeText(second).toLowerCase();
+        if (!firstNormalized || !secondNormalized) return false;
+        if (firstNormalized === secondNormalized) return true;
+        return firstNormalized.includes(secondNormalized) || secondNormalized.includes(firstNormalized);
+      };
+      const compareArray = (first, second) => {
+        const firstNormalized = toStringArray(first, 50).map((item) => item.toLowerCase());
+        const secondNormalized = toStringArray(second, 50).map((item) => item.toLowerCase());
+        if (firstNormalized.length === 0 || secondNormalized.length === 0) return false;
+        const secondSet = new Set(secondNormalized);
+        const shared = firstNormalized.filter((item) => secondSet.has(item)).length;
+        const union = new Set([...firstNormalized, ...secondNormalized]).size;
+        if (union === 0) return false;
+        return (shared / union) >= 0.6;
+      };
+      const compareValues = (first, second) => {
+        if (!hasValue(first) || !hasValue(second)) return false;
+        if (Array.isArray(first) || Array.isArray(second)) return compareArray(first, second);
+        if (typeof first === 'number' || typeof second === 'number') {
+          return Number(first) === Number(second);
+        }
+        return compareScalar(first, second);
+      };
+      const deterministicFields = new Set([
+        'email',
+        'phone',
+        'linkedinUrl',
+        'githubUrl',
+        'portfolioUrl',
+        'graduationYear',
+      ]);
+      const semiDeterministicFields = new Set([
+        'skills',
+        'certifications',
+        'yearsOfExperience',
+        'institutionName',
+        'fieldOfStudy',
+      ]);
+      const confidenceFromSource = (field, source, agreed) => {
+        if (agreed) {
+          if (deterministicFields.has(field)) return 0.98;
+          if (semiDeterministicFields.has(field)) return 0.94;
+          return 0.9;
+        }
+        if (source === 'heuristic') {
+          if (deterministicFields.has(field)) return 0.9;
+          if (semiDeterministicFields.has(field)) return 0.8;
+          return 0.74;
+        }
+        if (source === 'llm') {
+          if (deterministicFields.has(field)) return 0.76;
+          if (semiDeterministicFields.has(field)) return 0.7;
+          return 0.66;
+        }
+        return 0;
+      };
+      const resolveField = (field, llmValue, heuristicValue) => {
+        const llmHas = hasValue(llmValue);
+        const heuristicHas = hasValue(heuristicValue);
+        if (!llmHas && !heuristicHas) {
+          return { value: null, source: 'none', confidence: 0 };
+        }
+
+        const agreed = llmHas && heuristicHas && compareValues(llmValue, heuristicValue);
+        if (agreed) {
+          const value = deterministicFields.has(field) ? heuristicValue : llmValue;
+          return { value, source: 'agreement', confidence: confidenceFromSource(field, 'agreement', true) };
+        }
+
+        if (heuristicHas && llmHas) {
+          const source = deterministicFields.has(field) || semiDeterministicFields.has(field) ? 'heuristic' : 'llm';
+          const value = source === 'heuristic' ? heuristicValue : llmValue;
+          return { value, source, confidence: confidenceFromSource(field, source, false) };
+        }
+
+        if (heuristicHas) {
+          return { value: heuristicValue, source: 'heuristic', confidence: confidenceFromSource(field, 'heuristic', false) };
+        }
+
+        return { value: llmValue, source: 'llm', confidence: confidenceFromSource(field, 'llm', false) };
+      };
+
+      const extractHeuristicProfile = (textValue) => {
+        const cleanText = textValue.replace(/\s+/g, ' ').trim();
+        const lines = textValue
+          .split(/\r?\n/)
+          .map((line) => line.trim())
+          .filter(Boolean);
+
+        const emailMatch = textValue.match(/[\w.+%-]+@[\w.-]+\.[a-z]{2,}/i);
+        const phoneMatch = textValue.match(/(?:\+?\d[\d\s().-]{8,}\d)/);
+
+        const rawUrlMatches = textValue.match(/(?:https?:\/\/|www\.)[^\s<>()]+/gi) || [];
+        const urls = Array.from(new Set(
+          rawUrlMatches
+            .map((url) => url.replace(/[),.;]+$/, ''))
+            .map((url) => normalizeUrl(url))
+            .filter(Boolean),
+        ));
+        const linkedinUrl = urls.find((url) => /linkedin\.com/i.test(url)) || null;
+        const githubUrl = urls.find((url) => /github\.com/i.test(url)) || null;
+        const portfolioUrl = urls.find((url) => !/linkedin\.com|github\.com/i.test(url)) || null;
+
+        const nameFromPrefix = cleanText.match(
+          /^([A-Za-z][A-Za-z .'-]{2,80}?)(?=\s+(?:Email|Phone|Location|Target Role|Experience|Professional Summary|Summary|Skills|Education)\b)/i
+        )?.[1];
+        const nameFromLine = lines.find(
+          (line, index) => index < 6
+            && !line.includes('@')
+            && !line.includes(':')
+            && /^[A-Za-z][A-Za-z .'-]{2,80}$/.test(line)
+            && line.split(/\s+/).length >= 2,
+        );
+
+        const roleFromLabel = textValue.match(
+          /(?:Target Role|Desired Role|Current Role|Role|Position)\s*[:\-]\s*([^\n\r]+?)(?=\s+(?:Experience|Professional Summary|Summary|Skills|Education|Location|$))/i
+        )?.[1]?.trim();
+        const knownRole = [
+          'Software Engineer',
+          'Frontend Engineer',
+          'Frontend Developer',
+          'Backend Engineer',
+          'Backend Developer',
+          'Full Stack Engineer',
+          'Full Stack Developer',
+          'DevOps Engineer',
+          'QA Engineer',
+          'Data Analyst',
+          'Data Scientist',
+        ].find((role) => new RegExp(`\b${role}\b`, 'i').test(textValue)) || null;
+
+        const yearsMatch = textValue.match(/(\d+(?:\.\d+)?)\s*\+?\s*(?:years?|yrs?)/i);
+        const yearsOfExperience = yearsMatch ? Number.parseFloat(yearsMatch[1]) : null;
+
+        const normalizeExperienceLevel = (value) => {
+          const normalized = (value || '').toString().toLowerCase().trim();
+          if (!normalized) return null;
+          if (/(entry|junior|intern|graduate|fresher)/.test(normalized)) return 'entry';
+          if (/mid/.test(normalized)) return 'mid';
+          if (/(senior|sr)/.test(normalized)) return 'senior';
+          if (/(lead|principal|staff)/.test(normalized)) return 'lead';
+          if (/(executive|director|head|vp|c-level)/.test(normalized)) return 'executive';
+          return null;
+        };
+        const inferExperienceLevel = (years) => {
+          if (typeof years !== 'number' || Number.isNaN(years)) return null;
+          if (years <= 2) return 'entry';
+          if (years <= 5) return 'mid';
+          if (years <= 10) return 'senior';
+          if (years <= 15) return 'lead';
+          return 'executive';
+        };
+        const experienceLabel = textValue.match(
+          /(?:Experience Level|Seniority)\s*[:\-]\s*([^\n\r]+)/i
+        )?.[1];
+        const experienceLevel = normalizeExperienceLevel(experienceLabel) || inferExperienceLevel(yearsOfExperience);
+
+        const location = textValue.match(
+          /(?:Location|Address|Based in)\s*[:\-]\s*([^\n\r]+?)(?=\s+(?:Target Role|Experience|Professional Summary|Summary|Skills|Education|$))/i
+        )?.[1]?.trim() || null;
+
+        const education = textValue.match(
+          /(?:Education|Qualification|Degree)\s*[:\-]\s*([^\n\r]+?)(?=\s+(?:Experience|Professional Summary|Summary|Skills|Location|$))/i
+        )?.[1]?.trim() || null;
+        const fieldOfStudy = textValue.match(
+          /(?:Field of Study|Major|Specialization)\s*[:\-]\s*([^\n\r]+)/i
+        )?.[1]?.trim() || null;
+
+        const summary = textValue.match(
+          /(?:Professional Summary|Summary|Profile)\s*[:\-]\s*([^\n\r]+?)(?=\s+(?:Skills|Experience|Education|Location|$))/i
+        )?.[1]?.trim() || null;
+
+        const skillsFromLabel = textValue.match(
+          /(?:Skills?|Technologies|Technical Skills?|Tools?)\s*[:\-]\s*([^\n\r]+?)(?=\s+(?:Experience|Professional Summary|Summary|Education|Location|$))/i
+        )?.[1];
+        const skills = toStringArray(skillsFromLabel, 20);
+
+        const certificationLabel = textValue.match(
+          /(?:Certifications?|Certificates?|Licenses?)\s*[:\-]\s*([^\n\r]+)/i
+        )?.[1];
+        const certificationLines = lines
+          .filter((line) => /(certified|certification|certificate|scrum master|pmp|aws|azure|gcp|kubernetes|ccna|istqb)/i.test(line))
+          .slice(0, 8);
+        const certifications = toStringArray([...(certificationLabel ? [certificationLabel] : []), ...certificationLines], 20);
+
+        const institutionByLabel = textValue.match(
+          /(?:Institution|University|College|School)\s*[:\-]\s*([^\n\r]+)/i
+        )?.[1]?.trim();
+        const institutionByLine = lines.find((line) => /(university|institute|college|school|academy|campus|polytechnic)/i.test(line));
+        const institutionName = institutionByLabel || institutionByLine || null;
+
+        const currentYear = new Date().getFullYear();
+        const graduationByLabel = textValue.match(
+          /(?:Graduation|Graduated|Completion|Pass(?:ed)? Out)\s*(?:Year|Date)?\s*[:\-]?\s*((?:19|20)\d{2})/i
+        )?.[1];
+        const yearCandidates = (textValue.match(/\b(?:19|20)\d{2}\b/g) || [])
+          .map((year) => Number.parseInt(year, 10))
+          .filter((year) => year >= 1970 && year <= currentYear + 6);
+        const graduationYear = graduationByLabel || (yearCandidates.length > 0 ? Math.max(...yearCandidates).toString() : null);
+
+        let industry = null;
+        if (/(technology|software|information technology|computer science|developer|engineering)/i.test(textValue)) {
+          industry = 'Technology & Software';
+        }
+
+        return {
+          fullName: nameFromPrefix?.trim() || nameFromLine || null,
+          email: emailMatch?.[0] || null,
+          phone: phoneMatch?.[0]?.trim() || null,
+          location,
+          targetRole: roleFromLabel || knownRole,
+          experienceLevel,
+          yearsOfExperience: Number.isFinite(yearsOfExperience) ? yearsOfExperience : null,
+          skills: skills.length > 0 ? skills : [],
+          certifications,
+          linkedinUrl,
+          githubUrl,
+          portfolioUrl,
+          industry,
+          education,
+          fieldOfStudy,
+          institutionName,
+          graduationYear,
+          summary,
+        };
+      };
+
+      // Use LLM to extract structured profile data, then enrich missing values with deterministic heuristics.
+      const { LLMService } = await import('../services/llm.service.js');
+      const prompt = `Extract structured profile information from this resume text. Return ONLY valid JSON with these fields (use null/[] if unknown, do not invent values):
+{
+  "fullName": "string or null",
+  "email": "string or null",
+  "phone": "string or null",
+  "location": "string or null",
+  "targetRole": "most recent or desired job title (string or null)",
+  "experienceLevel": "one of: entry, junior, mid, senior, lead, executive (string or null)",
+  "yearsOfExperience": "number or null",
+  "skills": ["array", "of", "skills"],
+  "certifications": ["array", "of", "certifications"],
+  "linkedinUrl": "full LinkedIn profile URL or null",
+  "githubUrl": "full GitHub profile URL or null",
+  "portfolioUrl": "full portfolio/personal website URL or null",
+  "industry": "primary industry (string or null)",
+  "education": "highest degree or qualification (string or null)",
+  "fieldOfStudy": "field/major (string or null)",
+  "institutionName": "institution/university/college name (string or null)",
+  "graduationYear": "4-digit year string or null",
+  "summary": "brief professional summary in 1-2 sentences (string or null)"
+}
+
+Resume text:
+${resumeText.substring(0, 12000)}`;
+
+      const heuristicExtracted = extractHeuristicProfile(resumeText);
+      let extracted = {};
+
+      try {
+        const llmResult = await LLMService.generateWithFallback({
+          systemPrompt: 'You are a resume parser. Extract structured profile data from resume text with high precision and no fabrication.',
+          userMessage: prompt,
+          llmOptions: { model: process.env.OLLAMA_MODEL || 'qwen3:8b', temperature: 0.1, maxTokens: 1200 },
+        });
+        const jsonMatch = (llmResult || '').match(/\{[\s\S]*\}/);
+        if (jsonMatch) {
+          const parsed = JSON.parse(jsonMatch[0]);
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+            extracted = parsed;
+          }
+        }
+      } catch {
+        extracted = {};
+      }
+
+      const llmExtracted = {
+        fullName: extracted.fullName,
+        email: extracted.email,
+        phone: extracted.phone,
+        location: extracted.location,
+        targetRole: extracted.targetRole,
+        experienceLevel: extracted.experienceLevel,
+        yearsOfExperience: toNumberOrNull(extracted.yearsOfExperience),
+        skills: toStringArray(extracted.skills, 25),
+        certifications: toStringArray(extracted.certifications, 20),
+        linkedinUrl: normalizeUrl(extracted.linkedinUrl),
+        githubUrl: normalizeUrl(extracted.githubUrl),
+        portfolioUrl: normalizeUrl(extracted.portfolioUrl),
+        industry: extracted.industry,
+        education: extracted.education,
+        fieldOfStudy: extracted.fieldOfStudy,
+        institutionName: extracted.institutionName,
+        graduationYear: extracted.graduationYear,
+        summary: extracted.summary,
+      };
+      const deterministicExtracted = {
+        fullName: heuristicExtracted.fullName,
+        email: heuristicExtracted.email,
+        phone: heuristicExtracted.phone,
+        location: heuristicExtracted.location,
+        targetRole: heuristicExtracted.targetRole,
+        experienceLevel: heuristicExtracted.experienceLevel,
+        yearsOfExperience: toNumberOrNull(heuristicExtracted.yearsOfExperience),
+        skills: toStringArray(heuristicExtracted.skills, 25),
+        certifications: toStringArray(heuristicExtracted.certifications, 20),
+        linkedinUrl: normalizeUrl(heuristicExtracted.linkedinUrl),
+        githubUrl: normalizeUrl(heuristicExtracted.githubUrl),
+        portfolioUrl: normalizeUrl(heuristicExtracted.portfolioUrl),
+        industry: heuristicExtracted.industry,
+        education: heuristicExtracted.education,
+        fieldOfStudy: heuristicExtracted.fieldOfStudy,
+        institutionName: heuristicExtracted.institutionName,
+        graduationYear: heuristicExtracted.graduationYear,
+        summary: heuristicExtracted.summary,
+      };
+
+      const resolvedFields = {
+        fullName: resolveField('fullName', llmExtracted.fullName, deterministicExtracted.fullName),
+        email: resolveField('email', llmExtracted.email, deterministicExtracted.email),
+        phone: resolveField('phone', llmExtracted.phone, deterministicExtracted.phone),
+        location: resolveField('location', llmExtracted.location, deterministicExtracted.location),
+        targetRole: resolveField('targetRole', llmExtracted.targetRole, deterministicExtracted.targetRole),
+        experienceLevel: resolveField('experienceLevel', llmExtracted.experienceLevel, deterministicExtracted.experienceLevel),
+        yearsOfExperience: resolveField('yearsOfExperience', llmExtracted.yearsOfExperience, deterministicExtracted.yearsOfExperience),
+        skills: resolveField('skills', llmExtracted.skills, deterministicExtracted.skills),
+        certifications: resolveField('certifications', llmExtracted.certifications, deterministicExtracted.certifications),
+        linkedinUrl: resolveField('linkedinUrl', llmExtracted.linkedinUrl, deterministicExtracted.linkedinUrl),
+        githubUrl: resolveField('githubUrl', llmExtracted.githubUrl, deterministicExtracted.githubUrl),
+        portfolioUrl: resolveField('portfolioUrl', llmExtracted.portfolioUrl, deterministicExtracted.portfolioUrl),
+        industry: resolveField('industry', llmExtracted.industry, deterministicExtracted.industry),
+        education: resolveField('education', llmExtracted.education, deterministicExtracted.education),
+        fieldOfStudy: resolveField('fieldOfStudy', llmExtracted.fieldOfStudy, deterministicExtracted.fieldOfStudy),
+        institutionName: resolveField('institutionName', llmExtracted.institutionName, deterministicExtracted.institutionName),
+        graduationYear: resolveField('graduationYear', llmExtracted.graduationYear, deterministicExtracted.graduationYear),
+        summary: resolveField('summary', llmExtracted.summary, deterministicExtracted.summary),
+      };
+
+      extracted = {};
+      const confidence = {};
+      const sources = {};
+      Object.entries(resolvedFields).forEach(([field, payload]) => {
+        if (!hasValue(payload?.value)) return;
+        extracted[field] = payload.value;
+        confidence[field] = payload.confidence;
+        sources[field] = payload.source;
+      });
+
+      res.json({
+        success: true,
+        extracted,
+        confidence,
+        sources,
+        resumeTextLength: resumeText.length,
+      });
+    } catch (error) {
+      if (resumeFile?.path) {
+        try { await unlink(resumeFile.path); } catch {}
+      }
+      logger.error('Parse resume error:', error);
       next(error);
     }
   }

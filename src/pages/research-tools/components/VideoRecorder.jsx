@@ -1734,23 +1734,23 @@ Component Breakdown:
             {/* Display Toggles */}
             <div className="flex flex-wrap gap-3 mb-3 p-2 bg-slate-100 dark:bg-slate-900/50 rounded-lg text-sm">
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} className="rounded" />
+                <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} className="rounded-full" />
                 <span>Overlay</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showPose} onChange={(e) => setShowPose(e.target.checked)} className="rounded" />
+                <input type="checkbox" checked={showPose} onChange={(e) => setShowPose(e.target.checked)} className="rounded-full" />
                 <span className="text-green-600">Pose</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showFace} onChange={(e) => setShowFace(e.target.checked)} className="rounded" />
+                <input type="checkbox" checked={showFace} onChange={(e) => setShowFace(e.target.checked)} className="rounded-full" />
                 <span className="text-cyan-600">Face</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showHands} onChange={(e) => setShowHands(e.target.checked)} className="rounded" />
+                <input type="checkbox" checked={showHands} onChange={(e) => setShowHands(e.target.checked)} className="rounded-full" />
                 <span className="text-orange-600">Hands</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showMetrics} onChange={(e) => setShowMetrics(e.target.checked)} className="rounded" />
+                <input type="checkbox" checked={showMetrics} onChange={(e) => setShowMetrics(e.target.checked)} className="rounded-full" />
                 <span>Metrics</span>
               </label>
             </div>

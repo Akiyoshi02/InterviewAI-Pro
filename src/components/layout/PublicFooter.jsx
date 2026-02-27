@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { 
-  Sparkles, Users, Clock, Award, Mail, PhoneCall, 
+  Brain, Users, Clock, Award, Mail, PhoneCall, 
   Twitter, Linkedin, Github, Globe, ArrowUpRight 
 } from 'lucide-react';
 import Button from '../ui/Button';
@@ -137,7 +137,7 @@ const PublicFooter = () => {
           >
             <div className="flex items-center gap-2 xs:gap-3 mb-4 xs:mb-5 sm:mb-6">
               <div className="flex items-center space-x-2">
-                <Sparkles className="h-4 w-4 xs:h-5 xs:w-5 sm:h-6 sm:w-6 text-blue-400" />
+                <Brain className="h-4 w-4 xs:h-5 xs:w-5 sm:h-6 sm:w-6 text-blue-400" />
                 <div>
                   <p className="text-base xs:text-lg sm:text-xl font-semibold text-white">
                     InterviewAI <span className="text-blue-400">Pro</span>

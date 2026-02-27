@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useMemo, useCallback } from 'react';
 import Button from './Button';
 import Input from './Input';
 import Select from './Select';
@@ -114,31 +114,25 @@ const companyTypeOptions = [
   { value: 'multinational', label: 'Multinational Corporation (MNC)' },
 ];
 
-const hqLocationOptions = [
-  { value: 'western', label: 'Western Province' },
-  { value: 'central', label: 'Central Province' },
-  { value: 'southern', label: 'Southern Province' },
-  { value: 'northern', label: 'Northern Province' },
-  { value: 'eastern', label: 'Eastern Province' },
-  { value: 'north-western', label: 'North Western Province' },
-  { value: 'north-central', label: 'North Central Province' },
-  { value: 'uva', label: 'Uva Province' },
-  { value: 'sabaragamuwa', label: 'Sabaragamuwa Province' },
-];
-
-const OrganizationSettings = ({ className = '' }) => {
-  const { organization, organizationRole, user, setAuthenticatedUser } = useAuth();
+const OrganizationSettings = ({
+  className = '',
+  hideSaveActions = false,
+  onRegisterSaveHandler = null,
+  onSavingStateChange = null,
+}) => {
+  const { organization, organizationRole, user, setAuthenticatedUser, refresh } = useAuth();
   const isOrgAdmin = organizationRole === 'ADMIN';
   const fileInputRef = useRef(null);
   const [orgDetails, setOrgDetails] = useState({
     name: organization?.name || '',
     displayName: organization?.displayName || '',
-    tagline: organization?.tagline || '',
+    tagline: organization?.tagline || organization?.profile?.tagline || '',
     industry: organization?.industry || '',
     companyType: organization?.companyType || '',
     companySize: organization?.companySize || '',
-    website: organization?.website || '',
-    headquartersLocation: organization?.headquartersLocation || '',
+    website: organization?.website || organization?.profile?.website || '',
+    location: organization?.location || organization?.profile?.location || '',
+    headquartersLocation: organization?.headquartersLocation || organization?.location || organization?.profile?.location || '',
     contactEmail: organization?.contactEmail || user?.email || '',
     contactPhone: organization?.contactPhone || '',
     careersPageUrl: organization?.careersPageUrl || '',
@@ -157,12 +151,13 @@ const OrganizationSettings = ({ className = '' }) => {
     setOrgDetails({
       name: organization?.name || '',
       displayName: organization?.displayName || '',
-      tagline: organization?.tagline || '',
+      tagline: organization?.tagline || organization?.profile?.tagline || '',
       industry: organization?.industry || '',
       companyType: organization?.companyType || '',
       companySize: organization?.companySize || '',
-      website: organization?.website || '',
-      headquartersLocation: organization?.headquartersLocation || '',
+      website: organization?.website || organization?.profile?.website || '',
+      location: organization?.location || organization?.profile?.location || '',
+      headquartersLocation: organization?.headquartersLocation || organization?.location || organization?.profile?.location || '',
       contactEmail: organization?.contactEmail || user?.email || '',
       contactPhone: organization?.contactPhone || '',
       careersPageUrl: organization?.careersPageUrl || '',
@@ -238,10 +233,13 @@ const OrganizationSettings = ({ className = '' }) => {
     setLogoFile(file);
   };
 
-  const handleSaveLogo = async () => {
-    if (!logoFile) return;
-    setLogoStatus(null);
+  const handleSaveLogo = async ({ showStatus = true } = {}) => {
+    if (!logoFile) return true;
+    if (showStatus) {
+      setLogoStatus(null);
+    }
     setIsSavingLogo(true);
+    let success = false;
     try {
       const response = await apiClient.auth.updateCompanyLogo(logoFile);
       if (!response?.success || !response?.user) {
@@ -252,18 +250,24 @@ const OrganizationSettings = ({ className = '' }) => {
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
-      setLogoStatus({
-        type: 'success',
-        message: 'Company logo updated.',
-      });
+      if (showStatus) {
+        setLogoStatus({
+          type: 'success',
+          message: 'Company logo updated.',
+        });
+      }
+      success = true;
     } catch (error) {
-      setLogoStatus({
-        type: 'error',
-        message: error?.message || 'Failed to update logo.',
-      });
+      if (showStatus) {
+        setLogoStatus({
+          type: 'error',
+          message: error?.message || 'Failed to update logo.',
+        });
+      }
     } finally {
       setIsSavingLogo(false);
     }
+    return success;
   };
 
   const handleLogoError = () => {
@@ -275,27 +279,69 @@ const OrganizationSettings = ({ className = '' }) => {
     setLogoSourceFailed(true);
   };
 
-  const handleUpdateOrg = async () => {
-    if (!organization?.id) return;
+  const handleUpdateOrg = async ({ showStatus = true } = {}) => {
+    if (!organization?.id || !isOrgAdmin) return true;
     setSaving(true);
-    setStatusMessage('');
+    if (showStatus) {
+      setStatusMessage('');
+    }
+    let success = false;
     try {
       const result = await apiClient.organizations.updateMyOrganization(orgDetails);
       if (result.success) {
-        setStatusMessage('Organization updated.');
-        // Clear success message after 3 seconds
-        setTimeout(() => setStatusMessage(''), 3000);
+        if (showStatus) {
+          setStatusMessage('Organization updated.');
+        }
+        if (typeof refresh === 'function') {
+          await refresh();
+        }
+        if (showStatus) {
+          // Clear success message after 3 seconds
+          setTimeout(() => setStatusMessage(''), 3000);
+        }
+        success = true;
       } else {
         const errorMsg = typeof result.error === 'string' ? result.error : (result.error?.message || 'Failed to update organization.');
-        setStatusMessage(errorMsg);
+        if (showStatus) {
+          setStatusMessage(errorMsg);
+        }
       }
     } catch (err) {
       const errorMsg = err?.message || (typeof err === 'string' ? err : 'Failed to update organization.');
-      setStatusMessage(errorMsg);
+      if (showStatus) {
+        setStatusMessage(errorMsg);
+      }
     } finally {
       setSaving(false);
     }
+    return success;
   };
+
+  const handleSaveAllOrganization = useCallback(async ({ showStatus = true } = {}) => {
+    if (!isOrgAdmin) return true;
+
+    const results = [];
+    const orgSaved = await handleUpdateOrg({ showStatus });
+    results.push(Boolean(orgSaved));
+
+    if (logoFile) {
+      const logoSaved = await handleSaveLogo({ showStatus });
+      results.push(Boolean(logoSaved));
+    }
+
+    return results.every(Boolean);
+  }, [isOrgAdmin, logoFile, orgDetails, organization?.id, refresh]);
+
+  useEffect(() => {
+    if (typeof onRegisterSaveHandler !== 'function') return undefined;
+    onRegisterSaveHandler(handleSaveAllOrganization);
+    return () => onRegisterSaveHandler(null);
+  }, [handleSaveAllOrganization, onRegisterSaveHandler]);
+
+  useEffect(() => {
+    if (typeof onSavingStateChange !== 'function') return;
+    onSavingStateChange(Boolean(saving || isSavingLogo));
+  }, [onSavingStateChange, saving, isSavingLogo]);
 
   if (!organization) {
     return (
@@ -317,18 +363,23 @@ const OrganizationSettings = ({ className = '' }) => {
         {/* Organization Settings Card */}
         <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 p-4 sm:p-5 space-y-4 h-full flex flex-col">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-3">
-            <div>
-              <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Organization Details</h3>
-              <p className="text-sm text-gray-500 dark:text-slate-400">
-                Manage your organization&apos;s profile information
-              </p>
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                <Icon name="Building2" size={18} className="text-blue-600 dark:text-blue-400" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Organization Details</h3>
+                <p className="text-sm text-gray-500 dark:text-slate-400">
+                  Manage your organization&apos;s profile information
+                </p>
+              </div>
             </div>
-            {isOrgAdmin && (
+            {isOrgAdmin && !hideSaveActions && (
               <Button
                 type="button"
                 variant="default"
                 size="sm"
-                onClick={handleUpdateOrg}
+                onClick={() => handleUpdateOrg({ showStatus: true })}
                 disabled={saving}
                 className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
               >
@@ -399,12 +450,18 @@ const OrganizationSettings = ({ className = '' }) => {
               disabled={!isOrgAdmin}
               className="md:col-span-2"
             />
-            <Select
-              label="Headquarters region"
-              options={hqLocationOptions}
-              value={orgDetails.headquartersLocation}
-              onChange={(value) => setOrgDetails((prev) => ({ ...prev, headquartersLocation: value }))}
-              placeholder="Select region"
+            <Input
+              label="Headquarters location"
+              placeholder="e.g. Colombo, Sri Lanka"
+              value={orgDetails.location}
+              onChange={(e) => {
+                const nextValue = e.target.value;
+                setOrgDetails((prev) => ({
+                  ...prev,
+                  location: nextValue,
+                  headquartersLocation: nextValue,
+                }));
+              }}
               disabled={!isOrgAdmin}
             />
             <Input
@@ -445,7 +502,10 @@ const OrganizationSettings = ({ className = '' }) => {
       <div className="space-y-4">
         {isOrgAdmin && (
           <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 p-4 sm:p-5 space-y-4 h-full flex flex-col">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-blue-900/30 flex items-center justify-center">
+                <Icon name="Image" size={18} className="text-blue-600 dark:text-blue-400" />
+              </div>
               <div>
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Company Logo</h3>
                 <p className="text-sm text-gray-500 dark:text-slate-400">Keep your organization logo fresh.</p>
@@ -505,13 +565,13 @@ const OrganizationSettings = ({ className = '' }) => {
               >
                 Choose file
               </Button>
-              {logoFile && (
+              {logoFile && !hideSaveActions && (
                 <Button
                   type="button"
                   variant="outline"
                   size="sm"
                   className="rounded-full"
-                  onClick={handleSaveLogo}
+                  onClick={() => handleSaveLogo({ showStatus: true })}
                   disabled={isSavingLogo}
                 >
                   {isSavingLogo ? 'Saving...' : 'Save logo'}

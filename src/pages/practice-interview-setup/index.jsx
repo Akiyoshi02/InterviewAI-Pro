@@ -18,6 +18,7 @@ import SessionDurationSelector from './components/SessionDurationSelector';
 import AdvancedSettings from './components/AdvancedSettings';
 import AIInterviewerPreview from './components/AIInterviewerPreview';
 import PreparationChecklist from './components/PreparationChecklist';
+import TemplateSelector from './components/TemplateSelector';
 
 const PracticeInterviewSetup = () => {
   const navigate = useNavigate();
@@ -29,6 +30,7 @@ const PracticeInterviewSetup = () => {
   const [isCreating, setIsCreating] = useState(false);
   const [error, setError] = useState(null);
   const [savedConfigs, setSavedConfigs] = useState([]);
+  const [showTemplateSelector, setShowTemplateSelector] = useState(false);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -216,6 +218,25 @@ const PracticeInterviewSetup = () => {
     showSuccessToast(`Loaded config: ${savedConfig.name || 'Saved configuration'}`);
   }, [showSuccessToast]);
 
+  const applyTemplate = useCallback((templateConfig, templateName) => {
+    setFormData((prev) => ({
+      ...prev,
+      ...templateConfig,
+      advancedSettings: {
+        skillFocus: [],
+        language: 'en',
+        realTimeFeedback: false,
+        followUpQuestions: true,
+        recordSession: true,
+        practiceMode: false,
+        difficulty: 'medium',
+        ...(templateConfig?.advancedSettings || {}),
+      },
+    }));
+    setShowTemplateSelector(false);
+    showSuccessToast(`Template applied: ${templateName}`);
+  }, [showSuccessToast]);
+
   // Auto-save form data to localStorage
   useEffect(() => {
     const savedData = localStorage.getItem('interviewSetupDraft');
@@ -238,19 +259,47 @@ const PracticeInterviewSetup = () => {
     switch (currentStep) {
       case 1:
         return (
-          <div className="space-y-8">
-            <JobRoleSelector
-              selectedRole={formData?.jobRole}
-              onRoleChange={(role) => updateFormData('jobRole', role)}
-            />
-            <ExperienceLevelSelector
-              selectedLevel={formData?.experienceLevel}
-              onLevelChange={(level) => updateFormData('experienceLevel', level)}
-            />
-            <IndustrySelector
-              selectedIndustry={formData?.industry}
-              onIndustryChange={(industry) => updateFormData('industry', industry)}
-            />
+          <div className="space-y-6">
+            {/* Template Quick-start */}
+            {!showTemplateSelector ? (
+              <div className="rounded-xl border border-blue-100 dark:border-blue-800/40 bg-blue-50/60 dark:bg-blue-900/10 p-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Start from a template</p>
+                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">Use a pre-built configuration for common roles</p>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowTemplateSelector(true)}
+                  iconName="Zap"
+                  iconPosition="left"
+                >
+                  Browse Templates
+                </Button>
+              </div>
+            ) : (
+              <div className="rounded-xl border border-blue-200 dark:border-blue-700/50 bg-white/80 dark:bg-slate-800/80 p-4 shadow-sm">
+                <TemplateSelector
+                  onApplyTemplate={applyTemplate}
+                  onClose={() => setShowTemplateSelector(false)}
+                />
+              </div>
+            )}
+
+            <div className="space-y-8">
+              <JobRoleSelector
+                selectedRole={formData?.jobRole}
+                onRoleChange={(role) => updateFormData('jobRole', role)}
+              />
+              <ExperienceLevelSelector
+                selectedLevel={formData?.experienceLevel}
+                onLevelChange={(level) => updateFormData('experienceLevel', level)}
+              />
+              <IndustrySelector
+                selectedIndustry={formData?.industry}
+                onIndustryChange={(industry) => updateFormData('industry', industry)}
+              />
+            </div>
           </div>
         );
       

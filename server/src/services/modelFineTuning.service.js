@@ -39,14 +39,43 @@ export const MIN_TRAINING_PAIRS_FOR_ACTIVATION = 5;
  * Fetch collected training datasets from Firestore.
  */
 async function fetchTrainingData() {
-  const snapshot = await firestore
-    .collection('trainingDatasets_interviews')
-    .orderBy('createdAt', 'desc')
-    .limit(200)
-    .get();
+  let snapshot;
+  try {
+    // Canonical timestamp is metadata.createdAt (set by dataset.controller.js).
+    snapshot = await firestore
+      .collection('trainingDatasets_interviews')
+      .orderBy('metadata.createdAt', 'desc')
+      .limit(200)
+      .get();
+  } catch (error) {
+    // Backward-compatible fallback for older docs/index states.
+    logger.warn('Falling back to unordered training dataset fetch:', error?.message || error);
+    snapshot = await firestore
+      .collection('trainingDatasets_interviews')
+      .limit(200)
+      .get();
+  }
 
   const datasets = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  datasets.sort((a, b) => {
+    const aTs = Date.parse(a?.metadata?.createdAt || a?.createdAt || 0) || 0;
+    const bTs = Date.parse(b?.metadata?.createdAt || b?.createdAt || 0) || 0;
+    return bTs - aTs;
+  });
   return datasets;
+}
+
+/**
+ * Normalize persisted training payloads to an iterable list of examples.
+ * Some legacy records may store a single object in trainingData.
+ */
+function normalizeTrainingExamples(dataset) {
+  const raw = dataset?.trainingData ?? dataset?.data ?? [];
+  if (Array.isArray(raw)) return raw;
+  if (raw && typeof raw === 'object' && Array.isArray(raw.messages)) {
+    return [raw];
+  }
+  return [];
 }
 
 /**
@@ -56,8 +85,8 @@ function extractHighQualityPairs(datasets) {
   const pairs = [];
 
   for (const dataset of datasets) {
-    const trainingData = dataset.trainingData || dataset.data || [];
-    for (const example of trainingData) {
+    const trainingExamples = normalizeTrainingExamples(dataset);
+    for (const example of trainingExamples) {
       if (!Array.isArray(example?.messages)) continue;
 
       const assistantMessages = example.messages.filter((m) => m.role === 'assistant');
@@ -281,8 +310,8 @@ export async function exportTrainingDataAsJSONL() {
   const records = [];
 
   for (const dataset of datasets) {
-    const trainingData = dataset.trainingData || dataset.data || [];
-    for (const example of trainingData) {
+    const trainingExamples = normalizeTrainingExamples(dataset);
+    for (const example of trainingExamples) {
       if (!Array.isArray(example?.messages)) continue;
 
       const systemMsg = example.messages.find((m) => m.role === 'system');

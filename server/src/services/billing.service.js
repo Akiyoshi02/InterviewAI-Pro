@@ -142,7 +142,7 @@ export async function createSubscription(organizationId, planId, customerId = nu
 /**
  * Update subscription plan
  */
-export async function updateSubscription(organizationId, newPlanId) {
+export async function updateSubscription(organizationId, newPlanId, stripeCustomerId, stripeSubscriptionId) {
   try {
     const currentSubscription = await getSubscription(organizationId);
     const newPlan = PLANS[newPlanId.toUpperCase()];
@@ -156,6 +156,9 @@ export async function updateSubscription(organizationId, newPlanId) {
       planName: newPlan.name,
       updatedAt: new Date().toISOString(),
     };
+
+    if (stripeCustomerId) updates.stripeCustomerId = stripeCustomerId;
+    if (stripeSubscriptionId) updates.stripeSubscriptionId = stripeSubscriptionId;
     
     // If upgrading, reset usage counters
     if (getPlanTier(newPlanId) > getPlanTier(currentSubscription.planId)) {
@@ -281,8 +284,27 @@ export async function getBillingHistory(organizationId, limit = 50) {
     
     return snapshot.docs.map((doc) => doc.data());
   } catch (error) {
-    logger.error('Get billing history error:', error);
-    throw error;
+    // Some environments may miss the composite index for this query.
+    // Fall back to an unordered query and sort in-memory so billing UI still works.
+    logger.warn('Get billing history ordered query failed, using fallback query:', error?.message || error);
+
+    try {
+      const fallbackSnapshot = await billingEventsCollection
+        .where('organizationId', '==', organizationId)
+        .limit(limit)
+        .get();
+
+      return fallbackSnapshot.docs
+        .map((doc) => doc.data())
+        .sort((a, b) => {
+          const aTs = Date.parse(a?.timestamp || '') || 0;
+          const bTs = Date.parse(b?.timestamp || '') || 0;
+          return bTs - aTs;
+        });
+    } catch (fallbackError) {
+      logger.error('Get billing history fallback error:', fallbackError);
+      return [];
+    }
   }
 }
 
@@ -400,4 +422,3 @@ export default {
   getBillingHistory,
   stripe,
 };
-

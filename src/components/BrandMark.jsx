@@ -39,7 +39,7 @@ const BrandMark = ({
       <div
         className={`${iconWrapperClassName} rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-[0_10px_30px_rgba(59,130,246,0.3)]`}
       >
-        <Icon name="Sparkles" size={18} color="currentColor" />
+        <Icon name="Brain" size={18} color="currentColor" />
       </div>
       <div className="leading-tight">
         <span className={`${textClassName} font-semibold ${textColor}`}>

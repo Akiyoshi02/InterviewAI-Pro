@@ -28,6 +28,7 @@ const systemSettingsCollection = firestore.collection('systemSettings');
 const analyticsSnapshotsCollection = firestore.collection('analyticsSnapshots'); // For historical metrics tracking
 const emailVerificationsCollection = firestore.collection('emailVerifications');
 const savedAnswersCollection = firestore.collection('savedAnswers'); // GAP FEATURE: Personal Answer Library
+const notificationsCollection = firestore.collection('notifications');
 
 const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
@@ -681,6 +682,12 @@ export const interviewStore = {
     const snapshot = await interviewsCollection.where('invitationId', '==', invitationId).limit(1).get();
     if (snapshot.empty) return null;
     return docToData(snapshot.docs[0]);
+  },
+
+  async findByShareToken(token) {
+    if (!token) return [];
+    const snapshot = await interviewsCollection.where('shareToken', '==', token).limit(1).get();
+    return snapshot.docs.map(docToData);
   },
 };
 
@@ -1819,9 +1826,16 @@ export const organizationStore = {
       id: docRef.id,
       name: data.name || data.displayName || 'New Organization',
       displayName: data.displayName || data.name || 'New Organization',
+      tagline: data.tagline || null,
       ownerId: data.ownerId || null,
       industry: data.industry || null,
+      companyType: data.companyType || null,
       companySize: data.companySize || null,
+      location: data.location || null,
+      headquartersLocation: data.headquartersLocation || null,
+      contactEmail: data.contactEmail || null,
+      contactPhone: data.contactPhone || null,
+      careersPageUrl: data.careersPageUrl || null,
       logo: data.logo || null,
       website: data.website || null,
       address: data.address || null,
@@ -1829,6 +1843,7 @@ export const organizationStore = {
       facebookUrl: data.facebookUrl || null,
       linkedinUrl: data.linkedinUrl || null,
       youtubeUrl: data.youtubeUrl || null,
+      profile: data.profile || {},
       status: data.status || 'PENDING', // Default to PENDING - requires admin approval
       branding: data.branding || { theme: 'default' },
       settings: data.settings || {
@@ -1867,6 +1882,20 @@ export const organizationStore = {
     if (!id) throw new Error('Organization ID is required');
     const docRef = organizationsCollection.doc(id);
     await docRef.set({ logo: logoUrl, updatedAt: now() }, { merge: true });
+    const updated = await docRef.get();
+    return organizationDocToData(updated);
+  },
+
+  async updateProfileCover(id, coverUrl) {
+    if (!id) throw new Error('Organization ID is required');
+    const docRef = organizationsCollection.doc(id);
+    await docRef.set(
+      {
+        profile: { coverUrl: coverUrl || null },
+        updatedAt: now(),
+      },
+      { merge: true },
+    );
     const updated = await docRef.get();
     return organizationDocToData(updated);
   },
@@ -3818,7 +3847,7 @@ export const savedAnswerStore = {
       if (!isIndexBuildingError(error)) {
         throw error;
       }
-      logger.warn('SavedAnswers index still building; falling back to in-memory sort.');
+      logger.warn('SavedAnswers index unavailable (missing or building); falling back to in-memory sort.');
       const snapshot = await savedAnswersCollection.where('userId', '==', userId).get();
       let answers = snapshot.docs
         .map((doc) => docToData(doc))
@@ -3984,3 +4013,77 @@ export async function updatePracticeStreak(userId, interviewCompletedAt) {
     // Non-fatal - don't block interview completion
   }
 }
+
+// ============================================================
+// NOTIFICATION STORE
+// ============================================================
+export const notificationStore = {
+  async create({ userId, type, title, message, link = null }) {
+    const docRef = notificationsCollection.doc();
+    const payload = {
+      id: docRef.id,
+      userId,
+      type,
+      title,
+      message,
+      link: link || null,
+      read: false,
+      createdAt: now(),
+    };
+    await docRef.set(payload);
+    return payload;
+  },
+
+  async listByUser(userId, { limit: lim = 30, unreadOnly = false } = {}) {
+    if (!userId) return [];
+    let query = notificationsCollection
+      .where('userId', '==', userId)
+      .orderBy('createdAt', 'desc')
+      .limit(lim);
+    if (unreadOnly) {
+      query = notificationsCollection
+        .where('userId', '==', userId)
+        .where('read', '==', false)
+        .orderBy('createdAt', 'desc')
+        .limit(lim);
+    }
+    const snap = await query.get();
+    return snap.docs.map(docToData);
+  },
+
+  async countUnread(userId) {
+    if (!userId) return 0;
+    const snap = await notificationsCollection
+      .where('userId', '==', userId)
+      .where('read', '==', false)
+      .get();
+    return snap.size;
+  },
+
+  async markRead(id, userId) {
+    const docRef = notificationsCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists || doc.data().userId !== userId) return null;
+    await docRef.set({ read: true }, { merge: true });
+    return docToData(await docRef.get());
+  },
+
+  async markAllRead(userId) {
+    const snap = await notificationsCollection
+      .where('userId', '==', userId)
+      .where('read', '==', false)
+      .get();
+    const batch = firestore.batch();
+    snap.docs.forEach((doc) => batch.set(doc.ref, { read: true }, { merge: true }));
+    await batch.commit();
+    return snap.size;
+  },
+
+  async delete(id, userId) {
+    const docRef = notificationsCollection.doc(id);
+    const doc = await docRef.get();
+    if (!doc.exists || doc.data().userId !== userId) return false;
+    await docRef.delete();
+    return true;
+  },
+};

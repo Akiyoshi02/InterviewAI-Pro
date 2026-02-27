@@ -1,20 +1,39 @@
 {
   "short_name": "InterviewAI Pro",
-  "name": "InterviewAI Pro",
+  "name": "InterviewAI Pro - AI Interview Practice",
+  "description": "Master your interview skills with AI-powered practice sessions and real-time feedback.",
   "icons": [
     {
       "src": "/assets/images/logo.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/assets/images/logo.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any maskable"
     }
   ],
-  "start_url": ".",
+  "start_url": "/candidate-dashboard",
+  "scope": "/",
   "display": "standalone",
+  "orientation": "portrait-primary",
   "theme_color": "#2563EB",
-  "background_color": "#ffffff"
+  "background_color": "#ffffff",
+  "categories": ["education", "productivity"],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Start Practice Interview",
+      "url": "/practice-interview-setup",
+      "description": "Jump straight into a practice interview session"
+    },
+    {
+      "name": "View Results",
+      "url": "/interview-results",
+      "description": "Review your latest interview performance"
+    }
+  ]
 }
