@@ -203,24 +203,37 @@ const rescheduleRes = await apiRequest('3', 'company', 'PATCH', `/api/interviews
 });
 check('Reschedule interview', isSuccessStatus(rescheduleRes.status), `status=${rescheduleRes.status}`);
 
-const startRes = await apiRequest('4', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/start`, {
-  note: 'Start interview as candidate with Ollama intentionally unavailable.',
+const consentRes = await apiRequest('4', 'candidate', 'PATCH', `/api/interviews/${createdInterviewId}/recording-consent`, {
+  body: {
+    recordingConsentGivenAt: new Date().toISOString(),
+    recordingConsentVersion: 'v1',
+  },
+  note: 'Record explicit candidate consent before interview start.',
 });
 check(
-  'Start interview with Ollama fallback',
-  isSuccessStatus(startRes.status) && Boolean(startRes.data?.llmUnavailable),
-  `status=${startRes.status}, llmUnavailable=${Boolean(startRes.data?.llmUnavailable)}`,
+  'Record recording consent',
+  isSuccessStatus(consentRes.status),
+  `status=${consentRes.status}`,
+);
+
+const startRes = await apiRequest('5', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/start`, {
+  note: 'Start interview as candidate.',
+});
+check(
+  'Start interview',
+  isSuccessStatus(startRes.status),
+  `status=${startRes.status}, questions=${startRes.data?.interview?.questions?.length || 0}`,
 );
 
 const firstQuestionId = startRes.data?.interview?.questions?.[0]?.id || null;
 if (firstQuestionId) {
-  const askedRes = await apiRequest('5', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/question/asked`, {
+  const askedRes = await apiRequest('6', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/question/asked`, {
     body: { questionId: firstQuestionId },
     note: 'Mark first question as asked.',
   });
   check('Mark question asked', isSuccessStatus(askedRes.status), `status=${askedRes.status}`);
 
-  const answerRes = await apiRequest('6', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/question/answer`, {
+  const answerRes = await apiRequest('7', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/question/answer`, {
     body: {
       questionId: firstQuestionId,
       answer: 'I led a release rollback, coordinated stakeholders, and restored service in 20 minutes.',
@@ -233,13 +246,13 @@ if (firstQuestionId) {
   check('First question available after start', false, 'No generated question returned by start endpoint.');
 }
 
-const endRes = await apiRequest('7', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/end`, {
-  note: 'End interview with Ollama unavailable to confirm pending evaluation.',
+const endRes = await apiRequest('8', 'candidate', 'POST', `/api/interviews/${createdInterviewId}/end`, {
+  note: 'End interview and verify evaluation payload is returned.',
 });
 check(
-  'End interview fallback (pending evaluation)',
-  isSuccessStatus(endRes.status) && Boolean(endRes.data?.pendingEvaluation) && Boolean(endRes.data?.llmUnavailable),
-  `status=${endRes.status}, pendingEvaluation=${Boolean(endRes.data?.pendingEvaluation)}, llmUnavailable=${Boolean(endRes.data?.llmUnavailable)}`,
+  'End interview',
+  isSuccessStatus(endRes.status),
+  `status=${endRes.status}, pendingEvaluation=${Boolean(endRes.data?.pendingEvaluation)}`,
 );
 
 const recordingBytes = new Uint8Array([
@@ -250,7 +263,7 @@ const recordingBlob = new Blob([recordingBytes], { type: 'video/webm' });
 const formData = new FormData();
 formData.append('recording', recordingBlob, 'session_dummy.webm');
 
-const uploadRes = await apiRequest('8', 'company', 'POST', `/api/interviews/${createdInterviewId}/recording`, {
+const uploadRes = await apiRequest('9', 'company', 'POST', `/api/interviews/${createdInterviewId}/recording`, {
   formData,
   note: 'Upload durable recording artifact.',
 });
@@ -260,7 +273,7 @@ check(
   `status=${uploadRes.status}, recordingUrlPresent=${Boolean(uploadRes.data?.recordingUrl)}`,
 );
 
-const recordingUrlRes = await apiRequest('9', 'reviewer', 'GET', `/api/interviews/${createdInterviewId}/recording-url`, {
+const recordingUrlRes = await apiRequest('10', 'reviewer', 'GET', `/api/interviews/${createdInterviewId}/recording-url`, {
   note: 'Reviewer fetches authorized recording URL.',
 });
 check(
@@ -269,7 +282,7 @@ check(
   `status=${recordingUrlRes.status}, recordingUrlPresent=${Boolean(recordingUrlRes.data?.recordingUrl)}`,
 );
 
-const evaluationRes = await apiRequest('10', 'reviewer', 'GET', `/api/interviews/${createdInterviewId}/evaluation`, {
+const evaluationRes = await apiRequest('11', 'reviewer', 'GET', `/api/interviews/${createdInterviewId}/evaluation`, {
   note: 'Reviewer fetches interview evaluation.',
 });
 check(

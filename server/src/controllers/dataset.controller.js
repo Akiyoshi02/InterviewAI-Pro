@@ -26,10 +26,23 @@ const COLLECTIONS = {
 };
 
 /**
+ * Normalize incoming training examples to the canonical array shape.
+ * Legacy/custom clients may send a single object instead of an array.
+ */
+const normalizeTrainingData = (value) => {
+  if (Array.isArray(value)) return value;
+  if (value && typeof value === 'object' && Array.isArray(value.messages)) {
+    return [value];
+  }
+  return [];
+};
+
+/**
  * Save interview training dataset
  */
 export const saveInterviewDataset = async (req, res) => {
   try {
+    const nowIso = new Date().toISOString();
     const userId = req.user?.uid;
     const {
       sessionId,
@@ -40,6 +53,7 @@ export const saveInterviewDataset = async (req, res) => {
       summary,
       trainingData,
     } = req.body;
+    const normalizedTrainingData = normalizeTrainingData(trainingData);
 
     // Validate required fields
     if (!sessionId || !conversationTurns || conversationTurns.length === 0) {
@@ -54,6 +68,9 @@ export const saveInterviewDataset = async (req, res) => {
       sessionId,
       interviewId: interviewId || null,
       userId: userId || 'anonymous',
+      // Keep top-level timestamps for backward compatibility with older queries.
+      createdAt: nowIso,
+      updatedAt: nowIso,
       config: {
         jobRole: config?.jobRole || 'General',
         experienceLevel: config?.experienceLevel || 'Mid-level',
@@ -76,10 +93,10 @@ export const saveInterviewDataset = async (req, res) => {
         })),
       },
       summary: summary || {},
-      trainingData: trainingData || [],
+      trainingData: normalizedTrainingData,
       metadata: {
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
         dataVersion: '1.0',
         platform: 'InterviewAI Pro',
         qualityScore: calculateQualityScore(questionAnswerPairs),
@@ -125,6 +142,7 @@ export const saveInterviewDataset = async (req, res) => {
  */
 export const saveAnalyticsDataset = async (req, res) => {
   try {
+    const nowIso = new Date().toISOString();
     const userId = req.user?.uid;
     const {
       interviewId,
@@ -147,6 +165,9 @@ export const saveAnalyticsDataset = async (req, res) => {
       sessionId,
       interviewId: interviewId || null,
       userId: userId || 'anonymous',
+      // Keep top-level timestamps for backward compatibility with older queries.
+      createdAt: nowIso,
+      updatedAt: nowIso,
       config: {
         enablePose: config?.enablePose ?? true,
         enableFace: config?.enableFace ?? true,
@@ -169,8 +190,8 @@ export const saveAnalyticsDataset = async (req, res) => {
       summary: summary || {},
       referenceComparison: calculateReferenceComparison(dataPoints),
       metadata: {
-        createdAt: new Date().toISOString(),
-        updatedAt: new Date().toISOString(),
+        createdAt: nowIso,
+        updatedAt: nowIso,
         dataVersion: '1.0',
         platform: 'InterviewAI Pro',
       },

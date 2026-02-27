@@ -11,10 +11,21 @@
 
 // Load environment variables FIRST (this file loads .env)
 import './config/env.js';
+import * as Sentry from '@sentry/node';
 
 // Validate environment configuration
 import { initializeSecureConfig } from './config/secureConfig.js';
 initializeSecureConfig();
+
+// Initialise Sentry before anything else (if DSN configured)
+if (process.env.SENTRY_DSN) {
+  Sentry.init({
+    dsn: process.env.SENTRY_DSN,
+    environment: process.env.NODE_ENV || 'development',
+    release: process.env.APP_VERSION || '1.0.0',
+    tracesSampleRate: process.env.NODE_ENV === 'production' ? 0.1 : 1.0,
+  });
+}
 
 import express from 'express';
 import { createServer } from 'http';

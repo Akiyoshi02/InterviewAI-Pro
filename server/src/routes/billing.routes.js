@@ -91,5 +91,12 @@ router.post(
   BillingController.createCheckoutSession,
 );
 
+// Stripe webhook (raw body required – no auth middleware)
+router.post(
+  '/webhook',
+  express.raw({ type: 'application/json' }),
+  BillingController.handleWebhook,
+);
+
 export default router;
 

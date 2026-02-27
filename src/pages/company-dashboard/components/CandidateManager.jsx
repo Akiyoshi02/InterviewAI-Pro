@@ -4,6 +4,8 @@ import { createPortal } from 'react-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import LoadingState from '../../../components/ui/LoadingState';
+import EmailTemplatesManager from '../../../components/ui/EmailTemplatesManager';
+import CandidateNotesTimeline from '../../../components/ui/CandidateNotesTimeline';
 import UnifiedFilterPanel, {
   FILTER_DATE_GRID_CLASS,
   FILTER_GRID_CLASS,
@@ -84,6 +86,35 @@ const getStatusConfig = (application = {}) => {
   return configs[derivedStatus] || configs.UNKNOWN;
 };
 
+const BULK_STATUS_OPTIONS = [
+  { value: 'SCREENING', label: 'Move to Screening' },
+  { value: 'SHORTLISTED', label: 'Shortlist' },
+  { value: 'INTERVIEWING', label: 'Move to Interviewing' },
+  { value: 'REJECTED', label: 'Reject' },
+  { value: 'HIRED', label: 'Mark as Hired' },
+];
+
+const exportCandidatesCSV = (candidates) => {
+  const headers = ['Name', 'Email', 'Job Title', 'Status', 'Experience', 'Skills', 'Applied Date'];
+  const rows = candidates.map((c) => [
+    c.candidate?.fullName || '',
+    c.candidate?.email || '',
+    c.job?.title || '',
+    getDerivedApplicationStatus(c),
+    c.candidate?.experienceLevel || '',
+    (c.candidate?.skills || []).join('; '),
+    new Date(c.submittedAt || c.createdAt || '').toLocaleDateString(),
+  ]);
+  const csv = [headers, ...rows].map((row) => row.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `candidates_export_${new Date().toISOString().slice(0, 10)}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
+
 const CandidateManager = () => {
   const { organization } = useAuth();
   const [candidates, setCandidates] = useState([]);
@@ -97,6 +128,11 @@ const CandidateManager = () => {
   const [itemsPerPage] = useState(3);
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadDataRef = useRef(null);
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [bulkStatusValue, setBulkStatusValue] = useState('');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [bulkError, setBulkError] = useState(null);
+  const [showEmailComposer, setShowEmailComposer] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -171,7 +207,61 @@ const CandidateManager = () => {
 
   const handleViewDetails = async (application) => {
     setSelectedCandidate(application);
+    setShowEmailComposer(false);
     setShowDetails(true);
+  };
+
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleSelectAll = (pageCandidates) => {
+    const pageIds = pageCandidates.map((c) => c.id);
+    const allSelected = pageIds.every((id) => selectedIds.has(id));
+    if (allSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.delete(id));
+        return next;
+      });
+    } else {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
+        pageIds.forEach((id) => next.add(id));
+        return next;
+      });
+    }
+  };
+
+  const handleBulkStatusUpdate = async () => {
+    if (!bulkStatusValue || selectedIds.size === 0) return;
+    setBulkUpdating(true);
+    setBulkError(null);
+    try {
+      const ids = Array.from(selectedIds);
+      await Promise.all(
+        ids.map((id) => apiClient.applications.updateStatus(id, bulkStatusValue))
+      );
+      setSelectedIds(new Set());
+      setBulkStatusValue('');
+      await loadData();
+    } catch (err) {
+      setBulkError(err.message || 'Bulk update failed');
+    } finally {
+      setBulkUpdating(false);
+    }
+  };
+
+  const handleBulkExport = () => {
+    const toExport = selectedIds.size > 0
+      ? filteredCandidates.filter((c) => selectedIds.has(c.id))
+      : filteredCandidates;
+    exportCandidatesCSV(toExport);
   };
 
   const filteredCandidates = useMemo(
@@ -357,6 +447,53 @@ const CandidateManager = () => {
         </UnifiedFilterPanel>
       </div>
 
+      {/* Bulk Actions Toolbar */}
+      {selectedIds.size > 0 && (
+        <motion.div
+          initial={{ opacity: 0, y: -8 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="rounded-2xl border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 p-3 flex flex-wrap items-center gap-3 shadow-sm"
+        >
+          <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
+            {selectedIds.size} selected
+          </span>
+          <select
+            value={bulkStatusValue}
+            onChange={(e) => setBulkStatusValue(e.target.value)}
+            className="flex-1 min-w-[160px] text-sm rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          >
+            <option value="">Change status...</option>
+            {BULK_STATUS_OPTIONS.map((opt) => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
+          <Button
+            size="sm"
+            variant="primary"
+            onClick={handleBulkStatusUpdate}
+            disabled={!bulkStatusValue || bulkUpdating}
+            loading={bulkUpdating}
+          >
+            Apply
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            iconName="Download"
+            onClick={handleBulkExport}
+          >
+            Export CSV
+          </Button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto"
+          >
+            Clear
+          </button>
+          {bulkError && <p className="text-xs text-red-600 dark:text-red-400 w-full">{bulkError}</p>}
+        </motion.div>
+      )}
+
       {/* Candidates List */}
       {filteredCandidates.length === 0 ? (
         <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
@@ -372,9 +509,31 @@ const CandidateManager = () => {
         </div>
       ) : (
         <>
+        {/* Select All row */}
+        <div className="flex items-center gap-2 px-1 mb-1">
+          <input
+            type="checkbox"
+            checked={paginatedCandidates.length > 0 && paginatedCandidates.every((c) => selectedIds.has(c.id))}
+            onChange={() => toggleSelectAll(paginatedCandidates)}
+            className="w-4 h-4 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+          />
+          <span className="text-xs text-gray-500 dark:text-slate-400">
+            Select all on this page
+          </span>
+          <Button
+            size="sm"
+            variant="ghost"
+            iconName="Download"
+            onClick={handleBulkExport}
+            className="ml-auto text-xs text-gray-500 dark:text-slate-400"
+          >
+            Export All
+          </Button>
+        </div>
         <div className="grid grid-cols-1 gap-3">
           {paginatedCandidates.map((candidate, index) => {
             const statusConfig = getStatusConfig(candidate);
+            const isSelected = selectedIds.has(candidate.id);
 
             return (
               <motion.div
@@ -382,11 +541,22 @@ const CandidateManager = () => {
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: index * 0.05 }}
-                className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/50 p-4 hover:shadow-md transition-shadow"
+                className={`rounded-xl border bg-white dark:bg-slate-900/50 p-4 hover:shadow-md transition-shadow ${
+                  isSelected
+                    ? 'border-blue-400 dark:border-blue-600 bg-blue-50/30 dark:bg-blue-900/10'
+                    : 'border-gray-200 dark:border-slate-700'
+                }`}
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-3 mb-3">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleSelect(candidate.id)}
+                        className="w-4 h-4 mt-1 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                        onClick={(e) => e.stopPropagation()}
+                      />
                       <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 shrink-0">
                         <Icon name="User" className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                       </div>
@@ -849,23 +1019,38 @@ const CandidateManager = () => {
                 )}
               </div>
 
+              {/* Candidate Notes & Activity Timeline */}
+              <div className="px-6 pb-2">
+                <CandidateNotesTimeline
+                  applicationId={selectedCandidate.id}
+                  candidateName={selectedCandidate.candidate?.fullName || selectedCandidate.candidate?.email}
+                  applicationStatus={getDerivedApplicationStatus(selectedCandidate)}
+                />
+              </div>
+
+              {/* Email Composer (inline, toggled) */}
+              {showEmailComposer && (
+                <div className="px-6 pb-4">
+                  <EmailTemplatesManager candidate={selectedCandidate.candidate} />
+                </div>
+              )}
+
               {/* Modal Footer */}
               <div className="flex gap-3 p-6 border-t border-gray-200 dark:border-slate-700">
                 <Button
                   variant="outline"
-                  onClick={() => setShowDetails(false)}
+                  onClick={() => { setShowDetails(false); setShowEmailComposer(false); }}
                   className="flex-1"
                 >
                   Close
                 </Button>
                 <Button
-                  onClick={() => {
-                    window.open(`mailto:${selectedCandidate.candidate?.email}`, '_blank');
-                  }}
-                  className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
+                  variant="outline"
+                  onClick={() => setShowEmailComposer((v) => !v)}
+                  className="flex-1 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300"
                 >
                   <Icon name="Mail" className="w-4 h-4 mr-2" />
-                  Contact Candidate
+                  {showEmailComposer ? 'Hide Email' : 'Send Email'}
                 </Button>
               </div>
             </motion.div>
@@ -879,4 +1064,3 @@ const CandidateManager = () => {
 };
 
 export default CandidateManager;
-

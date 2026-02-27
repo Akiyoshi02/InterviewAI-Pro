@@ -1,9 +1,8 @@
 /**
  * MediaPipe Calibration Service
  *
- * Analyzes collected posture/face-mesh data from high-scoring interviews
- * to derive data-driven thresholds, then compares against static values
- * from mediapipeReferenceData.js.
+ * Produces data-driven calibration values that match the runtime threshold
+ * schema used by useInterviewAnalytics + mediapipeReferenceData.js.
  */
 
 import logger from '../utils/logger.js';
@@ -11,87 +10,227 @@ import { firestore } from '../config/firebase.js';
 
 const HIGH_SCORE_THRESHOLD = 70;
 
+// Static defaults aligned with src/config/mediapipeReferenceData.js (legacy aliases)
 const STATIC_THRESHOLDS = {
   posture: {
-    shoulderLevelThreshold: 0.03,
-    headTiltThreshold: 15,
-    slouchThreshold: 0.15,
-    leanThreshold: 0.08,
+    shoulder: {
+      maxSlopeThreshold: 0.03,
+      moderateSlopeThreshold: 0.05,
+      poorSlopeThreshold: 0.08,
+    },
+    spine: {
+      maxForwardHeadThreshold: 0.03,
+      moderateForwardHeadThreshold: 0.06,
+      poorForwardHeadThreshold: 0.10,
+    },
+    head: {
+      maxTiltThreshold: 7,
+      poorTiltThreshold: 18,
+      loweredThreshold: 0.03,
+    },
+    hands: {
+      fidgetingThreshold: 0.06,
+    },
   },
   eyeContact: {
-    gazeDeviationThreshold: 0.12,
-    blinkRateMin: 10,
-    blinkRateMax: 25,
-    eyeOpenRatioMin: 0.2,
+    eyes: {
+      blinkThreshold: 0.16,
+      prolongedClosureFrames: 15,
+    },
+    orientation: {
+      maxYawThreshold: 15,
+      moderateYawThreshold: 25,
+      poorYawThreshold: 40,
+      maxPitchThreshold: 8,
+      moderatePitchThreshold: 15,
+      poorPitchThreshold: 25,
+    },
   },
   facial: {
-    smileThreshold: 0.3,
-    neutralThreshold: 0.5,
-    expressionVarianceMin: 0.1,
+    mouth: {
+      speakingThreshold: 0.12,
+    },
   },
   engagement: {
-    headMovementMin: 0.02,
-    headMovementMax: 0.15,
-    fidgetThreshold: 0.2,
-    stillnessThreshold: 0.01,
+    fidgetThreshold: 0.06,
   },
 };
 
-const METRIC_KEYS = [
-  'posture.shoulderLevelThreshold',
-  'posture.headTiltThreshold',
-  'posture.slouchThreshold',
-  'posture.leanThreshold',
-  'eyeContact.gazeDeviationThreshold',
-  'eyeContact.blinkRateMin',
-  'eyeContact.blinkRateMax',
-  'eyeContact.eyeOpenRatioMin',
-  'facial.smileThreshold',
-  'facial.neutralThreshold',
-  'facial.expressionVarianceMin',
-  'engagement.headMovementMin',
-  'engagement.headMovementMax',
-  'engagement.fidgetThreshold',
-  'engagement.stillnessThreshold',
+const COMPARISON_METRICS = [
+  {
+    metric: 'posture.shoulder.maxSlopeThreshold',
+    staticPath: 'posture.shoulder.maxSlopeThreshold',
+    calibratedPath: 'posture.shoulder.maxSlopeThreshold',
+    sampleKey: 'shoulderSlope',
+  },
+  {
+    metric: 'posture.shoulder.moderateSlopeThreshold',
+    staticPath: 'posture.shoulder.moderateSlopeThreshold',
+    calibratedPath: 'posture.shoulder.moderateSlopeThreshold',
+    sampleKey: 'shoulderSlope',
+  },
+  {
+    metric: 'posture.shoulder.poorSlopeThreshold',
+    staticPath: 'posture.shoulder.poorSlopeThreshold',
+    calibratedPath: 'posture.shoulder.poorSlopeThreshold',
+    sampleKey: 'shoulderSlope',
+  },
+  {
+    metric: 'posture.spine.maxForwardHeadThreshold',
+    staticPath: 'posture.spine.maxForwardHeadThreshold',
+    calibratedPath: 'posture.spine.maxForwardHeadThreshold',
+    sampleKey: 'forwardHead',
+  },
+  {
+    metric: 'posture.spine.moderateForwardHeadThreshold',
+    staticPath: 'posture.spine.moderateForwardHeadThreshold',
+    calibratedPath: 'posture.spine.moderateForwardHeadThreshold',
+    sampleKey: 'forwardHead',
+  },
+  {
+    metric: 'posture.spine.poorForwardHeadThreshold',
+    staticPath: 'posture.spine.poorForwardHeadThreshold',
+    calibratedPath: 'posture.spine.poorForwardHeadThreshold',
+    sampleKey: 'forwardHead',
+  },
+  {
+    metric: 'posture.head.maxTiltThreshold',
+    staticPath: 'posture.head.maxTiltThreshold',
+    calibratedPath: 'posture.head.maxTiltThreshold',
+    sampleKey: 'headTilt',
+  },
+  {
+    metric: 'posture.head.poorTiltThreshold',
+    staticPath: 'posture.head.poorTiltThreshold',
+    calibratedPath: 'posture.head.poorTiltThreshold',
+    sampleKey: 'headTilt',
+  },
+  {
+    metric: 'posture.head.loweredThreshold',
+    staticPath: 'posture.head.loweredThreshold',
+    calibratedPath: 'posture.head.loweredThreshold',
+    sampleKey: 'headLowered',
+  },
+  {
+    metric: 'eyeContact.orientation.maxYawThreshold',
+    staticPath: 'eyeContact.orientation.maxYawThreshold',
+    calibratedPath: 'eyeContact.orientation.maxYawThreshold',
+    sampleKey: 'yawAbs',
+  },
+  {
+    metric: 'eyeContact.orientation.moderateYawThreshold',
+    staticPath: 'eyeContact.orientation.moderateYawThreshold',
+    calibratedPath: 'eyeContact.orientation.moderateYawThreshold',
+    sampleKey: 'yawAbs',
+  },
+  {
+    metric: 'eyeContact.orientation.poorYawThreshold',
+    staticPath: 'eyeContact.orientation.poorYawThreshold',
+    calibratedPath: 'eyeContact.orientation.poorYawThreshold',
+    sampleKey: 'yawAbs',
+  },
+  {
+    metric: 'eyeContact.orientation.maxPitchThreshold',
+    staticPath: 'eyeContact.orientation.maxPitchThreshold',
+    calibratedPath: 'eyeContact.orientation.maxPitchThreshold',
+    sampleKey: 'pitchAbs',
+  },
+  {
+    metric: 'eyeContact.orientation.moderatePitchThreshold',
+    staticPath: 'eyeContact.orientation.moderatePitchThreshold',
+    calibratedPath: 'eyeContact.orientation.moderatePitchThreshold',
+    sampleKey: 'pitchAbs',
+  },
+  {
+    metric: 'eyeContact.orientation.poorPitchThreshold',
+    staticPath: 'eyeContact.orientation.poorPitchThreshold',
+    calibratedPath: 'eyeContact.orientation.poorPitchThreshold',
+    sampleKey: 'pitchAbs',
+  },
+  {
+    metric: 'eyeContact.eyes.blinkThreshold',
+    staticPath: 'eyeContact.eyes.blinkThreshold',
+    calibratedPath: 'eyeContact.eyes.blinkThreshold',
+    sampleKey: 'blinkEAR',
+  },
+  {
+    metric: 'facial.mouth.speakingThreshold',
+    staticPath: 'facial.mouth.speakingThreshold',
+    calibratedPath: 'facial.mouth.speakingThreshold',
+    sampleKey: 'speakingMAR',
+  },
+  // Keep one "engagement" metric for panel grouping; mapped to runtime hands threshold.
+  {
+    metric: 'engagement.fidgetThreshold',
+    staticPath: 'engagement.fidgetThreshold',
+    calibratedPath: 'posture.hands.fidgetingThreshold',
+    sampleKey: 'fidgetMovement',
+  },
 ];
 
-function getNestedValue(obj, path) {
-  return path.split('.').reduce((o, key) => (o ? o[key] : undefined), obj);
+function toNumber(value) {
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
 }
 
-function setNestedValue(obj, path, value) {
-  const keys = path.split('.');
-  let current = obj;
-  for (let i = 0; i < keys.length - 1; i++) {
-    if (!current[keys[i]]) current[keys[i]] = {};
-    current = current[keys[i]];
+function pickFirstNumeric(...values) {
+  for (const value of values) {
+    const n = toNumber(value);
+    if (n != null) return n;
   }
-  current[keys[keys.length - 1]] = value;
+  return null;
+}
+
+function pushIfNumeric(collection, key, value) {
+  const n = toNumber(value);
+  if (n != null) {
+    collection[key].push(n);
+  }
+}
+
+function clamp(value, min, max) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function round(value, decimals = 4) {
+  const factor = 10 ** decimals;
+  return Math.round(value * factor) / factor;
+}
+
+function percentile(values, q) {
+  if (!Array.isArray(values) || values.length === 0) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const pos = (sorted.length - 1) * q;
+  const base = Math.floor(pos);
+  const rest = pos - base;
+  if (sorted[base + 1] !== undefined) {
+    return sorted[base] + rest * (sorted[base + 1] - sorted[base]);
+  }
+  return sorted[base];
 }
 
 function computeStats(values) {
-  if (!values.length) return null;
-  const sorted = [...values].sort((a, b) => a - b);
-  const n = sorted.length;
-  const mean = sorted.reduce((s, v) => s + v, 0) / n;
-  const variance = sorted.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
+  if (!values || values.length === 0) return null;
+  const n = values.length;
+  const mean = values.reduce((s, v) => s + v, 0) / n;
+  const variance = values.reduce((s, v) => s + (v - mean) ** 2, 0) / n;
   const stdDev = Math.sqrt(variance);
-  const median = n % 2 === 0 ? (sorted[n / 2 - 1] + sorted[n / 2]) / 2 : sorted[Math.floor(n / 2)];
-  const p10 = sorted[Math.max(0, Math.floor(n * 0.1))];
-  const p90 = sorted[Math.min(n - 1, Math.floor(n * 0.9))];
-
   return {
-    mean: Math.round(mean * 10000) / 10000,
-    median: Math.round(median * 10000) / 10000,
-    stdDev: Math.round(stdDev * 10000) / 10000,
-    p10: Math.round(p10 * 10000) / 10000,
-    p90: Math.round(p90 * 10000) / 10000,
+    mean: round(mean),
+    median: round(percentile(values, 0.5) ?? mean),
+    stdDev: round(stdDev),
+    p10: round(percentile(values, 0.1) ?? mean),
+    p90: round(percentile(values, 0.9) ?? mean),
     sampleSize: n,
   };
 }
 
+function getNestedValue(obj, path) {
+  return path.split('.').reduce((cursor, key) => (cursor ? cursor[key] : undefined), obj);
+}
+
 /**
- * Fetch analytics datasets from Firestore and filter by high scores.
+ * Fetch analytics datasets from Firestore and keep high-scoring sets first.
  */
 async function fetchHighScoreAnalytics() {
   const analyticsSnapshot = await firestore
@@ -116,15 +255,16 @@ async function fetchHighScoreAnalytics() {
     }
   });
 
-  let highScoreData = datasets.filter((d) => {
-    if (d.interviewId && interviewScores.has(d.interviewId)) return true;
+  let highScoreData = datasets.filter((dataset) => {
+    if (dataset.interviewId && interviewScores.has(dataset.interviewId)) return true;
     const score =
-      Number(d.overallScore || d.statistics?.averageScore) ||
-      Number(d.referenceComparison?.averages?.overall) ||
-      Number(d.summary?.averageOverallScore);
+      Number(dataset.overallScore || dataset.statistics?.averageScore) ||
+      Number(dataset.referenceComparison?.averages?.overall) ||
+      Number(dataset.summary?.averageOverallScore);
     return score >= HIGH_SCORE_THRESHOLD;
   });
 
+  // If no interview-level score metadata is available yet, still calibrate from recent samples.
   if (highScoreData.length === 0 && datasets.length > 0) {
     highScoreData = datasets.slice(0, Math.min(50, datasets.length));
   }
@@ -133,54 +273,236 @@ async function fetchHighScoreAnalytics() {
 }
 
 /**
- * Extract metric values from analytics data for calibration.
- * Supports both: (a) dataPoints array format from backend, (b) flat data format.
+ * Extract normalized calibration samples from mixed analytics formats.
  */
-function extractMetricValues(analyticsData) {
-  const metricCollections = {};
-  METRIC_KEYS.forEach((key) => {
-    metricCollections[key] = [];
-  });
-
-  const pushIfNumeric = (collections, key, value) => {
-    if (value !== undefined && value !== null && Number.isFinite(Number(value))) {
-      collections[key].push(Number(value));
-    }
+function extractSamples(analyticsData) {
+  const samples = {
+    shoulderSlope: [],
+    forwardHead: [],
+    headTilt: [],
+    headLowered: [],
+    fidgetMovement: [],
+    yawAbs: [],
+    pitchAbs: [],
+    blinkEAR: [],
+    speakingMAR: [],
   };
 
   for (const dataset of analyticsData) {
     const rawData = dataset.data || dataset.analyticsData || dataset;
-    const dataPoints = Array.isArray(rawData.dataPoints) ? rawData.dataPoints : [rawData];
+    const dataPoints = Array.isArray(rawData?.dataPoints)
+      ? rawData.dataPoints
+      : Array.isArray(rawData)
+        ? rawData
+        : [rawData];
 
     for (const point of dataPoints) {
-      const pose = point.pose || point.poseMetrics || {};
-      const face = point.face || point.faceMetrics || point.faceMesh || {};
-      const bodyLang = point.bodyLanguage || point.bodyLanguageMetrics || {};
-      const scores = point.scores || {};
+      const pose = point?.pose || point?.poseMetrics || {};
+      const face = point?.face || point?.faceMetrics || point?.faceMesh || {};
+      const body = point?.bodyLanguage || point?.bodyLanguageMetrics || {};
+      const scores = point?.scores || {};
 
-      pushIfNumeric(metricCollections, 'posture.shoulderLevelThreshold', pose.shoulderAlignment ?? (100 - (scores.posture || 0)) / 100);
-      pushIfNumeric(metricCollections, 'posture.headTiltThreshold', Math.abs(face.yaw ?? face.pitch ?? 0));
-      pushIfNumeric(metricCollections, 'posture.slouchThreshold', pose.slouching ? 0.15 : 0.02);
-      pushIfNumeric(metricCollections, 'posture.leanThreshold', pose.forwardHead ? 0.08 : 0.02);
-      pushIfNumeric(metricCollections, 'eyeContact.gazeDeviationThreshold', (100 - (face.eyeContactScore ?? scores.attention ?? 100)) / 1000);
-      pushIfNumeric(metricCollections, 'eyeContact.blinkRateMin', face.blinkCount);
-      pushIfNumeric(metricCollections, 'eyeContact.blinkRateMax', face.blinkCount);
-      pushIfNumeric(metricCollections, 'eyeContact.eyeOpenRatioMin', face.eyeAspectRatio ?? 0.22);
-      pushIfNumeric(metricCollections, 'facial.smileThreshold', face.mouthMAR ?? 0.3);
-      pushIfNumeric(metricCollections, 'facial.neutralThreshold', 0.5);
-      pushIfNumeric(metricCollections, 'facial.expressionVarianceMin', face.pitch != null ? Math.abs(face.pitch) / 90 : 0.1);
-      pushIfNumeric(metricCollections, 'engagement.headMovementMin', bodyLang.stability != null ? bodyLang.stability / 100 : 0.02);
-      pushIfNumeric(metricCollections, 'engagement.headMovementMax', bodyLang.stability ?? bodyLang.overallStability);
-      pushIfNumeric(metricCollections, 'engagement.fidgetThreshold', bodyLang.fidgeting ? 0.2 : 0.05);
-      pushIfNumeric(metricCollections, 'engagement.stillnessThreshold', bodyLang.overallStability != null ? (100 - bodyLang.overallStability) / 100 : 0.01);
+      const shoulderScore = pickFirstNumeric(pose.shoulderAlignment, scores.posture);
+      const shoulderSlope = pickFirstNumeric(
+        pose.shoulderSlope,
+        pose.shoulderLevel,
+        pose.shoulderDifference,
+        pose.shoulderDelta,
+        shoulderScore != null ? ((100 - shoulderScore) / 100) * 0.10 : null,
+      );
+      pushIfNumeric(samples, 'shoulderSlope', shoulderSlope);
+
+      const spineScore = pickFirstNumeric(pose.spineAlignment, scores.posture);
+      const forwardHead = pickFirstNumeric(
+        pose.forwardHeadDistance,
+        pose.headForward,
+        pose.spineForwardLean,
+        pose.forwardHead ? 0.08 : null,
+        pose.forwardHead === false ? 0.02 : null,
+        spineScore != null ? ((100 - spineScore) / 100) * 0.12 : null,
+      );
+      pushIfNumeric(samples, 'forwardHead', forwardHead);
+
+      const headTilt = pickFirstNumeric(
+        pose.headTilt,
+        Math.abs(toNumber(face.roll) ?? NaN),
+        Math.abs(toNumber(face.yaw) ?? NaN) * 0.5,
+      );
+      pushIfNumeric(samples, 'headTilt', headTilt);
+
+      const headLowered = pickFirstNumeric(
+        pose.headLoweredDistance,
+        pose.headDrop,
+        pose.headPosition === 'lowered' ? 0.05 : null,
+        pose.headPosition === 'centered' ? 0.02 : null,
+      );
+      pushIfNumeric(samples, 'headLowered', headLowered);
+
+      const fidgetMovement = pickFirstNumeric(
+        body.handMovement,
+        body.avgMovement,
+        body.movement,
+        body.fidgeting ? 0.09 : null,
+        body.fidgeting === false ? 0.03 : null,
+      );
+      pushIfNumeric(samples, 'fidgetMovement', fidgetMovement);
+
+      const yaw = toNumber(face.yaw);
+      if (yaw != null) {
+        pushIfNumeric(samples, 'yawAbs', Math.abs(yaw));
+      }
+
+      const pitch = toNumber(face.pitch);
+      if (pitch != null) {
+        pushIfNumeric(samples, 'pitchAbs', Math.abs(pitch));
+      }
+
+      const blinkEAR = pickFirstNumeric(
+        face.eyeAspectRatio,
+        face.avgEAR,
+        toNumber(face.leftEAR) != null && toNumber(face.rightEAR) != null
+          ? (Number(face.leftEAR) + Number(face.rightEAR)) / 2
+          : null,
+      );
+      pushIfNumeric(samples, 'blinkEAR', blinkEAR);
+
+      const speakingMAR = pickFirstNumeric(face.mouthMAR, face.mar);
+      pushIfNumeric(samples, 'speakingMAR', speakingMAR);
     }
   }
 
-  return metricCollections;
+  return samples;
+}
+
+function calibrateFromSamples(samples) {
+  const calibrated = {
+    posture: {
+      shoulder: {
+        maxSlopeThreshold: round(clamp(percentile(samples.shoulderSlope, 0.60) ?? STATIC_THRESHOLDS.posture.shoulder.maxSlopeThreshold, 0.01, 0.08)),
+        moderateSlopeThreshold: STATIC_THRESHOLDS.posture.shoulder.moderateSlopeThreshold,
+        poorSlopeThreshold: STATIC_THRESHOLDS.posture.shoulder.poorSlopeThreshold,
+      },
+      spine: {
+        maxForwardHeadThreshold: round(clamp(percentile(samples.forwardHead, 0.60) ?? STATIC_THRESHOLDS.posture.spine.maxForwardHeadThreshold, 0.01, 0.08)),
+        moderateForwardHeadThreshold: STATIC_THRESHOLDS.posture.spine.moderateForwardHeadThreshold,
+        poorForwardHeadThreshold: STATIC_THRESHOLDS.posture.spine.poorForwardHeadThreshold,
+      },
+      head: {
+        maxTiltThreshold: round(clamp(percentile(samples.headTilt, 0.60) ?? STATIC_THRESHOLDS.posture.head.maxTiltThreshold, 3, 20)),
+        poorTiltThreshold: STATIC_THRESHOLDS.posture.head.poorTiltThreshold,
+        loweredThreshold: round(clamp(percentile(samples.headLowered, 0.75) ?? STATIC_THRESHOLDS.posture.head.loweredThreshold, 0.01, 0.10)),
+      },
+      hands: {
+        fidgetingThreshold: round(clamp(percentile(samples.fidgetMovement, 0.80) ?? STATIC_THRESHOLDS.posture.hands.fidgetingThreshold, 0.02, 0.20)),
+      },
+    },
+    eyeContact: {
+      eyes: {
+        blinkThreshold: round(clamp(percentile(samples.blinkEAR, 0.10) ?? STATIC_THRESHOLDS.eyeContact.eyes.blinkThreshold, 0.08, 0.30)),
+        prolongedClosureFrames: STATIC_THRESHOLDS.eyeContact.eyes.prolongedClosureFrames,
+      },
+      orientation: {
+        maxYawThreshold: round(clamp(percentile(samples.yawAbs, 0.60) ?? STATIC_THRESHOLDS.eyeContact.orientation.maxYawThreshold, 5, 35)),
+        moderateYawThreshold: STATIC_THRESHOLDS.eyeContact.orientation.moderateYawThreshold,
+        poorYawThreshold: STATIC_THRESHOLDS.eyeContact.orientation.poorYawThreshold,
+        maxPitchThreshold: round(clamp(percentile(samples.pitchAbs, 0.60) ?? STATIC_THRESHOLDS.eyeContact.orientation.maxPitchThreshold, 4, 20)),
+        moderatePitchThreshold: STATIC_THRESHOLDS.eyeContact.orientation.moderatePitchThreshold,
+        poorPitchThreshold: STATIC_THRESHOLDS.eyeContact.orientation.poorPitchThreshold,
+      },
+    },
+    facial: {
+      mouth: {
+        speakingThreshold: round(clamp(percentile(samples.speakingMAR, 0.60) ?? STATIC_THRESHOLDS.facial.mouth.speakingThreshold, 0.06, 0.30)),
+      },
+    },
+    // Engagement is included for panel grouping/readability.
+    engagement: {
+      fidgetThreshold: null,
+    },
+  };
+
+  // Enforce monotonic thresholds for shoulder/spine/yaw/pitch after initial calibration.
+  calibrated.posture.shoulder.moderateSlopeThreshold = round(
+    clamp(
+      percentile(samples.shoulderSlope, 0.80) ?? STATIC_THRESHOLDS.posture.shoulder.moderateSlopeThreshold,
+      calibrated.posture.shoulder.maxSlopeThreshold + 0.005,
+      0.15,
+    ),
+  );
+  calibrated.posture.shoulder.poorSlopeThreshold = round(
+    clamp(
+      percentile(samples.shoulderSlope, 0.93) ?? STATIC_THRESHOLDS.posture.shoulder.poorSlopeThreshold,
+      calibrated.posture.shoulder.moderateSlopeThreshold + 0.005,
+      0.25,
+    ),
+  );
+
+  calibrated.posture.spine.moderateForwardHeadThreshold = round(
+    clamp(
+      percentile(samples.forwardHead, 0.80) ?? STATIC_THRESHOLDS.posture.spine.moderateForwardHeadThreshold,
+      calibrated.posture.spine.maxForwardHeadThreshold + 0.005,
+      0.20,
+    ),
+  );
+  calibrated.posture.spine.poorForwardHeadThreshold = round(
+    clamp(
+      percentile(samples.forwardHead, 0.93) ?? STATIC_THRESHOLDS.posture.spine.poorForwardHeadThreshold,
+      calibrated.posture.spine.moderateForwardHeadThreshold + 0.005,
+      0.30,
+    ),
+  );
+
+  calibrated.posture.head.poorTiltThreshold = round(
+    clamp(
+      percentile(samples.headTilt, 0.93) ?? STATIC_THRESHOLDS.posture.head.poorTiltThreshold,
+      calibrated.posture.head.maxTiltThreshold + 2,
+      40,
+    ),
+  );
+
+  calibrated.eyeContact.orientation.moderateYawThreshold = round(
+    clamp(
+      percentile(samples.yawAbs, 0.80) ?? STATIC_THRESHOLDS.eyeContact.orientation.moderateYawThreshold,
+      calibrated.eyeContact.orientation.maxYawThreshold + 2,
+      55,
+    ),
+  );
+  calibrated.eyeContact.orientation.poorYawThreshold = round(
+    clamp(
+      percentile(samples.yawAbs, 0.93) ?? STATIC_THRESHOLDS.eyeContact.orientation.poorYawThreshold,
+      calibrated.eyeContact.orientation.moderateYawThreshold + 2,
+      75,
+    ),
+  );
+
+  calibrated.eyeContact.orientation.moderatePitchThreshold = round(
+    clamp(
+      percentile(samples.pitchAbs, 0.80) ?? STATIC_THRESHOLDS.eyeContact.orientation.moderatePitchThreshold,
+      calibrated.eyeContact.orientation.maxPitchThreshold + 2,
+      35,
+    ),
+  );
+  calibrated.eyeContact.orientation.poorPitchThreshold = round(
+    clamp(
+      percentile(samples.pitchAbs, 0.93) ?? STATIC_THRESHOLDS.eyeContact.orientation.poorPitchThreshold,
+      calibrated.eyeContact.orientation.moderatePitchThreshold + 2,
+      50,
+    ),
+  );
+
+  calibrated.engagement.fidgetThreshold = calibrated.posture.hands.fidgetingThreshold;
+  return calibrated;
+}
+
+function getConfidence(stats) {
+  if (!stats) return 'none';
+  if (stats.sampleSize >= 30) return 'high';
+  if (stats.sampleSize >= 10) return 'medium';
+  return 'low';
 }
 
 /**
- * Calibrate thresholds from collected data.
+ * Calibrate thresholds from collected analytics data.
  */
 export async function calibrateFromCollectedData() {
   const { highScoreData, totalAnalytics, totalHighScore } = await fetchHighScoreAnalytics();
@@ -188,56 +510,61 @@ export async function calibrateFromCollectedData() {
   if (highScoreData.length === 0) {
     return {
       success: false,
-      error: 'No high-scoring analytics data available for calibration. Conduct more interviews.',
+      error: 'No analytics data available for calibration. Conduct more interviews first.',
       totalAnalytics,
       totalHighScore: 0,
     };
   }
 
-  const metricValues = extractMetricValues(highScoreData);
-  const calibratedMetrics = {};
-  const comparisons = [];
+  const samples = extractSamples(highScoreData);
+  const calibrated = calibrateFromSamples(samples);
 
-  for (const key of METRIC_KEYS) {
-    const stats = computeStats(metricValues[key]);
-    const staticValue = getNestedValue(STATIC_THRESHOLDS, key);
-    const calibratedValue = stats ? stats.mean : staticValue;
+  const comparisons = COMPARISON_METRICS.map((metricConfig) => {
+    const values = samples[metricConfig.sampleKey] || [];
+    const stats = computeStats(values);
+    const staticValue = getNestedValue(STATIC_THRESHOLDS, metricConfig.staticPath);
+    const calibratedValue = getNestedValue(calibrated, metricConfig.calibratedPath);
+    const deviation =
+      stats && staticValue !== 0 && staticValue != null
+        ? round(((calibratedValue - staticValue) / staticValue) * 100, 2)
+        : null;
 
-    setNestedValue(calibratedMetrics, key, calibratedValue);
-
-    const deviation = stats && staticValue !== 0
-      ? Math.round(((calibratedValue - staticValue) / staticValue) * 10000) / 100
-      : null;
-
-    comparisons.push({
-      metric: key,
+    return {
+      metric: metricConfig.metric,
       staticValue,
       calibratedValue: stats ? calibratedValue : null,
       deviation,
       stats,
-      confidence: stats
-        ? stats.sampleSize >= 30 ? 'high' : stats.sampleSize >= 10 ? 'medium' : 'low'
-        : 'none',
-    });
-  }
+      confidence: getConfidence(stats),
+    };
+  });
+
+  const calibratedCount = comparisons.filter((c) => c.stats).length;
+  const highConfidenceCount = comparisons.filter((c) => c.confidence === 'high').length;
 
   return {
     success: true,
-    calibrated: calibratedMetrics,
+    calibrated,
     comparisons,
     summary: {
       totalAnalyticsDatasets: totalAnalytics,
       highScoreDatasets: totalHighScore,
-      metricsCalibrated: comparisons.filter((c) => c.stats !== null).length,
-      metricsWithInsufficientData: comparisons.filter((c) => c.stats === null).length,
-      highConfidenceMetrics: comparisons.filter((c) => c.confidence === 'high').length,
+      metricsCalibrated: calibratedCount,
+      metricsWithInsufficientData: comparisons.length - calibratedCount,
+      highConfidenceMetrics: highConfidenceCount,
     },
   };
 }
 
 /**
- * Get static reference thresholds for comparison.
+ * Get static reference thresholds for debugging/comparison.
  */
 export function getStaticThresholds() {
   return STATIC_THRESHOLDS;
 }
+
+export default {
+  calibrateFromCollectedData,
+  getStaticThresholds,
+};
+

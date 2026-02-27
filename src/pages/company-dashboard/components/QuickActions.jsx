@@ -14,7 +14,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Set up a new candidate interview session',
         icon: 'Calendar',
         color: 'from-blue-600 to-purple-600',
-        onClick: onScheduleInterview || (() => navigate('/practice-interview-setup')),
+        onClick: onScheduleInterview || (() => navigate('/company-invitations')),
         requiredPermission: 'SEND_INVITATIONS'
       },
       {
@@ -23,7 +23,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Design custom interview questions and criteria',
         icon: 'FileText',
         color: 'from-cyan-500 to-blue-500',
-        onClick: onCreateTemplate || (() => navigate('/practice-interview-setup')),
+        onClick: onCreateTemplate || (() => navigate('/company-jobs')),
         requiredPermission: 'CREATE_TEMPLATES'
       },
       {
@@ -47,22 +47,22 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
     const items = [
       {
         id: 'live-session',
-        title: 'Start Live Session',
-        icon: 'Video',
-        path: '/live-interview-session',
+        title: 'View Interviews',
+        icon: 'Calendar',
+        path: '/company-interviews',
         requiredPermission: 'SEND_INVITATIONS'
       },
       {
         id: 'candidate-search',
         title: 'Search Candidates',
         icon: 'Search',
-        path: '/company-dashboard'
+        path: '/company-candidates'
       },
       {
         id: 'settings',
         title: 'Interview Settings',
         icon: 'Settings',
-        path: '/practice-interview-setup',
+        path: '/company-settings',
         requiredPermission: 'CREATE_TEMPLATES'
       },
       {

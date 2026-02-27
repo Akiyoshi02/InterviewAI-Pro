@@ -26,4 +26,10 @@ router.get('/candidate/dashboard-metrics', authenticate, requireFeatureFlag('ena
 // Candidate: Historical metrics snapshots for trend analysis
 router.get('/candidate/historical', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateHistoricalMetrics);
 
+// Candidate: Full analytics — all sessions, trend, skill averages, role breakdown
+router.get('/candidate/full', authenticate, requireFeatureFlag('enableAnalytics'), requireCandidate, AnalyticsController.getCandidateFullAnalytics);
+
+// Longitudinal study data — anonymised dataset for research export
+router.get('/longitudinal', authenticate, requireFeatureFlag('enableAnalytics'), AnalyticsController.getLongitudinalData);
+
 export default router;

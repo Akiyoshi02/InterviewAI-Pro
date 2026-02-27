@@ -22,6 +22,7 @@ const normalizeUploadsPath = (value) => {
     'profile-photos/',
     'resumes/',
     'company-logos/',
+    'company-covers/',
     'company-verifications/',
     'job-advert-images/',
     'job-advert-videos/',
@@ -364,6 +365,24 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async updateCompanyCover(file) {
+      const formData = new FormData();
+      formData.append('companyCover', file);
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/me/company-cover`, {
+        method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
     async updateCompanyProof(file) {
       const formData = new FormData();
       formData.append('companyProof', file);
@@ -394,6 +413,25 @@ export const apiClient = {
 
       const response = await fetch(`${API_URL}/api/auth/me/resume`, {
         method: 'PATCH',
+        headers,
+        body: formData,
+      });
+      return handleResponse(response);
+    },
+
+    async parseResume(file, options = {}) {
+      const formData = new FormData();
+      formData.append('resumeFile', file);
+      if (options?.accountType) {
+        formData.append('accountType', options.accountType);
+      }
+
+      const token = await getAuthToken();
+      const headers = {};
+      if (token) headers['Authorization'] = `Bearer ${token}`;
+
+      const response = await fetch(`${API_URL}/api/auth/me/parse-resume`, {
+        method: 'POST',
         headers,
         body: formData,
       });
@@ -686,6 +724,38 @@ export const apiClient = {
       });
       return handleResponse(response);
     },
+
+    async getShareToken(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/share-token`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getSharedResults(token) {
+      const response = await fetch(`${API_URL}/api/interviews/shared/${token}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      });
+      return handleResponse(response);
+    },
+
+    async getCandidateFullAnalytics() {
+      const response = await fetch(`${API_URL}/api/analytics/candidate/full`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getLongitudinalData() {
+      const response = await fetch(`${API_URL}/api/analytics/longitudinal`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
   },
 
   /**
@@ -910,6 +980,51 @@ export const apiClient = {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify({ userId, status: 'INACTIVE' }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Candidate Companies Directory APIs
+   */
+  companies: {
+    async list({ search = '', industry = '', size, page } = {}) {
+      const params = new URLSearchParams();
+      if (String(search || '').trim()) params.set('search', String(search).trim());
+      if (String(industry || '').trim()) params.set('industry', String(industry).trim());
+      if (size != null) params.set('size', String(size));
+      if (page != null) params.set('page', String(page));
+
+      const query = params.toString();
+      const response = await fetch(`${API_URL}/api/companies${query ? `?${query}` : ''}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getBySlug(slug) {
+      const response = await fetch(`${API_URL}/api/companies/${encodeURIComponent(slug)}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getMyProfile() {
+      const response = await fetch(`${API_URL}/api/companies/me/profile`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateMyProfile(payload) {
+      const response = await fetch(`${API_URL}/api/companies/me/profile`, {
+        method: 'PUT',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload || {}),
       });
       return handleResponse(response);
     },
@@ -1812,6 +1927,173 @@ export const apiClient = {
     async delete(id, type) {
       const response = await fetch(`${API_URL}/api/datasets/${id}?type=${type}`, {
         method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  /**
+   * Notification APIs
+   */
+  notifications: {
+    async list({ unreadOnly = false, limit = 30 } = {}) {
+      const params = new URLSearchParams({ limit });
+      if (unreadOnly) params.set('unreadOnly', 'true');
+      const response = await fetch(`${API_URL}/api/notifications?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async markRead(id) {
+      const response = await fetch(`${API_URL}/api/notifications/${id}/read`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async markAllRead() {
+      const response = await fetch(`${API_URL}/api/notifications/read-all`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async delete(id) {
+      const response = await fetch(`${API_URL}/api/notifications/${id}`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  referrals: {
+    async getMyReferral() {
+      const response = await fetch(`${API_URL}/api/referrals/me`, { headers: await getHeaders() });
+      return handleResponse(response);
+    },
+    async getLeaderboard() {
+      const response = await fetch(`${API_URL}/api/referrals/leaderboard`, { headers: await getHeaders() });
+      return handleResponse(response);
+    },
+  },
+
+  webhooks: {
+    async list() {
+      const response = await fetch(`${API_URL}/api/webhooks`, { headers: await getHeaders() });
+      return handleResponse(response);
+    },
+    async create(payload) {
+      const response = await fetch(`${API_URL}/api/webhooks`, {
+        method: 'POST', headers: await getHeaders(), body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+    async update(id, payload) {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}`, {
+        method: 'PUT', headers: await getHeaders(), body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+    async remove(id) {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}`, {
+        method: 'DELETE', headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+    async test(id) {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}/test`, {
+        method: 'POST', headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+    async deliveries(id) {
+      const response = await fetch(`${API_URL}/api/webhooks/${id}/deliveries`, { headers: await getHeaders() });
+      return handleResponse(response);
+    },
+  },
+
+  twofa: {
+    async getStatus() {
+      const response = await fetch(`${API_URL}/api/2fa/status`, { headers: await getHeaders() });
+      return handleResponse(response);
+    },
+    async totpSetup() {
+      const response = await fetch(`${API_URL}/api/2fa/totp/setup`, { method: 'POST', headers: await getHeaders() });
+      return handleResponse(response);
+    },
+    async totpVerify(token) {
+      const response = await fetch(`${API_URL}/api/2fa/totp/verify`, {
+        method: 'POST', headers: await getHeaders(), body: JSON.stringify({ token }),
+      });
+      return handleResponse(response);
+    },
+    async totpDisable(token) {
+      const response = await fetch(`${API_URL}/api/2fa/totp/disable`, {
+        method: 'POST', headers: await getHeaders(), body: JSON.stringify({ token }),
+      });
+      return handleResponse(response);
+    },
+    async emailSend() {
+      const response = await fetch(`${API_URL}/api/2fa/email/send`, { method: 'POST', headers: await getHeaders() });
+      return handleResponse(response);
+    },
+    async emailVerify(otp) {
+      const response = await fetch(`${API_URL}/api/2fa/email/verify`, {
+        method: 'POST', headers: await getHeaders(), body: JSON.stringify({ otp }),
+      });
+      return handleResponse(response);
+    },
+    async useBackupCode(code) {
+      const response = await fetch(`${API_URL}/api/2fa/backup/use`, {
+        method: 'POST', headers: await getHeaders(), body: JSON.stringify({ code }),
+      });
+      return handleResponse(response);
+    },
+  },
+
+  gdpr: {
+    async exportData() {
+      const response = await fetch(`${API_URL}/api/gdpr/export`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async requestDeletion() {
+      const response = await fetch(`${API_URL}/api/gdpr/delete`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async cancelDeletion() {
+      const response = await fetch(`${API_URL}/api/gdpr/delete`, {
+        method: 'DELETE',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async saveConsent(prefs) {
+      const response = await fetch(`${API_URL}/api/gdpr/consent`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(prefs),
+      });
+      return handleResponse(response);
+    },
+
+    async getConsent() {
+      const response = await fetch(`${API_URL}/api/gdpr/consent`, {
+        method: 'GET',
         headers: await getHeaders(),
       });
       return handleResponse(response);

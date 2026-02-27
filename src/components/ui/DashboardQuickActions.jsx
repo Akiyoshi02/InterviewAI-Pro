@@ -45,11 +45,11 @@ const DashboardQuickActions = ({
   const companyActions = [
     {
       id: 'setup-interview',
-      title: 'Setup New Interview',
-      description: 'Configure interview parameters and questions',
-      icon: 'Settings',
+      title: 'Send Interview Invitation',
+      description: 'Invite a candidate to an interview session',
+      icon: 'Send',
       variant: 'default',
-      path: '/practice-interview-setup',
+      path: '/company-invitations',
       color: 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/40'
     },
     {
@@ -58,16 +58,16 @@ const DashboardQuickActions = ({
       description: 'Evaluate completed interview sessions',
       icon: 'Users',
       variant: 'secondary',
-      path: '/company-dashboard',
+      path: '/company-candidates',
       color: 'bg-gradient-to-br from-cyan-500 to-blue-500 text-white shadow-lg shadow-cyan-500/30'
     },
     {
       id: 'live-session',
-      title: 'Start Live Session',
-      description: 'Begin real-time candidate interview',
-      icon: 'Video',
+      title: 'View Interviews',
+      description: 'Browse and manage scheduled interviews',
+      icon: 'Calendar',
       variant: 'outline',
-      path: '/live-interview-session',
+      path: '/company-interviews',
       color: 'bg-gradient-to-br from-emerald-500 to-teal-500 text-white shadow-lg shadow-emerald-500/30'
     }
   ];

@@ -1016,8 +1016,28 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
     logger.info(`Email sent via SMTP to ${to}: ${result.messageId}`);
     return { success: true, messageId: result.messageId };
   } catch (error) {
-    logger.error('SMTP error:', error);
-    throw new Error(`Failed to send email via SMTP: ${error.message}`);
+    logger.error('SMTP error:', {
+      message: error?.message,
+      code: error?.code,
+      responseCode: error?.responseCode,
+      command: error?.command,
+      response: error?.response,
+    });
+
+    const rawSmtpError = `${error?.message || ''} ${error?.response || ''}`.toLowerCase();
+    const isAuthFailure = error?.code === 'EAUTH'
+      || error?.responseCode === 535
+      || rawSmtpError.includes('badcredentials')
+      || rawSmtpError.includes('invalid login')
+      || rawSmtpError.includes('username and password not accepted');
+
+    const safeMessage = isAuthFailure
+      ? 'Email service authentication failed. Please contact support.'
+      : 'Unable to send email right now. Please try again later.';
+    const wrappedError = new Error(safeMessage);
+    wrappedError.status = 503;
+    wrappedError.code = isAuthFailure ? 'EMAIL_SMTP_AUTH_FAILED' : 'EMAIL_DELIVERY_FAILED';
+    throw wrappedError;
   }
 }
 

@@ -20,6 +20,13 @@ import billingRoutes from './billing.routes.js';
 import newsletterRoutes from './newsletter.routes.js';
 import datasetRoutes from './dataset.routes.js';
 import savedAnswerRoutes from './savedAnswer.routes.js'; // GAP FEATURE: Personal Answer Library
+import notificationRoutes from './notification.routes.js';
+import gdprRoutes from './gdpr.routes.js';
+import twofaRoutes from './twofa.routes.js';
+import oauthRoutes from './oauth.routes.js';
+import webhookRoutes from './webhook.routes.js';
+import referralRoutes from './referral.routes.js';
+import companyProfileRoutes from './companyProfile.routes.js';
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
 import { LLMService } from '../services/llm.service.js';
 
@@ -47,6 +54,13 @@ export function setupRoutes(app) {
   app.use('/api/newsletter', newsletterRoutes);
   app.use('/api/datasets', datasetRoutes);
   app.use('/api/saved-answers', savedAnswerRoutes); // GAP FEATURE: Personal Answer Library
+  app.use('/api/notifications', notificationRoutes);
+  app.use('/api/gdpr', gdprRoutes);
+  app.use('/api/2fa', twofaRoutes);
+  app.use('/api/oauth', oauthRoutes);
+  app.use('/api/webhooks', webhookRoutes);
+  app.use('/api/referrals', referralRoutes);
+  app.use('/api/companies', companyProfileRoutes);
   app.use('/api', applicationRoutes);
 
   // Add maintenance header to all API responses

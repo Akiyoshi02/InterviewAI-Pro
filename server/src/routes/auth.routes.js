@@ -12,6 +12,7 @@
 
 import express from 'express';
 import { authenticate, requireCandidate, requireCompany, verifyFirebaseAuth } from '../middleware/auth.middleware.js';
+import { checkMaintenanceMode } from '../middleware/maintenance.middleware.js';
 import { 
   validateRequest, 
   stripUnexpectedFields,
@@ -170,6 +171,21 @@ router.patch(
 );
 
 /**
+ * PATCH /api/auth/me/company-cover
+ * Update company cover image
+ *
+ * Rate limited: Through upload limiter
+ * Validates: Image moderation in controller
+ */
+router.patch(
+  '/me/company-cover',
+  authenticate,
+  requireCompany,
+  registrationUpload.single('companyCover'),
+  AuthController.updateCompanyCover
+);
+
+/**
  * PATCH /api/auth/me/company-proof
  * Update company verification document
  *
@@ -197,6 +213,19 @@ router.patch(
   requireCandidate,
   registrationUpload.single('resumeFile'),
   AuthController.updateResume
+);
+
+/**
+ * POST /api/auth/me/parse-resume
+ * Parse uploaded or existing resume and extract profile data
+ * Returns structured profile fields extracted by the LLM
+ */
+router.post(
+  '/me/parse-resume',
+  verifyFirebaseAuth,
+  checkMaintenanceMode,
+  registrationUpload.single('resumeFile'),
+  AuthController.parseResume
 );
 
 // =============================================================================

@@ -1,9 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
-import BrandMark from '../BrandMark';
 import Button from './Button';
-import ProfileSettingsModal from './ProfileSettingsModal';
 import NavigationMenu from './NavigationMenu';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
@@ -135,7 +133,6 @@ const UserContextNavigation = ({
   const location = useLocation();
   const mobileNavRef = useRef(null);
   const [activeItem, setActiveItem] = useState(buildCurrentRoute(location.pathname, location.hash));
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isAIChatOpen, setIsAIChatOpen] = useState(false);
   const [profileImageIndex, setProfileImageIndex] = useState(0);
   const [profileImageFailed, setProfileImageFailed] = useState(false);
@@ -178,6 +175,12 @@ const UserContextNavigation = ({
       icon: 'Briefcase',
       description: 'Browse available positions'
     },
+    {
+      label: 'Companies',
+      path: '/companies',
+      icon: 'Building2',
+      description: 'Browse company profiles'
+    },
     { 
       label: 'My Applications', 
       path: '/my-applications', 
@@ -189,6 +192,42 @@ const UserContextNavigation = ({
       path: '/practice-interview-setup', 
       icon: 'Play',
       description: 'Set up practice sessions'
+    },
+    { 
+      label: 'My Analytics', 
+      path: '/candidate-analytics', 
+      icon: 'BarChart2',
+      description: 'Track your performance trends'
+    },
+    {
+      label: 'Achievements',
+      path: '/gamification',
+      icon: 'Trophy',
+      description: 'Streaks, badges, XP & challenges'
+    },
+    {
+      label: 'Prep Library',
+      path: '/interview-prep-library',
+      icon: 'BookOpen',
+      description: 'Guides, question bank & STAR builder'
+    },
+    {
+      label: 'Referral Program',
+      path: '/referral-program',
+      icon: 'Gift',
+      description: 'Invite friends and earn rewards'
+    },
+    {
+      label: 'Privacy & Data',
+      path: '/privacy-settings',
+      icon: 'Shield',
+      description: 'GDPR rights, data export & deletion'
+    },
+    {
+      label: 'Settings',
+      path: '/candidate-settings',
+      icon: 'Settings',
+      description: 'Edit your profile details'
     },
   ];
 
@@ -238,18 +277,39 @@ const UserContextNavigation = ({
       requiredPermission: 'MANAGE_MEMBERS'
     },
     { 
-      key: 'settings',
-      label: 'Settings', 
-      path: '/company-settings', 
-      icon: 'Settings',
-      description: 'Organization and user profile settings'
-    },
-    { 
       key: 'billing',
       label: 'Billing', 
       path: '/company-billing', 
       icon: 'CreditCard',
       description: 'Plan, usage, and billing history'
+    },
+    {
+      key: 'public-profile',
+      label: 'Public Profile',
+      path: '/company-profile-editor',
+      icon: 'Globe',
+      description: 'Edit your company\'s public page'
+    },
+    {
+      key: 'webhooks',
+      label: 'Webhooks',
+      path: '/company-webhooks',
+      icon: 'Webhook',
+      description: 'Integrate with your ATS and tools'
+    },
+    {
+      key: 'privacy',
+      label: 'Privacy & Data',
+      path: '/privacy-settings',
+      icon: 'Shield',
+      description: 'GDPR rights, data export & deletion'
+    },
+    { 
+      key: 'settings',
+      label: 'Settings', 
+      path: '/company-settings', 
+      icon: 'Settings',
+      description: 'Organization and user profile settings'
     },
   ];
 
@@ -431,7 +491,17 @@ const UserContextNavigation = ({
 
   const handleProfileClick = () => {
     setMobileGroupMenuKey(null);
-    setIsProfileOpen(true);
+    if (userType === 'company') {
+      handleNavigation('/company-settings');
+      return;
+    }
+
+    if (userType === 'admin') {
+      handleNavigation('/system-admin-dashboard/settings');
+      return;
+    }
+
+    handleNavigation('/candidate-settings');
   };
 
   const handleToggleAIChat = () => {
@@ -511,16 +581,7 @@ const UserContextNavigation = ({
           <div className="absolute inset-0 opacity-70 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.15),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.15),transparent_40%)]" />
           <div className="relative z-10 flex flex-col h-full border-r border-white/20 dark:border-slate-800 bg-white/70 dark:bg-slate-900/70 backdrop-blur-xl">
             {/* Header */}
-            <div className="flex items-center justify-between p-3 xl:p-4 border-b border-white/20 dark:border-slate-800">
-              {!isCollapsed && (
-                <BrandMark
-                  className="items-center"
-                  iconWrapperClassName="w-8 h-8 xl:w-9 xl:h-9"
-                  textClassName="text-base xl:text-lg"
-                  showTagline={false}
-                />
-              )}
-              
+            <div className="flex items-center justify-end p-3 xl:p-4 border-b border-white/20 dark:border-slate-800">
               {onToggleCollapse && (
                 <Button
                   variant="ghost"
@@ -716,12 +777,6 @@ const UserContextNavigation = ({
           </button>
         </div>
       </nav>
-
-      <ProfileSettingsModal
-        open={isProfileOpen}
-        onClose={() => setIsProfileOpen(false)}
-        userType={userType}
-      />
 
       {userType === 'company' ? (
         <CompanyAIChatAssistant

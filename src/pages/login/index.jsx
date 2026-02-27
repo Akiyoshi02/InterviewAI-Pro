@@ -154,9 +154,15 @@ const Login = () => {
     checkAuth();
   }, [navigate, redirectPath, registerHref, setAuthenticatedUser]);
 
-  // Note: Firebase OAuth callbacks work differently than Supabase
-  // They typically redirect to a configured redirect URL
-  // If you need OAuth, implement Firebase provider-specific flows
+  useEffect(() => {
+    const oauthError = searchParams.get('oauth_error');
+    if (!oauthError) return;
+
+    const decoded = decodeURIComponent(oauthError);
+    setError(friendlyRateLimitMessage(decoded));
+    setStatusMessage('');
+    setStatusType('');
+  }, [searchParams]);
 
   const handleLogin = async (formData) => {
     setIsLoading(true);

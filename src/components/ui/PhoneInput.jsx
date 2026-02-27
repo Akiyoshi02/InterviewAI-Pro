@@ -4,6 +4,7 @@ import { cn } from '../../utils/cn';
 
 const countries = [
   {
+    shortCode: 'LK',
     code: '+94',
     name: 'Sri Lanka',
     flag: '🇱🇰',
@@ -160,9 +161,8 @@ const PhoneInput = ({
               error ? "border-destructive" : "border-input"
             )}
           >
-            <span className="text-lg">{selectedCountry.flag}</span>
-            <span className="text-base sm:text-sm font-medium text-foreground">
-              {selectedCountry.code}
+            <span className="text-base sm:text-sm font-medium text-foreground whitespace-nowrap">
+              {`${selectedCountry.shortCode} (${selectedCountry.code})`}
             </span>
             <svg
               className={cn(
@@ -208,16 +208,17 @@ const PhoneInput = ({
                       key={country.code}
                       type="button"
                       onClick={() => {
+                        const currentDigits = phoneNumber.replace(/\D/g, '');
                         setSelectedCountry(country);
                         setIsDropdownOpen(false);
-                        setPhoneNumber('');
-                        onChange?.('');
+                        const formatted = country.format(currentDigits);
+                        setPhoneNumber(formatted);
+                        onChange?.(formatted ? `${country.code}${formatted.replace(/\s/g, '')}` : '');
                       }}
                       className="relative flex cursor-pointer select-none items-center rounded-lg mx-1 w-full px-3 sm:px-3 py-1.5 sm:py-1 text-base sm:text-sm outline-none transition-colors min-h-[36px] sm:min-h-0 touch-manipulation hover:bg-gray-100 dark:hover:bg-slate-800 active:bg-gray-200 dark:active:bg-slate-700 text-gray-900 dark:text-slate-100"
                     >
-                      <span className="text-lg mr-3">{country.flag}</span>
                       <span className="flex-1 text-left">
-                        {country.name} ({country.code})
+                        {`${country.shortCode} (${country.code})`}
                       </span>
                     </button>
                   ))}

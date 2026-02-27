@@ -20,6 +20,9 @@ import {
   FACE_REFERENCE,
   SCORING_WEIGHTS,
   FEEDBACK_THRESHOLDS,
+  getEffectivePostureReference,
+  getEffectiveFaceReference,
+  getEffectiveScoringWeights,
   calculateEAR,
   calculateMAR,
   calculateFaceOrientation,
@@ -28,6 +31,7 @@ import {
 } from '../config/mediapipeReferenceData';
 
 const DETECTION_INTERVAL = 100; // 10 FPS
+const CALIBRATION_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
 
 /**
  * Main Interview Analytics Hook
@@ -125,10 +129,45 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
   const blinkFrameCountRef = useRef(0);
   const speakingFramesRef = useRef(0);
   const frameCountRef = useRef(0);
+  const referencesRef = useRef({
+    posture: getEffectivePostureReference(),
+    face: getEffectiveFaceReference(),
+    scoring: getEffectiveScoringWeights(),
+  });
 
   useEffect(() => {
     metricsRef.current = metrics;
   }, [metrics]);
+
+  // Keep threshold/weight references in sync with calibrated overrides.
+  useEffect(() => {
+    const refreshReferences = () => {
+      referencesRef.current = {
+        posture: getEffectivePostureReference(),
+        face: getEffectiveFaceReference(),
+        scoring: getEffectiveScoringWeights(),
+      };
+    };
+
+    const handleStorage = (event) => {
+      if (!event || event.key === CALIBRATION_STORAGE_KEY || event.key == null) {
+        refreshReferences();
+      }
+    };
+
+    refreshReferences();
+    if (typeof window !== 'undefined') {
+      window.addEventListener('storage', handleStorage);
+      window.addEventListener('mediapipe-calibration-updated', refreshReferences);
+    }
+
+    return () => {
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('storage', handleStorage);
+        window.removeEventListener('mediapipe-calibration-updated', refreshReferences);
+      }
+    };
+  }, []);
 
   /**
    * Initialize MediaPipe models
@@ -214,6 +253,9 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
    * Analyze pose landmarks
    */
   const analyzePose = useCallback((landmarks) => {
+    const postureRef = referencesRef.current.posture || POSTURE_REFERENCE;
+    const scoringRef = referencesRef.current.scoring || SCORING_WEIGHTS;
+
     // Key landmarks
     const leftShoulder = landmarks[POSE_LANDMARKS.LEFT_SHOULDER];
     const rightShoulder = landmarks[POSE_LANDMARKS.RIGHT_SHOULDER];
@@ -230,13 +272,13 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     let shoulderScore = 100;
     let shoulderStatus = 'good';
     
-    if (shoulderSlope > POSTURE_REFERENCE.shoulder.poorSlopeThreshold) {
+    if (shoulderSlope > postureRef.shoulder.poorSlopeThreshold) {
       shoulderScore = 40;
       shoulderStatus = 'poor';
-    } else if (shoulderSlope > POSTURE_REFERENCE.shoulder.moderateSlopeThreshold) {
+    } else if (shoulderSlope > postureRef.shoulder.moderateSlopeThreshold) {
       shoulderScore = 70;
       shoulderStatus = 'fair';
-    } else if (shoulderSlope > POSTURE_REFERENCE.shoulder.maxSlopeThreshold) {
+    } else if (shoulderSlope > postureRef.shoulder.maxSlopeThreshold) {
       shoulderScore = 85;
     }
 
@@ -248,34 +290,34 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     };
     
     const forwardHeadDistance = (nose.z || 0) - shoulderMidpoint.z;
-    const forwardHead = forwardHeadDistance > POSTURE_REFERENCE.spine.maxForwardHeadThreshold;
+    const forwardHead = forwardHeadDistance > postureRef.spine.maxForwardHeadThreshold;
     
     let spineScore = 100;
-    if (forwardHeadDistance > POSTURE_REFERENCE.spine.poorForwardHeadThreshold) {
+    if (forwardHeadDistance > postureRef.spine.poorForwardHeadThreshold) {
       spineScore = 40;
-    } else if (forwardHeadDistance > POSTURE_REFERENCE.spine.moderateForwardHeadThreshold) {
+    } else if (forwardHeadDistance > postureRef.spine.moderateForwardHeadThreshold) {
       spineScore = 70;
-    } else if (forwardHeadDistance > POSTURE_REFERENCE.spine.maxForwardHeadThreshold) {
+    } else if (forwardHeadDistance > postureRef.spine.maxForwardHeadThreshold) {
       spineScore = 85;
     }
 
     // === HEAD POSITION ===
     const eyeSlope = Math.abs(leftEye.y - rightEye.y);
     const eyeMidpoint = (leftEye.y + rightEye.y) / 2;
-    const headLowered = nose.y > eyeMidpoint + POSTURE_REFERENCE.head.loweredThreshold;
+    const headLowered = nose.y > eyeMidpoint + postureRef.head.loweredThreshold;
     
     let headPosition = 'centered';
-    if (eyeSlope > POSTURE_REFERENCE.head.poorTiltThreshold) {
+    if (eyeSlope > postureRef.head.poorTiltThreshold) {
       headPosition = 'tilted';
     } else if (headLowered) {
       headPosition = 'lowered';
-    } else if (eyeSlope > POSTURE_REFERENCE.head.maxTiltThreshold) {
+    } else if (eyeSlope > postureRef.head.maxTiltThreshold) {
       headPosition = 'slightly_tilted';
     }
 
     // === SLOUCHING ===
-    const slouching = shoulderSlope > POSTURE_REFERENCE.shoulder.moderateSlopeThreshold || 
-                      forwardHeadDistance > POSTURE_REFERENCE.spine.moderateForwardHeadThreshold;
+    const slouching = shoulderSlope > postureRef.shoulder.moderateSlopeThreshold || 
+                      forwardHeadDistance > postureRef.spine.moderateForwardHeadThreshold;
 
     // === HAND MOVEMENT / FIDGETING ===
     let fidgeting = false;
@@ -298,23 +340,23 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
       
       // Track movement history
       movementHistoryRef.current.push(handMovement);
-      if (movementHistoryRef.current.length > POSTURE_REFERENCE.hands.historyWindow) {
+      if (movementHistoryRef.current.length > postureRef.hands.historyWindow) {
         movementHistoryRef.current.shift();
       }
       
       const avgMovement = movementHistoryRef.current.reduce((a, b) => a + b, 0) / 
                           movementHistoryRef.current.length;
-      fidgeting = avgMovement > POSTURE_REFERENCE.hands.fidgetingThreshold;
+      fidgeting = avgMovement > postureRef.hands.fidgetingThreshold;
     }
     
     previousPoseLandmarksRef.current = landmarks;
 
     // === OVERALL POSTURE SCORE ===
     const postureScore = Math.round(
-      shoulderScore * SCORING_WEIGHTS.posture.components.shoulderAlignment +
-      spineScore * SCORING_WEIGHTS.posture.components.spineAlignment +
+      shoulderScore * scoringRef.posture.components.shoulderAlignment +
+      spineScore * scoringRef.posture.components.spineAlignment +
       (headPosition === 'centered' ? 100 : headPosition === 'slightly_tilted' ? 85 : 60) * 
-        SCORING_WEIGHTS.posture.components.headPosition
+        scoringRef.posture.components.headPosition
     );
 
     const postureStatus = postureScore >= 80 ? 'good' : postureScore >= 60 ? 'fair' : 'poor';
@@ -345,6 +387,8 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
    * Analyze face landmarks
    */
   const analyzeFace = useCallback((faceLandmarks, blendshapes) => {
+    const faceRef = referencesRef.current.face || FACE_REFERENCE;
+
     // === EYE ANALYSIS ===
     const leftEyeTop = faceLandmarks[FACE_LANDMARKS.LEFT_EYE_TOP];
     const leftEyeBottom = faceLandmarks[FACE_LANDMARKS.LEFT_EYE_BOTTOM];
@@ -361,7 +405,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     const avgEAR = (leftEAR + rightEAR) / 2;
     
     // Blink detection
-    const isBlinking = avgEAR < FACE_REFERENCE.eyes.blinkThreshold;
+    const isBlinking = avgEAR < faceRef.eyes.blinkThreshold;
     if (isBlinking && !isEyeClosedRef.current) {
       blinkCountRef.current += 1;
       isEyeClosedRef.current = true;
@@ -381,7 +425,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     const rightMouth = faceLandmarks[FACE_LANDMARKS.LIPS_OUTER[10]];
     
     const mouthMAR = calculateMAR(upperLip, lowerLip, leftMouth, rightMouth);
-    const isSpeakingNow = mouthMAR > FACE_REFERENCE.mouth.speakingThreshold;
+    const isSpeakingNow = mouthMAR > faceRef.mouth.speakingThreshold;
     
     if (isSpeakingNow) {
       speakingFramesRef.current = Math.min(speakingFramesRef.current + 1, 10);
@@ -401,14 +445,14 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     const absPitch = Math.abs(pitch);
     
     let faceOrientationStatus = 'direct';
-    if (absYaw > FACE_REFERENCE.orientation.poorYawThreshold || 
-        absPitch > FACE_REFERENCE.orientation.poorPitchThreshold) {
+    if (absYaw > faceRef.orientation.poorYawThreshold || 
+        absPitch > faceRef.orientation.poorPitchThreshold) {
       faceOrientationStatus = 'away';
-    } else if (absYaw > FACE_REFERENCE.orientation.moderateYawThreshold ||
-               absPitch > FACE_REFERENCE.orientation.moderatePitchThreshold) {
+    } else if (absYaw > faceRef.orientation.moderateYawThreshold ||
+               absPitch > faceRef.orientation.moderatePitchThreshold) {
       faceOrientationStatus = 'moderate';
-    } else if (absYaw > FACE_REFERENCE.orientation.maxYawThreshold ||
-               absPitch > FACE_REFERENCE.orientation.maxPitchThreshold) {
+    } else if (absYaw > faceRef.orientation.maxYawThreshold ||
+               absPitch > faceRef.orientation.maxPitchThreshold) {
       faceOrientationStatus = 'slight';
     }
 
@@ -425,7 +469,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     }
     
     // Penalize prolonged eye closure
-    if (blinkFrameCountRef.current > FACE_REFERENCE.eyes.prolongedClosureFrames) {
+    if (blinkFrameCountRef.current > faceRef.eyes.prolongedClosureFrames) {
       eyeContactScore -= 30;
     }
     
@@ -469,6 +513,8 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
    * Calculate composite scores and generate feedback
    */
   const calculateScoresAndFeedback = useCallback((poseData, faceData, bodyLanguageData) => {
+    const scoringRef = referencesRef.current.scoring || SCORING_WEIGHTS;
+
     // Posture score
     const postureScore = poseData.postureScore;
     
@@ -484,10 +530,10 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     
     // Overall weighted score
     const overallScore = Math.round(
-      postureScore * SCORING_WEIGHTS.posture.weight +
-      attentionScore * SCORING_WEIGHTS.attention.weight +
-      bodyLanguageScore * SCORING_WEIGHTS.bodyLanguage.weight +
-      expressionScore * SCORING_WEIGHTS.expression.weight
+      postureScore * scoringRef.posture.weight +
+      attentionScore * scoringRef.attention.weight +
+      bodyLanguageScore * scoringRef.bodyLanguage.weight +
+      expressionScore * scoringRef.expression.weight
     );
     
     // Generate feedback

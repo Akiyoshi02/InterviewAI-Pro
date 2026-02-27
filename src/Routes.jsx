@@ -9,6 +9,22 @@ import ProtectedRoute from "components/ProtectedRoute";
 import LiveChatWidget from "./components/live-chat/LiveChatWidget";
 import NotFound from "pages/NotFound";
 import HomePage from './pages/home';
+import SharedResultsPage from './pages/shared-results';
+import CandidateAnalyticsPage from './pages/candidate-analytics';
+import LongitudinalStudyPage from './pages/longitudinal-study';
+import ABTestingPage from './pages/ab-testing';
+import PrivacySettingsPage from './pages/privacy-settings';
+import CookieConsentBanner from './components/ui/CookieConsentBanner';
+import PWAInstallPrompt from './components/ui/PWAInstallPrompt';
+import OAuthCallbackPage from './pages/oauth-callback';
+import CompanyWebhooksPage from './pages/company-webhooks';
+import ReferralProgramPage from './pages/referral-program';
+import CompanyProfilePublicPage from './pages/company-profile-public';
+import CompaniesDirectoryPage from './pages/companies-directory';
+import CompanyPublicProfileEditorPage from './pages/company-public-profile-editor';
+import InterviewPrepLibraryPage from './pages/interview-prep-library';
+import GamificationPage from './pages/gamification';
+import * as Sentry from '@sentry/react';
 import LiveInterviewSession from './pages/live-interview-session';
 import InterviewLobby from './pages/interview-lobby';
 import CompanyDashboard from './pages/company-dashboard';
@@ -19,6 +35,7 @@ import InterviewResultsPage from './pages/interview-results';
 import Register from './pages/register';
 import ResetPassword from './pages/reset-password';
 import CandidateDashboard from './pages/candidate-dashboard';
+import CandidateSettingsPage from './pages/candidate-settings';
 import VerifyEmail from './pages/verify-email';
 import Privacy from './pages/privacy';
 import Terms from './pages/terms';
@@ -188,6 +205,14 @@ const Routes = () => {
           )}
         />
         <Route
+          path="/candidate-settings"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CandidateSettingsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/my-applications"
           element={(
             <ProtectedRoute roles={['CANDIDATE']}>
@@ -265,9 +290,112 @@ const Routes = () => {
             </ProtectedRoute>
           }
         />
+        <Route path="/shared-results/:token" element={<SharedResultsPage />} />
+        <Route
+          path="/candidate-analytics"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CandidateAnalyticsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/longitudinal-study"
+          element={(
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <LongitudinalStudyPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/ab-testing"
+          element={(
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <ABTestingPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/gamification"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <GamificationPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/interview-prep-library"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <InterviewPrepLibraryPage />
+            </ProtectedRoute>
+          )}
+        />
+        {/* Candidate-only company pages */}
+        <Route
+          path="/companies"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CompaniesDirectoryPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/companies/:slug"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CompanyProfilePublicPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-preview/:slug"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyProfilePublicPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-profile-editor"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyPublicProfileEditorPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/referral-program"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <ReferralProgramPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-webhooks"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <CompanyWebhooksPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route path="/oauth/callback" element={<OAuthCallbackPage />} />
+        <Route path="/oauth/linkedin/callback" element={<OAuthCallbackPage />} />
+        <Route path="/oauth/github/callback" element={<OAuthCallbackPage />} />
+        <Route
+          path="/privacy-settings"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE', 'ADMIN', 'SYSTEM_ADMIN', 'COMPANY']}>
+              <PrivacySettingsPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
       </ErrorBoundary>
+      <CookieConsentBanner />
+      <PWAInstallPrompt />
     </BrowserRouter>
   );
 };

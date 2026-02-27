@@ -813,7 +813,6 @@ export const SCORING_WEIGHTS = {
     weight: 0.20,
   },
   attention: { weight: 0.25 },
-  bodyLanguage: { weight: 0.15 },
   expression: { weight: 0.15 },
   
   eyeContact: {
@@ -838,6 +837,7 @@ export const SCORING_WEIGHTS = {
   },
   
   bodyLanguage: {
+    weight: 0.15,            // Legacy alias for useInterviewAnalytics
     stability: 0.40,
     openness: 0.30,
     engagement: 0.30,
@@ -1413,6 +1413,16 @@ export function getFeedbackMessage(category, score) {
 
 const CALIBRATED_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
 
+function emitCalibrationUpdateEvent() {
+  try {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+      window.dispatchEvent(new CustomEvent('mediapipe-calibration-updated'));
+    }
+  } catch {
+    // Ignore event dispatch errors (storage still remains source of truth).
+  }
+}
+
 /**
  * Load calibrated threshold overrides from localStorage.
  * Returns null if no calibrated values are stored.
@@ -1437,6 +1447,7 @@ export function saveCalibratedOverrides(calibrated) {
       CALIBRATED_STORAGE_KEY,
       JSON.stringify({ ...calibrated, appliedAt: new Date().toISOString() }),
     );
+    emitCalibrationUpdateEvent();
     return true;
   } catch {
     return false;
@@ -1449,6 +1460,7 @@ export function saveCalibratedOverrides(calibrated) {
 export function clearCalibratedOverrides() {
   try {
     localStorage.removeItem(CALIBRATED_STORAGE_KEY);
+    emitCalibrationUpdateEvent();
     return true;
   } catch {
     return false;

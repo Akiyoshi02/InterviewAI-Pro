@@ -1,5 +1,17 @@
 import billingService, { PLANS } from '../services/billing.service.js';
 import logger from '../utils/logger.js';
+import Stripe from 'stripe';
+
+const stripe = process.env.STRIPE_SECRET_KEY
+  ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2023-10-16' })
+  : null;
+
+// Map plan IDs to Stripe price IDs (configured via environment variables)
+const STRIPE_PRICE_IDS = {
+  starter: process.env.STRIPE_PRICE_STARTER || null,
+  professional: process.env.STRIPE_PRICE_PROFESSIONAL || null,
+  enterprise: process.env.STRIPE_PRICE_ENTERPRISE || null,
+};
 
 export class BillingController {
   /**
@@ -186,25 +198,122 @@ export class BillingController {
         return res.status(400).json({ error: 'Invalid plan ID' });
       }
       
-      // TODO: Implement Stripe checkout session creation
-      // const session = await stripe.checkout.sessions.create({
-      //   customer: subscription.customerId,
-      //   success_url: `${process.env.FRONTEND_URL}/billing/success`,
-      //   cancel_url: `${process.env.FRONTEND_URL}/billing`,
-      //   line_items: [{ price: priceId, quantity: 1 }],
-      //   mode: 'subscription',
-      // });
-      
-      logger.info(`Checkout session creation requested for org ${organizationId}, plan ${planId}`);
-      
+      if (!stripe) {
+        // Stripe not configured – return a placeholder URL for demo/dev
+        logger.warn('Stripe not configured. Returning placeholder checkout URL.');
+        return res.json({
+          success: true,
+          checkoutUrl: null,
+          message: 'Stripe is not yet configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_* environment variables to enable payments.',
+          configured: false,
+        });
+      }
+
+      const priceId = STRIPE_PRICE_IDS[planId.toLowerCase()];
+      if (!priceId) {
+        return res.status(400).json({ success: false, error: `No Stripe price configured for plan "${planId}".` });
+      }
+
+      const subscription = await billingService.getSubscription(organizationId);
+      const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+      const sessionParams = {
+        mode: 'subscription',
+        success_url: `${frontendUrl}/company-billing?session_id={CHECKOUT_SESSION_ID}&status=success`,
+        cancel_url: `${frontendUrl}/company-billing?status=cancelled`,
+        line_items: [{ price: priceId, quantity: 1 }],
+        metadata: { organizationId, planId },
+        subscription_data: { metadata: { organizationId, planId } },
+      };
+
+      // Attach existing customer if available
+      if (subscription?.stripeCustomerId) {
+        sessionParams.customer = subscription.stripeCustomerId;
+      } else if (req.user.email) {
+        sessionParams.customer_email = req.user.email;
+      }
+
+      const session = await stripe.checkout.sessions.create(sessionParams);
+      logger.info(`Stripe checkout session created: ${session.id} for org ${organizationId}, plan ${planId}`);
+
       res.json({
         success: true,
-        checkoutUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/billing/checkout?plan=${planId}`,
-        message: 'Stripe integration coming soon',
+        checkoutUrl: session.url,
+        sessionId: session.id,
+        configured: true,
       });
     } catch (error) {
       logger.error('Create checkout session error:', error);
       next(error);
+    }
+  }
+
+  /**
+   * POST /api/billing/webhook
+   * Handles incoming Stripe webhook events.
+   */
+  static async handleWebhook(req, res) {
+    if (!stripe) {
+      return res.status(501).json({ error: 'Stripe not configured' });
+    }
+
+    const sig = req.headers['stripe-signature'];
+    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    let event;
+
+    try {
+      event = webhookSecret
+        ? stripe.webhooks.constructEvent(req.body, sig, webhookSecret)
+        : JSON.parse(req.body.toString());
+    } catch (err) {
+      logger.error('Stripe webhook signature verification failed:', err);
+      return res.status(400).json({ error: `Webhook Error: ${err.message}` });
+    }
+
+    try {
+      switch (event.type) {
+        case 'checkout.session.completed': {
+          const session = event.data.object;
+          const { organizationId, planId } = session.metadata || {};
+          if (organizationId && planId) {
+            await billingService.updateSubscription(
+              organizationId,
+              planId,
+              session.customer,
+              session.subscription,
+            );
+            logger.info(`Subscription activated for org ${organizationId}, plan ${planId}`);
+          }
+          break;
+        }
+        case 'customer.subscription.updated': {
+          const sub = event.data.object;
+          const { organizationId } = sub.metadata || {};
+          if (organizationId) {
+            const planIdFromPriceId = Object.entries(STRIPE_PRICE_IDS)
+              .find(([, pid]) => sub.items?.data?.[0]?.price?.id === pid)?.[0];
+            if (planIdFromPriceId) {
+              await billingService.updateSubscription(organizationId, planIdFromPriceId, sub.customer, sub.id);
+            }
+          }
+          break;
+        }
+        case 'customer.subscription.deleted': {
+          const sub = event.data.object;
+          const { organizationId } = sub.metadata || {};
+          if (organizationId) {
+            await billingService.cancelSubscription(organizationId, false);
+            logger.info(`Subscription cancelled for org ${organizationId}`);
+          }
+          break;
+        }
+        default:
+          logger.debug(`Unhandled Stripe event type: ${event.type}`);
+      }
+      res.json({ received: true });
+    } catch (err) {
+      logger.error('Stripe webhook processing error:', err);
+      res.status(500).json({ error: 'Webhook processing failed' });
     }
   }
 }

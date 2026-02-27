@@ -49,6 +49,7 @@ const RESUME_MIN_SIZE_BYTES = 10 * 1024;
 const RESUME_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const RESUME_MIN_ESTIMATED_PAGES = 1;
 const RESUME_MAX_ESTIMATED_PAGES = 6;
+const RESUME_LLM_REJECTION_CODE = 'RESUME_LLM_REJECTED';
 const WORDS_PER_PAGE_ESTIMATE = 450;
 const CORE_RESUME_SECTIONS = [
   ['experience', 'work history', 'employment'],
@@ -435,14 +436,20 @@ export const validateResumeDocument = async (filePath, fileMeta = {}, context = 
       analysis.llmVerdict = llmVerdict;
       const confidence = typeof llmVerdict.confidence === 'number' ? llmVerdict.confidence : 0;
       if (!llmVerdict.isOfficial || confidence < 0.65) {
-        throw new Error(llmVerdict.message || 'We could not confirm this is a valid résumé. Please upload another file.');
+        throw createResumeLlmRejectionError(
+          llmVerdict.message || 'We could not confirm this is a valid resume. Please upload another file.',
+          llmVerdict,
+        );
       }
     }
   } catch (error) {
-    if (error.message?.includes('valid résumé')) {
+    if (error?.code === RESUME_LLM_REJECTION_CODE || error.message?.includes('valid résumé')) {
       throw error;
     }
-    logger.warn('LLM resume verification unavailable, continuing with heuristic result.', { error: error.message });
+    logger.warn('LLM resume verification unavailable, continuing with heuristic result.', {
+      error: error?.message || String(error),
+      code: error?.code || null,
+    });
   }
 
   logger.info('Resume validation succeeded', {
@@ -780,4 +787,13 @@ const buildResumeLLMSummary = (analysis, context) => {
     `Language Guess: ${analysis.language || 'N/A'}`,
   ];
   return parts.join('\n');
+};
+
+const createResumeLlmRejectionError = (message, llmVerdict = null) => {
+  const error = new Error(message || 'We could not confirm this is a valid resume. Please upload another file.');
+  error.code = RESUME_LLM_REJECTION_CODE;
+  if (llmVerdict && typeof llmVerdict === 'object') {
+    error.llmVerdict = llmVerdict;
+  }
+  return error;
 };

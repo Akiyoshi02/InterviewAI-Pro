@@ -392,11 +392,11 @@ const CompanyDashboard = () => {
   };
 
   const handleScheduleInterview = () => {
-    navigate('/practice-interview-setup');
+    navigate('/company-invitations');
   };
 
   const handleCreateTemplate = () => {
-    navigate('/practice-interview-setup');
+    navigate('/company-jobs');
   };
 
   const handleGenerateReport = () => {
@@ -434,13 +434,13 @@ const CompanyDashboard = () => {
   const handleActionClick = (action) => {
     switch (action?.id) {
       case 'setup-interview':
-        navigate('/practice-interview-setup');
+        navigate('/company-invitations');
         break;
       case 'review-candidates':
         navigate('/company-candidates');
         break;
       case 'live-session':
-        navigate('/live-interview-session');
+        navigate('/company-interviews');
         break;
       default:
         break;

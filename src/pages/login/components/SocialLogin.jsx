@@ -2,17 +2,45 @@ import React from 'react';
 
 import Button from '../../../components/ui/Button';
 
+const GITHUB_CLIENT_ID = import.meta.env.VITE_GITHUB_CLIENT_ID;
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+const OAUTH_REDIRECT_BASE = (
+  import.meta.env.VITE_OAUTH_REDIRECT_BASE
+  || `${API_BASE}/api/oauth`
+).replace(/\/$/, '');
+
 const SocialLogin = ({ onSocialLogin, isLoading }) => {
+  const buildProviderRedirectUri = (providerId) => (
+    `${OAUTH_REDIRECT_BASE}/${providerId}/callback`
+  );
+
   const socialProviders = [
     {
       id: 'google',
-      name: 'Google',
+      name: 'Continue with Google',
       icon: 'Chrome',
-      color: 'bg-red-500 hover:bg-red-600'
-    }
+    },
+    ...(GITHUB_CLIENT_ID ? [{
+      id: 'github',
+      name: 'Continue with GitHub',
+      icon: 'Github',
+    }] : []),
   ];
 
   const handleSocialLogin = (provider) => {
+    if (provider.id === 'github') {
+      const state = crypto.randomUUID();
+      sessionStorage.setItem('oauth_state_github', state);
+      const params = new URLSearchParams({
+        client_id: GITHUB_CLIENT_ID,
+        redirect_uri: buildProviderRedirectUri('github'),
+        scope: 'read:user user:email',
+        state,
+      });
+      window.location.href = `https://github.com/login/oauth/authorize?${params}`;
+      return;
+    }
+
     if (onSocialLogin) {
       onSocialLogin(provider);
     }
@@ -43,6 +71,22 @@ const SocialLogin = ({ onSocialLogin, isLoading }) => {
             {provider?.name}
           </Button>
         ))}
+        <Button
+          type="button"
+          variant="outline"
+          fullWidth
+          disabled
+          iconName="Linkedin"
+          iconPosition="left"
+          className="h-9 lg:h-10 rounded-full border border-white/40 dark:border-slate-700/50 text-gray-500 dark:text-slate-400 text-xs lg:text-sm cursor-not-allowed"
+        >
+          <span className="flex items-center gap-2">
+            <span>Continue with LinkedIn</span>
+            <span className="rounded-full border border-amber-300/70 bg-amber-100/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:border-amber-600/60 dark:bg-amber-900/40 dark:text-amber-300">
+              Coming soon
+            </span>
+          </span>
+        </Button>
       </div>
     </div>
   );

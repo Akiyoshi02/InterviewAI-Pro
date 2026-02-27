@@ -148,6 +148,316 @@ const parseBookmarkIds = (raw) => {
   }
 };
 
+const normalizeMatchText = (value) => (value || '')
+  .toString()
+  .trim()
+  .toLowerCase()
+  .replace(/[_-]+/g, ' ')
+  .replace(/\s+/g, ' ');
+
+const toStringList = (value) => {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value
+      .flatMap((item) => toStringList(item))
+      .filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    return value
+      .split(/[\n,;/|]+/)
+      .map((item) => item.trim())
+      .filter(Boolean);
+  }
+  return [String(value).trim()].filter(Boolean);
+};
+
+const toTokenSet = (value) => new Set(
+  normalizeMatchText(value)
+    .split(/[^a-z0-9+#.]+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1),
+);
+
+const countOverlap = (leftSet, rightSet) => {
+  if (!leftSet?.size || !rightSet?.size) return 0;
+  let count = 0;
+  leftSet.forEach((token) => {
+    if (rightSet.has(token)) count += 1;
+  });
+  return count;
+};
+
+const EXPERIENCE_LEVEL_RANK = {
+  entry: 1,
+  junior: 2,
+  mid: 3,
+  senior: 4,
+  lead: 5,
+  principal: 6,
+  executive: 7,
+};
+
+const normalizeExperienceLevel = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return '';
+  if (normalized.includes('entry')) return 'entry';
+  if (normalized.includes('junior')) return 'junior';
+  if (normalized.includes('mid')) return 'mid';
+  if (normalized.includes('senior')) return 'senior';
+  if (normalized.includes('lead')) return 'lead';
+  if (normalized.includes('principal')) return 'principal';
+  if (normalized.includes('executive') || normalized.includes('c level') || normalized.includes('c-level')) return 'executive';
+  return '';
+};
+
+const normalizeEmploymentType = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return '';
+  if (normalized.includes('full') && normalized.includes('time')) return 'full-time';
+  if (normalized.includes('part') && normalized.includes('time')) return 'part-time';
+  if (normalized.includes('contract')) return 'contract';
+  if (normalized.includes('intern')) return 'internship';
+  if (normalized.includes('freelance')) return 'freelance';
+  return normalized;
+};
+
+const normalizeWorkMode = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return '';
+  if (normalized.includes('remote')) return 'remote';
+  if (normalized.includes('hybrid')) return 'hybrid';
+  if (normalized.includes('on site') || normalized.includes('onsite')) return 'onsite';
+  if (normalized.includes('flexible')) return 'flexible';
+  return '';
+};
+
+const normalizeIndustry = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return '';
+  if (normalized.includes('tech') || normalized.includes('software') || normalized.includes('it')) return 'technology';
+  if (normalized.includes('data') || normalized.includes('analytics')) return 'data';
+  if (normalized.includes('design')) return 'design';
+  if (normalized.includes('product')) return 'product';
+  if (normalized.includes('marketing')) return 'marketing';
+  if (normalized.includes('finance') || normalized.includes('account')) return 'finance';
+  return normalized;
+};
+
+const normalizeSkill = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized) return '';
+  const aliases = {
+    'node js': 'nodejs',
+    'node.js': 'nodejs',
+    js: 'javascript',
+    ts: 'typescript',
+    'c plus plus': 'c++',
+    cpp: 'c++',
+    'c sharp': 'c#',
+    csharp: 'c#',
+    'qa': 'testing',
+    'testing qa': 'testing',
+    postgresql: 'postgresql',
+    'postgre sql': 'postgresql',
+  };
+  return aliases[normalized] || normalized;
+};
+
+const CANDIDATE_SALARY_EXPECTATION_RANGES = {
+  'below-50k': { min: 0, max: 50000 },
+  '50k-100k': { min: 50000, max: 100000 },
+  '100k-150k': { min: 100000, max: 150000 },
+  '150k-200k': { min: 150000, max: 200000 },
+  '200k-300k': { min: 200000, max: 300000 },
+  '300k-500k': { min: 300000, max: 500000 },
+  'above-500k': { min: 500000, max: Number.POSITIVE_INFINITY },
+};
+
+const parseCandidateSalaryExpectation = (value) => {
+  const normalized = normalizeMatchText(value);
+  if (!normalized || normalized === 'negotiable') return null;
+  if (CANDIDATE_SALARY_EXPECTATION_RANGES[normalized]) {
+    return CANDIDATE_SALARY_EXPECTATION_RANGES[normalized];
+  }
+  const compact = normalized.replace(/\s+/g, '');
+  const rangeMatch = compact.match(/(\d+)\s*k?\s*-\s*(\d+)\s*k?/i);
+  if (rangeMatch) {
+    const min = Number(rangeMatch[1]) * 1000;
+    const max = Number(rangeMatch[2]) * 1000;
+    return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+  }
+  return null;
+};
+
+const parseJobSalaryRange = (job = {}) => {
+  const min = Number(job?.salaryMin);
+  const max = Number(job?.salaryMax);
+  if (Number.isFinite(min) || Number.isFinite(max)) {
+    return {
+      min: Number.isFinite(min) ? min : 0,
+      max: Number.isFinite(max) ? max : Number.POSITIVE_INFINITY,
+    };
+  }
+  const rangeText = normalizeMatchText(job?.compensationRange);
+  if (!rangeText) return null;
+  const numericParts = Array.from(rangeText.matchAll(/(\d[\d,]*)/g))
+    .map((match) => Number(String(match[1]).replace(/,/g, '')))
+    .filter(Number.isFinite);
+  if (numericParts.length >= 2) {
+    return { min: numericParts[0], max: numericParts[1] };
+  }
+  if (numericParts.length === 1) {
+    if (rangeText.includes('up to')) return { min: 0, max: numericParts[0] };
+    return { min: numericParts[0], max: Number.POSITIVE_INFINITY };
+  }
+  return null;
+};
+
+const rangesOverlap = (left, right) => {
+  if (!left || !right) return false;
+  const leftMin = Number.isFinite(left.min) ? left.min : 0;
+  const leftMax = Number.isFinite(left.max) ? left.max : Number.POSITIVE_INFINITY;
+  const rightMin = Number.isFinite(right.min) ? right.min : 0;
+  const rightMax = Number.isFinite(right.max) ? right.max : Number.POSITIVE_INFINITY;
+  return Math.max(leftMin, rightMin) <= Math.min(leftMax, rightMax);
+};
+
+const computeJobMatchScore = (job, profile) => {
+  if (!profile) return 0;
+  let score = 0;
+
+  const targetRole = normalizeMatchText(profile.targetRole || profile.jobRole);
+  const candidateIndustry = normalizeIndustry(profile.industry);
+  const candidateExperience = normalizeExperienceLevel(profile.experienceLevel);
+  const preferredEmploymentType = normalizeEmploymentType(profile.preferredEmploymentType);
+  const preferredWorkType = normalizeWorkMode(profile.preferredWorkType);
+  const candidateLocation = normalizeMatchText(profile.location);
+  const candidateSalaryExpectation = parseCandidateSalaryExpectation(profile.expectedSalary);
+  const candidateFieldOfStudy = normalizeMatchText(profile.fieldOfStudy);
+  const candidateCareerGoals = normalizeMatchText(profile.careerGoals);
+
+  const candidateSkills = toStringList(profile.skills).map(normalizeSkill).filter(Boolean);
+  const candidateCertifications = toStringList(profile.certifications).map(normalizeSkill).filter(Boolean);
+  const candidateSkillSet = new Set([...candidateSkills, ...candidateCertifications]);
+
+  const jobTitle = normalizeMatchText(job.title);
+  const jobIndustry = normalizeIndustry(job.industry || job.department);
+  const jobExperience = normalizeExperienceLevel(job.experienceLevel);
+  const jobEmploymentType = normalizeEmploymentType(job.employmentType);
+  const jobLocation = normalizeMatchText(job.location || 'remote');
+  const jobWorkMode = normalizeWorkMode(jobLocation) || 'onsite';
+  const jobSalaryRange = parseJobSalaryRange(job);
+  const jobSkills = toStringList(job.skills).map(normalizeSkill).filter(Boolean);
+  const jobKeywords = new Set([
+    ...toTokenSet(jobTitle),
+    ...toTokenSet(job.description),
+    ...toTokenSet(toStringList(job.requirements).join(' ')),
+    ...toTokenSet(job.department),
+    ...toTokenSet(jobIndustry),
+    ...jobSkills,
+  ]);
+
+  // Role/title match (max 25)
+  if (targetRole && jobTitle) {
+    if (jobTitle.includes(targetRole)) {
+      score += 25;
+    } else {
+      const roleTokens = toTokenSet(targetRole);
+      const titleTokens = toTokenSet(jobTitle);
+      const overlap = countOverlap(roleTokens, titleTokens);
+      if (roleTokens.size > 0) {
+        const overlapRatio = overlap / roleTokens.size;
+        score += Math.round(Math.min(20, overlapRatio * 20));
+      }
+      if (overlap === 0 && roleTokens.has('engineer') && titleTokens.has('engineer')) {
+        score += 8;
+      }
+    }
+  }
+
+  // Skills + certifications + required skill text match (max 25)
+  if (candidateSkillSet.size > 0 && jobKeywords.size > 0) {
+    let matchedSkillCount = 0;
+    candidateSkillSet.forEach((skill) => {
+      if (!skill) return;
+      const skillTokens = toTokenSet(skill);
+      const tokenOverlap = countOverlap(skillTokens, jobKeywords);
+      if (jobKeywords.has(skill) || tokenOverlap > 0) matchedSkillCount += 1;
+    });
+    score += Math.min(25, matchedSkillCount * 5);
+  }
+
+  // Industry/department match (max 10)
+  if (candidateIndustry && jobIndustry) {
+    if (candidateIndustry === jobIndustry) {
+      score += 10;
+    } else {
+      const industryOverlap = countOverlap(toTokenSet(candidateIndustry), toTokenSet(jobIndustry));
+      if (industryOverlap > 0) score += 5;
+    }
+  }
+
+  // Experience level match (max 10)
+  if (candidateExperience && jobExperience) {
+    const candidateRank = EXPERIENCE_LEVEL_RANK[candidateExperience] || 0;
+    const requiredRank = EXPERIENCE_LEVEL_RANK[jobExperience] || 0;
+    if (candidateRank > 0 && requiredRank > 0) {
+      const rankGap = candidateRank - requiredRank;
+      if (rankGap >= 0) score += 10;
+      else if (rankGap === -1) score += 6;
+      else if (rankGap === -2) score += 3;
+    }
+  }
+
+  // Preferred employment type match (max 10)
+  if (preferredEmploymentType && jobEmploymentType) {
+    if (preferredEmploymentType === jobEmploymentType) {
+      score += 10;
+    }
+  }
+
+  // Work mode + location match (max 10)
+  if (preferredWorkType) {
+    if (preferredWorkType === 'flexible') {
+      score += 8;
+    } else if (preferredWorkType === jobWorkMode) {
+      score += 10;
+    } else if (
+      (preferredWorkType === 'remote' && jobWorkMode === 'hybrid')
+      || (preferredWorkType === 'hybrid' && (jobWorkMode === 'remote' || jobWorkMode === 'onsite'))
+    ) {
+      score += 5;
+    }
+  }
+
+  // City/location text similarity (max 5)
+  if (candidateLocation && jobLocation && jobWorkMode !== 'remote') {
+    const locationOverlap = countOverlap(toTokenSet(candidateLocation), toTokenSet(jobLocation));
+    if (locationOverlap > 0) score += 5;
+  }
+
+  // Expected salary overlap (max 5)
+  if (candidateSalaryExpectation && jobSalaryRange) {
+    if (rangesOverlap(candidateSalaryExpectation, jobSalaryRange)) {
+      score += 5;
+    } else if (candidateSalaryExpectation.min <= jobSalaryRange.max) {
+      score += 2;
+    }
+  }
+
+  // Soft profile signals that overlap with job details (max 10)
+  if (candidateFieldOfStudy) {
+    const studyOverlap = countOverlap(toTokenSet(candidateFieldOfStudy), jobKeywords);
+    if (studyOverlap > 0) score += 4;
+  }
+  if (candidateCareerGoals) {
+    const goalsOverlap = countOverlap(toTokenSet(candidateCareerGoals), jobKeywords);
+    if (goalsOverlap > 0) score += 6;
+  }
+
+  return Math.min(100, Math.max(0, score));
+};
+
 const JobsPage = () => {
   const navigate = useNavigate();
   const { user, logout, isAuthenticated } = useAuth();
@@ -670,6 +980,49 @@ const JobsPage = () => {
                 </div>
               </div>
             </div>
+
+            {/* AI-Powered Job Recommendations */}
+            {user?.accountType?.toUpperCase() === 'CANDIDATE' && !loading && jobs.length > 0 && (() => {
+              const profile = user?.profile || user;
+              const recommendations = jobs
+                .map((j) => ({ ...j, matchScore: computeJobMatchScore(j, profile) }))
+                .filter((j) => j.matchScore >= 30)
+                .sort((a, b) => b.matchScore - a.matchScore)
+                .slice(0, 4);
+              if (recommendations.length === 0) return null;
+              return (
+                <div className="rounded-2xl border border-blue-100 dark:border-blue-800/40 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 p-4 sm:p-5">
+                  <div className="flex items-center gap-2 mb-3">
+                    <Icon name="Sparkles" size={16} className="text-blue-600 dark:text-blue-400" />
+                    <h2 className="text-sm font-semibold text-blue-900 dark:text-blue-200">Recommended for You</h2>
+                    <span className="ml-auto text-xs text-blue-500 dark:text-blue-400">Based on your profile</span>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {recommendations.map((job) => (
+                      <button
+                        key={job.id}
+                        onClick={() => navigate(`/jobs/${job.id}`)}
+                        className="text-left p-3 rounded-xl bg-white/80 dark:bg-slate-800/80 border border-white/60 dark:border-slate-700/60 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-md transition-all"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 truncate">{job.title}</p>
+                            <p className="text-xs text-gray-500 dark:text-slate-400 truncate mt-0.5">{job.organization?.name || 'Company'}</p>
+                          </div>
+                          <span className={`shrink-0 px-2 py-0.5 rounded-full text-xs font-bold ${
+                            job.matchScore >= 70 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-400'
+                              : 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-400'
+                          }`}>
+                            {job.matchScore}% match
+                          </span>
+                        </div>
+                        {job.location && <p className="text-xs text-gray-400 dark:text-slate-500 mt-1 flex items-center gap-1"><Icon name="MapPin" size={10} />{job.location}</p>}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              );
+            })()}
 
             {pendingRealtimeJobUpdates > 0 && (
               <div className="rounded-2xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-4 py-3 sm:px-5 sm:py-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
