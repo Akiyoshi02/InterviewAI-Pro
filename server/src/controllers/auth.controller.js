@@ -15,6 +15,77 @@ import { createHmac, randomInt, timingSafeEqual } from 'crypto';
 import { validateCandidateProfilePhoto, validateCompanyCover, validateCompanyLogo } from '../services/imageModeration.service.js';
 import { validateBusinessVerificationDocument, validateResumeDocument } from '../services/documentModeration.service.js';
 import { emailService } from '../services/email.service.js';
+import { ReferralController } from './referral.controller.js';
+
+const DEFAULT_RECRUITER_WORKING_DAYS = Object.freeze([1, 2, 3, 4, 5]);
+const DEFAULT_RECRUITER_AVAILABILITY = Object.freeze({
+  timezone: 'UTC',
+  workingDays: DEFAULT_RECRUITER_WORKING_DAYS,
+  businessHoursStart: '09:00',
+  businessHoursEnd: '17:00',
+  maxInterviewsPerDay: 8,
+});
+
+const parseIntegerWithinRange = (value, fallback, minimum, maximum = Number.POSITIVE_INFINITY) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+};
+
+const normalizeWorkingDays = (value) => {
+  if (!Array.isArray(value) || value.length === 0) {
+    return [...DEFAULT_RECRUITER_WORKING_DAYS];
+  }
+  const normalized = value
+    .map((day) => Number.parseInt(day, 10))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  if (normalized.length === 0) {
+    return [...DEFAULT_RECRUITER_WORKING_DAYS];
+  }
+  return [...new Set(normalized)].sort((a, b) => a - b);
+};
+
+const normalizeTimeValue = (value, fallback) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : fallback;
+};
+
+const normalizeTimezone = (value, fallback = 'UTC') => {
+  const timezone = typeof value === 'string' ? value.trim() : '';
+  if (!timezone) return fallback;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return timezone;
+  } catch {
+    return fallback;
+  }
+};
+
+const normalizeRecruiterInterviewAvailability = (value = null, fallbackTimezone = 'UTC') => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    timezone: normalizeTimezone(
+      source.timezone,
+      normalizeTimezone(fallbackTimezone, DEFAULT_RECRUITER_AVAILABILITY.timezone),
+    ),
+    workingDays: normalizeWorkingDays(source.workingDays),
+    businessHoursStart: normalizeTimeValue(
+      source.businessHoursStart,
+      DEFAULT_RECRUITER_AVAILABILITY.businessHoursStart,
+    ),
+    businessHoursEnd: normalizeTimeValue(
+      source.businessHoursEnd,
+      DEFAULT_RECRUITER_AVAILABILITY.businessHoursEnd,
+    ),
+    maxInterviewsPerDay: parseIntegerWithinRange(
+      source.maxInterviewsPerDay,
+      DEFAULT_RECRUITER_AVAILABILITY.maxInterviewsPerDay,
+      1,
+      40,
+    ),
+  };
+};
 
 const sanitizeUser = (user) => {
   if (!user) return null;
@@ -41,6 +112,7 @@ const sanitizeUser = (user) => {
     companyLocation: user.companyLocation || null,
     phoneNumber: user.phoneNumber || null,
     timezone: user.timezone || null,
+    interviewAvailability: user.interviewAvailability || null,
     // Candidate education fields
     highestQualification: user.highestQualification || null,
     fieldOfStudy: user.fieldOfStudy || null,
@@ -314,6 +386,7 @@ export class AuthController {
         businessRegistrationNumber,
         companyEmail,
         establishedYear,
+        refCode,
       } = req.body;
 
       const normalizedSkills = normalizeListField(skills);
@@ -675,6 +748,20 @@ export class AuthController {
         });
       }
 
+      const normalizedRefCode = String(refCode || '').trim();
+      if (normalizedRefCode) {
+        try {
+          await ReferralController.attributeReferralInternal({
+            refCode: normalizedRefCode,
+            newUserId: firebaseUid,
+            newUserEmail: email,
+          });
+        } catch (referralError) {
+          // Non-fatal: registration should still succeed.
+          logger.warn('Referral attribution failed during registration:', referralError);
+        }
+      }
+
       res.status(201).json({
         success: true,
         user: buildUserResponse(user, organization, membership),
@@ -713,50 +800,78 @@ export class AuthController {
   static async updateMe(req, res, next) {
     try {
       const firebaseUid = req.user.uid;
-      const allowedFields = [
+      const currentUser = req.user?.profile || await userStore.getByUid(firebaseUid);
+      if (!currentUser) {
+        return res.status(404).json({ success: false, error: 'User not found' });
+      }
+
+      const accountType = String(currentUser.accountType || '').toUpperCase();
+      const commonAllowedFields = [
+        'fullName',
+        'industry',
+        'phoneNumber',
+        'timezone',
+      ];
+
+      const candidateOnlyAllowedFields = [
         'fullName',
         'experienceLevel',
         'skills',
-        'companyName',
-        'companyType',
-        'companySize',
-        'industry',
         'gender',
         'targetRole',
         'careerGoals',
         'location',
         'preferredLanguage',
-        'jobTitle',
-        'department',
-        'hiringVolume',
-        'companyWebsite',
-        'companyLocation',
-        'phoneNumber',
-        'timezone',
-        // Candidate education fields
         'highestQualification',
         'fieldOfStudy',
         'institutionName',
         'graduationYear',
-        // Candidate professional links
         'linkedinUrl',
         'githubUrl',
         'portfolioUrl',
-        // Candidate job preferences
         'certifications',
         'availability',
         'preferredWorkType',
         'preferredEmploymentType',
         'expectedSalary',
-        // Company additional fields
+      ];
+
+      const companyOnlyAllowedFields = [
+        'companyName',
+        'companyType',
+        'companySize',
+        'jobTitle',
+        'department',
+        'hiringVolume',
+        'companyWebsite',
+        'companyLocation',
         'businessRegistrationNumber',
         'companyEmail',
         'establishedYear',
         'companyLinkedinUrl',
+        'interviewAvailability',
       ];
 
+      const roleScopedAllowedFields = accountType === 'COMPANY'
+        ? companyOnlyAllowedFields
+        : accountType === 'CANDIDATE'
+          ? candidateOnlyAllowedFields
+          : [];
+      const allowedFields = new Set([...commonAllowedFields, ...roleScopedAllowedFields]);
+      const providedFields = Object.keys(req.body || {}).filter((field) => req.body[field] !== undefined);
+      const disallowedFields = providedFields.filter((field) => !allowedFields.has(field));
+
+      if (disallowedFields.length > 0) {
+        return res.status(400).json({
+          success: false,
+          error: 'Some profile fields are not editable for this account type.',
+          code: 'PROFILE_FIELDS_NOT_ALLOWED',
+          disallowedFields,
+        });
+      }
+
       const data = {};
-      allowedFields.forEach((field) => {
+      [...allowedFields].forEach((field) => {
         if (req.body[field] !== undefined) {
           data[field] = req.body[field];
         }
@@ -776,8 +891,22 @@ export class AuthController {
       }
 
       if (Object.keys(data).length === 0) {
-        const current = await userStore.getByUid(firebaseUid);
-        return res.json({ success: true, user: sanitizeUser(current) });
+        return res.json({ success: true, user: sanitizeUser(currentUser) });
+      }
+
+      if (data.interviewAvailability !== undefined) {
+        if (accountType !== 'COMPANY') {
+          return res.status(400).json({
+            success: false,
+            error: 'Interview availability can only be updated for company accounts.',
+            code: 'INTERVIEW_AVAILABILITY_NOT_ALLOWED',
+          });
+        }
+
+        data.interviewAvailability = normalizeRecruiterInterviewAvailability(
+          data.interviewAvailability,
+          data.timezone || currentUser.timezone || 'UTC',
+        );
       }
 
       const updated = await userStore.update(firebaseUid, data);

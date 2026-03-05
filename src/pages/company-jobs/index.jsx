@@ -23,6 +23,7 @@ import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
 import { cn } from '../../utils/cn';
+import { buildJobShareCardUrl, buildJobSharePackage, prepareJobShareAttachments } from '../../utils/jobShare.js';
 import { ORGANIZATION_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
 import ApplicationFormBuilder from '../../components/ui/ApplicationFormBuilder';
 
@@ -46,6 +47,7 @@ const PRESET_JOB_SKILLS = [
   'Testing/QA',
   'Other',
 ];
+const REQUIREMENTS_BULLET = '• ';
 
 const COMPANY_JOB_DATE_PRESET_OPTIONS = [
   { value: 'all', label: 'All Dates' },
@@ -173,6 +175,110 @@ const mergeUniqueSkills = (existingSkills = [], incomingSkills = []) => {
 
   return merged;
 };
+
+const parseRequirementsToList = (value) => {
+  if (!value) return [];
+  const rawLines = Array.isArray(value)
+    ? value
+    : value.toString().split(/\r?\n/);
+
+  return rawLines
+    .map((line) => (line == null ? '' : String(line)))
+    .map((line) => line.replace(/^\s*(?:[-*•]\s*|\d+[.)]\s*)/, '').trim())
+    .filter(Boolean);
+};
+
+const toRequirementsInputValue = (value) => {
+  const lines = parseRequirementsToList(value);
+  if (!lines.length) return '';
+  return lines.map((line) => `${REQUIREMENTS_BULLET}${line}`).join('\n');
+};
+
+const normalizeRequirementsInputValue = (value) => {
+  const lines = parseRequirementsToList(value);
+  if (!lines.length) return '';
+  return lines.map((line) => `${REQUIREMENTS_BULLET}${line}`).join('\n');
+};
+
+const mapCustomFieldTypeToQuestionType = (fieldType) => {
+  const normalized = (fieldType || '').toString().trim().toLowerCase();
+  if (normalized === 'select') return 'SELECT';
+  if (normalized === 'textarea') return 'TEXTAREA';
+  if (normalized === 'checkbox') return 'CHECKBOX';
+  if (normalized === 'number') return 'NUMBER';
+  if (normalized === 'date') return 'DATE';
+  if (normalized === 'url') return 'URL';
+  if (normalized === 'file') return 'FILE';
+  return 'TEXT';
+};
+
+const mapQuestionTypeToCustomFieldType = (questionType) => {
+  const normalized = (questionType || '').toString().trim().toUpperCase();
+  if (normalized === 'SELECT') return 'select';
+  if (normalized === 'TEXTAREA') return 'textarea';
+  if (normalized === 'CHECKBOX') return 'checkbox';
+  if (normalized === 'NUMBER') return 'number';
+  if (normalized === 'DATE') return 'date';
+  if (normalized === 'URL') return 'url';
+  if (normalized === 'FILE') return 'file';
+  return 'text';
+};
+
+const normalizeCustomFormFields = (fields = []) =>
+  (Array.isArray(fields) ? fields : [])
+    .map((rawField, index) => {
+      const field = rawField && typeof rawField === 'object'
+        ? rawField
+        : { label: rawField };
+      const id = (field.id || `field_${index + 1}`).toString().trim() || `field_${index + 1}`;
+      const label = (field.label || field.question || '').toString().trim();
+      return {
+        id,
+        label,
+        type: mapQuestionTypeToCustomFieldType(field.type),
+        required: Boolean(field.required),
+        options: Array.isArray(field.options)
+          ? field.options
+            .map((option) => (option || '').toString().trim())
+            .filter(Boolean)
+          : [],
+        placeholder: (field.placeholder || '').toString().trim(),
+      };
+    })
+    .filter((field) => field.label);
+
+const buildApplicationQuestionsFromCustomFields = (fields = []) =>
+  normalizeCustomFormFields(fields).map((field) => ({
+    id: field.id,
+    question: field.label,
+    type: mapCustomFieldTypeToQuestionType(field.type),
+    required: field.required,
+    options: field.type === 'select' ? field.options : [],
+    placeholder: field.placeholder || null,
+  }));
+
+const buildCustomFieldsFromApplicationQuestions = (questions = []) =>
+  (Array.isArray(questions) ? questions : [])
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = (question.id || `field_${index + 1}`).toString().trim() || `field_${index + 1}`;
+      const label = (question.question || question.label || '').toString().trim();
+      return {
+        id,
+        label,
+        type: mapQuestionTypeToCustomFieldType(question.type),
+        required: Boolean(question.required),
+        options: Array.isArray(question.options)
+          ? question.options
+            .map((option) => (option || '').toString().trim())
+            .filter(Boolean)
+          : [],
+        placeholder: (question.placeholder || '').toString().trim(),
+      };
+    })
+    .filter((field) => field.label);
 
 const normalizeAdvertImageUrls = (job = {}) => {
   if (Array.isArray(job?.advertImageUrls)) {
@@ -603,6 +709,7 @@ const CompanyJobsPage = () => {
   const [jobFilters, setJobFilters] = useState(DEFAULT_COMPANY_JOB_FILTERS);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const keySkillsInputRef = useRef(null);
+  const shareFeedbackTimeoutRef = useRef(null);
   const [showAddSkillsSection, setShowAddSkillsSection] = useState(false);
   const advertImageInputRef = useRef(null);
   const advertVideoInputRef = useRef(null);
@@ -694,7 +801,7 @@ const CompanyJobsPage = () => {
     setIsDetectingLocation(true);
     setLocationFeedback({
       status: 'info',
-      message: 'Requesting location permission…',
+      message: 'Requesting location permission...',
     });
 
     try {
@@ -708,7 +815,7 @@ const CompanyJobsPage = () => {
 
       setLocationFeedback({
         status: 'info',
-        message: 'Detecting your city…',
+        message: 'Detecting your city...',
       });
 
       const { latitude, longitude } = position.coords || {};
@@ -788,6 +895,7 @@ const CompanyJobsPage = () => {
   });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
+  const [shareFeedback, setShareFeedback] = useState({ message: '', tone: 'success' });
   const [refreshing, setRefreshing] = useState(false);
   const [pendingRealtimeJobUpdates, setPendingRealtimeJobUpdates] = useState(0);
 
@@ -833,6 +941,9 @@ const CompanyJobsPage = () => {
           URL.revokeObjectURL(upload.previewUrl);
         }
       });
+      if (shareFeedbackTimeoutRef.current) {
+        clearTimeout(shareFeedbackTimeoutRef.current);
+      }
     },
     [],
   );
@@ -869,6 +980,56 @@ const CompanyJobsPage = () => {
     setShowAddSkillsSection(false);
     resetAdvertMediaState();
     setError('');
+  };
+
+  const handleRequirementsFocus = () => {
+    setFormData((previous) => {
+      const currentValue = (previous.requirements || '').toString();
+      if (currentValue.trim().length > 0) return previous;
+      return {
+        ...previous,
+        requirements: REQUIREMENTS_BULLET,
+      };
+    });
+  };
+
+  const handleRequirementsBlur = () => {
+    setFormData((previous) => ({
+      ...previous,
+      requirements: normalizeRequirementsInputValue(previous.requirements),
+    }));
+  };
+
+  const handleRequirementsKeyDown = (event) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+
+    const target = event.currentTarget;
+    const currentValue = target.value || '';
+    const selectionStart = typeof target.selectionStart === 'number' ? target.selectionStart : currentValue.length;
+    const selectionEnd = typeof target.selectionEnd === 'number' ? target.selectionEnd : currentValue.length;
+
+    const beforeSelection = currentValue.slice(0, selectionStart);
+    const afterSelection = currentValue.slice(selectionEnd);
+    const lineStartIndex = beforeSelection.lastIndexOf('\n') + 1;
+    const currentLine = currentValue.slice(lineStartIndex, selectionStart);
+    const currentLineStripped = currentLine.replace(/^\s*(?:[-*•]\s*|\d+[.)]\s*)?/, '').trim();
+
+    // If user presses enter on an empty bullet, remove it instead of stacking blank bullets.
+    const insertion = currentLineStripped.length > 0 ? `\n${REQUIREMENTS_BULLET}` : '\n';
+    const nextValue = `${beforeSelection}${insertion}${afterSelection}`;
+    const nextCaret = selectionStart + insertion.length;
+
+    setFormData((previous) => ({
+      ...previous,
+      requirements: nextValue,
+    }));
+
+    requestAnimationFrame(() => {
+      if (!target) return;
+      target.selectionStart = nextCaret;
+      target.selectionEnd = nextCaret;
+    });
   };
 
   const handleAdvertImageFileChange = (event) => {
@@ -965,6 +1126,7 @@ const CompanyJobsPage = () => {
         skillFocus: [],
         duration: 30,
       },
+      customFormFields: [],
     });
     setShowCreateModal(true);
   };
@@ -987,13 +1149,17 @@ const CompanyJobsPage = () => {
     
     // Try to parse legacy format like "$80,000 - $120,000"
     if (existingSalary && !parsedMin && !parsedMax) {
-      const rangeMatch = existingSalary.match(/([\d,]+)\s*[-–]\s*([\d,]+)/);
+      const rangeMatch = existingSalary.match(/([\d,]+)\s*[-\u2013]\s*([\d,]+)/);
       if (rangeMatch) {
         parsedMin = rangeMatch[1].replace(/,/g, '');
         parsedMax = rangeMatch[2].replace(/,/g, '');
       }
     }
     
+    const customFormFields = Array.isArray(job.customFormFields) && job.customFormFields.length > 0
+      ? normalizeCustomFormFields(job.customFormFields)
+      : buildCustomFieldsFromApplicationQuestions(job.applicationQuestions || []);
+
     setFormData({
       title: job.title || '',
       department: job.department || '',
@@ -1001,9 +1167,7 @@ const CompanyJobsPage = () => {
       employmentType: job.employmentType || 'FULL_TIME',
       experienceLevel: job.experienceLevel || 'MID',
       description: job.description || '',
-      requirements: Array.isArray(job.requirements) 
-        ? job.requirements.join('\n')
-        : (job.requirements || ''),
+      requirements: toRequirementsInputValue(job.requirements),
       benefits: job.benefits || '',
       salaryRange: existingSalary,
       salaryCurrency: parsedCurrency,
@@ -1023,7 +1187,7 @@ const CompanyJobsPage = () => {
         skillFocus: [],
         duration: 30,
       },
-      customFormFields: Array.isArray(job.customFormFields) ? job.customFormFields : [],
+      customFormFields,
     });
     setShowCreateModal(true);
   };
@@ -1094,6 +1258,10 @@ const CompanyJobsPage = () => {
         .filter(Boolean);
       const primaryAdvertImageUrl = sanitizedAdvertImageUrls[0] || null;
 
+      const normalizedCustomFormFields = normalizeCustomFormFields(formData.customFormFields || []);
+      const applicationQuestions = buildApplicationQuestionsFromCustomFields(normalizedCustomFormFields);
+      const normalizedRequirements = parseRequirementsToList(formData.requirements);
+
       // Prepare payload to match backend validation
       const payload = {
         title: formData.title,
@@ -1103,7 +1271,7 @@ const CompanyJobsPage = () => {
         experienceLevel: formData.experienceLevel || undefined,
         description: formData.description || undefined,
         compensationRange: salaryRangeString || formData.salaryRange || undefined, // Backend expects compensationRange
-        salaryCurrency: 'LKR',
+        salaryCurrency: formData.salaryCurrency || 'LKR',
         salaryMin: formData.salaryMin ? parseInt(parseSalary(formData.salaryMin), 10) : undefined,
         salaryMax: formData.salaryMax ? parseInt(parseSalary(formData.salaryMax), 10) : undefined,
         postingDuration: postingDurationValue,
@@ -1117,11 +1285,9 @@ const CompanyJobsPage = () => {
           : null,
         advertVideoUrl: formData.advertVideoUrl?.trim() ? formData.advertVideoUrl.trim() : null,
         status: formData.status || 'DRAFT',
-        // Convert requirements string to array if provided
-        requirements: formData.requirements 
-          ? (Array.isArray(formData.requirements) 
-              ? formData.requirements 
-              : formData.requirements.split('\n').filter(r => r.trim()))
+        // Convert bullet-style requirements input into a clean array payload.
+        requirements: normalizedRequirements.length > 0
+          ? normalizedRequirements
           : undefined,
         // Convert requiredSkills to skills array
         skills: formData.requiredSkills && formData.requiredSkills.length > 0
@@ -1129,8 +1295,9 @@ const CompanyJobsPage = () => {
           : undefined,
         // Include templateConfig if provided
         templateConfig: formData.templateConfig || undefined,
-        // Include custom application form fields if any
-        customFormFields: formData.customFormFields?.length > 0 ? formData.customFormFields : undefined,
+        // Store custom application fields in both schemas for compatibility.
+        applicationQuestions: applicationQuestions.length > 0 ? applicationQuestions : undefined,
+        customFormFields: normalizedCustomFormFields.length > 0 ? normalizedCustomFormFields : undefined,
       };
 
       // Remove undefined fields
@@ -1309,6 +1476,91 @@ const CompanyJobsPage = () => {
       }
     } catch (err) {
       setError(err?.message || 'Failed to archive job');
+    }
+  };
+
+  const queueShareFeedback = (message, tone = 'success') => {
+    setShareFeedback({ message, tone });
+    if (shareFeedbackTimeoutRef.current) {
+      clearTimeout(shareFeedbackTimeoutRef.current);
+    }
+    shareFeedbackTimeoutRef.current = setTimeout(() => {
+      setShareFeedback({ message: '', tone: 'success' });
+    }, 3200);
+  };
+
+  const handleShareJob = async (job) => {
+    if (!job?.id) return;
+
+    const jobUrl = `${window.location.origin}/jobs/${job.id}`;
+    const shareCardUrl = buildJobShareCardUrl(job.id, {
+      apiBaseUrl: API_URL,
+      version: job.updatedAt || job.publishedAt || job.createdAt || '',
+    });
+    const sharePackage = buildJobSharePackage(job, {
+      jobUrl,
+      shareUrl: shareCardUrl,
+      organizationName: organizationContext?.organization?.name || job?.organization?.name || '',
+      apiBaseUrl: API_URL,
+    });
+    const isScheduledPublish = job.status === 'PUBLISHED' && Boolean(job.scheduledPublishAt) && !job.publishedAt;
+
+    try {
+      if (navigator.share) {
+        const targetShareUrl = sharePackage.primaryShareUrl || jobUrl;
+        const attachmentResult = await prepareJobShareAttachments(job, {
+          apiBaseUrl: API_URL,
+          maxImages: 1,
+          includeVideo: true,
+        });
+        const sharePayload = {
+          title: sharePackage.title,
+          text: sharePackage.nativeShareText,
+          url: targetShareUrl,
+        };
+        const canAttachFiles = attachmentResult.files.length > 0
+          && typeof navigator.canShare === 'function'
+          && navigator.canShare({ files: attachmentResult.files });
+        if (canAttachFiles) {
+          sharePayload.files = attachmentResult.files;
+        }
+
+        await navigator.share(sharePayload);
+
+        const mediaNotice = canAttachFiles
+          ? ' Media files were attached.'
+          : sharePackage.hasMedia
+            ? ' Media preview is provided via the shared link.'
+            : '';
+        queueShareFeedback(
+          isScheduledPublish
+            ? 'Share ready. This role becomes visible at the scheduled publish time.'
+            : `Share ready.${mediaNotice}`,
+          'success',
+        );
+        return;
+      }
+
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(sharePackage.detailedText);
+        const mediaNotice = sharePackage.hasMedia
+          ? ' Media preview is provided via the shared link.'
+          : '';
+        queueShareFeedback(
+          isScheduledPublish
+            ? 'Detailed share package copied. This role becomes visible at the scheduled publish time.'
+            : `Detailed job share package copied to clipboard.${mediaNotice}`,
+          'success',
+        );
+        return;
+      }
+
+      queueShareFeedback('Sharing is unavailable in this browser.', 'error');
+    } catch (err) {
+      if (err?.name === 'AbortError') {
+        return;
+      }
+      queueShareFeedback(err?.message || 'Failed to share job link.', 'error');
     }
   };
 
@@ -1654,7 +1906,7 @@ const CompanyJobsPage = () => {
                           await refresh();
                           await loadJobs();
                         } catch {
-                          // Silent failure — page remains as-is
+                          // Silent failure -- page remains as-is
                         } finally {
                           setRefreshing(false);
                         }
@@ -1906,6 +2158,18 @@ const CompanyJobsPage = () => {
                               Publish
                             </Button>
                           )}
+                          {job.status === 'PUBLISHED' && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleShareJob(job)}
+                              className="text-blue-600 border-blue-600 hover:bg-blue-50"
+                              title="Share public job link"
+                            >
+                              <Icon name="Link" size={16} className="mr-1.5" />
+                              Share
+                            </Button>
+                          )}
                           {canEditJobs && job.status === 'PUBLISHED' && (
                             <Button
                               variant="outline"
@@ -1939,6 +2203,33 @@ const CompanyJobsPage = () => {
           </main>
         </div>
       </div>
+
+      {shareFeedback.message && (
+        <motion.div
+          initial={{ opacity: 0, y: 32 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: 32 }}
+          className="fixed bottom-5 right-5 z-[60] max-w-md"
+        >
+          <div
+            className={cn(
+              'rounded-2xl border px-4 py-3 shadow-xl',
+              shareFeedback.tone === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-900/20 dark:text-red-300'
+                : 'border-blue-200 bg-blue-50 text-blue-800 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200',
+            )}
+          >
+            <div className="flex items-start gap-2">
+              <Icon
+                name={shareFeedback.tone === 'error' ? 'AlertCircle' : 'CheckCircle'}
+                size={16}
+                className="mt-0.5 shrink-0"
+              />
+              <p className="text-sm">{shareFeedback.message}</p>
+            </div>
+          </div>
+        </motion.div>
+      )}
 
       {/* Create/Edit Job Modal */}
       <AnimatePresence>
@@ -2074,9 +2365,12 @@ const CompanyJobsPage = () => {
                   <textarea
                     value={formData.requirements}
                     onChange={(e) => setFormData({ ...formData, requirements: e.target.value })}
+                    onFocus={handleRequirementsFocus}
+                    onBlur={handleRequirementsBlur}
+                    onKeyDown={handleRequirementsKeyDown}
                     rows={3}
                     className="w-full px-3 sm:px-4 py-2.5 border border-input bg-background rounded-xl text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 transition-all duration-200 resize-y min-h-[80px]"
-                    placeholder="List required skills, qualifications, and experience..."
+                    placeholder="• List required skills, qualifications, and experience (press Enter for next bullet)"
                   />
                 </div>
 
@@ -2288,7 +2582,7 @@ const CompanyJobsPage = () => {
                         />
                       </div>
                       
-                      <span className="text-muted-foreground font-medium">–</span>
+                      <span className="text-muted-foreground font-medium">-</span>
                       
                       <div className="relative flex-1">
                         <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm font-medium">

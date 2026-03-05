@@ -154,7 +154,15 @@ async function handleResponse(response) {
         'ORG_REJECTED',
         'ORG_SUSPENDED',
         'ORG_RESTRICTED',
-        'NO_ORGANIZATION'
+        'NO_ORGANIZATION',
+        'TOO_EARLY',
+        'EXPIRED',
+        'INVALID_TOKEN',
+        'MISSING_TOKEN',
+        'NO_TOKEN',
+        'NOT_SCHEDULED',
+        'INVALID_SCHEDULE',
+        'FORBIDDEN',
       ];
       
       // Check if this is a business logic error (only applies to 403, not 401)
@@ -589,6 +597,14 @@ export const apiClient = {
       return this.getById(interviewId);
     },
 
+    async validateMeetingAccess(interviewId, token) {
+      const response = await fetch(
+        `${API_URL}/api/interviews/${interviewId}/validate-meeting-access?token=${encodeURIComponent(token)}`,
+        { method: 'GET', headers: await getHeaders() },
+      );
+      return handleResponse(response);
+    },
+
     async recordRecordingConsent(interviewId, { recordingConsentGivenAt, recordingConsentVersion }) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording-consent`, {
         method: 'PATCH',
@@ -613,6 +629,36 @@ export const apiClient = {
     async reschedule(interviewId, payload) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule`, {
         method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async requestReschedule(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule-request`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async rejectRescheduleRequest(interviewId, requestId, payload = {}) {
+      const response = await fetch(
+        `${API_URL}/api/interviews/${interviewId}/reschedule-request/${requestId}/reject`,
+        {
+          method: 'POST',
+          headers: await getHeaders(),
+          body: JSON.stringify(payload),
+        },
+      );
+      return handleResponse(response);
+    },
+
+    async contactCompany(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/contact-company`, {
+        method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify(payload),
       });
@@ -1356,6 +1402,83 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async getStructuredInterviewGovernance(limit = 500) {
+      const response = await fetch(`${API_URL}/api/admin/structured-interviews/governance?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async previewStructuredInterviewPlan(payload = {}) {
+      const response = await fetch(`${API_URL}/api/admin/structured-interviews/preview`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getQuestionCatalogSources(includeDisabled = false) {
+      const params = new URLSearchParams();
+      if (includeDisabled) {
+        params.append('includeDisabled', 'true');
+      }
+      const suffix = params.toString() ? `?${params}` : '';
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/sources${suffix}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async importQuestionCatalogSource(payload = {}) {
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/import`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async getQuestionCatalogImports(limit = 50) {
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/imports?limit=${limit}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getQuestionCatalogQuestions(filters = {}) {
+      const params = new URLSearchParams();
+      if (filters.reviewStatus) params.append('reviewStatus', filters.reviewStatus);
+      if (filters.source) params.append('source', filters.source);
+      if (filters.type) params.append('type', filters.type);
+      params.append('limit', String(filters.limit || 300));
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/questions?${params}`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async reviewQuestionCatalogQuestion(id, payload = {}) {
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/questions/${id}/review`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async refreshQuestionCatalogCache() {
+      const response = await fetch(`${API_URL}/api/admin/question-catalog/cache/refresh`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async listOrganizations(status = null, limit = 100) {
       const params = new URLSearchParams();
       if (status) params.append('status', status);
@@ -1712,6 +1835,14 @@ export const apiClient = {
 
     async list() {
       const response = await fetch(`${API_URL}/api/templates`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async getStructuredCatalog() {
+      const response = await fetch(`${API_URL}/api/templates/structured/catalog`, {
         method: 'GET',
         headers: await getHeaders(),
       });

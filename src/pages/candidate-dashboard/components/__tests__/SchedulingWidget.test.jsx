@@ -31,6 +31,7 @@ vi.mock('../../../../services/apiClient.js', () => ({
     interviews: {
       schedule: vi.fn(),
       reschedule: vi.fn(),
+      requestReschedule: vi.fn(),
     },
   },
 }));
@@ -40,8 +41,10 @@ describe('SchedulingWidget', () => {
     mockNavigate.mockReset();
     apiClient.interviews.schedule.mockReset();
     apiClient.interviews.reschedule.mockReset();
+    apiClient.interviews.requestReschedule.mockReset();
     apiClient.interviews.schedule.mockResolvedValue({ success: true });
     apiClient.interviews.reschedule.mockResolvedValue({ success: true });
+    apiClient.interviews.requestReschedule.mockResolvedValue({ success: true });
   });
 
   afterEach(() => {
@@ -54,6 +57,7 @@ describe('SchedulingWidget', () => {
     const interview = {
       id: 'interview_1',
       status: 'SCHEDULED',
+      mode: 'PRACTICE',
       company: { companyName: 'Acme Corp' },
       jobRole: 'Backend Engineer',
       interviewType: 'Technical',
@@ -84,8 +88,8 @@ describe('SchedulingWidget', () => {
     expect(id).toBe('interview_1');
     expect(payload).toMatchObject({
       scheduledFor: new Date('2026-03-12T11:30').toISOString(),
-      meetingLink: null,
     });
+    expect(payload).not.toHaveProperty('meetingLink');
     expect(typeof payload.timezone).toBe('string');
     expect(onScheduleSaved).toHaveBeenCalledTimes(1);
     expect(apiClient.interviews.schedule).not.toHaveBeenCalled();
@@ -94,12 +98,52 @@ describe('SchedulingWidget', () => {
   it('provides non-blocking empty-state actions when there are no upcoming interviews', () => {
     render(<SchedulingWidget upcomingInterviews={[]} />);
 
-    fireEvent.click(screen.getByRole('button', { name: 'My Applications' }));
+    expect(screen.queryByRole('button', { name: 'My Applications' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'View Applications' }));
     fireEvent.click(screen.getByRole('button', { name: 'Start Practice' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Open My Applications' }));
 
     expect(mockNavigate).toHaveBeenCalledWith('/my-applications');
     expect(mockNavigate).toHaveBeenCalledWith('/practice-interview-setup');
+  });
+
+  it('lets candidates submit a reschedule request for hiring interviews', async () => {
+    const hiringInterview = {
+      id: 'interview_hiring_1',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(
+      <SchedulingWidget
+        upcomingInterviews={[hiringInterview]}
+      />,
+    );
+
+    expect(screen.queryByRole('button', { name: 'Reschedule' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Request Reschedule' })).not.toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request Reschedule' }));
+    const textarea = document.querySelector('textarea');
+    expect(textarea).not.toBeNull();
+    fireEvent.change(textarea, {
+      target: { value: 'I have an unavoidable exam and need a different interview slot this week.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Request' }));
+
+    await waitFor(() => {
+      expect(apiClient.interviews.requestReschedule).toHaveBeenCalledTimes(1);
+    });
+
+    const [id, payload] = apiClient.interviews.requestReschedule.mock.calls[0];
+    expect(id).toBe('interview_hiring_1');
+    expect(payload.reason.toLowerCase()).toContain('exam');
+    expect(apiClient.interviews.schedule).not.toHaveBeenCalled();
+    expect(apiClient.interviews.reschedule).not.toHaveBeenCalled();
   });
 });

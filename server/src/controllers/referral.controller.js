@@ -13,13 +13,19 @@
  */
 
 import crypto from 'crypto';
-import { firestore as db } from '../config/firebase.js';
+import admin, { firestore as db } from '../config/firebase.js';
 import logger from '../utils/logger.js';
 
 const REWARDS = {
   signup: 50,          // points when referred user signs up
   first_interview: 100, // bonus when referred user completes first interview
 };
+
+const referralsCollection = db.collection('referrals');
+const referralSignupsCollection = db.collection('referral_signups');
+const referralPointHistoryCollection = db.collection('referral_point_history');
+
+const incrementBy = (value) => admin.firestore.FieldValue.increment(value);
 
 function generateReferralCode(userId) {
   // Short, readable code derived from userId + random bytes
@@ -28,7 +34,7 @@ function generateReferralCode(userId) {
 }
 
 async function getOrCreateReferralProfile(userId) {
-  const ref = db.collection('referrals').doc(userId);
+  const ref = referralsCollection.doc(userId);
   const snap = await ref.get();
 
   if (snap.exists) return { id: snap.id, ...snap.data() };
@@ -57,6 +63,181 @@ function computeTier(totalReferrals) {
 
 export class ReferralController {
   /**
+   * Internal helper to attribute referral on registration.
+   * Uses deterministic signup doc IDs (`refereeId`) to avoid duplicate attribution.
+   */
+  static async attributeReferralInternal({ refCode, newUserId, newUserEmail }) {
+    const normalizedCode = String(refCode || '').trim().toUpperCase();
+    const normalizedUserId = String(newUserId || '').trim();
+    const normalizedEmail = newUserEmail ? String(newUserEmail).trim().toLowerCase() : null;
+
+    if (!normalizedCode || !normalizedUserId) {
+      return { success: false, message: 'refCode and newUserId required.' };
+    }
+
+    const referrerSnapshot = await referralsCollection
+      .where('code', '==', normalizedCode)
+      .limit(1)
+      .get();
+
+    if (referrerSnapshot.empty) {
+      return { success: false, message: 'Referral code not found.' };
+    }
+
+    const referrerDoc = referrerSnapshot.docs[0];
+    const referrerId = referrerDoc.id;
+
+    if (referrerId === normalizedUserId) {
+      return { success: false, message: 'Cannot refer yourself.' };
+    }
+
+    // Backward-compat check for historic random-ID signup rows.
+    const existingByReferee = await referralSignupsCollection
+      .where('refereeId', '==', normalizedUserId)
+      .limit(1)
+      .get();
+    if (!existingByReferee.empty) {
+      return { success: false, message: 'User already attributed.' };
+    }
+
+    const signupRef = referralSignupsCollection.doc(normalizedUserId);
+    let outcome = { success: false, message: 'User already attributed.' };
+
+    await db.runTransaction(async (tx) => {
+      const [signupDoc, latestReferrerDoc] = await Promise.all([
+        tx.get(signupRef),
+        tx.get(referralsCollection.doc(referrerId)),
+      ]);
+
+      if (signupDoc.exists) {
+        outcome = { success: false, message: 'User already attributed.' };
+        return;
+      }
+
+      const referrerData = latestReferrerDoc.exists
+        ? latestReferrerDoc.data()
+        : (referrerDoc.data() || {});
+      const nextTotalReferrals = (referrerData.totalReferrals || 0) + 1;
+
+      tx.set(signupRef, {
+        referrerId,
+        refereeId: normalizedUserId,
+        refereeEmail: normalizedEmail,
+        refCode: normalizedCode,
+        status: 'signed_up',
+        pointsAwarded: REWARDS.signup,
+        createdAt: new Date().toISOString(),
+      });
+
+      tx.set(referralsCollection.doc(referrerId), {
+        totalReferrals: incrementBy(1),
+        totalPoints: incrementBy(REWARDS.signup),
+        tier: computeTier(nextTotalReferrals),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      tx.set(referralPointHistoryCollection.doc(), {
+        userId: referrerId,
+        points: REWARDS.signup,
+        reason: 'referral_signup',
+        refereeId: normalizedUserId,
+        createdAt: new Date().toISOString(),
+      });
+
+      outcome = {
+        success: true,
+        message: 'Referral attributed.',
+        referrerId,
+      };
+    });
+
+    return outcome;
+  }
+
+  /**
+   * Internal helper to award first interview bonus exactly once.
+   */
+  static async onFirstInterviewInternal({ userId }) {
+    const normalizedUserId = String(userId || '').trim();
+    if (!normalizedUserId) {
+      return { success: false, message: 'userId required.' };
+    }
+
+    // Prefer deterministic ref signup doc (refereeId), fallback to legacy random-id docs.
+    let signupDoc = await referralSignupsCollection.doc(normalizedUserId).get();
+    if (!signupDoc.exists) {
+      const signupSnap = await referralSignupsCollection
+        .where('refereeId', '==', normalizedUserId)
+        .where('status', '==', 'signed_up')
+        .limit(1)
+        .get();
+      if (!signupSnap.empty) {
+        signupDoc = signupSnap.docs[0];
+      }
+    }
+
+    if (!signupDoc?.exists) {
+      return { success: false, message: 'No pending referral for this user.' };
+    }
+
+    const signupRef = signupDoc.ref;
+    let outcome = { success: false, message: 'No pending referral for this user.' };
+
+    await db.runTransaction(async (tx) => {
+      const currentSignup = await tx.get(signupRef);
+      if (!currentSignup.exists) {
+        outcome = { success: false, message: 'No pending referral for this user.' };
+        return;
+      }
+
+      const signupData = currentSignup.data() || {};
+      if (signupData.status !== 'signed_up') {
+        outcome = { success: false, message: 'Referral bonus already awarded.' };
+        return;
+      }
+
+      const referrerId = signupData.referrerId;
+      if (!referrerId) {
+        outcome = { success: false, message: 'Invalid referral signup state.' };
+        return;
+      }
+
+      const referrerRef = referralsCollection.doc(referrerId);
+      const referrerDoc = await tx.get(referrerRef);
+      const referrerData = referrerDoc.exists ? (referrerDoc.data() || {}) : {};
+
+      tx.update(signupRef, {
+        status: 'interview_completed',
+        bonusPointsAwarded: REWARDS.first_interview,
+        completedAt: new Date().toISOString(),
+      });
+
+      tx.set(referrerRef, {
+        completedReferrals: incrementBy(1),
+        totalPoints: incrementBy(REWARDS.first_interview),
+        tier: computeTier(referrerData.totalReferrals || 0),
+        updatedAt: new Date().toISOString(),
+      }, { merge: true });
+
+      tx.set(referralPointHistoryCollection.doc(), {
+        userId: referrerId,
+        points: REWARDS.first_interview,
+        reason: 'referral_first_interview',
+        refereeId: normalizedUserId,
+        createdAt: new Date().toISOString(),
+      });
+
+      outcome = {
+        success: true,
+        bonusPoints: REWARDS.first_interview,
+        referrerId,
+      };
+    });
+
+    return outcome;
+  }
+
+  /**
    * GET /api/referrals/me – get own referral profile + stats
    */
   static async getMyReferral(req, res, next) {
@@ -65,7 +246,7 @@ export class ReferralController {
       const profile = await getOrCreateReferralProfile(userId);
 
       // Fetch referred users
-      const referredSnap = await db.collection('referral_signups')
+      const referredSnap = await referralSignupsCollection
         .where('referrerId', '==', userId)
         .orderBy('createdAt', 'desc')
         .limit(20)
@@ -107,60 +288,19 @@ export class ReferralController {
    */
   static async attributeReferral(req, res, next) {
     try {
-      const { refCode, newUserId, newUserEmail } = req.body;
-      if (!refCode || !newUserId) {
-        return res.status(400).json({ success: false, error: 'refCode and newUserId required.' });
-      }
-
-      // Find referrer by code
-      const snap = await db.collection('referrals')
-        .where('code', '==', refCode.toUpperCase())
-        .limit(1)
-        .get();
-
-      if (snap.empty) {
-        return res.json({ success: false, message: 'Referral code not found.' });
-      }
-
-      const referrerId = snap.docs[0].id;
-      if (referrerId === newUserId) {
-        return res.json({ success: false, message: 'Cannot refer yourself.' });
-      }
-
-      // Check if newUser was already referred
-      const existingSnap = await db.collection('referral_signups').where('refereeId', '==', newUserId).limit(1).get();
-      if (!existingSnap.empty) {
-        return res.json({ success: false, message: 'User already attributed.' });
-      }
-
-      // Create referral signup record
-      await db.collection('referral_signups').add({
-        referrerId,
-        refereeId: newUserId,
-        refereeEmail: newUserEmail || null,
-        refCode,
-        status: 'signed_up',
-        pointsAwarded: REWARDS.signup,
-        createdAt: new Date().toISOString(),
+      const result = await ReferralController.attributeReferralInternal({
+        refCode: req.body?.refCode,
+        newUserId: req.body?.newUserId,
+        newUserEmail: req.body?.newUserEmail,
       });
 
-      // Award signup points to referrer
-      await db.collection('referrals').doc(referrerId).update({
-        totalReferrals: (snap.docs[0].data().totalReferrals || 0) + 1,
-        totalPoints: (snap.docs[0].data().totalPoints || 0) + REWARDS.signup,
-      });
-
-      // Record in point history
-      await db.collection('referral_point_history').add({
-        userId: referrerId,
-        points: REWARDS.signup,
-        reason: 'referral_signup',
-        refereeId: newUserId,
-        createdAt: new Date().toISOString(),
-      });
-
-      logger.info(`Referral attributed: ${referrerId} referred ${newUserId}`);
-      res.json({ success: true, message: 'Referral attributed.' });
+      if (!result.success && result.message === 'refCode and newUserId required.') {
+        return res.status(400).json({ success: false, error: result.message });
+      }
+      if (result.success) {
+        logger.info(`Referral attributed: ${result.referrerId} referred ${req.body?.newUserId}`);
+      }
+      res.json(result);
     } catch (error) {
       logger.error('Attribute referral error:', error);
       next(error);
@@ -174,50 +314,19 @@ export class ReferralController {
    */
   static async onFirstInterview(req, res, next) {
     try {
-      const { userId } = req.body;
-      if (!userId) return res.status(400).json({ success: false, error: 'userId required.' });
-
-      const signupSnap = await db.collection('referral_signups')
-        .where('refereeId', '==', userId)
-        .where('status', '==', 'signed_up')
-        .limit(1)
-        .get();
-
-      if (signupSnap.empty) {
-        return res.json({ success: false, message: 'No pending referral for this user.' });
-      }
-
-      const doc = signupSnap.docs[0];
-      const { referrerId } = doc.data();
-
-      // Mark as completed
-      await doc.ref.update({
-        status: 'interview_completed',
-        bonusPointsAwarded: REWARDS.first_interview,
-        completedAt: new Date().toISOString(),
+      const result = await ReferralController.onFirstInterviewInternal({
+        userId: req.body?.userId,
       });
 
-      // Award bonus points to referrer
-      const referrerSnap = await db.collection('referrals').doc(referrerId).get();
-      if (referrerSnap.exists) {
-        const current = referrerSnap.data();
-        await referrerSnap.ref.update({
-          completedReferrals: (current.completedReferrals || 0) + 1,
-          totalPoints: (current.totalPoints || 0) + REWARDS.first_interview,
-          tier: computeTier((current.totalReferrals || 0)),
-        });
+      if (!result.success && result.message === 'userId required.') {
+        return res.status(400).json({ success: false, error: result.message });
       }
 
-      await db.collection('referral_point_history').add({
-        userId: referrerId,
-        points: REWARDS.first_interview,
-        reason: 'referral_first_interview',
-        refereeId: userId,
-        createdAt: new Date().toISOString(),
-      });
+      if (result.success) {
+        logger.info(`Referral bonus awarded to ${result.referrerId} for ${req.body?.userId}'s first interview`);
+      }
 
-      logger.info(`Referral bonus awarded to ${referrerId} for ${userId}'s first interview`);
-      res.json({ success: true, bonusPoints: REWARDS.first_interview });
+      res.json(result);
     } catch (error) {
       logger.error('Referral first interview error:', error);
       next(error);
@@ -229,7 +338,7 @@ export class ReferralController {
    */
   static async leaderboard(req, res, next) {
     try {
-      const snap = await db.collection('referrals')
+      const snap = await referralsCollection
         .orderBy('totalPoints', 'desc')
         .limit(20)
         .get();

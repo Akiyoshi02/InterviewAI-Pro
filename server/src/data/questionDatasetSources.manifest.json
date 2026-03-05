@@ -1,0 +1,32 @@
+{
+  "version": "2026-03-v1",
+  "licenseAllowlist": [
+    "Apache-2.0",
+    "MIT",
+    "CC-BY-4.0"
+  ],
+  "sources": [
+    {
+      "key": "internal-library",
+      "sourceName": "InterviewAI Internal Structured Library",
+      "sourceUrl": "internal://interview-question-library",
+      "downloadUrl": null,
+      "license": "Proprietary-Internal",
+      "licenseUrl": null,
+      "adapter": "internalLibrary",
+      "enabled": true,
+      "seedTemplates": true
+    },
+    {
+      "key": "juasdexter-interview-questions",
+      "sourceName": "juasdexter/interview_questions",
+      "sourceUrl": "https://huggingface.co/datasets/juasdexter/interview_questions",
+      "downloadUrl": "https://datasets-server.huggingface.co/rows?dataset=juasdexter%2Finterview_questions&config=default&split=train&offset=0&length=1000",
+      "license": "Apache-2.0",
+      "licenseUrl": "https://www.apache.org/licenses/LICENSE-2.0",
+      "adapter": "huggingFaceRows",
+      "enabled": true,
+      "seedTemplates": false
+    }
+  ]
+}

@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect } from 'react';
+﻿import React, { useMemo, useState, useEffect, useRef } from 'react';
 import { Helmet } from 'react-helmet';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -35,6 +35,21 @@ import {
 } from '../../utils/candidateResumePrefill.js';
 
 const MIN_REREVIEW_NOTE_LENGTH = 15;
+
+export const getReferralCodeFromSearchParams = (searchParams) => {
+  const raw = searchParams?.get?.('ref');
+  if (!raw) return '';
+  return String(raw).trim();
+};
+
+export const withRegistrationReferralCode = (payload, referralCode) => {
+  const normalized = String(referralCode || '').trim();
+  if (!normalized || !payload || typeof payload !== 'object') return payload;
+  return {
+    ...payload,
+    refCode: normalized,
+  };
+};
 
 const Register = () => {
   const navigate = useNavigate();
@@ -143,6 +158,8 @@ const Register = () => {
   const [isUploadingReReviewLogo, setIsUploadingReReviewLogo] = useState(false);
   const reReviewProofInputRef = React.useRef(null);
   const reReviewLogoInputRef = React.useRef(null);
+  const approvalRedirectTimeoutRef = useRef(null);
+  const hasScheduledApprovalRedirectRef = useRef(false);
 
   const getSafeRedirectPath = (value) => {
     if (!value || typeof value !== 'string') return null;
@@ -153,6 +170,10 @@ const Register = () => {
   };
 
   const redirectAfterAuth = getSafeRedirectPath(searchParams.get('redirect'));
+  const referralCode = useMemo(
+    () => getReferralCodeFromSearchParams(searchParams),
+    [searchParams],
+  );
   const loginHref = redirectAfterAuth ? `/login?redirect=${encodeURIComponent(redirectAfterAuth)}` : '/login';
   const supportContactEmail = (import.meta.env.VITE_SMTP_USER || import.meta.env.VITE_FROM_EMAIL || '').trim();
 
@@ -504,6 +525,8 @@ const Register = () => {
               navigate('/admin', { replace: true });
               return;
             }
+
+            setAuthenticatedUser(userData.user);
 
             if (isRestrictedCompanyUser(userData.user)) {
               // Company with restricted organization status - keep user in Step 4
@@ -1319,7 +1342,7 @@ const Register = () => {
       }
 
       const accountTypeUpper = (formData.accountType || 'candidate').toUpperCase();
-      const registrationPayload = {
+      const registrationPayload = withRegistrationReferralCode({
         accountType: accountTypeUpper,
         email: data.user.email || undefined,
         fullName: formData.fullName || data.user.user_metadata?.fullName || data.user.email?.split('@')[0] || 'New User',
@@ -1363,7 +1386,7 @@ const Register = () => {
         companyEmail: formData.accountType === 'company' ? formData.companyEmail || undefined : undefined,
         establishedYear: formData.accountType === 'company' ? formData.establishedYear || undefined : undefined,
         industry: formData.industry || undefined,
-      };
+      }, referralCode);
 
       const registerData = await apiClient.auth.register(prepareRegistrationRequestBody(registrationPayload));
 
@@ -1539,7 +1562,7 @@ const Register = () => {
         
         try {
           const registerData = await apiClient.auth.register(
-            prepareRegistrationRequestBody({
+            prepareRegistrationRequestBody(withRegistrationReferralCode({
             accountType: accountTypeUpper,
             email: formData.email || undefined,
             fullName: formData.fullName,
@@ -1583,7 +1606,7 @@ const Register = () => {
             companyEmail: formData.accountType === 'company' ? formData.companyEmail || undefined : undefined,
             establishedYear: formData.accountType === 'company' ? formData.establishedYear || undefined : undefined,
             industry: formData.industry || undefined,
-            })
+            }, referralCode))
           );
 
           if (registerData.success && registerData.user) {
@@ -1669,7 +1692,7 @@ const Register = () => {
     // Set up Firebase Realtime Database listener
     const orgStatusRef = ref(realtimeDb, `organizationApprovalStatus/${organizationId}`);
     
-    const unsubscribe = onValue(orgStatusRef, (snapshot) => {
+    onValue(orgStatusRef, (snapshot) => {
       const data = snapshot.val();
       if (data && data.status) {
         setOrganizationStatus(data.status);
@@ -1685,11 +1708,34 @@ const Register = () => {
           setOrganizationSuspensionReason('');
         }
         
-        if (data.status === 'APPROVED') {
-          // Organization approved! Redirect to dashboard
-          setTimeout(() => {
-            navigate(redirectAfterAuth || '/company-dashboard', { replace: true });
-          }, 1500); // Small delay to show success message
+        if (data.status !== 'APPROVED') {
+          hasScheduledApprovalRedirectRef.current = false;
+        }
+
+        if (data.status === 'APPROVED' && !hasScheduledApprovalRedirectRef.current) {
+          hasScheduledApprovalRedirectRef.current = true;
+
+          // Refresh the profile before navigation so ProtectedRoute sees APPROVED status
+          // and does not bounce the user back to the pending page.
+          const syncAndRedirect = async () => {
+            try {
+              const latestProfile = await apiClient.auth.getMe();
+              if (latestProfile?.success && latestProfile.user) {
+                setAuthenticatedUser(latestProfile.user);
+              }
+            } catch (syncError) {
+              console.error('Failed to refresh user profile after organization approval:', syncError);
+            } finally {
+              if (approvalRedirectTimeoutRef.current) {
+                clearTimeout(approvalRedirectTimeoutRef.current);
+              }
+              approvalRedirectTimeoutRef.current = setTimeout(() => {
+                navigate(redirectAfterAuth || '/company-dashboard', { replace: true });
+              }, 1200);
+            }
+          };
+
+          void syncAndRedirect();
         }
       }
     });
@@ -1697,8 +1743,12 @@ const Register = () => {
     // Cleanup listener on unmount
     return () => {
       off(orgStatusRef);
+      if (approvalRedirectTimeoutRef.current) {
+        clearTimeout(approvalRedirectTimeoutRef.current);
+        approvalRedirectTimeoutRef.current = null;
+      }
     };
-  }, [organizationId, currentStep, navigate, redirectAfterAuth]);
+  }, [organizationId, currentStep, navigate, redirectAfterAuth, setAuthenticatedUser]);
 
   const getStepTitle = () => {
     switch (currentStep) {
@@ -2602,3 +2652,4 @@ const Register = () => {
 };
 
 export default Register;
+

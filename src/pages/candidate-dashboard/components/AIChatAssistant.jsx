@@ -205,7 +205,8 @@ const AIChatAssistant = ({
       timestamp: new Date()
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setIsTyping(true);
 
     try {
@@ -226,11 +227,12 @@ const AIChatAssistant = ({
           const feedbackData = getFeedbackHistoryForSession(getLastSessionData());
           if (feedbackData?.length > 0) {
             const latestFeedback = feedbackData?.[feedbackData?.length - 1];
+            const { userProfile: studyProfile } = getAssistantContext();
             const studyPlan = await createStudyPlan({
               weaknesses: latestFeedback?.feedback?.areasForImprovement || [],
-              jobRole: 'Software Engineer',
-              experienceLevel: 'Mid-Level',
-              targetCompanies: ['Google', 'Microsoft', 'Amazon']
+              jobRole: studyProfile?.jobRole || studyProfile?.targetRole || 'General',
+              experienceLevel: studyProfile?.experienceLevel || 'Mid-Level',
+              targetCompanies: studyProfile?.targetCompanies || []
             });
             aiResponse = formatStudyPlan(studyPlan);
           } else {
@@ -238,46 +240,29 @@ const AIChatAssistant = ({
           }
           break;
           
-        case 'interview_tips':
-          aiResponse = `Here are some key interview tips based on best practices:
-
-**Before the Interview:**
-- Research the company and role thoroughly
-- Practice common behavioral questions using the STAR method
-- Prepare specific examples from your experience
-- Review technical concepts relevant to the position
-
-**During the Interview:**
-- Listen carefully to each question before responding
-- Structure your answers clearly with concrete examples
-- Ask thoughtful questions about the role and company
-- Maintain good eye contact and confident body language
-
-**Technical Interviews:**
-- Think out loud when solving problems
-- Start with clarifying questions
-- Consider edge cases and error handling
-- Explain your thought process step by step
-
-Would you like me to elaborate on any of these areas?`;
+        case 'interview_tips': {
+          const { userProfile: tipsProfile, recentPerformance: tipsPerformance } = getAssistantContext();
+          const tipsResponse = await getCareerAssistantResponse({
+            conversation: buildConversationHistory(updatedMessages),
+            userProfile: tipsProfile,
+            recentPerformance: tipsPerformance
+          });
+          aiResponse = tipsResponse || "I'm having trouble generating tips right now. Please try again in a moment.";
           break;
+        }
           
         default:
           aiResponse = "I'm here to help with interview preparation and career guidance. What specific area would you like to focus on?";
       }
 
-      // Simulate typing delay
-      setTimeout(() => {
-        const assistantMessage = {
-          id: messages?.length + 2,
-          type: 'assistant',
-          content: aiResponse,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsTyping(false);
-      }, 1000 + Math.random() * 2000);
+      const assistantMessage = {
+        id: updatedMessages?.length + 1,
+        type: 'assistant',
+        content: aiResponse,
+        timestamp: new Date()
+      };
+
+      setMessages(prev => [...prev, assistantMessage]);
       
     } catch {
       setIsTyping(false);

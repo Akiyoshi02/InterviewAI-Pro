@@ -8,6 +8,7 @@
  */
 
 import { firestore as db } from '../config/firebase.js';
+import { isJobCurrentlyPublic } from '../services/firebaseData.service.js';
 import logger from '../utils/logger.js';
 
 const DEFAULT_INDUSTRY_LABEL = 'Technology & Software';
@@ -121,8 +122,11 @@ async function buildCompanyProfile(orgDoc) {
 
   const jobsSnap = await db.collection('jobs')
     .where('organizationId', '==', orgDoc.id)
-    .where('status', '==', 'OPEN')
+    .where('status', '==', 'PUBLISHED')
     .get();
+  const activeJobs = jobsSnap.docs
+    .map((jobDoc) => ({ id: jobDoc.id, ...jobDoc.data() }))
+    .filter((job) => isJobCurrentlyPublic(job));
 
   return {
     id: orgDoc.id,
@@ -149,15 +153,14 @@ async function buildCompanyProfile(orgDoc) {
     hiringTimeline: data.profile?.hiringTimeline || null,
     responseTime: data.profile?.responseTime || null,
     verified: isApprovedStatus(data.status),
-    openJobsCount: jobsSnap.size,
-    openJobs: jobsSnap.docs.map((jobDoc) => {
-      const job = jobDoc.data();
+    openJobsCount: activeJobs.length,
+    openJobs: activeJobs.map((job) => {
       return {
-        id: jobDoc.id,
+        id: job.id,
         title: job.title,
         location: job.location,
-        type: job.type,
-        salary: job.salary,
+        type: job.type || job.employmentType || null,
+        salary: job.salary || job.compensationRange || null,
         postedAt: job.createdAt,
       };
     }),
@@ -242,7 +245,7 @@ export class CompanyProfileController {
         .slice(start, start + requestedSize)
         .map(({ _status, ...company }) => company);
 
-      // Keep card-level open role counts in sync with real OPEN jobs.
+      // Keep card-level open role counts in sync with currently public jobs.
       const pagedCompanyIds = pagedCompanies.map((company) => company.id).filter(Boolean);
       if (pagedCompanyIds.length > 0) {
         const openJobsByCompanyId = new Map();
@@ -250,12 +253,14 @@ export class CompanyProfileController {
 
         for (const ids of idBatches) {
           const jobsSnap = await db.collection('jobs')
-            .where('status', '==', 'OPEN')
+            .where('status', '==', 'PUBLISHED')
             .where('organizationId', 'in', ids)
             .get();
 
           jobsSnap.docs.forEach((jobDoc) => {
-            const organizationId = jobDoc.data()?.organizationId;
+            const job = jobDoc.data();
+            if (!isJobCurrentlyPublic(job)) return;
+            const organizationId = job?.organizationId;
             if (!organizationId) return;
             openJobsByCompanyId.set(
               organizationId,

@@ -109,6 +109,7 @@ const FairnessCalibrationPanel = () => {
   const fairness = data?.fairness ?? {};
   const calibration = data?.calibration ?? {};
   const sampleSize = data?.sampleSize ?? {};
+  const structured = fairness?.structured ?? {};
 
   const maxBucket = Math.max(
     ...BUCKET_LABELS.map((b) => fairness.scoreDistribution?.[b] ?? 0),
@@ -222,6 +223,76 @@ const FairnessCalibrationPanel = () => {
               </div>
             );
           })}
+        </div>
+
+        <h4 className="text-xs font-medium text-gray-600 dark:text-slate-400 mt-6 mb-2">
+          Structured interview adoption
+        </h4>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-4">
+          <div>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Structured enabled</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-slate-100">
+              {structured.withStructuredEnabled ?? 0}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Adoption rate</p>
+            <p className="text-xl font-bold text-purple-700 dark:text-purple-300">
+              {structured.adoptionRatePercent != null ? `${structured.adoptionRatePercent}%` : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Hiring adoption</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-slate-100">
+              {structured?.byMode?.hiring?.adoptionRatePercent != null
+                ? `${structured.byMode.hiring.adoptionRatePercent}%`
+                : '—'}
+            </p>
+          </div>
+          <div>
+            <p className="text-xs text-gray-500 dark:text-slate-500">Practice adoption</p>
+            <p className="text-xl font-bold text-gray-900 dark:text-slate-100">
+              {structured?.byMode?.practice?.adoptionRatePercent != null
+                ? `${structured.byMode.practice.adoptionRatePercent}%`
+                : '—'}
+            </p>
+          </div>
+        </div>
+
+        <div className="rounded-lg border border-gray-200 dark:border-slate-700 overflow-hidden">
+          <table className="min-w-full text-xs">
+            <thead className="bg-slate-50 dark:bg-slate-900/40 text-gray-600 dark:text-slate-300">
+              <tr>
+                <th className="text-left px-3 py-2">Template</th>
+                <th className="text-right px-3 py-2">Count</th>
+                <th className="text-right px-3 py-2">Avg Score</th>
+                <th className="text-right px-3 py-2">Core Ratio</th>
+                <th className="text-right px-3 py-2">LLM Fill</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(structured.templates || []).slice(0, 8).map((item) => (
+                <tr key={item.templateId} className="border-t border-gray-200 dark:border-slate-700/60">
+                  <td className="px-3 py-2 text-gray-900 dark:text-slate-100">{item.templateName}</td>
+                  <td className="px-3 py-2 text-right text-gray-700 dark:text-slate-300">{item.interviewCount}</td>
+                  <td className="px-3 py-2 text-right text-gray-700 dark:text-slate-300">
+                    {item.averageOverallScore != null ? item.averageOverallScore.toFixed(1) : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right text-gray-700 dark:text-slate-300">
+                    {item.averageCoreRatio != null ? `${Math.round(item.averageCoreRatio * 100)}%` : '—'}
+                  </td>
+                  <td className="px-3 py-2 text-right text-gray-700 dark:text-slate-300">{item.llmFillQuestions ?? 0}</td>
+                </tr>
+              ))}
+              {(structured.templates || []).length === 0 && (
+                <tr>
+                  <td className="px-3 py-3 text-gray-500 dark:text-slate-400" colSpan={5}>
+                    No structured template metrics available yet.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

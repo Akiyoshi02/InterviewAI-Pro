@@ -30,8 +30,13 @@ export const ORGANIZATION_FEED_EVENTS = Object.freeze({
   ]),
   interviews: Object.freeze([
     'interview-created',
+    'interview-scheduled',
+    'interview-rescheduled',
+    'interview-reschedule-requested',
+    'interview-reschedule-request-rejected',
     'interview-started',
     'interview-ended',
+    'interview-candidate-message',
   ]),
   profile: Object.freeze([
     'organization-updated',
@@ -92,6 +97,8 @@ export const INTERVIEW_FEED_EVENTS = Object.freeze({
     'interview-created',
     'interview-scheduled',
     'interview-rescheduled',
+    'interview-reschedule-requested',
+    'interview-reschedule-request-rejected',
     'interview-started',
     'interview-ended',
   ]),

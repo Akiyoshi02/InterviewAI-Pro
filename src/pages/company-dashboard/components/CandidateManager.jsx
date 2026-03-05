@@ -43,6 +43,75 @@ const formatDate = (dateInput) => {
   return parsed.toLocaleDateString();
 };
 
+const decodeHtmlEntities = (value) => {
+  if (typeof value !== 'string') return value || '';
+  if (!value.includes('&')) return value;
+  if (typeof document === 'undefined') return value;
+  const decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+};
+
+const normalizeQuestionDefs = (job) => {
+  const rawQuestions = Array.isArray(job?.applicationQuestions) && job.applicationQuestions.length > 0
+    ? job.applicationQuestions
+    : (Array.isArray(job?.customFormFields) ? job.customFormFields : []);
+
+  return rawQuestions
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = String(question.id || `question_${index + 1}`).trim() || `question_${index + 1}`;
+      const prompt = decodeHtmlEntities(String(question.question || question.label || '').trim());
+      if (!prompt) return null;
+      return {
+        id,
+        prompt,
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildApplicationResponses = (application) => {
+  const answers = Array.isArray(application?.answers) ? application.answers : [];
+  const questionDefs = normalizeQuestionDefs(application?.job || {});
+  const questionsById = new Map(questionDefs.map((question) => [question.id, question]));
+  const usedQuestionIds = new Set();
+
+  const rows = answers.map((rawAnswer, index) => {
+    const answer = rawAnswer && typeof rawAnswer === 'object'
+      ? rawAnswer
+      : { answer: String(rawAnswer ?? '') };
+    const questionId = String(answer.questionId || answer.id || '').trim();
+    const mappedQuestion = questionId ? questionsById.get(questionId) : null;
+    if (mappedQuestion?.id) usedQuestionIds.add(mappedQuestion.id);
+    const prompt = decodeHtmlEntities(
+      String(answer.question || answer.label || mappedQuestion?.prompt || `Question ${index + 1}`).trim(),
+    );
+    const responseValue = answer.answer ?? answer.value ?? '';
+    const response = decodeHtmlEntities(String(responseValue || '').trim());
+    return {
+      id: questionId || `answer_${index + 1}`,
+      prompt,
+      response: response || 'No response provided',
+      isMissing: !response,
+    };
+  });
+
+  questionDefs.forEach((question) => {
+    if (usedQuestionIds.has(question.id)) return;
+    rows.push({
+      id: `missing_${question.id}`,
+      prompt: question.prompt,
+      response: 'No response provided',
+      isMissing: true,
+    });
+  });
+
+  return rows;
+};
+
 const getStatusConfig = (application = {}) => {
   const derivedStatus = getDerivedApplicationStatus(application);
   const configs = {
@@ -210,6 +279,11 @@ const CandidateManager = () => {
     setShowEmailComposer(false);
     setShowDetails(true);
   };
+
+  const selectedCandidateResponses = useMemo(
+    () => buildApplicationResponses(selectedCandidate),
+    [selectedCandidate],
+  );
 
   const toggleSelect = (id) => {
     setSelectedIds((prev) => {
@@ -457,19 +531,24 @@ const CandidateManager = () => {
           <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
             {selectedIds.size} selected
           </span>
-          <select
-            value={bulkStatusValue}
-            onChange={(e) => setBulkStatusValue(e.target.value)}
-            className="flex-1 min-w-[160px] text-sm rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 px-2 py-1.5 text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Change status...</option>
-            {BULK_STATUS_OPTIONS.map((opt) => (
-              <option key={opt.value} value={opt.value}>{opt.label}</option>
-            ))}
-          </select>
+          <div className="relative flex-1 min-w-[160px]">
+            <select
+              value={bulkStatusValue}
+              onChange={(event) => setBulkStatusValue(event.target.value)}
+              className="h-10 w-full appearance-none rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 py-1.5 pl-3 pr-9 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Change status...</option>
+              {BULK_STATUS_OPTIONS.map((opt) => (
+                <option key={opt.value} value={opt.value}>{opt.label}</option>
+              ))}
+            </select>
+            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-blue-500 dark:text-blue-300">
+              <Icon name="ChevronDown" className="h-4 w-4" />
+            </span>
+          </div>
           <Button
             size="sm"
-            variant="primary"
+            variant="default"
             onClick={handleBulkStatusUpdate}
             disabled={!bulkStatusValue || bulkUpdating}
             loading={bulkUpdating}
@@ -995,22 +1074,22 @@ const CandidateManager = () => {
                 )}
 
                 {/* Application Questions */}
-                {selectedCandidate.answers && selectedCandidate.answers.length > 0 && (
+                {selectedCandidateResponses.length > 0 && (
                   <div>
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                       Application Responses
                     </h3>
                     <div className="space-y-3">
-                      {selectedCandidate.answers.map((answer, idx) => (
+                      {selectedCandidateResponses.map((response, idx) => (
                         <div
-                          key={idx}
+                          key={response.id || idx}
                           className="p-3 rounded-lg bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700"
                         >
                           <p className="text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
-                            Question {idx + 1}
+                            {response.prompt || `Question ${idx + 1}`}
                           </p>
-                          <p className="text-sm text-gray-900 dark:text-slate-100">
-                            {answer.answer}
+                          <p className={`text-sm ${response.isMissing ? 'text-gray-500 dark:text-slate-400 italic' : 'text-gray-900 dark:text-slate-100'}`}>
+                            {response.response}
                           </p>
                         </div>
                       ))}

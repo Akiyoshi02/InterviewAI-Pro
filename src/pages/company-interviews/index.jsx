@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
@@ -59,6 +59,8 @@ const COMPANY_INTERVIEW_SORT_OPTIONS = [
   { value: 'scoreDesc', label: 'Highest Score' },
 ];
 
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
+
 const DEFAULT_COMPANY_INTERVIEW_FILTERS = {
   searchQuery: '',
   statusFilter: 'all',
@@ -106,8 +108,84 @@ const countActiveCompanyInterviewFilters = (filters = {}) => {
   return count;
 };
 
+const getPendingRescheduleRequest = (interview) => {
+  if (!interview) return null;
+  if (interview.pendingRescheduleRequest) return interview.pendingRescheduleRequest;
+  if (!Array.isArray(interview.rescheduleRequests)) return null;
+  for (let index = interview.rescheduleRequests.length - 1; index >= 0; index -= 1) {
+    const request = interview.rescheduleRequests[index];
+    if ((request?.status || '').toUpperCase() === 'PENDING') {
+      return request;
+    }
+  }
+  return null;
+};
+
+const decodeHtmlEntities = (value) => {
+  if (typeof value !== 'string') return value || '';
+  if (!value.includes('&')) return value;
+  if (typeof document === 'undefined') return value;
+  const decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+};
+
+const getCandidateProfileImage = (candidate) => {
+  const possibleValues = [
+    candidate?.profilePhotoUrl,
+    candidate?.photoURL,
+    candidate?.avatarUrl,
+    candidate?.avatar,
+    candidate?.imageUrl,
+    candidate?.profileImage,
+    candidate?.profile?.photoURL,
+    candidate?.profile?.photoUrl,
+    candidate?.profile?.imageUrl,
+  ];
+  const match = possibleValues.find((entry) => typeof entry === 'string' && entry.trim());
+  return match ? match.trim() : null;
+};
+
+const normalizeUploadsPath = (value) => {
+  if (!value || typeof value !== 'string') return '';
+  const trimmed = value.trim();
+  if (!trimmed) return '';
+  if (trimmed.startsWith('/')) return trimmed;
+  if (trimmed.toLowerCase().startsWith('uploads/')) return `/${trimmed}`;
+  return '';
+};
+
+const buildAssetSources = (value) => {
+  if (!value || typeof value !== 'string') return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (
+    trimmed.startsWith('http://')
+    || trimmed.startsWith('https://')
+    || trimmed.startsWith('data:')
+    || trimmed.startsWith('blob:')
+  ) {
+    return [trimmed];
+  }
+
+  const uploadsPath = normalizeUploadsPath(trimmed);
+  if (uploadsPath) {
+    const base = API_BASE_URL.replace(/\/$/, '');
+    const sources = [];
+    if (base) sources.push(`${base}${uploadsPath}`);
+    if (typeof window !== 'undefined' && window.location?.origin && window.location.origin !== base) {
+      sources.push(`${window.location.origin}${uploadsPath}`);
+    }
+    return sources;
+  }
+
+  return [trimmed];
+};
+
 const CompanyInterviews = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, status } = useAuth();
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [viewMode, setViewMode] = useState('list'); // list | calendar
@@ -122,6 +200,7 @@ const CompanyInterviews = () => {
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
   const [pendingRealtimeInterviewUpdates, setPendingRealtimeInterviewUpdates] = useState(0);
+  const [rescheduleActionLoadingId, setRescheduleActionLoadingId] = useState(null);
 
   useEffect(() => {
     document.title = 'Interviews - InterviewAI Pro';
@@ -164,6 +243,26 @@ const CompanyInterviews = () => {
     loadInterviews();
   }, [loadInterviews]);
 
+  useEffect(() => {
+    const interviewId = new URLSearchParams(location.search).get('interviewId');
+    if (!interviewId || interviews.length === 0) return;
+    const interview = interviews.find((item) => item.id === interviewId);
+    if (interview) {
+      setSelectedInterview(interview);
+      setShowDetails(true);
+      const params = new URLSearchParams(location.search);
+      params.delete('interviewId');
+      navigate(
+        {
+          pathname: location.pathname,
+          search: params.toString() ? `?${params.toString()}` : '',
+          hash: location.hash,
+        },
+        { replace: true },
+      );
+    }
+  }, [interviews, location.hash, location.pathname, location.search, navigate]);
+
   const handleLogout = async () => {
     await logout();
     navigate('/login');
@@ -171,12 +270,20 @@ const CompanyInterviews = () => {
 
   const getStatusBadge = (status) => {
     const statusConfig = {
+      PENDING: { label: 'Pending Scheduling', color: 'bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-200 border-indigo-200 dark:border-indigo-700' },
       SCHEDULED: { label: 'Scheduled', color: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200 border-blue-200 dark:border-blue-700' },
       IN_PROGRESS: { label: 'In Progress', color: 'bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-200 border-yellow-200 dark:border-yellow-700' },
       COMPLETED: { label: 'Completed', color: 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-200 border-emerald-200 dark:border-emerald-700' },
       CANCELLED: { label: 'Cancelled', color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700' },
     };
-    const config = statusConfig[status?.toUpperCase()] || statusConfig.SCHEDULED;
+    const config = statusConfig[status?.toUpperCase()] || {
+      label: String(status || 'Unknown')
+        .toLowerCase()
+        .split('_')
+        .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+        .join(' '),
+      color: 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700',
+    };
     return (
       <span className={`px-2 py-1 rounded-full text-xs font-medium border ${config.color}`}>
         {config.label}
@@ -315,6 +422,30 @@ const CompanyInterviews = () => {
     setSelectedInterview(interview);
     setShowDetails(true);
   };
+
+  const handleRejectRescheduleRequest = async (interview) => {
+    const pendingRequest = getPendingRescheduleRequest(interview);
+    if (!interview?.id || !pendingRequest?.id) return;
+    try {
+      setRescheduleActionLoadingId(interview.id);
+      setError('');
+      await apiClient.interviews.rejectRescheduleRequest(interview.id, pendingRequest.id, {});
+      await loadInterviews();
+      if (selectedInterview?.id === interview.id) {
+        setSelectedInterview((prev) => (prev ? { ...prev, pendingRescheduleRequest: null } : prev));
+      }
+    } catch (requestError) {
+      setError(requestError?.message || 'Failed to reject reschedule request.');
+    } finally {
+      setRescheduleActionLoadingId(null);
+    }
+  };
+  const selectedPendingRescheduleRequest = getPendingRescheduleRequest(selectedInterview);
+  const selectedCandidateImageSources = useMemo(
+    () => buildAssetSources(getCandidateProfileImage(selectedInterview?.candidate)),
+    [selectedInterview],
+  );
+  const selectedCandidateImageSrc = selectedCandidateImageSources[0] || null;
 
   if (status === 'loading' || !user) {
     return (
@@ -474,6 +605,7 @@ const CompanyInterviews = () => {
                       onChange={(value) => updateFilter('statusFilter', value)}
                       options={[
                         { value: 'all', label: 'All Statuses' },
+                        { value: 'PENDING', label: 'Pending Scheduling' },
                         { value: 'SCHEDULED', label: 'Scheduled' },
                         { value: 'IN_PROGRESS', label: 'In Progress' },
                         { value: 'COMPLETED', label: 'Completed' },
@@ -571,7 +703,7 @@ const CompanyInterviews = () => {
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     {activeFilterCount > 0
                       ? 'No interviews match your filters.' 
-                      : 'No interviews found. Create an invitation to schedule an interview.'}
+                      : 'No interviews found yet. Move candidates to Interviewing to auto-schedule sessions.'}
                   </p>
                 </motion.div>
               ) : (
@@ -582,64 +714,128 @@ const CompanyInterviews = () => {
                   transition={{ delay: 0.2 }}
                   className="space-y-2 sm:space-y-3"
                 >
-                  {paginatedInterviews.map((interview) => (
-                    <div
-                      key={interview.id}
-                      className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
-                    >
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
-                        <div className="flex items-start gap-3 sm:gap-4 flex-1 min-w-0">
-                          <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-full bg-gradient-to-br from-blue-500 to-purple-500 flex items-center justify-center text-white font-semibold text-sm sm:text-base flex-shrink-0">
-                            {interview.candidate?.fullName?.charAt(0)?.toUpperCase() || 
-                             interview.candidate?.email?.charAt(0)?.toUpperCase() || 
-                             '?'}
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <h3 className="font-semibold text-gray-900 dark:text-slate-100 text-sm sm:text-base truncate">
-                              {interview.candidate?.fullName || interview.candidate?.email || 'Unknown Candidate'}
-                            </h3>
-                            <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">
-                              {interview.candidate?.email}
-                            </p>
-                            <div className="flex flex-wrap items-center gap-2 mt-2">
-                              <span className="text-xs text-gray-600 dark:text-slate-300">
-                                {interview.jobRole || 'Position'}
-                              </span>
-                              {interview.scheduledFor && (
-                                <>
-                                  <span className="text-gray-400">•</span>
-                                  <span className="text-xs text-gray-600 dark:text-slate-300">
-                                    {new Date(interview.scheduledFor).toLocaleDateString()}
-                                  </span>
-                                </>
+                  {paginatedInterviews.map((interview) => {
+                    const pendingRescheduleRequest = getPendingRescheduleRequest(interview);
+                    const candidateName = decodeHtmlEntities(
+                      interview.candidate?.fullName || interview.candidate?.email || 'Unknown Candidate',
+                    );
+                    const candidateEmail = decodeHtmlEntities(interview.candidate?.email || '');
+                    const roleLabel = decodeHtmlEntities(interview.jobRole || 'Position');
+                    const candidateProfileImage = getCandidateProfileImage(interview.candidate);
+                    const candidateProfileImageSources = buildAssetSources(candidateProfileImage);
+                    const candidateProfileImageSrc = candidateProfileImageSources[0] || null;
+                    return (
+                      <div
+                        key={interview.id}
+                        className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
+                      >
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 sm:gap-4">
+                          <div className="flex items-center gap-3 sm:gap-4 flex-1 min-w-0">
+                            <div className="relative w-14 h-14 sm:w-16 sm:h-16 flex-shrink-0 self-center">
+                              {candidateProfileImageSrc && (
+                                <img
+                                  src={candidateProfileImageSrc}
+                                  alt={candidateName}
+                                  className="w-full h-full rounded-full object-cover border border-white/40 dark:border-slate-700/50"
+                                  onError={(event) => {
+                                    const nextIndex = Number.parseInt(
+                                      event.currentTarget.dataset.fallbackIndex || '1',
+                                      10,
+                                    );
+                                    if (
+                                      Number.isInteger(nextIndex)
+                                      && nextIndex >= 0
+                                      && nextIndex < candidateProfileImageSources.length
+                                    ) {
+                                      event.currentTarget.dataset.fallbackIndex = String(nextIndex + 1);
+                                      event.currentTarget.src = candidateProfileImageSources[nextIndex];
+                                      return;
+                                    }
+                                    event.currentTarget.style.display = 'none';
+                                    const fallback = event.currentTarget.nextElementSibling;
+                                    if (fallback) fallback.style.display = 'flex';
+                                  }}
+                                  data-fallback-index="1"
+                                />
+                              )}
+                              <div className={`w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-500 items-center justify-center text-white font-semibold text-sm sm:text-base ${candidateProfileImageSrc ? 'hidden' : 'flex'}`}>
+                                {candidateName?.charAt(0)?.toUpperCase() || '?'}
+                              </div>
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <h3 className="font-semibold text-gray-900 dark:text-slate-100 text-sm sm:text-base truncate">
+                                {candidateName}
+                              </h3>
+                              <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">
+                                {candidateEmail}
+                              </p>
+                              <div className="flex flex-wrap items-center gap-2 mt-2">
+                                <span className="text-xs text-gray-600 dark:text-slate-300">
+                                  {roleLabel}
+                                </span>
+                                {interview.scheduledFor && (
+                                  <>
+                                    <span className="text-gray-400">&middot;</span>
+                                    <span className="text-xs text-gray-600 dark:text-slate-300">
+                                      {new Date(interview.scheduledFor).toLocaleDateString()}
+                                    </span>
+                                  </>
+                                )}
+                              </div>
+                              {pendingRescheduleRequest && (
+                                <p className="mt-2 inline-flex items-center rounded-full border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                                  Candidate requested reschedule
+                                </p>
+                              )}
+                              {!pendingRescheduleRequest && interview.lastCandidateContact && (
+                                <p className="mt-2 inline-flex items-center gap-1 rounded-full border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">
+                                  <Icon name="MessageCircle" size={12} />
+                                  Candidate message
+                                </p>
                               )}
                             </div>
                           </div>
-                        </div>
-                        <div className="flex items-center gap-2 sm:gap-3">
-                          {getStatusBadge(interview.status)}
-                          {(interview.status === 'SCHEDULED' || interview.status === 'PENDING' || !interview.scheduledFor) && (
+                          <div className="flex items-center gap-2 sm:gap-3">
+                            {getStatusBadge(interview.status)}
+                            {(interview.status === 'SCHEDULED' || interview.status === 'PENDING' || !interview.scheduledFor) && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                iconName={interview.scheduledFor ? 'CalendarClock' : 'CalendarPlus'}
+                                onClick={() => setScheduleModal({
+                                  interview: {
+                                    ...interview,
+                                    pendingRescheduleRequest,
+                                  },
+                                })}
+                                className="rounded-full text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
+                                title={interview.scheduledFor ? 'Reschedule' : 'Schedule'}
+                              />
+                            )}
+                            {pendingRescheduleRequest && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                iconName="X"
+                                onClick={() => handleRejectRescheduleRequest(interview)}
+                                disabled={rescheduleActionLoadingId === interview.id}
+                                className="rounded-full text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                                title="Reject request"
+                              />
+                            )}
                             <Button
-                              variant="ghost"
+                              variant="outline"
                               size="sm"
-                              iconName={interview.scheduledFor ? 'CalendarClock' : 'CalendarPlus'}
-                              onClick={() => setScheduleModal({ interview })}
-                              className="rounded-full text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                              title={interview.scheduledFor ? 'Reschedule' : 'Schedule'}
-                            />
-                          )}
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleViewDetails(interview)}
-                            className="rounded-full"
-                          >
-                            View Details
-                          </Button>
+                              onClick={() => handleViewDetails(interview)}
+                              className="rounded-full"
+                            >
+                              View Details
+                            </Button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </motion.div>
 
                 {/* Pagination Controls */}
@@ -716,12 +912,18 @@ const CompanyInterviews = () => {
                   transition={{ delay: 0.3 }}
                   className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur"
                 >
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 sm:gap-4">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 sm:gap-4">
                     <div className="text-center">
                       <p className="text-lg sm:text-xl font-bold text-gray-900 dark:text-slate-100">
                         {interviews.length}
                       </p>
                       <p className="text-xs text-gray-500 dark:text-slate-400">Total</p>
+                    </div>
+                    <div className="text-center">
+                      <p className="text-lg sm:text-xl font-bold text-indigo-600 dark:text-indigo-400">
+                        {interviews.filter(i => i.status === 'PENDING').length}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">Pending</p>
                     </div>
                     <div className="text-center">
                       <p className="text-lg sm:text-xl font-bold text-blue-600 dark:text-blue-400">
@@ -776,19 +978,66 @@ const CompanyInterviews = () => {
 
               <div className="space-y-4">
                 <div>
-                  <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Candidate</p>
-                  <p className="font-medium text-gray-900 dark:text-slate-100">
-                    {selectedInterview.candidate?.fullName || selectedInterview.candidate?.email || 'Unknown'}
-                  </p>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    {selectedInterview.candidate?.email}
-                  </p>
+                  <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">Candidate</p>
+                  <div className="flex items-center gap-3">
+                    <div className="relative w-14 h-14 flex-shrink-0">
+                      {selectedCandidateImageSrc && (
+                        <img
+                          src={selectedCandidateImageSrc}
+                          alt={decodeHtmlEntities(
+                            selectedInterview.candidate?.fullName
+                            || selectedInterview.candidate?.email
+                            || 'Candidate',
+                          )}
+                          className="w-full h-full rounded-full object-cover border border-white/40 dark:border-slate-700/50"
+                          onError={(event) => {
+                            const nextIndex = Number.parseInt(
+                              event.currentTarget.dataset.fallbackIndex || '1',
+                              10,
+                            );
+                            if (
+                              Number.isInteger(nextIndex)
+                              && nextIndex >= 0
+                              && nextIndex < selectedCandidateImageSources.length
+                            ) {
+                              event.currentTarget.dataset.fallbackIndex = String(nextIndex + 1);
+                              event.currentTarget.src = selectedCandidateImageSources[nextIndex];
+                              return;
+                            }
+                            event.currentTarget.style.display = 'none';
+                            const fallback = event.currentTarget.nextElementSibling;
+                            if (fallback) fallback.style.display = 'flex';
+                          }}
+                          data-fallback-index="1"
+                        />
+                      )}
+                      <div className={`w-full h-full rounded-full bg-gradient-to-br from-blue-500 to-purple-500 items-center justify-center text-white text-sm font-semibold ${selectedCandidateImageSrc ? 'hidden' : 'flex'}`}>
+                        {decodeHtmlEntities(
+                          selectedInterview.candidate?.fullName
+                          || selectedInterview.candidate?.email
+                          || '?',
+                        ).charAt(0).toUpperCase()}
+                      </div>
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium text-gray-900 dark:text-slate-100 truncate">
+                        {decodeHtmlEntities(
+                          selectedInterview.candidate?.fullName
+                          || selectedInterview.candidate?.email
+                          || 'Unknown',
+                        )}
+                      </p>
+                      <p className="text-sm text-gray-600 dark:text-slate-400 truncate">
+                        {decodeHtmlEntities(selectedInterview.candidate?.email || '')}
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 <div>
                   <p className="text-xs text-gray-500 dark:text-slate-400 mb-1">Job Role</p>
                   <p className="font-medium text-gray-900 dark:text-slate-100">
-                    {selectedInterview.jobRole || 'Not specified'}
+                    {decodeHtmlEntities(selectedInterview.jobRole || 'Not specified')}
                   </p>
                 </div>
 
@@ -803,6 +1052,69 @@ const CompanyInterviews = () => {
                     <p className="font-medium text-gray-900 dark:text-slate-100">
                       {new Date(selectedInterview.scheduledFor).toLocaleString()}
                     </p>
+                  </div>
+                )}
+
+                {selectedPendingRescheduleRequest && (
+                  <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3 space-y-2">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                      Candidate reschedule request
+                    </p>
+                    <p className="text-sm text-amber-900 dark:text-amber-100">
+                      {selectedPendingRescheduleRequest.reason}
+                    </p>
+                    {Array.isArray(selectedPendingRescheduleRequest.preferredSlots)
+                      && selectedPendingRescheduleRequest.preferredSlots.length > 0 && (
+                      <div className="space-y-1">
+                        <p className="text-[11px] uppercase tracking-[0.08em] text-amber-700/80 dark:text-amber-200/80">
+                          Preferred Slots
+                        </p>
+                        {selectedPendingRescheduleRequest.preferredSlots.map((slot) => (
+                          <p
+                            key={slot}
+                            className="text-sm text-amber-900 dark:text-amber-100"
+                          >
+                            {new Date(slot).toLocaleString()}
+                          </p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {!selectedPendingRescheduleRequest && selectedInterview.lastCandidateContact && (
+                  <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 p-3 space-y-2">
+                    <div className="flex items-center gap-1.5">
+                      <Icon name="MessageCircle" size={14} className="text-blue-600 dark:text-blue-300" />
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">
+                        Message from {selectedInterview.lastCandidateContact.candidateName || 'candidate'}
+                      </p>
+                    </div>
+                    <p className="text-sm text-blue-900 dark:text-blue-100 whitespace-pre-wrap">
+                      {selectedInterview.lastCandidateContact.message}
+                    </p>
+                    <p className="text-[11px] text-blue-600/70 dark:text-blue-300/60">
+                      {new Date(selectedInterview.lastCandidateContact.sentAt).toLocaleString()}
+                    </p>
+                    {(selectedInterview.status === 'SCHEDULED' || selectedInterview.status === 'PENDING' || !selectedInterview.scheduledFor) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        iconName="CalendarClock"
+                        onClick={() => {
+                          setShowDetails(false);
+                          setScheduleModal({
+                            interview: {
+                              ...selectedInterview,
+                              pendingRescheduleRequest: selectedPendingRescheduleRequest,
+                            },
+                          });
+                        }}
+                        className="mt-1 rounded-full border-blue-300 dark:border-blue-500/40 text-blue-700 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-500/20"
+                      >
+                        Reschedule Interview
+                      </Button>
+                    )}
                   </div>
                 )}
 
@@ -858,10 +1170,32 @@ const CompanyInterviews = () => {
                       variant="outline"
                       size="sm"
                       iconName={selectedInterview.scheduledFor ? 'CalendarClock' : 'CalendarPlus'}
-                      onClick={() => { setShowDetails(false); setScheduleModal({ interview: selectedInterview }); }}
+                      onClick={() => {
+                        setShowDetails(false);
+                        setScheduleModal({
+                          interview: {
+                            ...selectedInterview,
+                            pendingRescheduleRequest: selectedPendingRescheduleRequest,
+                          },
+                        });
+                      }}
                       className="flex-1"
                     >
-                      {selectedInterview.scheduledFor ? 'Reschedule' : 'Schedule'}
+                      {selectedPendingRescheduleRequest
+                        ? 'Review & Reschedule'
+                        : (selectedInterview.scheduledFor ? 'Reschedule' : 'Schedule')}
+                    </Button>
+                  )}
+                  {selectedPendingRescheduleRequest && (
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      iconName="X"
+                      onClick={() => handleRejectRescheduleRequest(selectedInterview)}
+                      disabled={rescheduleActionLoadingId === selectedInterview.id}
+                      className="text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-900/20"
+                    >
+                      Reject Request
                     </Button>
                   )}
                 </div>

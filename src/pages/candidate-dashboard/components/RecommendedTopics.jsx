@@ -61,11 +61,11 @@ const RecommendedTopics = ({
   };
 
   return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-5">
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recommended Topics</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">AI-powered suggestions based on your latest interview data</p>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 leading-relaxed">AI-powered suggestions based on your latest interview data</p>
         </div>
         <Button
           variant="ghost"
@@ -79,11 +79,11 @@ const RecommendedTopics = ({
         </Button>
       </div>
       {topicData?.length > 0 ? (
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {topicData?.slice(0, 4)?.map((topic) => (
           <div
             key={topic?.id}
-            className={`rounded-xl border p-3 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] cursor-pointer backdrop-blur ${getPriorityBg(topic?.priority)}`}
+            className={`rounded-xl border p-3.5 sm:p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] cursor-pointer backdrop-blur ${getPriorityBg(topic?.priority)}`}
           >
             <div className="flex items-start space-x-3">
               <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0 text-white shadow-md shadow-blue-500/25">
@@ -92,18 +92,18 @@ const RecommendedTopics = ({
 
               <div className="flex-1 min-w-0">
                 <div className="flex items-start justify-between mb-2">
-                  <h3 className="font-medium text-gray-900 dark:text-slate-100">{topic?.title}</h3>
+                  <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100">{topic?.title}</h3>
                   <span className={`text-xs font-medium px-2 py-1 rounded-full bg-white/60 dark:bg-slate-900/60 border border-white/40 dark:border-slate-700/60 ${getPriorityColor(topic?.priority)}`}>
                     {topic?.priority?.toUpperCase()}
                   </span>
                 </div>
 
-                <p className="text-xs text-gray-500 dark:text-slate-400 mb-2">
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mb-2.5 leading-relaxed">
                   {topic?.description}
                 </p>
 
                 <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2">
-                  <div className="flex flex-wrap items-center gap-2 xs:gap-3 text-xs text-gray-500 dark:text-slate-400">
+                  <div className="flex flex-wrap items-center gap-2 xs:gap-3 text-[11px] sm:text-xs text-gray-500 dark:text-slate-400">
                     <span className={getDifficultyColor(topic?.difficulty)}>
                       {topic?.difficulty}
                     </span>
@@ -131,7 +131,7 @@ const RecommendedTopics = ({
 
                 {/* Progress Bar */}
                 <div className="mt-2">
-                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-slate-400 mb-1">
+                  <div className="flex items-center justify-between text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 mb-1">
                     <span>Readiness</span>
                     <span>{topic?.completionRate}%</span>
                   </div>
@@ -162,7 +162,7 @@ const RecommendedTopics = ({
         </div>
       )}
       {/* View All Topics */}
-      <div className="mt-4 pt-3 border-t border-white/30">
+      <div className="mt-5 pt-4 border-t border-white/30">
         <Button
           variant="outline"
           fullWidth

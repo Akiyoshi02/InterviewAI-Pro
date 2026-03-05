@@ -29,6 +29,7 @@ let _modelRuntimeStatus = {
   successfulCalls: 0,
   failedCalls: 0,
   fallbackUsedCalls: 0,
+  emptyContentEvents: 0,
   lastOutcome: null,
   lastCallAt: null,
   lastSuccessAt: null,
@@ -38,6 +39,12 @@ let _modelRuntimeStatus = {
   lastUsedFallback: false,
   lastFallbackAttempted: false,
   lastAttemptedModels: [],
+  lastEmptyContentAt: null,
+  lastEmptyContentModel: null,
+  lastEmptyContentDoneReason: null,
+  lastEmptyContentHadThinking: false,
+  lastEmptyContentRetryExhausted: false,
+  lastEmptyContentSummary: null,
   lastError: null,
 };
 
@@ -167,6 +174,28 @@ const recordModelRuntimeCall = ({
   _modelRuntimeStatus.lastFailureAt = timestamp;
 };
 
+const recordEmptyContentEvent = ({
+  model = null,
+  doneReason = null,
+  hasThinking = false,
+  contentChars = 0,
+  thinkingChars = 0,
+  retriesExhausted = false,
+} = {}) => {
+  const timestamp = new Date().toISOString();
+  _modelRuntimeStatus.emptyContentEvents += 1;
+  _modelRuntimeStatus.lastEmptyContentAt = timestamp;
+  _modelRuntimeStatus.lastEmptyContentModel = model || null;
+  _modelRuntimeStatus.lastEmptyContentDoneReason = doneReason || null;
+  _modelRuntimeStatus.lastEmptyContentHadThinking = Boolean(hasThinking);
+  _modelRuntimeStatus.lastEmptyContentRetryExhausted = Boolean(retriesExhausted);
+  _modelRuntimeStatus.lastEmptyContentSummary = {
+    contentChars: Number.isFinite(contentChars) ? contentChars : 0,
+    thinkingChars: Number.isFinite(thinkingChars) ? thinkingChars : 0,
+    retriesExhausted: Boolean(retriesExhausted),
+  };
+};
+
 const OLLAMA_REQUEST_TIMEOUT_MS = Math.max(
   2000,
   Number.parseInt(process.env.OLLAMA_REQUEST_TIMEOUT_MS || '45000', 10) || 45000,
@@ -183,9 +212,18 @@ const OLLAMA_THINKING_TIMEOUT_MS = Math.max(
   10000,
   Number.parseInt(process.env.OLLAMA_THINKING_TIMEOUT_MS || '120000', 10) || 120000,
 );
+const OLLAMA_EMPTY_CONTENT_RETRIES = Math.max(
+  0,
+  Number.parseInt(process.env.OLLAMA_EMPTY_CONTENT_RETRIES || '1', 10) || 1,
+);
 const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
 const THINKING_UNSUPPORTED_ERROR_PATTERN = /does not support thinking/i;
-const _modelsWithoutThinkingSupport = new Set();
+const DEFAULT_NON_THINKING_MODELS = ['qwen2.5:7b-instruct'];
+const OLLAMA_NON_THINKING_MODELS = (process.env.OLLAMA_NON_THINKING_MODELS || DEFAULT_NON_THINKING_MODELS.join(','))
+  .split(',')
+  .map((model) => model.trim())
+  .filter(Boolean);
+const _modelsWithoutThinkingSupport = new Set(OLLAMA_NON_THINKING_MODELS);
 
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
@@ -245,6 +283,18 @@ const STRUCTURED_SCHEMAS = {
     type: 'object',
     properties: {
       score: { type: 'number' },
+      criterionScores: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            criterion: { type: 'string' },
+            score: { type: 'number' },
+            feedback: { type: 'string' },
+          },
+          required: ['criterion', 'score', 'feedback'],
+        },
+      },
       starAnalysis: {
         type: 'object',
         properties: {
@@ -319,6 +369,17 @@ const STRUCTURED_SCHEMAS = {
       expectedDuration: { type: 'string' },
     },
     required: ['question', 'type', 'difficulty', 'expectedDuration'],
+  },
+
+  rubricFollowUp: {
+    type: 'object',
+    properties: {
+      question: { type: 'string' },
+      targetCriterion: { type: 'string' },
+      rationale: { type: 'string' },
+      expectedDuration: { type: 'string' },
+    },
+    required: ['question', 'targetCriterion', 'rationale', 'expectedDuration'],
   },
 };
 
@@ -495,6 +556,9 @@ const stripThinkingTags = (text) => text.replace(/<think>[\s\S]*?<\/think>/g, ''
  * Supports configurable thinking mode (options.think) and structured output
  * enforcement via JSON schema (options.format). Evaluation tasks enable
  * thinking for deeper reasoning; conversational tasks disable it for speed.
+ *
+ * Set options.returnMetadata=true to receive model routing details alongside
+ * the generated content.
  */
 async function callOllama(messages, options = {}) {
   const modelAttempts = await buildModelAttemptOrder(options.model);
@@ -508,7 +572,10 @@ async function callOllama(messages, options = {}) {
   for (let index = 0; index < modelAttempts.length; index += 1) {
     const modelName = modelAttempts[index];
     let modelError = null;
-    let includeThink = !_modelsWithoutThinkingSupport.has(modelName);
+    const resolvedThink = Boolean(requestedThink);
+    let thinkValue = resolvedThink;
+    let sendThinkParameter = !_modelsWithoutThinkingSupport.has(modelName);
+    let emptyContentRetries = 0;
 
     while (true) {
       try {
@@ -523,7 +590,7 @@ async function callOllama(messages, options = {}) {
               model: modelName,
               messages,
               stream: false,
-              ...(includeThink ? { think: requestedThink } : {}),
+              ...(sendThinkParameter ? { think: thinkValue } : {}),
               ...(options.format ? { format: options.format } : {}),
               options: buildGenerationOptions(options),
             }),
@@ -555,13 +622,13 @@ async function callOllama(messages, options = {}) {
 
           const isThinkingUnsupported = (
             response.status === 400
-            && includeThink
+            && sendThinkParameter
             && THINKING_UNSUPPORTED_ERROR_PATTERN.test(rawBodyText || bodyMessage)
           );
 
           if (isThinkingUnsupported) {
             _modelsWithoutThinkingSupport.add(modelName);
-            includeThink = false;
+            sendThinkParameter = false;
             logger.warn('Ollama model does not support thinking; retrying without think parameter.', {
               model: modelName,
             });
@@ -581,9 +648,69 @@ async function callOllama(messages, options = {}) {
         const data = await response.json();
         const content = data?.message?.content;
         if (typeof content !== 'string' || !content.trim()) {
+          const thinking = data?.message?.thinking;
+          const hasThinking = typeof thinking === 'string' && Boolean(thinking.trim());
+          const emptyContentDiagnostics = {
+            model: modelName,
+            doneReason: data?.done_reason || null,
+            hasThinking,
+            contentChars: typeof content === 'string' ? content.length : 0,
+            thinkingChars: hasThinking ? thinking.trim().length : 0,
+            promptEvalCount: Number.isFinite(data?.prompt_eval_count) ? data.prompt_eval_count : null,
+            evalCount: Number.isFinite(data?.eval_count) ? data.eval_count : null,
+          };
+
+          // Some models occasionally return only `message.thinking` with empty `message.content`
+          // when thinking is enabled. Retry same model with explicit think:false first.
+          if (sendThinkParameter && thinkValue && hasThinking) {
+            recordEmptyContentEvent({
+              model: modelName,
+              doneReason: data?.done_reason || null,
+              hasThinking,
+              contentChars: typeof content === 'string' ? content.length : 0,
+              thinkingChars: hasThinking ? thinking.trim().length : 0,
+              retriesExhausted: false,
+            });
+            thinkValue = false;
+            logger.warn('Ollama returned thinking-only output; retrying same model with think:false.', {
+              ...emptyContentDiagnostics,
+            });
+            continue;
+          }
+
+          if (emptyContentRetries < OLLAMA_EMPTY_CONTENT_RETRIES) {
+            emptyContentRetries += 1;
+            recordEmptyContentEvent({
+              model: modelName,
+              doneReason: data?.done_reason || null,
+              hasThinking,
+              contentChars: typeof content === 'string' ? content.length : 0,
+              thinkingChars: hasThinking ? thinking.trim().length : 0,
+              retriesExhausted: false,
+            });
+            logger.warn('Ollama API returned empty content; retrying same model.', {
+              retryAttempt: emptyContentRetries,
+              maxRetries: OLLAMA_EMPTY_CONTENT_RETRIES,
+              ...emptyContentDiagnostics,
+            });
+            continue;
+          }
+          recordEmptyContentEvent({
+            model: modelName,
+            doneReason: data?.done_reason || null,
+            hasThinking,
+            contentChars: typeof content === 'string' ? content.length : 0,
+            thinkingChars: hasThinking ? thinking.trim().length : 0,
+            retriesExhausted: true,
+          });
+          logger.error('Ollama API kept returning empty content after retries.', {
+            maxRetries: OLLAMA_EMPTY_CONTENT_RETRIES,
+            ...emptyContentDiagnostics,
+          });
           throw new Error('Ollama API returned empty content');
         }
         const usedFallback = index > 0;
+        const cleanedContent = stripThinkingTags(content);
         recordModelRuntimeCall({
           requestedModel,
           attemptedModels: modelAttempts,
@@ -591,7 +718,16 @@ async function callOllama(messages, options = {}) {
           usedFallback,
           fallbackAttempted,
         });
-        return stripThinkingTags(content);
+        if (options.returnMetadata) {
+          return {
+            content: cleanedContent,
+            model: modelName,
+            usedFallback,
+            attemptedModels: [...modelAttempts],
+            fallbackAttempted,
+          };
+        }
+        return cleanedContent;
       } catch (error) {
         modelError = error;
         break;
@@ -735,7 +871,7 @@ Return ONLY a valid JSON object with this exact structure (no markdown, no expla
 Important:
 - ALL questions must have difficulty set to "${difficulty}"
 - Match the difficulty level: ${difficultyInstruction}
-- Types can be: behavioral, technical, coding, system_design
+- Types can be: behavioral, technical, coding, system_design, case_study, situational
 - Generate questions that align with the interviewer style and personality`;
 
       const messages = [
@@ -881,19 +1017,23 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
   /**
    * Analyze individual answer with STAR method evaluation
    */
-  static async analyzeAnswer({ question, answer, criteria, difficulty, llmOptions = null }) {
+  static async analyzeAnswer({ question, answer, criteria, difficulty, rubric = null, llmOptions = null }) {
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
         model: DEFAULT_MODEL,
         temperature: 0.45,
         maxTokens: 3000,
       });
+      const rubricJson = rubric && typeof rubric === 'object'
+        ? JSON.stringify(rubric, null, 2)
+        : 'None provided';
       const systemPrompt = `You are an expert interview evaluator. Analyze the candidate's answer using the STAR method (Situation, Task, Action, Result).
 
 Question: ${question}
 Candidate's Answer: ${answer}
 Expected Criteria: ${criteria?.join(', ') || 'General assessment'}
 Difficulty Level: ${difficulty}
+Rubric (JSON): ${rubricJson}
 
 Evaluate based on:
 1. STAR Structure (Situation, Task, Action, Result)
@@ -901,10 +1041,14 @@ Evaluate based on:
 3. Technical depth (if applicable)
 4. Communication clarity
 5. Problem-solving approach
+6. Rubric dimensions (if rubric provided)
 
 Return ONLY valid JSON (no markdown):
 {
   "score": 8,
+  "criterionScores": [
+    { "criterion": "dimension name", "score": 4, "feedback": "..." }
+  ],
   "starAnalysis": {
     "situation": { "present": true, "quality": "good", "feedback": "..." },
     "task": { "present": true, "quality": "good", "feedback": "..." },
@@ -933,6 +1077,83 @@ Return ONLY valid JSON (no markdown):
       return parseJSONResponse(response);
     } catch (error) {
       logger.error('Error analyzing answer:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Generate a focused follow-up question aligned to weak rubric criteria.
+   */
+  static async generateRubricFollowUpQuestion({
+    question,
+    answer,
+    analysis,
+    rubric,
+    llmOptions = null,
+  }) {
+    try {
+      const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
+        model: DEFAULT_MODEL,
+        temperature: 0.4,
+        maxTokens: 800,
+      });
+
+      const criterionScores = Array.isArray(analysis?.criterionScores) ? analysis.criterionScores : [];
+      const weakCriteria = criterionScores
+        .map((item) => ({
+          criterion: item?.criterion || item?.key || '',
+          score: Number(item?.score),
+          feedback: item?.feedback || '',
+        }))
+        .filter((item) => item.criterion && Number.isFinite(item.score))
+        .sort((left, right) => left.score - right.score)
+        .slice(0, 2);
+
+      const prompt = `Create ONE short interview follow-up question that helps the candidate improve weak areas.
+
+Original Question:
+${question}
+
+Candidate Answer:
+${answer}
+
+Current Analysis:
+${JSON.stringify({
+        score: analysis?.score ?? null,
+        weaknesses: analysis?.weaknesses || [],
+        criterionScores: weakCriteria,
+      }, null, 2)}
+
+Rubric:
+${JSON.stringify(rubric || {}, null, 2)}
+
+Constraints:
+- Ask exactly one follow-up question.
+- Target one weak rubric criterion.
+- Keep it specific and fair.
+- No hints that reveal the ideal answer.
+- Max 30 words.
+
+Return JSON only:
+{
+  "question": "follow-up question text",
+  "targetCriterion": "criterion name",
+  "rationale": "short reason",
+  "expectedDuration": "2"
+}`;
+
+      const messages = [
+        { role: 'system', content: 'You are a structured interview assistant.' },
+        { role: 'user', content: prompt },
+      ];
+
+      const response = await callOllama(messages, {
+        ...resolvedLlmOptions,
+        format: STRUCTURED_SCHEMAS.rubricFollowUp,
+      });
+      return parseJSONResponse(response);
+    } catch (error) {
+      logger.error('Error generating rubric follow-up question:', error);
       throw error;
     }
   }
@@ -1060,8 +1281,18 @@ Confidence must be between 0 and 1.`;
         think: true,
         format: STRUCTURED_SCHEMAS.resumeVerification,
         timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+        returnMetadata: true,
       });
-      return parseJSONResponse(response);
+      const parsedVerdict = parseJSONResponse(response.content);
+      return {
+        ...parsedVerdict,
+        _meta: {
+          model: response.model || null,
+          usedFallback: Boolean(response.usedFallback),
+          attemptedModels: Array.isArray(response.attemptedModels) ? response.attemptedModels : [],
+          fallbackAttempted: Boolean(response.fallbackAttempted),
+        },
+      };
     } catch (error) {
       logger.error('Error verifying resume document with LLM:', error);
       throw error;

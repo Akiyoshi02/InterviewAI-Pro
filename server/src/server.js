@@ -41,6 +41,7 @@ import { setupSocketIO } from './socket/interview.socket.js';
 import { setupSecurity } from './middleware/security.middleware.js';
 import { setupErrorHandling } from './middleware/error.middleware.js';
 import { LLMService } from './services/llm.service.js';
+import { startMeetingLinkScheduler, stopMeetingLinkScheduler } from './services/meetingLinkScheduler.service.js';
 import logger from './utils/logger.js';
 
 const app = express();
@@ -87,6 +88,7 @@ const PORT = process.env.PORT || 3000;
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('Shutting down gracefully...');
+  stopMeetingLinkScheduler();
   httpServer.close(() => {
     logger.info('Server closed');
     process.exit(0);
@@ -96,6 +98,7 @@ process.on('SIGINT', async () => {
 httpServer.listen(PORT, () => {
   logger.info(`🚀 Server running on port ${PORT}`);
   logger.info(`📡 Socket.IO server ready`);
+  startMeetingLinkScheduler();
 
   const enableWarmup = String(process.env.OLLAMA_WARMUP_ON_BOOT ?? (process.env.NODE_ENV === 'production' ? 'false' : 'true'))
     .toLowerCase() === 'true';

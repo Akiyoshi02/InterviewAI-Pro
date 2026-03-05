@@ -96,17 +96,9 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       fullLabel: 'Hiring',
       items: [
         { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', requiredPermission: 'ACCESS_JOBS_PAGE' },
+        { label: 'Templates', path: '/company-templates', icon: 'ListChecks', fullLabel: 'Structured Templates', requiredPermission: 'ACCESS_JOBS_PAGE' },
         { label: 'Applications', path: '/company-applications', icon: 'FileText', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
         { label: 'Candidates', path: '/company-candidates', icon: 'Users', fullLabel: 'Candidates', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
-      ]
-    },
-    { 
-      key: 'interviews',
-      label: 'Interviews', 
-      icon: 'Calendar',
-      fullLabel: 'Interviews',
-      items: [
-        { label: 'Invitations', path: '/company-invitations', icon: 'Send', fullLabel: 'Invitations', requiredPermission: 'ACCESS_INVITATIONS_PAGE' },
         { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', fullLabel: 'Interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
       ]
     },
@@ -166,6 +158,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       icon: 'Scale',
       items: [
         { label: 'Fairness', path: '/system-admin-dashboard/fairness', icon: 'Scale' },
+        { label: 'Templates', path: '/system-admin-dashboard/templates', icon: 'ListChecks', fullLabel: 'Structured Templates' },
         { label: 'Settings', path: '/system-admin-dashboard/settings', icon: 'Settings', fullLabel: 'System Settings' },
         { label: 'Audit Logs', path: '/system-admin-dashboard/audit', icon: 'FileText' },
       ],

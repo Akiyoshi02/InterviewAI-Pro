@@ -14,7 +14,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Set up a new candidate interview session',
         icon: 'Calendar',
         color: 'from-blue-600 to-purple-600',
-        onClick: onScheduleInterview || (() => navigate('/company-invitations')),
+        onClick: onScheduleInterview || (() => navigate('/company-interviews')),
         requiredPermission: 'SEND_INVITATIONS'
       },
       {
@@ -32,7 +32,7 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         description: 'Export hiring analytics and candidate data',
         icon: 'BarChart3',
         color: 'from-emerald-500 to-teal-500',
-        onClick: onGenerateReport || (() => {}),
+        onClick: onGenerateReport || (() => navigate('/company-analytics')),
         requiredPermission: 'EXPORT_REPORTS'
       }
     ];

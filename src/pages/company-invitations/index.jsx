@@ -29,7 +29,7 @@ const CompanyInvitationsPage = () => {
 
   const cachedIsAuthenticated = typeof window !== 'undefined' && window.localStorage.getItem('isAuthenticated') === 'true';
   const showSidebar = isAuthenticated || (status === 'loading' && cachedIsAuthenticated);
-  const userType = user?.accountType?.toLowerCase() === 'company' ? 'company' : 'candidate';
+  const userType = user?.accountType?.toUpperCase() === 'COMPANY' ? 'company' : null;
 
   const handleLogout = async () => {
     await logout();
@@ -45,6 +45,10 @@ const CompanyInvitationsPage = () => {
         tone="primary"
       />
     );
+  }
+
+  if (!userType) {
+    return null;
   }
 
   return (

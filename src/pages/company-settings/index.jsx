@@ -6,20 +6,32 @@ import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import ProfileSettingsPanel from '../../components/ui/ProfileSettingsPanel';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 const CompanySettingsPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
-  const userType = user?.accountType === 'COMPANY' ? 'company' : null;
+  const userType = user?.accountType?.toUpperCase() === 'COMPANY' ? 'company' : null;
 
   const handleLogout = async () => {
     await logout();
     navigate('/login');
   };
+
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Loading settings"
+        message="Preparing your company profile and preferences."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
 
   if (!userType) {
     return null;

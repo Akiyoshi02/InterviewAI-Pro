@@ -12,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 
 const CompanyBillingPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -37,7 +37,7 @@ const CompanyBillingPage = () => {
     }
   }, [searchParams, setSearchParams]);
 
-  const userType = user?.accountType === 'COMPANY' ? 'company' : null;
+  const userType = user?.accountType?.toUpperCase() === 'COMPANY' ? 'company' : null;
   const isAdmin = user?.organizationContext?.membership?.role === 'ADMIN';
 
   const handleLogout = async () => {
@@ -99,6 +99,17 @@ const CompanyBillingPage = () => {
       setUpgradeMessage(err?.message || 'Unable to start checkout.');
     }
   };
+
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Checking your session"
+        message="Verifying secure access to billing and usage."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
 
   if (!userType) {
     return null;
@@ -254,11 +265,11 @@ const CompanyBillingPage = () => {
                         {history.slice(0, 20).map((event, i) => (
                           <tr key={event.id || i} className="border-b border-gray-100 dark:border-slate-800">
                             <td className="py-2 text-gray-700 dark:text-slate-300">
-                              {event.date ? new Date(event.date).toLocaleDateString() : '—'}
+                              {event.date ? new Date(event.date).toLocaleDateString() : '--'}
                             </td>
-                            <td className="py-2 text-gray-700 dark:text-slate-300">{event.type || event.eventType || '—'}</td>
+                            <td className="py-2 text-gray-700 dark:text-slate-300">{event.type || event.eventType || '--'}</td>
                             <td className="py-2 text-right text-gray-700 dark:text-slate-300">
-                              {event.amount != null ? `$${event.amount}` : '—'}
+                              {event.amount != null ? `$${event.amount}` : '--'}
                             </td>
                           </tr>
                         ))}

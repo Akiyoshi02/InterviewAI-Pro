@@ -90,6 +90,7 @@ const CompaniesDirectoryPage = () => {
   const [selectedCompany, setSelectedCompany] = useState(null);
   const [selectedCompanyLoading, setSelectedCompanyLoading] = useState(false);
   const [selectedCompanyError, setSelectedCompanyError] = useState('');
+  const [candidateAppliedJobIds, setCandidateAppliedJobIds] = useState([]);
 
   const normalizedAccountType = (user?.accountType || '').toLowerCase();
   const userType = normalizedAccountType === 'company'
@@ -172,9 +173,41 @@ const CompaniesDirectoryPage = () => {
     }
   }, []);
 
+  const loadCandidateAppliedJobIds = useCallback(async () => {
+    if (!isAuthenticated || userType !== 'candidate') {
+      setCandidateAppliedJobIds([]);
+      return;
+    }
+
+    try {
+      const result = await apiClient.applications.getMyApplications();
+      if (!result?.success || !Array.isArray(result?.applications)) {
+        setCandidateAppliedJobIds([]);
+        return;
+      }
+
+      const activeJobIdSet = new Set();
+      result.applications.forEach((application) => {
+        const isWithdrawn = String(application?.status || '').toUpperCase() === 'REJECTED' && Boolean(application?.withdrawnBy);
+        if (isWithdrawn) return;
+
+        const jobId = String(application?.jobId || application?.job?.id || '').trim();
+        if (jobId) activeJobIdSet.add(jobId);
+      });
+
+      setCandidateAppliedJobIds(Array.from(activeJobIdSet));
+    } catch {
+      setCandidateAppliedJobIds([]);
+    }
+  }, [isAuthenticated, userType]);
+
   useEffect(() => {
     loadSelectedCompany(selectedCompanySlug);
   }, [selectedCompanySlug, loadSelectedCompany]);
+
+  useEffect(() => {
+    loadCandidateAppliedJobIds();
+  }, [loadCandidateAppliedJobIds]);
 
   const handleBackToCompanies = () => {
     setSelectedCompanySlug('');
@@ -297,6 +330,7 @@ const CompaniesDirectoryPage = () => {
                       <CompanyDirectoryProfilePreview
                         company={selectedCompany}
                         onJobSelect={(job) => navigate(`/jobs/${job.id}`)}
+                        appliedJobIds={candidateAppliedJobIds}
                       />
                     ) : null}
                   </div>

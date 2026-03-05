@@ -25,7 +25,7 @@ const ActiveFilterBadge = ({ activeCount = 0 }) => {
   return (
     <span
       className={cn(
-        'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold',
+        'inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-semibold whitespace-nowrap',
         hasActive
           ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-300'
           : 'border-slate-200 bg-slate-50 text-slate-500 dark:border-slate-700 dark:bg-slate-800/80 dark:text-slate-400',
@@ -43,11 +43,17 @@ export const UnifiedFilterPanel = ({
   onClear,
   clearLabel = 'Clear Filters',
   headerActions,
+  stackHeader = false,
   className,
   children,
 }) => (
   <div className={cn(FILTER_PANEL_CLASS, className)}>
-    <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div
+      className={cn(
+        'flex flex-col gap-3',
+        !stackHeader && 'lg:flex-row lg:items-start lg:justify-between',
+      )}
+    >
       <div className="space-y-1.5">
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold text-slate-900 dark:text-slate-100">{title}</h3>
@@ -64,7 +70,7 @@ export const UnifiedFilterPanel = ({
           size="sm"
           onClick={onClear}
           disabled={activeCount === 0}
-          className="rounded-xl"
+          className="rounded-xl shrink-0"
         >
           <Icon name="X" className="w-3.5 h-3.5 mr-1.5" />
           {clearLabel}

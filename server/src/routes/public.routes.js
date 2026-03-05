@@ -81,6 +81,21 @@ router.get(
  * Validates: Job ID format
  */
 router.get(
+  '/jobs/:id/share',
+  requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Job ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID })
+      .withMessage('Invalid job ID format'),
+  ],
+  validateRequest,
+  JobController.getPublicJobSharePage,
+);
+
+router.get(
   '/jobs/:id',
   requireFeatureFlag('enableJobPosting', { allowSystemAdminBypass: false }),
   [

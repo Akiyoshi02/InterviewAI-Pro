@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Navigate, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import UnifiedFilterPanel, {
   FILTER_GRID_CLASS,
   FILTER_SUBPANEL_CLASS,
@@ -18,7 +19,6 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { hasPermission } from '../../utils/rolePermissions';
-import { Navigate } from 'react-router-dom';
 import {
   ORGANIZATION_FEED_EVENTS,
   combineRealtimeEventTypes,
@@ -84,8 +84,19 @@ const countActiveInvitationFilters = (filters = {}) => {
 
 const CompanyTeamMembersPage = () => {
   const navigate = useNavigate();
-  const { user, logout, organization, organizationRole } = useAuth();
+  const { user, logout, organization, organizationRole, status } = useAuth();
   const isOrgAdmin = organizationRole === 'ADMIN';
+
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Loading team members"
+        message="Syncing memberships and invitations."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
 
   // Redirect if user doesn't have MANAGE_MEMBERS permission
   if (!hasPermission(organizationRole, 'MANAGE_MEMBERS')) {
@@ -120,7 +131,7 @@ const CompanyTeamMembersPage = () => {
         setMembers(result.members || []);
       }
     } catch {
-      // Silent failure — table stays empty; user can refresh
+      // Silent failure -- table stays empty; user can refresh
     } finally {
       setLoadingMembers(false);
     }
@@ -135,7 +146,7 @@ const CompanyTeamMembersPage = () => {
         setTeamInvitations(result.invitations || []);
       }
     } catch {
-      // Silent failure — table stays empty; user can refresh
+      // Silent failure -- table stays empty; user can refresh
     } finally {
       setLoadingInvitations(false);
     }
@@ -593,7 +604,7 @@ const CompanyTeamMembersPage = () => {
                                 {inv.email}
                               </span>
                               <span className="text-xs text-gray-500 dark:text-slate-400">
-                                Role: {inv.role} • Status: {inv.status}
+                                Role: {inv.role} - Status: {inv.status}
                               </span>
                             </div>
                             <div className="flex items-center gap-2">

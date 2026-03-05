@@ -32,10 +32,22 @@ router.post(
     body('skillFocus').optional().isArray(),
     body('questions').optional().isArray(),
     body('config').optional().isObject(),
+    body('structuredQuestionSet').optional().isObject(),
     body('isPublic').optional().isBoolean(),
   ],
   validateRequest,
   TemplateController.createTemplate,
+);
+
+// Structured template authoring catalog (library + org templates)
+router.get(
+  '/structured/catalog',
+  authenticate,
+  requireFeatureFlag('enableJobPosting'),
+  requireCompany,
+  requireOrganizationContext,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  TemplateController.getStructuredCatalog,
 );
 
 // List organization templates
@@ -93,6 +105,7 @@ router.put(
     body('skillFocus').optional().isArray(),
     body('questions').optional().isArray(),
     body('config').optional().isObject(),
+    body('structuredQuestionSet').optional().isObject(),
     body('isPublic').optional().isBoolean(),
   ],
   validateRequest,

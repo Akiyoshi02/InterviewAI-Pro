@@ -41,18 +41,18 @@ const QuickStartPanel = ({ onStartPractice }) => {
   const isReadyToStart = selectedRole && selectedDifficulty;
 
   return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center space-x-2.5 mb-3 sm:mb-4">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex items-center space-x-2.5 mb-4 sm:mb-5">
         <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
           <Icon name="Play" size={16} color="white" />
         </div>
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Quick Start Practice</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">Begin your AI interview session</p>
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 leading-relaxed">Begin your AI interview session</p>
         </div>
       </div>
 
-      <div className="space-y-3 mb-4">
+      <div className="space-y-4 mb-5">
         <Select
           label="Job Role"
           placeholder="Select your target role"
@@ -73,7 +73,7 @@ const QuickStartPanel = ({ onStartPractice }) => {
         />
       </div>
 
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         <Button
           variant="default"
           fullWidth
@@ -109,12 +109,12 @@ const QuickStartPanel = ({ onStartPractice }) => {
       </div>
 
       {/* Quick Tips */}
-      <div className="mt-4 p-3 rounded-xl border border-white/40 dark:border-slate-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30">
+      <div className="mt-5 p-3.5 rounded-xl border border-white/40 dark:border-slate-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30">
         <div className="flex items-start space-x-2">
           <Icon name="Lightbulb" size={16} className="text-blue-600 dark:text-blue-400 mt-0.5" />
           <div>
             <div className="text-sm font-medium text-gray-900 dark:text-slate-100">Pro Tip</div>
-            <div className="text-xs text-gray-600 dark:text-slate-300">
+            <div className="text-xs sm:text-sm text-gray-600 dark:text-slate-300 leading-relaxed">
               Practice regularly to improve your confidence and interview skills. Aim for 2-3 sessions per week.
             </div>
           </div>

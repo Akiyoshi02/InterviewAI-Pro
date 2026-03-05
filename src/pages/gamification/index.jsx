@@ -33,15 +33,18 @@ function getWeekChallenges() {
 
 // ── Streak Calendar ──────────────────────────────────────────────────────
 
-function buildStreakData(interviews) {
+export function buildStreakData(interviews) {
   const today = new Date();
+  const completedInterviews = interviews.filter(
+    (interview) => String(interview?.status || '').toUpperCase() === 'COMPLETED',
+  );
   const calDays = [];
   for (let i = 29; i >= 0; i--) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
     const dateStr = d.toISOString().split('T')[0];
-    const hasActivity = interviews.some((iv) => {
-      const ivDate = (iv.completedAt || iv.createdAt || '').split('T')[0];
+    const hasActivity = completedInterviews.some((iv) => {
+      const ivDate = (iv.endedAt || iv.completedAt || iv.updatedAt || iv.createdAt || '').split('T')[0];
       return ivDate === dateStr;
     });
     calDays.push({ date: dateStr, hasActivity, isToday: i === 0 });
@@ -60,7 +63,7 @@ function buildStreakData(interviews) {
 
 // ── XP System ────────────────────────────────────────────────────────────
 
-function computeXP(interviews) {
+export function computeXP(interviews) {
   let xp = 0;
   for (const iv of interviews) {
     if (iv.status === 'COMPLETED') {
@@ -72,7 +75,7 @@ function computeXP(interviews) {
   return xp;
 }
 
-function getLevel(xp) {
+export function getLevel(xp) {
   const levels = [
     { level: 1, minXP: 0, title: 'Newcomer' },
     { level: 2, minXP: 100, title: 'Practitioner' },
@@ -120,10 +123,10 @@ const GamificationPage = () => {
       setLoading(true);
       try {
         const [ivRes, lbRes] = await Promise.allSettled([
-          apiClient.interviews.getAll(),
+          apiClient.interviews.getMyInterviews(),
           apiClient.referrals.getLeaderboard(),
         ]);
-        if (ivRes.status === 'fulfilled') {
+        if (ivRes.status === 'fulfilled' && ivRes.value?.success) {
           setInterviews(ivRes.value?.interviews || ivRes.value?.data || []);
         }
         if (lbRes.status === 'fulfilled' && lbRes.value?.success) {

@@ -142,6 +142,25 @@ const formatEmailDate = (dateValue) => {
   }
 };
 
+const formatInterviewDateTime = (dateValue, timezone = 'UTC') => {
+  if (!dateValue) return 'To be confirmed';
+  const fallbackTimezone = typeof timezone === 'string' && timezone.trim() ? timezone.trim() : 'UTC';
+  try {
+    const rawDate = dateValue && typeof dateValue === 'object' && dateValue.toDate
+      ? dateValue.toDate()
+      : new Date(dateValue);
+    if (Number.isNaN(rawDate.getTime())) return 'To be confirmed';
+    return rawDate.toLocaleString(undefined, {
+      dateStyle: 'full',
+      timeStyle: 'short',
+      timeZone: fallbackTimezone,
+    });
+  } catch (error) {
+    logger.error('Interview date formatting error in email:', error, dateValue);
+    return 'To be confirmed';
+  }
+};
+
 const DEFAULT_FOOTER_HTML = `
   <p class="footer-brand"><strong>InterviewAI Pro</strong></p>
   <p class="footer-links">
@@ -786,6 +805,203 @@ ${data.companyName}
     }),
   },
 
+  INTERVIEW_SCHEDULED: {
+    subject: 'Interview Scheduled - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+Your interview for "${data.jobTitle}" at ${data.companyName} has been scheduled.
+
+Interview Details:
+- Date & Time: ${formatInterviewDateTime(data.scheduledFor, data.timezone)}
+- Timezone: ${data.timezone || 'UTC'}
+- Duration: ${data.duration ? `${data.duration} minutes` : 'TBD'}
+- Meeting Link: You will receive the meeting link via email 30 minutes before the scheduled time
+
+You can view details and updates here: ${data.dashboardUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Interview Scheduled',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>Your interview for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong> has been scheduled.</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Date & Time:</strong> ${formatInterviewDateTime(data.scheduledFor, data.timezone)}</div>
+          <div class="detail-item"><strong>Timezone:</strong> ${data.timezone || 'UTC'}</div>
+          <div class="detail-item"><strong>Duration:</strong> ${data.duration ? `${data.duration} minutes` : 'TBD'}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Meeting Link:</strong> You will receive the meeting link via email 30 minutes before the scheduled time</div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">View Interview Details</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  INTERVIEW_RESCHEDULED: {
+    subject: 'Interview Rescheduled - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+Your interview for "${data.jobTitle}" at ${data.companyName} has been rescheduled.
+
+Updated Details:
+- Date & Time: ${formatInterviewDateTime(data.scheduledFor, data.timezone)}
+- Timezone: ${data.timezone || 'UTC'}
+- Duration: ${data.duration ? `${data.duration} minutes` : 'TBD'}
+- Meeting Link: You will receive a new meeting link via email 30 minutes before the updated time
+
+You can view the latest details here: ${data.dashboardUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Interview Rescheduled',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>Your interview for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong> has been rescheduled.</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Updated Date & Time:</strong> ${formatInterviewDateTime(data.scheduledFor, data.timezone)}</div>
+          <div class="detail-item"><strong>Timezone:</strong> ${data.timezone || 'UTC'}</div>
+          <div class="detail-item"><strong>Duration:</strong> ${data.duration ? `${data.duration} minutes` : 'TBD'}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Meeting Link:</strong> You will receive a new meeting link via email 30 minutes before the updated time</div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">View Updated Interview</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  MEETING_LINK_REMINDER: {
+    subject: 'Your Interview Starts Soon - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+Your interview for "${data.jobTitle}" at ${data.companyName} is starting soon!
+
+Interview Details:
+- Date & Time: ${formatInterviewDateTime(data.scheduledFor, data.timezone)}
+- Timezone: ${data.timezone || 'UTC'}
+- Duration: ${data.duration ? `${data.duration} minutes` : 'TBD'}
+
+Join your interview here: ${data.joinUrl}
+
+This link will be active from 30 minutes before your scheduled time until the end of the interview window.
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Your Interview Starts Soon',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>Your interview for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong> is starting soon!</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Date & Time:</strong> ${formatInterviewDateTime(data.scheduledFor, data.timezone)}</div>
+          <div class="detail-item"><strong>Timezone:</strong> ${data.timezone || 'UTC'}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Duration:</strong> ${data.duration ? `${data.duration} minutes` : 'TBD'}</div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.joinUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Join Interview</a>
+        </div>
+
+        <p class="note" style="margin-top: 16px; font-size: 12px; color: #6b7280;">
+          This link is active from 30 minutes before your scheduled time until the end of the interview window.
+        </p>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  INTERVIEW_CANCELLED: {
+    subject: 'Interview Update - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+Your interview for "${data.jobTitle}" at ${data.companyName} has been cancelled.
+
+${data.cancellationReason ? `Reason: ${data.cancellationReason}` : ''}
+
+Please check your dashboard for next steps: ${data.dashboardUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Interview Cancelled',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>Your interview for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong> has been cancelled.</p>
+
+        ${data.cancellationReason
+    ? `<div class="reason-box"><strong>Reason:</strong><p>${data.cancellationReason}</p></div>`
+    : '<p class="note">The hiring team will share updated next steps.</p>'}
+
+        <div style="text-align: center;">
+          <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Open Dashboard</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  INTERVIEW_COMPLETED_UNDER_REVIEW: {
+    subject: 'Interview Completed - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+Thank you for completing your interview for "${data.jobTitle}" at ${data.companyName}.
+
+Your interview has been completed and is now under review by the hiring team.
+
+Track your status here: ${data.dashboardUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Interview Completed',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>Thank you for completing your interview for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+        <p>Your interview has been completed and is now under review by the hiring team.</p>
+
+        <div style="text-align: center;">
+          <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Track Application Status</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
   NEWSLETTER_WELCOME: {
     subject: 'Welcome to InterviewAI Pro Newsletter!',
     getText: (data) => `
@@ -1177,6 +1393,72 @@ export const emailNotifications = {
       companyName: company.displayName || company.name,
       status: application.status,
       message,
+      dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendInterviewScheduled(interview, candidate, job, company) {
+    const companyName = company?.displayName || company?.name || 'Company';
+    return await sendTemplatedEmail('INTERVIEW_SCHEDULED', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
+      scheduledFor: interview?.scheduledFor || null,
+      timezone: interview?.timezone || 'UTC',
+      duration: interview?.duration || null,
+      dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendInterviewRescheduled(interview, candidate, job, company) {
+    const companyName = company?.displayName || company?.name || 'Company';
+    return await sendTemplatedEmail('INTERVIEW_RESCHEDULED', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
+      scheduledFor: interview?.scheduledFor || null,
+      timezone: interview?.timezone || 'UTC',
+      duration: interview?.duration || null,
+      dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendMeetingLinkReminder(interview, candidate, job, company, joinUrl) {
+    const companyName = company?.displayName || company?.name || 'Company';
+    return await sendTemplatedEmail('MEETING_LINK_REMINDER', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
+      scheduledFor: interview?.scheduledFor || null,
+      timezone: interview?.timezone || 'UTC',
+      duration: interview?.duration || null,
+      joinUrl,
+      dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendInterviewCancelled(interview, candidate, job, company, cancellationReason = '') {
+    const companyName = company?.displayName || company?.name || 'Company';
+    return await sendTemplatedEmail('INTERVIEW_CANCELLED', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
+      cancellationReason,
+      dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendInterviewCompletedUnderReview(interview, candidate, job, company) {
+    const companyName = company?.displayName || company?.name || 'Company';
+    return await sendTemplatedEmail('INTERVIEW_COMPLETED_UNDER_REVIEW', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
       dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
     });
   },

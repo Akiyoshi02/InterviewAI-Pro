@@ -173,144 +173,43 @@ const AIChatAssistant = ({
       timestamp: new Date()
     };
     
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setIsTyping(true);
 
     try {
-      let aiResponse = '';
-      
-      switch (action) {
-        case 'evaluate_candidate':
-          const safeInterviews = Array.isArray(interviews) ? interviews : [];
-          const recentInterview = safeInterviews.find(i => i?.status === 'COMPLETED');
-          if (recentInterview) {
-            aiResponse = `## Candidate Evaluation Insights
+      const { companyData, hiringMetrics } = getAssistantContext();
 
-**Candidate:** ${recentInterview.candidate?.fullName || 'Candidate'}
-**Position:** ${recentInterview.jobRole || 'Not specified'}
-**Interview Status:** ${recentInterview.status || 'Completed'}
+      const contextProfile = {
+        name: 'Hiring Team',
+        currentRole: 'Recruiter/Interviewer',
+        companyContext: {
+          totalInterviews: companyData.totalInterviews || 0,
+          completedInterviews: companyData.completedInterviews || 0,
+          pendingReviews: companyData.pendingReviews || 0,
+          hiringMetrics: hiringMetrics || {}
+        }
+      };
 
-**Key Evaluation Areas:**
-• Technical competency assessment
-• Communication and presentation skills
-• Problem-solving approach
-• Cultural fit indicators
-• Overall interview performance
-
-**Evaluation Best Practices:**
-• Review the candidate's responses for clarity and depth
-• Assess technical accuracy and problem-solving methodology
-• Evaluate communication style and professionalism
-• Consider alignment with role requirements
-• Document specific strengths and areas of concern
-
-**Next Steps:**
-• Complete detailed evaluation in the candidate review panel
-• Compare with other candidates for the same role
-• Schedule follow-up interviews if needed
-• Make data-driven hiring decisions
-
-Would you like me to help you evaluate a specific candidate or provide more detailed assessment criteria?`;
-          } else {
-            aiResponse = "I don't see any completed interviews to evaluate yet. Once candidates complete their interviews, I can help you analyze their performance and provide evaluation insights.";
+      const aiResponse = await getCareerAssistantResponse({
+        conversation: buildConversationHistory(updatedMessages),
+        userProfile: contextProfile,
+        recentPerformance: {
+          lastSession: {
+            jobRole: 'Hiring Process',
+            overallScore: companyData.totalInterviews > 0 ? Math.round((companyData.completedInterviews / companyData.totalInterviews) * 100) : 0
           }
-          break;
-          
-        case 'hiring_insights':
-          const { companyData, hiringMetrics } = getAssistantContext();
-          aiResponse = `## Hiring Insights & Analytics
+        }
+      });
 
-**Current Hiring Status:**
-• Total Interviews: ${companyData.totalInterviews || 0}
-• Completed: ${companyData.completedInterviews || 0}
-• Pending Reviews: ${companyData.pendingReviews || 0}
+      const assistantMessage = {
+        id: updatedMessages?.length + 1,
+        type: 'assistant',
+        content: aiResponse || "I'm still processing that request. Could you rephrase or provide more detail?",
+        timestamp: new Date()
+      };
 
-**Key Metrics:**
-• Average time to hire: ${hiringMetrics?.averageTimeToHire || 'N/A'}
-• Active job postings: ${hiringMetrics?.activeJobPostings || 0}
-• Interview completion rate: ${companyData.totalInterviews > 0 ? Math.round((companyData.completedInterviews / companyData.totalInterviews) * 100) : 0}%
-
-**Optimization Recommendations:**
-• Streamline the interview process to reduce time-to-hire
-• Focus on high-quality candidate assessments
-• Improve interview completion rates through better scheduling
-• Leverage AI insights for faster candidate evaluation
-• Track key performance indicators regularly
-
-**Best Practices:**
-• Set clear evaluation criteria before interviews
-• Provide timely feedback to candidates
-• Use structured interviews for consistency
-• Document all candidate interactions
-• Make data-driven hiring decisions
-
-Would you like me to dive deeper into any specific metric or provide more detailed recommendations?`;
-          break;
-          
-        case 'interview_best_practices':
-          aiResponse = `## Interview Best Practices for Interviewers
-
-**Before the Interview:**
-• Review the candidate's resume and application thoroughly
-• Prepare role-specific questions aligned with job requirements
-• Set clear evaluation criteria and scoring rubrics
-• Ensure technical setup is working (video, audio, recording)
-• Create a welcoming and professional environment
-
-**During the Interview:**
-• Start with introductions to build rapport
-• Ask open-ended questions to assess problem-solving skills
-• Listen actively and allow candidates to fully express their thoughts
-• Take notes on key responses and observations
-• Provide opportunities for candidates to ask questions
-
-**Technical Interview Best Practices:**
-• Present problems clearly and allow time for thinking
-• Observe the candidate's problem-solving process, not just the answer
-• Encourage candidates to think out loud
-• Provide hints when appropriate to assess learning ability
-• Evaluate code quality, edge case handling, and optimization
-
-**Behavioral Interview Best Practices:**
-• Use the STAR method (Situation, Task, Action, Result) framework
-• Ask follow-up questions to get specific examples
-• Assess communication skills and cultural fit
-• Look for evidence of collaboration and leadership
-• Evaluate problem-solving and decision-making abilities
-
-**After the Interview:**
-• Complete evaluations promptly while details are fresh
-• Document specific examples and observations
-• Provide constructive feedback to candidates
-• Compare candidates using consistent criteria
-• Make hiring decisions based on data and evidence
-
-**Red Flags to Watch For:**
-• Inability to explain past work or decisions
-• Poor communication or listening skills
-• Lack of preparation or interest in the role
-• Inconsistent answers or evasiveness
-• Negative attitude or unprofessional behavior
-
-Would you like me to elaborate on any of these areas or help you prepare for a specific interview?`;
-          break;
-          
-        default:
-          aiResponse = "I'm here to help with your hiring process and candidate evaluation. What specific area would you like to focus on?";
-      }
-
-      // Simulate typing delay
-      setTimeout(() => {
-        const assistantMessage = {
-          id: messages?.length + 2,
-          type: 'assistant',
-          content: aiResponse,
-          timestamp: new Date()
-        };
-        
-        setMessages(prev => [...prev, assistantMessage]);
-        setIsTyping(false);
-      }, 1000 + Math.random() * 2000);
+      setMessages(prev => [...prev, assistantMessage]);
       
     } catch {
       setIsTyping(false);
@@ -369,12 +268,6 @@ Would you like me to elaborate on any of these areas or help you prepare for a s
         lastSession: {
           jobRole: 'Hiring Process',
           overallScore: companyData.completedInterviews > 0 ? Math.round((companyData.completedInterviews / companyData.totalInterviews) * 100) : 0
-        },
-        latestFeedback: {
-          feedback: {
-            strengths: ['Efficient interview process', 'Good candidate pipeline'],
-            areasForImprovement: ['Reduce time to hire', 'Improve evaluation consistency']
-          }
         }
       };
 

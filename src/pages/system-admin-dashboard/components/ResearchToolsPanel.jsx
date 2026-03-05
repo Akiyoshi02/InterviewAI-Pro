@@ -1,24 +1,21 @@
 /**
  * Research Tools Panel
  *
- * Data collection tools for LLM and MediaPipe research:
- * - Video Recording for reference posture/gesture data
- * - Video Analysis for extracting metrics
- * - LLM Data Aggregation and Dataset Download
- *
- * Rendered as a section within the System Admin Dashboard.
+ * Focused MediaPipe tooling for:
+ * - Recording reference posture/gesture videos
+ * - Analyzing recorded videos into metrics
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import VideoRecorder from '../../research-tools/components/VideoRecorder.jsx';
 import VideoAnalyzer from '../../research-tools/components/VideoAnalyzer.jsx';
-import LLMDataAggregator from '../../research-tools/components/LLMDataAggregator.jsx';
-import DatasetDownloader from '../../research-tools/components/DatasetDownloader.jsx';
 import apiClient from '../../../services/apiClient.js';
 
 const ResearchToolsPanel = () => {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('overview');
   const [datasetStats, setDatasetStats] = useState(null);
 
@@ -30,7 +27,7 @@ const ResearchToolsPanel = () => {
           setDatasetStats(result.statistics || result.stats || result);
         }
       } catch {
-        // Stats unavailable — UI shows '--'
+        // Silent fallback to "--"
       }
     };
     fetchStats();
@@ -40,13 +37,10 @@ const ResearchToolsPanel = () => {
     { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
     { id: 'video-recorder', label: 'Video Recorder', icon: 'Video' },
     { id: 'video-analyzer', label: 'Video Analyzer', icon: 'BarChart2' },
-    { id: 'llm-aggregator', label: 'LLM Data Aggregator', icon: 'Database' },
-    { id: 'datasets', label: 'Download Datasets', icon: 'Download' },
   ];
 
   return (
     <div className="space-y-6">
-      {/* Tabs */}
       <div>
         <div className="border-b border-gray-200 dark:border-slate-700">
           <nav className="-mb-px flex space-x-4 sm:space-x-6 lg:space-x-8 overflow-x-auto scrollbar-hide">
@@ -72,7 +66,6 @@ const ResearchToolsPanel = () => {
         </div>
       </div>
 
-      {/* Tab Content */}
       <motion.div
         key={activeTab}
         initial={{ opacity: 0, y: 20 }}
@@ -86,12 +79,11 @@ const ResearchToolsPanel = () => {
                 Research Data Collection Overview
               </h2>
               <p className="text-gray-600 dark:text-slate-400 mb-6">
-                These tools help you collect and process training data for the AI Interview system.
-                Use them to gather LLM training data and MediaPipe reference videos.
+                Use these tools for MediaPipe calibration workflows. For question datasets,
+                use the Question Catalog workflow.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                {/* MediaPipe Tools */}
                 <div className="p-4 rounded-xl bg-gradient-to-br from-purple-50 to-indigo-50 dark:from-purple-900/20 dark:to-indigo-900/20 border border-purple-200 dark:border-purple-800">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="p-2 rounded-lg bg-purple-600">
@@ -106,11 +98,11 @@ const ResearchToolsPanel = () => {
                     </li>
                     <li className="flex items-center gap-2">
                       <Icon name="BarChart2" className="w-4 h-4 text-purple-600" />
-                      Analyze videos to extract posture metrics
+                      Analyze videos and compute metrics
                     </li>
                     <li className="flex items-center gap-2">
                       <Icon name="FileJson" className="w-4 h-4 text-purple-600" />
-                      Generate reference values from analysis
+                      Export calibration-oriented outputs
                     </li>
                   </ul>
                   <button
@@ -121,40 +113,38 @@ const ResearchToolsPanel = () => {
                   </button>
                 </div>
 
-                {/* LLM Tools */}
                 <div className="p-4 rounded-xl bg-gradient-to-br from-blue-50 to-cyan-50 dark:from-blue-900/20 dark:to-cyan-900/20 border border-blue-200 dark:border-blue-800">
                   <div className="flex items-center gap-3 mb-3">
                     <div className="p-2 rounded-lg bg-blue-600">
-                      <Icon name="Brain" className="w-5 h-5 text-white" />
+                      <Icon name="BookOpenCheck" className="w-5 h-5 text-white" />
                     </div>
-                    <h3 className="font-semibold text-gray-900 dark:text-slate-100">LLM Data Tools</h3>
+                    <h3 className="font-semibold text-gray-900 dark:text-slate-100">Question Dataset Governance</h3>
                   </div>
                   <ul className="space-y-2 text-sm text-gray-600 dark:text-slate-400">
                     <li className="flex items-center gap-2">
-                      <Icon name="Download" className="w-4 h-4 text-blue-600" />
-                      Download external interview datasets
+                      <Icon name="BookOpenCheck" className="w-4 h-4 text-blue-600" />
+                      Import and approve interview questions in Question Catalog
                     </li>
                     <li className="flex items-center gap-2">
-                      <Icon name="FileUp" className="w-4 h-4 text-blue-600" />
-                      Import and combine multiple sources
+                      <Icon name="Database" className="w-4 h-4 text-blue-600" />
+                      Use Training Data for export/lifecycle operations
                     </li>
                     <li className="flex items-center gap-2">
-                      <Icon name="FileOutput" className="w-4 h-4 text-blue-600" />
-                      Export in JSONL format for training
+                      <Icon name="ShieldCheck" className="w-4 h-4 text-blue-600" />
+                      Keep runtime question curation separate from video calibration
                     </li>
                   </ul>
                   <button
-                    onClick={() => setActiveTab('llm-aggregator')}
+                    onClick={() => navigate('/system-admin-dashboard/question-catalog')}
                     className="mt-4 w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors text-sm font-medium"
                   >
-                    Aggregate Data
+                    Open Question Catalog
                   </button>
                 </div>
               </div>
             </div>
 
-            {/* Quick Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
               <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow">
                 <div className="flex items-center gap-2 mb-2">
                   <Icon name="Video" className="w-4 h-4 text-purple-600" />
@@ -175,17 +165,8 @@ const ResearchToolsPanel = () => {
               </div>
               <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow">
                 <div className="flex items-center gap-2 mb-2">
-                  <Icon name="MessageSquare" className="w-4 h-4 text-blue-600" />
-                  <span className="text-xs text-gray-500 dark:text-slate-400">Q&A Pairs</span>
-                </div>
-                <p className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-                  {datasetStats?.qaCount ?? datasetStats?.totalQAPairs ?? datasetStats?.totalEntries ?? '--'}
-                </p>
-              </div>
-              <div className="p-4 rounded-xl bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 shadow">
-                <div className="flex items-center gap-2 mb-2">
-                  <Icon name="Database" className="w-4 h-4 text-green-600" />
-                  <span className="text-xs text-gray-500 dark:text-slate-400">Datasets</span>
+                  <Icon name="Database" className="w-4 h-4 text-blue-600" />
+                  <span className="text-xs text-gray-500 dark:text-slate-400">Total Datasets</span>
                 </div>
                 <p className="text-2xl font-bold text-gray-900 dark:text-slate-100">
                   {datasetStats?.totalDatasets ?? datasetStats?.sourcesCount ?? '--'}
@@ -193,17 +174,14 @@ const ResearchToolsPanel = () => {
               </div>
             </div>
 
-            {/* Documentation Link */}
             <div className="p-4 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
               <div className="flex items-start gap-3">
                 <Icon name="BookOpen" className="w-5 h-5 text-amber-600 mt-0.5" />
                 <div>
-                  <h4 className="font-medium text-amber-800 dark:text-amber-200">
-                    Research Data Collection Guide
-                  </h4>
+                  <h4 className="font-medium text-amber-800 dark:text-amber-200">Admin Workflow</h4>
                   <p className="text-sm text-amber-700 dark:text-amber-300 mt-1">
-                    See <code className="px-1 py-0.5 bg-amber-100 dark:bg-amber-800 rounded">docs/RESEARCH_DATA_COLLECTION_GUIDE.md</code> for
-                    detailed instructions on collecting data from external sources, recording reference videos, and more.
+                    Use <strong>Question Catalog</strong> for question dataset imports and approvals.
+                    Use this section for video recording and analysis calibration workflows.
                   </p>
                 </div>
               </div>
@@ -213,8 +191,6 @@ const ResearchToolsPanel = () => {
 
         {activeTab === 'video-recorder' && <VideoRecorder />}
         {activeTab === 'video-analyzer' && <VideoAnalyzer />}
-        {activeTab === 'llm-aggregator' && <LLMDataAggregator />}
-        {activeTab === 'datasets' && <DatasetDownloader />}
       </motion.div>
     </div>
   );

@@ -13,6 +13,15 @@
 
 import { callOllama, parseJSONResponse } from './llmClient.js';
 
+const DEFAULT_MAX_FOLLOW_UPS_PER_QUESTION = 2;
+const REPEATED_ANSWER_FORCE_ADVANCE_THRESHOLD = 2;
+const MESSAGE_SIMILARITY_THRESHOLD = 0.86;
+const STOPWORDS = new Set([
+  'a', 'an', 'and', 'are', 'as', 'at', 'be', 'but', 'by', 'can', 'could', 'did',
+  'do', 'for', 'from', 'how', 'i', 'in', 'is', 'it', 'me', 'of', 'on', 'or', 'please',
+  'the', 'this', 'to', 'we', 'what', 'when', 'with', 'would', 'you', 'your',
+]);
+
 const INTERVIEW_SCHEMAS = {
   introduction: {
     type: 'object',
@@ -61,10 +70,25 @@ export class AIInterviewer {
       interviewerName: config.interviewerName || 'AI Interviewer',
       ...config
     };
+
+    this.questionBank = this.normalizeQuestionBank(config.questionBank || config.questions);
+    if (this.questionBank.length > 0) {
+      this.config.totalQuestions = this.questionBank.length;
+    }
+    const configuredFollowUpLimit = Number(
+      config.maxFollowUpsPerQuestion ?? advancedSettings.maxFollowUpsPerQuestion,
+    );
+    this.maxFollowUpsPerQuestion = Number.isFinite(configuredFollowUpLimit) && configuredFollowUpLimit >= 0
+      ? configuredFollowUpLimit
+      : DEFAULT_MAX_FOLLOW_UPS_PER_QUESTION;
     
     this.conversationHistory = [];
     this.currentPhase = 'introduction'; // introduction, questions, candidate_questions, closing
     this.questionsAsked = 0;
+    this.currentQuestionIndex = -1;
+    this.followUpAttemptsForCurrentQuestion = 0;
+    this.lastAnswerSignature = null;
+    this.repeatedAnswerCount = 0;
     this.candidateScore = 0;
     this.contextMemory = {
       candidateBackground: null,
@@ -72,6 +96,214 @@ export class AIInterviewer {
       weaknesses: [],
       areasToProbe: []
     };
+  }
+
+  normalizeQuestionBank(rawQuestions = []) {
+    if (!Array.isArray(rawQuestions) || rawQuestions.length === 0) {
+      return [];
+    }
+
+    return rawQuestions
+      .map((entry, index) => {
+        if (typeof entry === 'string') {
+          const text = entry.trim();
+          if (!text) return null;
+          return {
+            id: `q_${index + 1}`,
+            question: text,
+            questionType: this.config?.interviewTypes?.[index % this.config.interviewTypes.length] || 'behavioral',
+          };
+        }
+
+        if (!entry || typeof entry !== 'object') return null;
+        const questionText = String(
+          entry.question
+          || entry.questionText
+          || entry.prompt
+          || '',
+        ).trim();
+        if (!questionText) return null;
+
+        return {
+          id: entry.id || `q_${index + 1}`,
+          question: questionText,
+          questionType: String(
+            entry.questionType
+            || entry.type
+            || this.config?.interviewTypes?.[index % this.config.interviewTypes.length]
+            || 'behavioral',
+          ).toLowerCase(),
+          rubric: entry.rubric || null,
+        };
+      })
+      .filter(Boolean);
+  }
+
+  getQuestionFromBank(index) {
+    if (!Array.isArray(this.questionBank) || index < 0 || index >= this.questionBank.length) {
+      return null;
+    }
+    return this.questionBank[index];
+  }
+
+  buildQuestionPrompt(question, index) {
+    if (!question?.question) return '';
+    return `Question ${index + 1}/${this.config.totalQuestions}: ${question.question}`;
+  }
+
+  buildAnswerSignature(answer) {
+    return String(answer || '')
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, '')
+      .replace(/\s+/g, ' ')
+      .slice(0, 220);
+  }
+
+  trackRepeatedAnswer(answer) {
+    const signature = this.buildAnswerSignature(answer);
+    if (!signature) {
+      this.repeatedAnswerCount = 0;
+      this.lastAnswerSignature = null;
+      return 0;
+    }
+
+    if (signature === this.lastAnswerSignature) {
+      this.repeatedAnswerCount += 1;
+    } else {
+      this.repeatedAnswerCount = 0;
+      this.lastAnswerSignature = signature;
+    }
+    return this.repeatedAnswerCount;
+  }
+
+  resetQuestionAttemptState() {
+    this.followUpAttemptsForCurrentQuestion = 0;
+    this.repeatedAnswerCount = 0;
+    this.lastAnswerSignature = null;
+  }
+
+  normalizeMessageForComparison(message) {
+    return String(message || '')
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  tokenizeForSimilarity(message) {
+    return this.normalizeMessageForComparison(message)
+      .split(' ')
+      .map((token) => token.trim())
+      .filter((token) => token.length > 2 && !STOPWORDS.has(token));
+  }
+
+  computeMessageSimilarity(messageA, messageB) {
+    const tokensA = this.tokenizeForSimilarity(messageA);
+    const tokensB = this.tokenizeForSimilarity(messageB);
+    if (!tokensA.length || !tokensB.length) return 0;
+
+    const setB = new Set(tokensB);
+    const overlap = tokensA.filter((token) => setB.has(token)).length;
+    return overlap / Math.max(Math.min(tokensA.length, tokensB.length), 1);
+  }
+
+  isNearDuplicateMessage(candidateMessage, previousMessage) {
+    const normalizedCandidate = this.normalizeMessageForComparison(candidateMessage);
+    const normalizedPrevious = this.normalizeMessageForComparison(previousMessage);
+    if (!normalizedCandidate || !normalizedPrevious) return false;
+    if (normalizedCandidate === normalizedPrevious) return true;
+    if (
+      normalizedCandidate.length > 40
+      && normalizedPrevious.length > 40
+      && (normalizedCandidate.includes(normalizedPrevious) || normalizedPrevious.includes(normalizedCandidate))
+    ) {
+      return true;
+    }
+    return this.computeMessageSimilarity(normalizedCandidate, normalizedPrevious) >= MESSAGE_SIMILARITY_THRESHOLD;
+  }
+
+  getRecentInterviewerMessages(limit = 6) {
+    return this.conversationHistory
+      .filter((entry) => entry.role === 'interviewer')
+      .slice(-limit)
+      .map((entry) => String(entry.content || '').trim())
+      .filter(Boolean);
+  }
+
+  buildDeterministicFollowUpMessage({ currentQuestionText = '', attempt = 1 }) {
+    const basePrompts = [
+      'Please give one concrete example with the exact action you took, the communication method you used, and the measurable outcome.',
+      'Use STAR briefly and include specifics: what artifact or forum you used (for example doc, dashboard, or meeting), what trade-off you presented, and the final decision.',
+      'Add detail on stakeholder alignment: who needed convincing, what options were compared, and which metric proved the chosen approach was right.',
+    ];
+    const selectedPrompt = basePrompts[Math.max(attempt - 1, 0) % basePrompts.length];
+    if (!currentQuestionText) return selectedPrompt;
+    return `${selectedPrompt} Stay focused on this question: ${currentQuestionText}`;
+  }
+
+  ensureNonRepetitiveMessage({ message, action, currentQuestionText }) {
+    const normalizedMessage = String(message || '').trim();
+    if (!normalizedMessage) {
+      return this.buildDeterministicFollowUpMessage({
+        currentQuestionText,
+        attempt: this.followUpAttemptsForCurrentQuestion + 1,
+      });
+    }
+
+    if (action === 'next_question') return normalizedMessage;
+
+    const recentMessages = this.getRecentInterviewerMessages(6);
+    const isDuplicate = recentMessages.some((previousMessage) =>
+      this.isNearDuplicateMessage(normalizedMessage, previousMessage),
+    );
+
+    if (!isDuplicate) return normalizedMessage;
+
+    return this.buildDeterministicFollowUpMessage({
+      currentQuestionText,
+      attempt: this.followUpAttemptsForCurrentQuestion + 1,
+    });
+  }
+
+  splitIntoSentences(message) {
+    const normalized = String(message || '').replace(/\s+/g, ' ').trim();
+    if (!normalized) return [];
+
+    const segments = normalized.split(/([.?!])/g);
+    const sentences = [];
+    let current = '';
+
+    segments.forEach((segment) => {
+      const token = String(segment || '');
+      if (!token) return;
+      current += token;
+      if (token === '.' || token === '?' || token === '!') {
+        if (current.trim()) sentences.push(current.trim());
+        current = '';
+      }
+    });
+
+    if (current.trim()) sentences.push(current.trim());
+    return sentences;
+  }
+
+  extractFeedbackOnlyForBankMode(message) {
+    const sentences = this.splitIntoSentences(message);
+    if (!sentences.length) return '';
+
+    const nonQuestionSentences = sentences.filter((sentence) => !sentence.includes('?'));
+    const feedback = (nonQuestionSentences.length > 0 ? nonQuestionSentences : [sentences[0]])
+      .join(' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    return feedback;
+  }
+
+  composeBankTransitionMessage({ feedbackMessage, nextQuestion, nextIndex }) {
+    const feedback = this.extractFeedbackOnlyForBankMode(feedbackMessage) || 'Thanks for your answer.';
+    return `${feedback} ${this.buildQuestionPrompt(nextQuestion, nextIndex)}`.trim();
   }
 
   /**
@@ -123,6 +355,36 @@ Welcome the candidate warmly and ask them to introduce themselves. Keep it brief
       timestamp: new Date().toISOString(),
       phase: 'introduction'
     });
+
+    if (this.questionBank.length > 0) {
+      const firstQuestion = this.getQuestionFromBank(0);
+      const questionType = firstQuestion?.questionType || this.config.interviewTypes[0] || 'behavioral';
+      const message = `Thanks for the introduction. ${this.buildQuestionPrompt(firstQuestion, 0)}`;
+
+      this.contextMemory.candidateBackground = candidateIntroduction;
+      this.currentPhase = 'questions';
+      this.currentQuestionIndex = 0;
+      this.questionsAsked = 1;
+      this.resetQuestionAttemptState();
+
+      this.conversationHistory.push({
+        role: 'interviewer',
+        content: message,
+        timestamp: new Date().toISOString(),
+        phase: 'questions',
+        questionNumber: 1,
+        questionType,
+      });
+
+      return {
+        message,
+        phase: 'questions',
+        questionNumber: 1,
+        totalQuestions: this.config.totalQuestions,
+        questionType,
+        nextAction: 'wait_for_answer',
+      };
+    }
 
     const systemPrompt = `You're interviewing for ${this.config.jobRole} at ${this.config.company}.
 Candidate introduced themselves. Acknowledge briefly and ask a relevant interview question.
@@ -206,6 +468,9 @@ Acknowledge and ask first question.`;
       .map(msg => `${msg.role === 'interviewer' ? 'You' : 'Candidate'}: ${msg.content}`)
       .join('\n');
 
+    const repeatedAnswerCount = this.trackRepeatedAnswer(candidateAnswer);
+    const currentQuestion = this.getQuestionFromBank(this.currentQuestionIndex);
+    const currentQuestionText = currentQuestion?.question || '';
     const followUpEnabled = Boolean(this.config.followUpQuestions);
     const allowedActions = followUpEnabled
       ? 'next_question|follow_up|correction'
@@ -213,11 +478,15 @@ Acknowledge and ask first question.`;
     const systemPrompt = `You're interviewing for ${this.config.jobRole}. Question ${this.questionsAsked}/${this.config.totalQuestions}.
 Interview types: ${this.config.interviewTypes.join(', ')}.
 Follow-up questions enabled: ${followUpEnabled ? 'yes' : 'no'}.
+Current question: ${currentQuestionText || 'Use the most recent interviewer question from context'}.
+Follow-up attempts already used for this question: ${this.followUpAttemptsForCurrentQuestion}/${this.maxFollowUpsPerQuestion}.
+Candidate repeated-answer count on this question: ${repeatedAnswerCount}.
 
 Recent exchange:
 ${recentContext}
 
 Evaluate answer (1-10) and respond as interviewer.
+Do not repeat essentially the same follow-up wording over and over. If detail is still missing after at most ${this.maxFollowUpsPerQuestion} follow-ups, move to next question.
 
 JSON format:
 {
@@ -249,39 +518,87 @@ JSON format:
       if (!followUpEnabled && action === 'follow_up') {
         action = 'next_question';
       }
-      const questionType = parsed?.questionType || this.config.interviewTypes[0] || 'behavioral';
+      if (this.repeatedAnswerCount >= REPEATED_ANSWER_FORCE_ADVANCE_THRESHOLD) {
+        action = 'next_question';
+      } else if (action !== 'next_question' && this.followUpAttemptsForCurrentQuestion >= this.maxFollowUpsPerQuestion) {
+        action = 'next_question';
+      }
+      const parsedQuestionType = parsed?.questionType || this.config.interviewTypes[0] || 'behavioral';
+      const rawScore = Number(parsed?.score);
+      const resolvedScore = Number.isFinite(rawScore)
+        ? Math.max(0, Math.min(rawScore, 10))
+        : 5;
 
       // Update score
-      this.candidateScore += (parsed.score || 5);
+      this.candidateScore += resolvedScore;
 
-      // Determine if moving to next question
+      let message = String(parsed?.message || '').trim();
+      let questionType = parsedQuestionType;
+      let phase = 'questions';
+      let nextAction = 'wait_for_answer';
+
       if (action === 'next_question') {
-        this.questionsAsked++;
+        this.resetQuestionAttemptState();
+        if (this.questionBank.length > 0) {
+          const nextIndex = this.currentQuestionIndex + 1;
+          const nextQuestion = this.getQuestionFromBank(nextIndex);
+
+          if (nextQuestion) {
+            this.currentQuestionIndex = nextIndex;
+            this.questionsAsked = nextIndex + 1;
+            questionType = nextQuestion.questionType || parsedQuestionType;
+            message = this.composeBankTransitionMessage({
+              feedbackMessage: message,
+              nextQuestion,
+              nextIndex,
+            });
+          } else {
+            this.questionsAsked = this.config.totalQuestions;
+            phase = 'candidate_questions';
+            nextAction = 'ask_candidate_questions';
+            message = `${message || 'Thanks, that covers the planned questions.'} Do you have any questions for me about the role or company before we wrap up?`;
+          }
+        } else {
+          this.questionsAsked += 1;
+        }
+      } else {
+        this.followUpAttemptsForCurrentQuestion += 1;
+        message = this.ensureNonRepetitiveMessage({
+          message,
+          action,
+          currentQuestionText,
+        });
       }
+
+      if (!this.questionBank.length) {
+        const shouldEndQuestions = this.questionsAsked >= this.config.totalQuestions;
+        if (shouldEndQuestions) {
+          phase = 'candidate_questions';
+          nextAction = 'ask_candidate_questions';
+        }
+      }
+      this.currentPhase = phase;
 
       this.conversationHistory.push({
         role: 'interviewer',
-        content: parsed.message,
+        content: message,
         timestamp: new Date().toISOString(),
-        phase: 'questions',
+        phase,
         questionNumber: this.questionsAsked,
         actionType: action,
         questionType,
-        evaluation: { score: parsed.score }
+        evaluation: { score: resolvedScore }
       });
 
-      // Check if we should end the question phase
-      const shouldEndQuestions = this.questionsAsked >= this.config.totalQuestions;
-
       return {
-        message: parsed.message,
-        phase: shouldEndQuestions ? 'candidate_questions' : 'questions',
+        message,
+        phase,
         questionNumber: this.questionsAsked,
         totalQuestions: this.config.totalQuestions,
         actionType: action,
         questionType,
-        evaluation: { score: parsed.score },
-        nextAction: shouldEndQuestions ? 'ask_candidate_questions' : 'wait_for_answer'
+        evaluation: { score: resolvedScore },
+        nextAction
       };
     } catch (error) {
       console.error('Error processing answer:', error);

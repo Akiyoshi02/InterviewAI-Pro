@@ -19,6 +19,8 @@ import FairnessCalibrationPanel from './components/FairnessCalibrationPanel.jsx'
 import ClassificationMetricsPanel from './components/ClassificationMetricsPanel.jsx';
 import ModelFineTuningPanel from './components/ModelFineTuningPanel.jsx';
 import MediaPipeCalibrationPanel from './components/MediaPipeCalibrationPanel.jsx';
+import StructuredInterviewGovernancePanel from './components/StructuredInterviewGovernancePanel.jsx';
+import QuestionCatalogPanel from './components/QuestionCatalogPanel.jsx';
 import ResearchToolsPanel from './components/ResearchToolsPanel.jsx';
 import UserManagementPanel from './components/UserManagementPanel.jsx';
 import PlatformOperationsPanel from './components/PlatformOperationsPanel.jsx';
@@ -62,6 +64,12 @@ const SECTION_DEFINITIONS = [
     icon: 'Scale',
   },
   {
+    id: 'templates',
+    title: 'Templates',
+    description: 'Manage structured interview templates, defaults, and adoption.',
+    icon: 'ListChecks',
+  },
+  {
     id: 'classification',
     title: 'Classification Metrics',
     description: 'Confusion matrix and precision/recall/F1 for AI vs SME score classification.',
@@ -86,9 +94,15 @@ const SECTION_DEFINITIONS = [
     icon: 'Database',
   },
   {
+    id: 'question-catalog',
+    title: 'Question Catalog',
+    description: 'Curate approved dataset questions and import vetted sources.',
+    icon: 'BookOpenCheck',
+  },
+  {
     id: 'research-tools',
     title: 'Research Tools',
-    description: 'Record posture/gestures, analyze videos, and add external datasets.',
+    description: 'Record posture/gestures and analyze videos for calibration.',
     icon: 'FlaskConical',
   },
   {
@@ -115,6 +129,10 @@ const SECTION_MAP = SECTION_DEFINITIONS.reduce((acc, section) => {
   acc[section.id] = section;
   return acc;
 }, {});
+
+const SECTION_ALIASES = Object.freeze({
+  'structured-interviews': 'templates',
+});
 
 const getSectionPath = (sectionId) => {
   if (!sectionId || sectionId === 'overview') return '/system-admin-dashboard';
@@ -177,7 +195,8 @@ const SystemAdminDashboard = () => {
 
   const activeSection = useMemo(() => {
     if (!section) return 'overview';
-    return SECTION_MAP[section] ? section : null;
+    const normalizedSection = SECTION_ALIASES[section] || section;
+    return SECTION_MAP[normalizedSection] ? normalizedSection : null;
   }, [section]);
 
   useEffect(() => {
@@ -185,6 +204,13 @@ const SystemAdminDashboard = () => {
       navigate('/system-admin-dashboard', { replace: true });
     }
   }, [activeSection, navigate]);
+
+  useEffect(() => {
+    if (!section || !activeSection || activeSection === 'overview') return;
+    if (section !== activeSection) {
+      navigate(`/system-admin-dashboard/${activeSection}`, { replace: true });
+    }
+  }, [section, activeSection, navigate]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -369,6 +395,16 @@ const SystemAdminDashboard = () => {
             <ClassificationMetricsPanel />
           </SectionContainer>
         );
+      case 'templates':
+        return (
+          <SectionContainer
+            title={SECTION_MAP.templates.title}
+            description={SECTION_MAP.templates.description}
+            icon={SECTION_MAP.templates.icon}
+          >
+            <StructuredInterviewGovernancePanel />
+          </SectionContainer>
+        );
       case 'fine-tuning':
         return (
           <SectionContainer title={SECTION_MAP['fine-tuning'].title} description={SECTION_MAP['fine-tuning'].description} icon={SECTION_MAP['fine-tuning'].icon}>
@@ -385,6 +421,12 @@ const SystemAdminDashboard = () => {
         return (
           <SectionContainer title={SECTION_MAP['training-data'].title} description={SECTION_MAP['training-data'].description} icon={SECTION_MAP['training-data'].icon}>
             <TrainingDataManager />
+          </SectionContainer>
+        );
+      case 'question-catalog':
+        return (
+          <SectionContainer title={SECTION_MAP['question-catalog'].title} description={SECTION_MAP['question-catalog'].description} icon={SECTION_MAP['question-catalog'].icon}>
+            <QuestionCatalogPanel />
           </SectionContainer>
         );
       case 'research-tools':

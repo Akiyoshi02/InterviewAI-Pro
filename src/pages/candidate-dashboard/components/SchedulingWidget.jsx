@@ -1,18 +1,76 @@
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useNavigate } from 'react-router-dom';
+import AppImage from '../../../components/AppImage';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient';
 
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '');
+
+const decodeHtmlEntities = (value) => {
+  if (typeof value !== 'string') return value || '';
+  if (!value.includes('&')) return value;
+  if (typeof document === 'undefined') return value;
+  const decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+};
+
+const formatDuration = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  if (Number.isInteger(parsed) && parsed > 0) return `${parsed} min`;
+  if (typeof value === 'string' && value.trim()) return value.trim();
+  return '45 min';
+};
+
 const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   const navigate = useNavigate();
   const [showScheduleForm, setShowScheduleForm] = useState(false);
+  const [formMode, setFormMode] = useState('manage');
   const [selectedInterviewId, setSelectedInterviewId] = useState('');
   const [scheduledFor, setScheduledFor] = useState('');
   const [timezone, setTimezone] = useState(Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC');
-  const [meetingLink, setMeetingLink] = useState('');
+  const [rescheduleReason, setRescheduleReason] = useState('');
+  const [preferredRescheduleSlot, setPreferredRescheduleSlot] = useState('');
+  const [contactMessage, setContactMessage] = useState('');
+  const [contactSent, setContactSent] = useState(false);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [scheduleError, setScheduleError] = useState('');
+
+  const isCandidateManageableInterview = (interview) => {
+    const mode = String(interview?.mode || interview?.interviewMode || '').toUpperCase();
+    return mode === 'PRACTICE';
+  };
+
+  const getPendingRescheduleRequest = (interview) => {
+    if (!interview) return null;
+    if (interview.pendingRescheduleRequest) return interview.pendingRescheduleRequest;
+    if (!Array.isArray(interview.rescheduleRequests)) return null;
+    for (let index = interview.rescheduleRequests.length - 1; index >= 0; index -= 1) {
+      const request = interview.rescheduleRequests[index];
+      if ((request?.status || '').toUpperCase() === 'PENDING') {
+        return request;
+      }
+    }
+    return null;
+  };
+
+  const hasExhaustedRescheduleRequests = (interview) => {
+    if (!Array.isArray(interview?.rescheduleRequests)) return false;
+    return interview.rescheduleRequests.length >= 1;
+  };
+
+  const canCandidateRequestReschedule = (interview) => {
+    const mode = String(interview?.mode || interview?.interviewMode || '').toUpperCase();
+    if (mode !== 'HIRING') return false;
+    const status = String(interview?.status || '').toUpperCase();
+    if (status !== 'SCHEDULED') return false;
+    if (!interview?.scheduledFor) return false;
+    if (getPendingRescheduleRequest(interview)) return false;
+    if (hasExhaustedRescheduleRequests(interview)) return false;
+    return true;
+  };
 
   // Transform real interview data into the display format
   const transformInterviews = (interviews) => {
@@ -25,17 +83,26 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
         return status === 'SCHEDULED';
       })
       .map(interview => {
-        const companyName = interview?.company?.companyName || 
-                           interview?.company?.fullName || 
+        const companyNameRaw = interview?.company?.companyName ||
+                           interview?.company?.fullName ||
                            interview?.company?.displayName ||
                            (typeof interview?.company === 'string' ? interview.company : null) ||
                            'Interview Session';
-        const companyLogo = interview?.company?.logo || interview?.company?.logoUrl || null;
+        const companyName = decodeHtmlEntities(companyNameRaw);
+        const companyLogoRaw = interview?.company?.logo || interview?.company?.logoUrl || interview?.company?.companyLogoUrl || null;
+        const companyLogo = companyLogoRaw
+          ? (companyLogoRaw.startsWith('http') ? companyLogoRaw : `${API_BASE}${companyLogoRaw.startsWith('/') ? '' : '/'}${companyLogoRaw}`)
+          : null;
         const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
         const scheduledTimestamp = scheduledDate && !Number.isNaN(scheduledDate.getTime())
           ? scheduledDate.getTime()
-          : 0;
-        
+          : Number.MAX_SAFE_INTEGER;
+        const pendingRescheduleRequest = getPendingRescheduleRequest(interview);
+        const canManageSchedule = isCandidateManageableInterview(interview);
+        const canRequestReschedule = canCandidateRequestReschedule(interview);
+        const rescheduleExhausted = !canRequestReschedule && !pendingRescheduleRequest && hasExhaustedRescheduleRequests(interview);
+        const hasScheduledDate = Boolean(scheduledDate && !Number.isNaN(scheduledDate.getTime()));
+
         // Calculate time left
         let timeLeft = '';
         if (scheduledDate) {
@@ -56,18 +123,22 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
           company: companyName,
           companyLogo: companyLogo,
           companyLogoAlt: `${companyName} logo`,
-          position: interview?.jobRole || interview?.position || 'Interview',
-          date: scheduledDate ? scheduledDate.toLocaleDateString() : 'TBD',
-          time: scheduledDate ? scheduledDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : 'TBD',
-          duration: interview?.duration || '45 min',
-          type: interview?.interviewType || interview?.type || 'Interview',
+          position: decodeHtmlEntities(interview?.jobRole || interview?.position || 'Interview'),
+          date: hasScheduledDate ? scheduledDate.toLocaleDateString() : 'Scheduling pending',
+          time: hasScheduledDate ? scheduledDate.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : '',
+          duration: formatDuration(interview?.duration),
+          type: decodeHtmlEntities(interview?.interviewType || interview?.type || 'Interview'),
           interviewer: interview?.interviewer?.name || interview?.interviewerName || null,
           interviewerAvatar: interview?.interviewer?.avatar || null,
           status: interview?.status?.toLowerCase() === 'scheduled' ? 'confirmed' : 'pending',
-          meetingLink: interview?.meetingLink || null,
           timeLeft,
+          hasScheduledDate,
           scheduledForRaw: interview?.scheduledFor || null,
           scheduledTimestamp,
+          canManageSchedule,
+          canRequestReschedule,
+          pendingRescheduleRequest,
+          rescheduleExhausted,
         };
       })
       .sort((a, b) => {
@@ -79,8 +150,15 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   };
 
   // Use transformed real data - no mock fallback
-  const interviewData = transformInterviews(upcomingInterviews);
+  const interviewData = useMemo(
+    () => transformInterviews(upcomingInterviews),
+    [upcomingInterviews],
+  );
+  const manageableInterviews = interviewData.filter((interview) => interview?.canManageSchedule);
+  const requestableInterviews = interviewData.filter((interview) => interview?.canRequestReschedule);
   const hasScheduledInterviews = interviewData.length > 0;
+  const hasManageableInterviews = manageableInterviews.length > 0;
+  const hasRequestableInterviews = requestableInterviews.length > 0;
 
   const getStatusColor = (status) => {
     const colorMap = {
@@ -111,22 +189,72 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   };
 
   const resetScheduleForm = () => {
+    setFormMode('manage');
     setSelectedInterviewId('');
     setScheduledFor('');
-    setMeetingLink('');
+    setRescheduleReason('');
+    setPreferredRescheduleSlot('');
+    setContactMessage('');
+    setContactSent(false);
     setScheduleError('');
   };
 
+  useEffect(() => {
+    const current = interviewData.find((item) => item.id === selectedInterviewId);
+    if (!current) return;
+    if (formMode === 'manage') {
+      setScheduledFor(toDateTimeLocal(current?.scheduledForRaw));
+      return;
+    }
+    setScheduledFor(toDateTimeLocal(current?.scheduledForRaw));
+  }, [formMode, interviewData, selectedInterviewId]);
+
+  useEffect(() => {
+    if (!showScheduleForm || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [showScheduleForm]);
+
   const openScheduleFormFor = (interview = null) => {
-    const target = interview || interviewData?.[0] || null;
+    const target = interview || manageableInterviews?.[0] || requestableInterviews?.[0] || null;
     if (!target) {
       navigate('/my-applications');
       return;
     }
-    setSelectedInterviewId(target.id || '');
-    setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
-    setMeetingLink(target?.meetingLink || '');
-    setShowScheduleForm(true);
+    if (target?.canManageSchedule) {
+      setFormMode('manage');
+      setSelectedInterviewId(target.id || '');
+      setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
+      setRescheduleReason('');
+      setPreferredRescheduleSlot('');
+      setShowScheduleForm(true);
+      setScheduleError('');
+      return;
+    }
+    if (target?.canRequestReschedule) {
+      setFormMode('request');
+      setSelectedInterviewId(target.id || '');
+      setScheduledFor(toDateTimeLocal(target?.scheduledForRaw));
+      setRescheduleReason('');
+      setPreferredRescheduleSlot('');
+      setShowScheduleForm(true);
+      setScheduleError('');
+      return;
+    }
+    if (target?.rescheduleExhausted) {
+      setFormMode('contact');
+      setSelectedInterviewId(target.id || '');
+      setContactMessage('');
+      setContactSent(false);
+      setShowScheduleForm(true);
+      setScheduleError('');
+      return;
+    }
+    setScheduleError('This interview cannot be rescheduled from your dashboard right now.');
+    setShowScheduleForm(false);
   };
 
   const handleScheduleSubmit = async () => {
@@ -136,21 +264,55 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
         setScheduleError('Select an interview first.');
         return;
       }
-      if (!scheduledFor) {
+      if (formMode === 'contact') {
+        if ((contactMessage || '').trim().length < 10) {
+          setScheduleError('Please provide at least 10 characters for your message.');
+          return;
+        }
+        setSavingSchedule(true);
+        await apiClient.interviews.contactCompany(selectedInterviewId, {
+          message: contactMessage.trim(),
+        });
+        setContactSent(true);
+        return;
+      }
+      if (formMode !== 'request' && !scheduledFor) {
         setScheduleError('Select date and time.');
         return;
       }
-      const payload = {
-        scheduledFor: new Date(scheduledFor).toISOString(),
-        timezone,
-        meetingLink: meetingLink?.trim() ? meetingLink.trim() : null,
-      };
       const current = interviewData.find((item) => item.id === selectedInterviewId);
       setSavingSchedule(true);
-      if (current?.scheduledForRaw) {
-        await apiClient.interviews.reschedule(selectedInterviewId, payload);
+      if (formMode === 'request') {
+        if (!current?.canRequestReschedule) {
+          setScheduleError('This interview is not eligible for reschedule requests.');
+          return;
+        }
+        if ((rescheduleReason || '').trim().length < 20) {
+          setScheduleError('Please provide at least 20 characters for the reschedule reason.');
+          return;
+        }
+        const payload = {
+          reason: rescheduleReason.trim(),
+          preferredSlots: preferredRescheduleSlot
+            ? [new Date(preferredRescheduleSlot).toISOString()]
+            : [],
+          timezone,
+        };
+        await apiClient.interviews.requestReschedule(selectedInterviewId, payload);
       } else {
-        await apiClient.interviews.schedule(selectedInterviewId, payload);
+        if (!current?.canManageSchedule) {
+          setScheduleError('Only practice interviews can be directly rescheduled from this dashboard.');
+          return;
+        }
+        const payload = {
+          scheduledFor: new Date(scheduledFor).toISOString(),
+          timezone,
+        };
+        if (current?.scheduledForRaw) {
+          await apiClient.interviews.reschedule(selectedInterviewId, payload);
+        } else {
+          await apiClient.interviews.schedule(selectedInterviewId, payload);
+        }
       }
       setShowScheduleForm(false);
       resetScheduleForm();
@@ -164,89 +326,155 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     }
   };
 
-  const handleViewCalendar = () => {
-    if (!hasScheduledInterviews) {
-      navigate('/my-applications');
-      return;
-    }
-    const withMeetingLink = interviewData.find((item) => item?.meetingLink);
-    if (withMeetingLink?.meetingLink) {
-      window.open(withMeetingLink.meetingLink, '_blank', 'noopener,noreferrer');
-      return;
-    }
-    if (interviewData?.[0]?.id) {
-      navigate(`/live-interview-session?interviewId=${encodeURIComponent(interviewData[0].id)}`);
-    }
+
+
+  const closeScheduleForm = () => {
+    setShowScheduleForm(false);
+    resetScheduleForm();
   };
 
-  return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3">
-        <div>
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
-          <p className="text-xs text-gray-500 dark:text-slate-400">Manage your scheduled interviews</p>
-        </div>
-        <Button
-          variant="default"
-          size="sm"
-          iconName={hasScheduledInterviews ? 'Plus' : 'Briefcase'}
-          iconPosition="left"
-          onClick={() => openScheduleFormFor()}
-          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
+  const scheduleFormOptions = formMode === 'request' ? requestableInterviews : manageableInterviews;
+  const selectedInterview = interviewData.find((item) => item.id === selectedInterviewId) || null;
+  const scheduleModal = showScheduleForm && typeof document !== 'undefined'
+    ? createPortal(
+      <div className="fixed inset-0 z-[110] flex items-center justify-center p-3 sm:p-4">
+        <div
+          className="absolute inset-0 bg-slate-950/60 backdrop-blur-sm"
+          onClick={closeScheduleForm}
+          aria-hidden="true"
+        />
+        <div
+          role="dialog"
+          aria-modal="true"
+          className="relative w-full max-w-2xl rounded-2xl border border-white/30 dark:border-slate-700/60 bg-white/95 dark:bg-slate-900/95 shadow-[0_30px_90px_rgba(15,23,42,0.45)]"
         >
-          {hasScheduledInterviews ? 'Schedule' : 'My Applications'}
-        </Button>
-      </div>
-      {showScheduleForm && (
-        <div className="mb-3 p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/60 space-y-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <select
-              value={selectedInterviewId}
-              onChange={(event) => setSelectedInterviewId(event.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+          <div className="px-4 sm:px-5 py-3 border-b border-white/40 dark:border-slate-700/60 flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">
+                {formMode === 'contact' ? 'Contact Hiring Team' : formMode === 'request' ? 'Request Reschedule' : 'Manage Schedule'}
+              </h3>
+              {selectedInterview && (
+                <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-0.5">
+                  {selectedInterview.company} - {selectedInterview.position}
+                </p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={closeScheduleForm}
+              className="rounded-lg p-1.5 text-gray-500 hover:text-gray-800 dark:text-slate-400 dark:hover:text-slate-200"
+              aria-label="Close schedule form"
             >
-              <option value="">Select interview</option>
-              {interviewData.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.company} - {item.position}
-                </option>
-              ))}
-            </select>
-            <input
-              type="datetime-local"
-              value={scheduledFor}
-              onChange={(event) => setScheduledFor(event.target.value)}
-              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-            />
+              <Icon name="X" size={16} />
+            </button>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            <input
-              type="text"
-              value={timezone}
-              onChange={(event) => setTimezone(event.target.value)}
-              placeholder="Timezone (IANA)"
-              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-            />
-            <input
-              type="url"
-              value={meetingLink}
-              onChange={(event) => setMeetingLink(event.target.value)}
-              placeholder="Meeting link (optional)"
-              className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
-            />
+
+          <div className="p-4 sm:p-5 space-y-3">
+            {formMode === 'contact' ? (
+              contactSent ? (
+                <div className="text-center py-4 space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-emerald-100 dark:bg-emerald-500/20 flex items-center justify-center mx-auto">
+                    <Icon name="CheckCircle" size={24} className="text-emerald-600 dark:text-emerald-400" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100">Message sent</p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                      The hiring team will be notified and can follow up with you directly.
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-3">
+                    <p className="text-xs text-amber-800 dark:text-amber-200">
+                      You&apos;ve already used your reschedule request for this interview. Send a message to the hiring team to discuss further scheduling changes.
+                    </p>
+                  </div>
+                  <textarea
+                    value={contactMessage}
+                    onChange={(event) => setContactMessage(event.target.value)}
+                    rows={4}
+                    placeholder="Explain what you'd like to discuss about the interview schedule (minimum 10 characters)"
+                    className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  />
+                </>
+              )
+            ) : (
+            <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              <select
+                value={selectedInterviewId}
+                onChange={(event) => setSelectedInterviewId(event.target.value)}
+                className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+              >
+                <option value="">Select interview</option>
+                {scheduleFormOptions.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.company} - {item.position}
+                  </option>
+                ))}
+              </select>
+              {formMode === 'request' ? (
+                <input
+                  type="datetime-local"
+                  value={preferredRescheduleSlot}
+                  onChange={(event) => setPreferredRescheduleSlot(event.target.value)}
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                  placeholder="Preferred new slot (optional)"
+                />
+              ) : (
+                <input
+                  type="datetime-local"
+                  value={scheduledFor}
+                  onChange={(event) => setScheduledFor(event.target.value)}
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                />
+              )}
+            </div>
+
+            {formMode === 'request' ? (
+              <>
+                <textarea
+                  value={rescheduleReason}
+                  onChange={(event) => setRescheduleReason(event.target.value)}
+                  rows={3}
+                  placeholder="Explain why you need to reschedule (minimum 20 characters)"
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                />
+                <input
+                  type="text"
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="Timezone (IANA)"
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                />
+              </>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <input
+                  type="text"
+                  value={timezone}
+                  onChange={(event) => setTimezone(event.target.value)}
+                  placeholder="Timezone (IANA)"
+                  className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
+                />
+              </div>
+            )}
+            </>
+            )}
+
+            {scheduleError && <p className="text-xs text-rose-600 dark:text-rose-400">{scheduleError}</p>}
           </div>
-          {scheduleError && <p className="text-xs text-rose-600 dark:text-rose-400">{scheduleError}</p>}
-          <div className="flex justify-end gap-2">
+
+          <div className="px-4 sm:px-5 py-3 border-t border-white/40 dark:border-slate-700/60 flex justify-end gap-2">
             <Button
               variant="outline"
               size="sm"
-              onClick={() => {
-                setShowScheduleForm(false);
-                resetScheduleForm();
-              }}
+              onClick={closeScheduleForm}
             >
-              Cancel
+              {contactSent ? 'Close' : 'Cancel'}
             </Button>
+            {!contactSent && (
             <Button
               variant="default"
               size="sm"
@@ -254,148 +482,252 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
               disabled={savingSchedule}
               className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white"
             >
-              {savingSchedule ? 'Saving...' : 'Save Schedule'}
+              {savingSchedule
+                ? 'Sending...'
+                : (formMode === 'contact' ? 'Send Message' : formMode === 'request' ? 'Submit Request' : 'Save Schedule')}
             </Button>
+            )}
           </div>
         </div>
-      )}
-      {interviewData?.length > 0 ?
-      <div className="space-y-3">
-          {interviewData?.map((interview) =>
-        <div
-          key={interview?.id}
-          className="border border-white/30 dark:border-slate-700/50 rounded-xl p-2.5 sm:p-3 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200">
+      </div>,
+      document.body,
+    )
+    : null;
 
-              <div className="flex items-start space-x-2.5 sm:space-x-3">
+  return (
+    <>
+      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur overflow-hidden">
+        {/* Header */}
+        <div className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 sm:pb-4 flex flex-col xs:flex-row xs:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
+              <Icon name="CalendarCheck" size={17} color="white" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
+                {interviewData?.length > 0 && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 tabular-nums">
+                    {interviewData.length}
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">Manage your scheduled interviews</p>
+            </div>
+          </div>
+          {(hasManageableInterviews || hasRequestableInterviews) && (
+            <Button
+              variant="default"
+              size="sm"
+              iconName="Settings2"
+              iconPosition="left"
+              onClick={() => openScheduleFormFor()}
+              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
+            >
+              Manage Schedule
+            </Button>
+          )}
+        </div>
+
+        {/* Interview Cards */}
+        {interviewData?.length > 0 ? (
+        <div className="px-4 sm:px-5 pb-1 space-y-3">
+            {interviewData?.map((interview, index) => {
+              const isToday = interview?.timeLeft === 'Today';
+              const isUrgent = isToday || (parseInt(interview?.timeLeft, 10) === 1);
+              return (
+          <div
+            key={interview?.id}
+            className={`group relative rounded-xl border transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_12px_32px_rgba(15,23,42,0.12)] dark:hover:shadow-[0_12px_32px_rgba(0,0,0,0.35)] ${
+              isUrgent
+                ? 'border-blue-200/80 dark:border-blue-500/30 bg-gradient-to-r from-blue-50/60 via-white/80 to-white/80 dark:from-blue-950/30 dark:via-slate-800/80 dark:to-slate-800/80'
+                : 'border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70'
+            }`}
+          >
+                {/* Accent bar */}
+                <div className={`absolute left-0 top-3 bottom-3 w-[3px] rounded-full ${
+                  isUrgent
+                    ? 'bg-gradient-to-b from-blue-500 to-purple-500'
+                    : 'bg-gradient-to-b from-blue-400/60 to-purple-400/60 dark:from-blue-500/40 dark:to-purple-500/40'
+                }`} />
+
+                <div className="p-3.5 sm:p-4 pl-5 sm:pl-6">
+                  {/* Top row: company info + status */}
+                  <div className="flex items-center gap-3.5 mb-3">
                 {interview?.companyLogo ? (
-                  <img
+                  <AppImage
                     src={interview.companyLogo}
                     alt={interview?.companyLogoAlt}
-                    className="w-9 h-9 sm:w-10 sm:h-10 rounded-lg object-cover flex-shrink-0"
-                    onError={(e) => {
-                      e.target.style.display = 'none';
-                      e.target.nextSibling.style.display = 'flex';
-                    }}
+                    className="w-16 h-16 rounded-full object-contain bg-white dark:bg-slate-700/60 flex-shrink-0 ring-1 ring-white/60 dark:ring-slate-700/60 shadow-sm p-1"
                   />
-                ) : null}
-                <div 
-                  className={`w-9 h-9 sm:w-10 sm:h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex-shrink-0 items-center justify-center ${interview?.companyLogo ? 'hidden' : 'flex'}`}
-                >
-                  <Icon name="Building2" size={18} color="white" />
-                </div>
+                ) : (
+                  <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-600 to-purple-600 flex-shrink-0 flex items-center justify-center shadow-md shadow-blue-500/20">
+                    <Icon name="Building2" size={24} color="white" />
+                  </div>
+                )}
 
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-medium text-gray-900 dark:text-slate-100 text-sm sm:text-base truncate">{interview?.company}</h3>
-                      <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate">{interview?.position}</p>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 dark:text-slate-100 text-sm sm:text-[15px] truncate leading-snug">{interview?.company}</h3>
+                      <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate leading-relaxed mt-0.5">{interview?.position}</p>
                     </div>
-                    <span className={`text-xs font-medium px-2 py-1 rounded-full border whitespace-nowrap flex-shrink-0 ${getStatusColor(interview?.status)}`}>
-                      {interview?.status}
+
+                    <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap flex-shrink-0 ${getStatusColor(interview?.status)}`}>
+                      {interview?.status ? `${interview.status.charAt(0).toUpperCase()}${interview.status.slice(1)}` : 'Pending'}
                     </span>
                   </div>
 
-                  <div className="grid grid-cols-1 xs:grid-cols-2 gap-1.5 xs:gap-2 mb-2 text-xs text-gray-600 dark:text-slate-300">
-                    <div className="flex items-center space-x-2">
-                      <Icon name="Calendar" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
-                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.date}</span>
+                  {/* Metadata chips row */}
+                  <div className="flex flex-wrap gap-x-3 gap-y-1.5 mb-3">
+                    <div className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300">
+                      <div className="w-5 h-5 rounded-md bg-gray-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                        <Icon name="Calendar" size={12} className="text-gray-500 dark:text-slate-400" />
+                      </div>
+                      <span className="font-medium text-gray-700 dark:text-slate-200">{interview?.date}</span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Icon name="Clock" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
-                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.time} ({interview?.duration})</span>
+                    <div className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300">
+                      <div className="w-5 h-5 rounded-md bg-gray-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                        <Icon name="Clock" size={12} className="text-gray-500 dark:text-slate-400" />
+                      </div>
+                      <span className="font-medium text-gray-700 dark:text-slate-200">
+                        {interview?.hasScheduledDate
+                          ? `${interview?.time} (${interview?.duration})`
+                          : `Duration: ${interview?.duration}`}
+                      </span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      <Icon name="User" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
-                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.interviewer}</span>
-                    </div>
-                    <div className="flex items-center space-x-2">
-                      <Icon name="Tag" size={14} className="text-gray-400 dark:text-slate-500 flex-shrink-0" />
-                      <span className="text-gray-700 dark:text-slate-200 truncate">{interview?.type}</span>
+                    {interview?.interviewer && (
+                      <div className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300">
+                        <div className="w-5 h-5 rounded-md bg-gray-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                          <Icon name="User" size={12} className="text-gray-500 dark:text-slate-400" />
+                        </div>
+                        <span className="font-medium text-gray-700 dark:text-slate-200">{interview?.interviewer}</span>
+                      </div>
+                    )}
+                    <div className="inline-flex items-center gap-1.5 text-xs text-gray-600 dark:text-slate-300">
+                      <div className="w-5 h-5 rounded-md bg-gray-100 dark:bg-slate-700/60 flex items-center justify-center flex-shrink-0">
+                        <Icon name="Tag" size={12} className="text-gray-500 dark:text-slate-400" />
+                      </div>
+                      <span className="font-medium text-gray-700 dark:text-slate-200">{interview?.type}</span>
                     </div>
                   </div>
 
-                  <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2 xs:gap-0">
-                    <div className={`text-xs sm:text-sm font-medium ${getCountdownColor(interview?.timeLeft)}`}>
-                      <Icon name="Timer" size={14} className="inline mr-1" />
-                      {interview?.timeLeft} remaining
-                    </div>
+                  {/* Actions row */}
+                  <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2.5">
+                    {/* Countdown */}
+                    {interview?.hasScheduledDate ? (
+                      <div className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                        isToday
+                          ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-1 ring-rose-200/60 dark:ring-rose-500/20'
+                          : isUrgent
+                            ? 'bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-400 ring-1 ring-amber-200/60 dark:ring-amber-500/20'
+                            : `bg-white/80 dark:bg-slate-700/40 ring-1 ring-gray-200/60 dark:ring-slate-600/40 ${getCountdownColor(interview?.timeLeft)}`
+                      }`}>
+                        <Icon name="Timer" size={13} />
+                        {isToday ? 'Today — Get ready!' : `${interview?.timeLeft} remaining`}
+                      </div>
+                    ) : (
+                      <div className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-300 ring-1 ring-amber-200/60 dark:ring-amber-500/20">
+                        <Icon name="Clock3" size={13} />
+                        Scheduling details will be shared soon
+                      </div>
+                    )}
 
-                    <div className="flex items-center space-x-2">
-                      <Button
-                    variant="outline"
-                    size="sm"
-                    iconName="Calendar"
-                    iconPosition="left"
-                    onClick={() => openScheduleFormFor(interview)}
-                    className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 text-xs sm:text-sm flex-1 xs:flex-none"
-                  >
-                        Reschedule
-                      </Button>
-                      {interview?.status === 'confirmed' &&
-                  <Button
-                    variant="default"
+                    <div className="flex items-center gap-2">
+	                      {interview?.canManageSchedule ? (
+	                        <Button
+	                          variant="outline"
+	                          size="sm"
+	                          iconName="Calendar"
+	                          iconPosition="left"
+	                          onClick={() => openScheduleFormFor(interview)}
+                            className="rounded-full border border-gray-200/80 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-500/5 text-xs flex-1 xs:flex-none transition-colors"
+	                        >
+	                          Reschedule
+	                        </Button>
+	                      ) : interview?.canRequestReschedule ? (
+	                        <Button
+	                          variant="outline"
+	                          size="sm"
+	                          iconName="MessageSquare"
+	                          iconPosition="left"
+	                          onClick={() => openScheduleFormFor(interview)}
+                            className="rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs flex-1 xs:flex-none transition-colors"
+	                        >
+	                          Request Reschedule
+	                        </Button>
+	                      ) : interview?.rescheduleExhausted ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          iconName="Mail"
+                          iconPosition="left"
+                          onClick={() => openScheduleFormFor(interview)}
+                          className="rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs flex-1 xs:flex-none transition-colors"
+                        >
+                          Contact Company
+                        </Button>
+	                      ) : (
+	                        <span className="inline-flex items-center rounded-full border border-gray-200 dark:border-slate-700 px-2.5 py-1 text-[11px] text-gray-500 dark:text-slate-400 bg-white/60 dark:bg-slate-800/60">
+	                          {interview?.pendingRescheduleRequest ? 'Request Pending' : 'Managed by hiring team'}
+	                        </span>
+	                      )}
+                      {interview?.status === 'confirmed' && interview?.hasScheduledDate && (
+	                  <Button
+	                    variant="default"
                     size="sm"
                     iconName="Video"
                     iconPosition="left"
                     onClick={() => navigate(`/live-interview-session?interviewId=${encodeURIComponent(interview.id)}`)}
-                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 text-xs sm:text-sm flex-1 xs:flex-none"
+                          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/40 text-xs flex-1 xs:flex-none transition-all"
                   >
                           Join
                         </Button>
-                  }
+                      )}
                     </div>
                   </div>
                 </div>
               </div>
-            </div>
-        )}
-        </div> :
+              );
+            })}
+          </div>
+        ) : (
 
-      <div className="text-center py-5">
-          <div className="w-12 h-12 bg-gradient-to-br from-blue-50 to-purple-50 dark:from-slate-800 dark:to-slate-900 border border-white/50 dark:border-slate-700/60 rounded-full flex items-center justify-center mx-auto mb-3">
-            <Icon name="Calendar" size={24} className="text-blue-600" />
+        <div className="px-4 sm:px-5 text-center py-8">
+            <div className="w-14 h-14 bg-gradient-to-br from-blue-100 to-purple-100 dark:from-blue-500/15 dark:to-purple-500/15 border border-blue-200/50 dark:border-blue-500/20 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-sm">
+              <Icon name="CalendarX2" size={26} className="text-blue-600 dark:text-blue-400" />
+            </div>
+            <h3 className="font-semibold text-gray-900 dark:text-slate-100 mb-1.5">No Upcoming Interviews</h3>
+            <p className="text-sm text-gray-500 dark:text-slate-400 mb-5 max-w-xs mx-auto leading-relaxed">
+              You don&apos;t have any scheduled interviews yet. Stay sharp with practice sessions while your applications progress.
+            </p>
+            <div className="flex flex-col xs:flex-row justify-center gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                iconName="Briefcase"
+                iconPosition="left"
+                onClick={() => navigate('/my-applications')}
+                className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+              >
+                View Applications
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                iconName="Play"
+                iconPosition="left"
+                onClick={() => navigate('/practice-interview-setup')}
+                className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
+              >
+                Start Practice
+              </Button>
+            </div>
           </div>
-          <h3 className="font-medium text-gray-900 dark:text-slate-100 mb-2">No Upcoming Interviews</h3>
-          <p className="text-sm text-gray-500 dark:text-slate-400 mb-4">
-            You do not have any scheduled interviews yet. Keep momentum with practice while your applications progress.
-          </p>
-          <div className="flex flex-col xs:flex-row justify-center gap-2">
-            <Button
-              variant="outline"
-              iconName="Briefcase"
-              iconPosition="left"
-              onClick={() => navigate('/my-applications')}
-              className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-            >
-              View Applications
-            </Button>
-            <Button
-              variant="default"
-              iconName="Play"
-              iconPosition="left"
-              onClick={() => navigate('/practice-interview-setup')}
-              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
-            >
-              Start Practice
-            </Button>
-          </div>
-        </div>
-      }
-      {/* Quick Actions */}
-      <div className="mt-4 pt-3 border-t border-white/30">
-        <Button
-          variant="outline"
-          iconName="Calendar"
-          iconPosition="left"
-          onClick={handleViewCalendar}
-          fullWidth
-          className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-        >
-          {hasScheduledInterviews ? 'View Calendar' : 'Open My Applications'}
-        </Button>
+        )}
+
+
       </div>
-    </div>);
+      {scheduleModal}
+    </>);
 
 };
 

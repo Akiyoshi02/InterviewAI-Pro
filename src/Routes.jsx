@@ -1,13 +1,13 @@
 import React from "react";
 import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-router-dom";
-import ScrollToTop from "components/ScrollToTop";
-import PageTitleManager from "components/PageTitleManager";
-import ErrorBoundary from "components/ErrorBoundary";
-import OAuthRedirectHandler from "components/OAuthRedirectHandler";
-import ThemeToggleButton from "components/ThemeToggleButton";
-import ProtectedRoute from "components/ProtectedRoute";
+import ScrollToTop from "./components/ScrollToTop";
+import PageTitleManager from "./components/PageTitleManager";
+import ErrorBoundary from "./components/ErrorBoundary";
+import OAuthRedirectHandler from "./components/OAuthRedirectHandler";
+import ThemeToggleButton from "./components/ThemeToggleButton";
+import ProtectedRoute from "./components/ProtectedRoute";
 import LiveChatWidget from "./components/live-chat/LiveChatWidget";
-import NotFound from "pages/NotFound";
+import NotFound from "./pages/NotFound";
 import HomePage from './pages/home';
 import SharedResultsPage from './pages/shared-results';
 import CandidateAnalyticsPage from './pages/candidate-analytics';
@@ -57,10 +57,10 @@ import InvitePage from './pages/invite';
 import SystemAdminDashboard from './pages/system-admin-dashboard';
 import AcceptTeamInvitePage from './pages/accept-team-invite';
 import CompanyJobsPage from './pages/company-jobs';
+import CompanyTemplatesPage from './pages/company-templates';
 import MyApplicationsPage from './pages/my-applications';
 import CompanyApplicationsPage from './pages/company-applications';
 import CompanyInterviewsPage from './pages/company-interviews';
-import CompanyInvitationsPage from './pages/company-invitations';
 import CompanyCandidatesPage from './pages/company-candidates';
 import CompanyAnalyticsPage from './pages/company-analytics';
 import CompanyTeamMembersPage from './pages/company-team-members';
@@ -120,6 +120,14 @@ const Routes = () => {
           )}
         />
         <Route
+          path="/company-templates"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_JOBS_PAGE']}>
+              <CompanyTemplatesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/company-applications"
           element={(
             <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_APPLICATIONS_PAGE']}>
@@ -132,14 +140,6 @@ const Routes = () => {
           element={(
             <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INTERVIEWS_PAGE']}>
               <CompanyInterviewsPage />
-            </ProtectedRoute>
-          )}
-        />
-        <Route
-          path="/company-invitations"
-          element={(
-            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INVITATIONS_PAGE']}>
-              <CompanyInvitationsPage />
             </ProtectedRoute>
           )}
         />
