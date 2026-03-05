@@ -164,6 +164,10 @@ const LiveChatWidget = () => {
   const [chatStatus, setChatStatus] = useState('open');
   const [messages, setMessages] = useState([]);
   const [messageDraft, setMessageDraft] = useState('');
+  const [chatRecording, setChatRecording] = useState(false);
+  const [chatTranscribing, setChatTranscribing] = useState(false);
+  const [chatRecordingError, setChatRecordingError] = useState(null);
+  const [chatVoiceStatus, setChatVoiceStatus] = useState('idle');
   const [displayName, setDisplayName] = useState(getStorageValue(CHAT_NAME_KEY, '', 'local'));
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -204,6 +208,19 @@ const LiveChatWidget = () => {
     transcribing: 'Transcribing with Whisper...',
     processing: 'Sending your question to the assistant...'
   }[assistantVoiceStatus] || null;
+  const chatMicDisabled = !chatRecording
+    && (
+      isLoading
+      || chatTranscribing
+      || chatVoiceStatus === 'processing'
+      || assistantRecording
+      || assistantTranscribing
+    );
+  const chatMicStatusMessage = {
+    recording: 'Listening... tap the mic again to send your message.',
+    transcribing: 'Transcribing with Whisper...',
+    processing: 'Sending your message...'
+  }[chatVoiceStatus] || null;
 
   const accountDisplayName = useMemo(() => getAccountDisplayName(user), [user]);
   const accountType = (user?.accountType || 'ANONYMOUS').toUpperCase();
@@ -500,8 +517,8 @@ const LiveChatWidget = () => {
     }
   }, [ensureChatSession, nameDraft, showError, showSuccess]);
 
-  const handleSendMessage = useCallback(async () => {
-    const trimmedMessage = messageDraft.trim();
+  const handleSendMessage = useCallback(async (overrideText = null) => {
+    const trimmedMessage = (typeof overrideText === 'string' ? overrideText : messageDraft).trim();
     if (!trimmedMessage) return;
     if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
       showError(`Message is too long. Please keep it under ${MAX_MESSAGE_LENGTH} characters.`);
@@ -575,6 +592,83 @@ const LiveChatWidget = () => {
       }
     });
   };
+
+  const stopChatRecordingAndTranscribe = useCallback(async () => {
+    setChatRecordingError(null);
+    try {
+      setChatVoiceStatus('transcribing');
+      const audioBlob = await audioRecorderService.stop();
+      setChatRecording(false);
+
+      if (!audioBlob || audioBlob.size === 0) {
+        setChatRecordingError('I could not capture any audio. Please try again.');
+        setChatVoiceStatus('idle');
+        return;
+      }
+
+      setChatTranscribing(true);
+      const transcription = await transcribeWithFallback(audioBlob, { language: 'en' });
+      const transcriptText = transcription?.text?.trim()
+        || transcription?.segments?.map((segment) => segment?.text || '').join(' ').trim();
+
+      if (transcriptText) {
+        if (messageDraft?.trim()) {
+          setMessageDraft((prev) => `${prev} ${transcriptText}`.trim());
+          setChatVoiceStatus('idle');
+          requestAnimationFrame(() => {
+            resizeMessageInput();
+            if (messageInputRef.current) {
+              messageInputRef.current.focus();
+              const length = messageInputRef.current.value.length;
+              messageInputRef.current.setSelectionRange(length, length);
+            }
+          });
+        } else {
+          setChatVoiceStatus('processing');
+          await handleSendMessage(transcriptText);
+          setChatVoiceStatus('idle');
+        }
+      } else {
+        setChatRecordingError('I did not catch that. Could you try again?');
+        setChatVoiceStatus('idle');
+      }
+    } catch (error) {
+      console.error('Live chat voice input error:', error);
+      setChatRecordingError(error?.message || 'Transcription failed. Please try again.');
+      setChatVoiceStatus('idle');
+    } finally {
+      setChatRecording(false);
+      setChatTranscribing(false);
+      setChatVoiceStatus('idle');
+    }
+  }, [handleSendMessage, messageDraft, resizeMessageInput]);
+
+  const handleChatMicClick = useCallback(async () => {
+    if (chatTranscribing) return;
+
+    if (chatRecording) {
+      await stopChatRecordingAndTranscribe();
+      return;
+    }
+
+    setChatRecordingError(null);
+
+    try {
+      const started = await audioRecorderService.start();
+      if (started) {
+        setChatRecording(true);
+        setChatVoiceStatus('recording');
+      } else {
+        setChatRecordingError('Microphone unavailable. Please check your permissions.');
+        setChatVoiceStatus('idle');
+      }
+    } catch (error) {
+      console.error('Live chat microphone access error:', error);
+      setChatRecordingError(error?.message || 'Unable to access microphone.');
+      setChatRecording(false);
+      setChatVoiceStatus('idle');
+    }
+  }, [chatRecording, chatTranscribing, stopChatRecordingAndTranscribe]);
 
   const buildAssistantConversation = useCallback((history = []) => (
     history
@@ -1285,17 +1379,48 @@ const LiveChatWidget = () => {
                             placeholder="Write a message..."
                             className={`flex-1 min-w-0 resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-3 ${sizeSettings.inputText} text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 h-14`}
                             style={{ lineHeight: '1.5' }}
+                            disabled={chatTranscribing}
                           />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            onClick={handleChatMicClick}
+                            disabled={chatMicDisabled}
+                            aria-pressed={chatRecording}
+                            aria-label={chatRecording ? 'Stop voice input' : 'Record a message'}
+                            className={`shrink-0 w-14 h-14 rounded-full border border-white/40 dark:border-slate-700/60 backdrop-blur text-blue-600 dark:text-blue-300 hover:text-purple-500 dark:hover:text-purple-300 transition ${
+                              chatRecording
+                                ? 'bg-red-600 text-white shadow-lg shadow-red-500/40 animate-pulse'
+                                : ''
+                            }`}
+                          >
+                            {chatTranscribing ? (
+                              <LoadingIndicator size={18} tone="current" />
+                            ) : (
+                              <Icon name={chatRecording ? 'Square' : 'Mic'} size={18} />
+                            )}
+                          </Button>
                           <Button
                             onClick={handleSendMessage}
                             loading={isLoading}
                             iconName="Send"
                             size="icon"
-                            disabled={isLoading || !messageDraft.trim()}
+                            disabled={isLoading || chatTranscribing || !messageDraft.trim()}
                             className="shrink-0 w-14 h-14 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
                             aria-label="Send message"
                           />
                         </div>
+                        {chatMicStatusMessage && (
+                          <p className={`mt-2 ${sizeSettings.statusText} text-blue-600 dark:text-blue-300`}>
+                            {chatMicStatusMessage}
+                          </p>
+                        )}
+                        {chatRecordingError && (
+                          <p className={`mt-2 ${sizeSettings.statusText} text-amber-500 dark:text-amber-400`}>
+                            {chatRecordingError}
+                          </p>
+                        )}
                         </div>
                       )}
                     </>

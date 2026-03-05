@@ -151,10 +151,227 @@ const formatDate = (dateInput) => {
   return date.toLocaleDateString();
 };
 
-const resolveReviewStartStatus = (status) => {
-  const normalizedStatus = String(status || '').trim().toUpperCase();
-  if (normalizedStatus === 'SUBMITTED') return 'SCREENING';
-  return null;
+const INTERVIEW_SCHEDULING_DURATION_OPTIONS = [
+  { value: 30, label: '30 min' },
+  { value: 45, label: '45 min' },
+  { value: 60, label: '60 min' },
+  { value: 90, label: '90 min' },
+];
+
+const resolveLocalTimezone = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+const toLocalDatetimeValue = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
+const getDefaultInterviewingDatetime = () => {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() + 60 - (date.getMinutes() % 30));
+  date.setSeconds(0, 0);
+  return toLocalDatetimeValue(date);
+};
+
+const buildInitialInterviewingScheduleState = (applicationId = null) => ({
+  open: false,
+  applicationId,
+  mode: 'AUTO',
+  scheduledFor: getDefaultInterviewingDatetime(),
+  timezone: resolveLocalTimezone(),
+  meetingLink: '',
+  duration: 30,
+  notes: '',
+  error: '',
+});
+
+const decodeHtmlEntities = (value) => {
+  if (typeof value !== 'string') return value || '';
+  if (!value.includes('&')) return value;
+  if (typeof document === 'undefined') return value;
+  const decoder = document.createElement('textarea');
+  decoder.innerHTML = value;
+  return decoder.value;
+};
+
+const normalizeQuestionDefs = (job) => {
+  const rawQuestions = Array.isArray(job?.applicationQuestions) && job.applicationQuestions.length > 0
+    ? job.applicationQuestions
+    : (Array.isArray(job?.customFormFields) ? job.customFormFields : []);
+
+  return rawQuestions
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = String(question.id || `question_${index + 1}`).trim() || `question_${index + 1}`;
+      const prompt = decodeHtmlEntities(String(question.question || question.label || '').trim());
+      if (!prompt) return null;
+      return {
+        id,
+        prompt,
+      };
+    })
+    .filter(Boolean);
+};
+
+const buildApplicationResponses = (application) => {
+  const answers = Array.isArray(application?.answers) ? application.answers : [];
+  const questionDefs = normalizeQuestionDefs(application?.job || {});
+  const questionsById = new Map(questionDefs.map((question) => [question.id, question]));
+  const usedQuestionIds = new Set();
+
+  const rows = answers.map((rawAnswer, index) => {
+    const answer = rawAnswer && typeof rawAnswer === 'object'
+      ? rawAnswer
+      : { answer: String(rawAnswer ?? '') };
+    const questionId = String(answer.questionId || answer.id || '').trim();
+    const mappedQuestion = questionId ? questionsById.get(questionId) : null;
+    if (mappedQuestion?.id) usedQuestionIds.add(mappedQuestion.id);
+    const prompt = decodeHtmlEntities(
+      String(answer.question || answer.label || mappedQuestion?.prompt || `Question ${index + 1}`).trim(),
+    );
+    const responseValue = answer.answer ?? answer.value ?? '';
+    const response = decodeHtmlEntities(String(responseValue || '').trim());
+    return {
+      id: questionId || `answer_${index + 1}`,
+      prompt,
+      response: response || 'No response provided',
+      isMissing: !response,
+    };
+  });
+
+  questionDefs.forEach((question) => {
+    if (usedQuestionIds.has(question.id)) return;
+    rows.push({
+      id: `missing_${question.id}`,
+      prompt: question.prompt,
+      response: 'No response provided',
+      isMissing: true,
+    });
+  });
+
+  return rows;
+};
+
+const STATUS_SELECTION_OPTIONS = ['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'];
+
+const getPrimaryActionConfig = ({
+  application,
+  pendingStatus,
+  canUpdateStatus,
+  canStartReview,
+}) => {
+  if (!application) {
+    return {
+      label: 'Confirm Status',
+      icon: 'CheckCircle',
+      disabled: true,
+      action: 'none',
+      helperText: 'Select an application to continue.',
+    };
+  }
+
+  const derivedStatus = getDerivedApplicationStatus(application);
+  const hasInterview = Boolean(application.interviewId);
+  const selectedStatus = pendingStatus || (STATUS_SELECTION_OPTIONS.includes(derivedStatus) ? derivedStatus : null);
+  const hasPendingStatusChange = Boolean(
+    canUpdateStatus
+    && selectedStatus
+    && selectedStatus !== derivedStatus,
+  );
+
+  if (hasPendingStatusChange) {
+    const selectedConfig = getStatusConfig(
+      selectedStatus,
+      null,
+      selectedStatus === 'REJECTED' ? 'NOT_SELECTED' : null,
+    );
+    const helperText = selectedStatus === 'INTERVIEWING'
+      ? 'This moves the candidate to Interviewing. You can auto-schedule or pick the interview date now.'
+      : `This will update the application status to ${selectedConfig.label}.`;
+    return {
+      label: `Confirm: ${selectedConfig.label}`,
+      icon: 'CheckCircle',
+      disabled: false,
+      action: 'confirm_status',
+      helperText,
+    };
+  }
+
+  if (derivedStatus === 'WITHDRAWN') {
+    return {
+      label: 'Application Withdrawn',
+      icon: 'XCircle',
+      disabled: true,
+      action: 'none',
+      helperText: 'Candidate withdrew this application.',
+    };
+  }
+
+  if (derivedStatus === 'POSITION_CLOSED') {
+    return {
+      label: 'Position Closed',
+      icon: 'Archive',
+      disabled: true,
+      action: 'none',
+      helperText: 'This job is closed.',
+    };
+  }
+
+  if (derivedStatus === 'INTERVIEWING') {
+    if (hasInterview && canStartReview) {
+      return {
+        label: 'Open Interview',
+        icon: 'Calendar',
+        disabled: false,
+        action: 'open_interview',
+        helperText: 'Interview record is ready. Open the interview workspace to review or reschedule.',
+      };
+    }
+    return {
+      label: 'Preparing Interview',
+      icon: 'Clock',
+      disabled: true,
+      action: 'none',
+      helperText: 'Interview record is being prepared. Refresh in a moment.',
+    };
+  }
+
+  if (derivedStatus === 'SCREENING') {
+    return {
+      label: 'Screening In Progress',
+      icon: 'Eye',
+      disabled: true,
+      action: 'none',
+      helperText: 'Screening means CV/profile review only. Select Interviewing above, then confirm.',
+    };
+  }
+
+  if (derivedStatus === 'SUBMITTED') {
+    return {
+      label: 'Select Status To Confirm',
+      icon: 'ArrowRight',
+      disabled: true,
+      action: 'none',
+      helperText: 'Choose a status above and confirm.',
+    };
+  }
+
+  return {
+    label: 'Select Status To Confirm',
+    icon: 'CheckCircle',
+    disabled: true,
+    action: 'none',
+    helperText: 'Choose a status above and confirm.',
+  };
 };
 
 const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
@@ -164,7 +381,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const canStartReview = hasPermission(organizationRole, 'START_CANDIDATE_REVIEW');
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const [pageError, setPageError] = useState('');
+  const [modalError, setModalError] = useState('');
   const [filters, setFilters] = useState(DEFAULT_COMPANY_APPLICATION_FILTERS);
   const [showAdvancedFilters, setShowAdvancedFilters] = useState(false);
   const [selectedApplication, setSelectedApplication] = useState(null);
@@ -172,9 +390,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const [updating, setUpdating] = useState(null);
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [startingReview, setStartingReview] = useState(false);
+  const [pendingStatus, setPendingStatus] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
   const [rejectionModal, setRejectionModal] = useState({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
+  const [interviewingScheduleModal, setInterviewingScheduleModal] = useState(() => buildInitialInterviewingScheduleState());
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
 
@@ -201,7 +421,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const loadApplications = async () => {
     try {
       setLoading(true);
-      setError('');
+      setPageError('');
       const result = jobId
         ? await apiClient.applications.getJobApplications(jobId)
         : await apiClient.applications.getOrganizationApplications();
@@ -216,10 +436,10 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
           }
         }
       } else {
-        setError('Failed to load applications');
+        setPageError('Failed to load applications');
       }
     } catch (err) {
-      setError(err.message || 'Failed to load applications');
+      setPageError(err.message || 'Failed to load applications');
     } finally {
       setLoading(false);
     }
@@ -260,25 +480,137 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     (item) => item.value !== 'CANDIDATE_WITHDREW' && item.value !== 'JOB_CLOSED' && item.value !== 'HIRED',
   );
 
-  const handleStatusChange = async (applicationId, newStatus) => {
+  const closeInterviewingScheduleModal = () => {
+    setInterviewingScheduleModal(buildInitialInterviewingScheduleState());
+  };
+
+  const openInterviewingScheduleModal = (applicationId) => {
+    setInterviewingScheduleModal({
+      ...buildInitialInterviewingScheduleState(applicationId),
+      open: true,
+    });
+  };
+
+  const handleStatusChange = async (applicationId, newStatus, options = {}) => {
+    const {
+      interviewSchedulingMode = null,
+      manualSchedule = null,
+    } = options;
+
     if (newStatus === 'REJECTED') {
       setRejectionModal({ open: true, applicationId, dispositionCode: REJECTION_DISPOSITION_OPTIONS[0]?.value || 'PASSED_ON', notes: '' });
-      return;
+      return false;
     }
+
+    let statusUpdated = false;
+    let statusResult = null;
+    let finalInterview = null;
+
     try {
       setUpdating(applicationId);
-      const result = await apiClient.applications.updateStatus(applicationId, { status: newStatus });
-      if (result.success) {
+      const payload = { status: newStatus };
+      if (newStatus === 'INTERVIEWING' && interviewSchedulingMode) {
+        payload.interviewSchedulingMode = interviewSchedulingMode;
+      }
+
+      statusResult = await apiClient.applications.updateStatus(applicationId, payload);
+      if (statusResult.success) {
+        statusUpdated = true;
+        finalInterview = statusResult?.interview || null;
+
+        const shouldManualSchedule = newStatus === 'INTERVIEWING'
+          && interviewSchedulingMode === 'MANUAL'
+          && manualSchedule;
+
+        if (shouldManualSchedule) {
+          let interviewId = finalInterview?.id || statusResult?.application?.interviewId || null;
+          if (!interviewId) {
+            const refreshedApplication = await apiClient.applications.getApplication(applicationId);
+            interviewId = refreshedApplication?.application?.interviewId || null;
+          }
+
+          if (!interviewId) {
+            throw new Error('Status was updated, but interview record is not ready yet. Refresh and schedule from Interviews.');
+          }
+
+          const scheduledDate = manualSchedule?.scheduledFor ? new Date(manualSchedule.scheduledFor) : null;
+          if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
+            throw new Error('Please select a valid interview date and time.');
+          }
+
+          const schedulePayload = {
+            scheduledFor: scheduledDate.toISOString(),
+            timezone: manualSchedule?.timezone?.trim() || resolveLocalTimezone(),
+            meetingLink: manualSchedule?.meetingLink?.trim() || null,
+            duration: Number.isFinite(Number(manualSchedule?.duration)) ? Number(manualSchedule.duration) : 30,
+            notes: manualSchedule?.notes?.trim() || '',
+          };
+
+          const scheduleResult = await apiClient.interviews.schedule(interviewId, schedulePayload);
+          finalInterview = scheduleResult?.interview || finalInterview;
+        }
+
         await loadApplications();
         if (selectedApplication?.id === applicationId) {
-          setSelectedApplication(result.application);
+          setSelectedApplication((previous) => ({
+            ...(previous || {}),
+            ...(statusResult.application || {}),
+            interviewId: finalInterview?.id || statusResult?.interview?.id || statusResult?.application?.interviewId || previous?.interviewId || null,
+          }));
+          setPendingStatus(newStatus);
         }
       }
+      return Boolean(statusResult?.success);
     } catch (err) {
-      setError('Failed to update status: ' + (err.message || 'Please try again.'));
-      setTimeout(() => setError(''), 5000);
+      const actionMessage = statusUpdated && newStatus === 'INTERVIEWING' && interviewSchedulingMode === 'MANUAL'
+        ? 'Status updated to Interviewing, but scheduling failed: '
+        : 'Failed to update status: ';
+      setModalError(actionMessage + (err.message || 'Please try again.'));
+      setTimeout(() => setModalError(''), 5000);
+      return false;
     } finally {
       setUpdating(null);
+    }
+  };
+
+  const handleConfirmInterviewingTransition = async () => {
+    const modal = interviewingScheduleModal;
+    if (!modal?.applicationId) return;
+
+    if (modal.mode === 'MANUAL') {
+      const scheduledDate = modal.scheduledFor ? new Date(modal.scheduledFor) : null;
+      if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
+        setInterviewingScheduleModal((previous) => ({
+          ...previous,
+          error: 'Select a valid interview date and time.',
+        }));
+        return;
+      }
+
+      if (scheduledDate.getTime() <= Date.now()) {
+        setInterviewingScheduleModal((previous) => ({
+          ...previous,
+          error: 'Interview date and time must be in the future.',
+        }));
+        return;
+      }
+    }
+
+    setInterviewingScheduleModal((previous) => ({ ...previous, error: '' }));
+    const wasUpdated = await handleStatusChange(modal.applicationId, 'INTERVIEWING', {
+      interviewSchedulingMode: modal.mode,
+      manualSchedule: modal.mode === 'MANUAL'
+        ? {
+          scheduledFor: modal.scheduledFor,
+          timezone: modal.timezone,
+          meetingLink: modal.meetingLink,
+          duration: modal.duration,
+          notes: modal.notes,
+        }
+        : null,
+    });
+    if (wasUpdated) {
+      closeInterviewingScheduleModal();
     }
   };
 
@@ -299,12 +631,17 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
       if (result.success) {
         await loadApplications();
         if (selectedApplication?.id === applicationId) {
-          setSelectedApplication(result.application);
+          setSelectedApplication((previous) => ({
+            ...(previous || {}),
+            ...(result.application || {}),
+            interviewId: result?.interview?.id || result?.application?.interviewId || previous?.interviewId || null,
+          }));
+          setPendingStatus('REJECTED');
         }
       }
     } catch (err) {
-      setError('Failed to reject application: ' + (err.message || 'Please try again.'));
-      setTimeout(() => setError(''), 5000);
+      setModalError('Failed to reject application: ' + (err.message || 'Please try again.'));
+      setTimeout(() => setModalError(''), 5000);
     } finally {
       setUpdating(null);
     }
@@ -316,69 +653,85 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
   const handleViewDetails = (application) => {
     setSelectedApplication(application);
+    setModalError('');
+    const derivedStatus = getDerivedApplicationStatus(application);
+    setPendingStatus(STATUS_SELECTION_OPTIONS.includes(derivedStatus) ? derivedStatus : null);
     setShowDetails(true);
   };
 
   const handleStartReview = async () => {
     if (!canStartReview) {
-      setError('You do not have permission to start candidate reviews.');
-      setTimeout(() => setError(''), 5000);
+      setModalError('You do not have permission to start candidate reviews.');
+      setTimeout(() => setModalError(''), 5000);
       return;
     }
 
     if (!selectedApplication || !selectedApplication.candidateId) return;
+    const derivedStatus = getDerivedApplicationStatus(selectedApplication);
+
+    if (derivedStatus !== 'INTERVIEWING') {
+      setModalError('Set status to Interviewing before starting interview review.');
+      setTimeout(() => setModalError(''), 5000);
+      return;
+    }
 
     try {
       setStartingReview(true);
-      setError('');
-      const statusToApply = resolveReviewStartStatus(selectedApplication.status);
+      setModalError('');
 
-      // Check if interview already exists for this application
       let interviewId = selectedApplication.interviewId;
-      
-      if (!interviewId) {
-        // Create a HIRING interview for this candidate and job
-        const interviewData = {
-          mode: 'HIRING',
-          jobId: selectedApplication.jobId,
-          candidateId: selectedApplication.candidateId,
-          jobRole: selectedApplication.job?.title || 'Position',
-          experienceLevel: selectedApplication.job?.experienceLevel || 'MID',
-          industry: selectedApplication.job?.department || 'Technology',
-          interviewTypes: ['BEHAVIORAL', 'TECHNICAL'],
-          skillFocus: selectedApplication.job?.skills || [],
-          duration: 30,
-          jobStage: 'INITIAL_SCREENING',
-        };
 
-        const result = await apiClient.interviews.create(interviewData);
-        
-        if (result.success && result.interview) {
-          interviewId = result.interview.id;
-        } else {
-          throw new Error(result.error || 'Failed to create interview');
-        }
+      if (!interviewId && derivedStatus === 'INTERVIEWING') {
+        const refreshed = await apiClient.applications.getApplication(selectedApplication.id);
+        interviewId = refreshed?.application?.interviewId || null;
       }
 
-      if (interviewId && statusToApply) {
-        try {
-          await apiClient.applications.updateStatus(selectedApplication.id, { status: statusToApply });
-          await loadApplications();
-        } catch {
-          // Status update failed silently; review navigation continues
-        }
-      }
-
-      // Navigate to the interview review page
       if (interviewId) {
-        navigate(`/company-dashboard?interviewId=${interviewId}&tab=reviews`);
+        navigate(`/company-interviews?interviewId=${encodeURIComponent(interviewId)}`);
         setShowDetails(false);
+      } else {
+        throw new Error('Interview is still being auto-scheduled. Please refresh and try again.');
       }
     } catch (err) {
-      setError(err.message || 'Failed to start review. Please try again.');
-      setTimeout(() => setError(''), 5000);
+      setModalError(err.message || 'Failed to start review. Please try again.');
+      setTimeout(() => setModalError(''), 5000);
     } finally {
       setStartingReview(false);
+    }
+  };
+
+  const handlePrimaryAction = async () => {
+    if (!selectedApplication) return;
+    const actionConfig = getPrimaryActionConfig({
+      application: selectedApplication,
+      pendingStatus,
+      canUpdateStatus,
+      canStartReview,
+    });
+
+    if (actionConfig.disabled) {
+      if (actionConfig.helperText) {
+        setModalError(actionConfig.helperText);
+        setTimeout(() => setModalError(''), 5000);
+      }
+      return;
+    }
+
+    if (actionConfig.action === 'confirm_status') {
+      if (!pendingStatus) return;
+      if (
+        pendingStatus === 'INTERVIEWING'
+        && getDerivedApplicationStatus(selectedApplication) !== 'INTERVIEWING'
+      ) {
+        openInterviewingScheduleModal(selectedApplication.id);
+        return;
+      }
+      await handleStatusChange(selectedApplication.id, pendingStatus);
+      return;
+    }
+
+    if (actionConfig.action === 'open_interview') {
+      await handleStartReview();
     }
   };
 
@@ -456,12 +809,12 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     );
   }
 
-  if (error) {
+  if (pageError) {
     return (
       <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-6 shadow-lg">
         <div className="text-center py-12">
           <Icon name="AlertCircle" className="w-12 h-12 text-red-600 mx-auto mb-3" />
-          <p className="text-gray-900 dark:text-slate-100 mb-4">{error}</p>
+          <p className="text-gray-900 dark:text-slate-100 mb-4">{pageError}</p>
           <Button onClick={loadApplications}>Retry</Button>
         </div>
       </div>
@@ -495,6 +848,13 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const startIndex = (currentPage - 1) * itemsPerPage;
   const endIndex = startIndex + itemsPerPage;
   const paginatedJobs = jobsArray.slice(startIndex, endIndex);
+  const selectedPrimaryAction = selectedApplication ? getPrimaryActionConfig({
+    application: selectedApplication,
+    pendingStatus,
+    canUpdateStatus,
+    canStartReview,
+  }) : null;
+  const selectedApplicationResponses = buildApplicationResponses(selectedApplication);
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
@@ -918,7 +1278,10 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
                 className="absolute inset-0 bg-slate-900/45 backdrop-blur-sm"
-                onClick={() => setShowDetails(false)}
+                onClick={() => {
+                  setShowDetails(false);
+                  setModalError('');
+                }}
                 aria-hidden="true"
               />
               <motion.div
@@ -949,7 +1312,10 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       </div>
                     </div>
                     <button
-                      onClick={() => setShowDetails(false)}
+                      onClick={() => {
+                        setShowDetails(false);
+                        setModalError('');
+                      }}
                       className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
                     >
                       <Icon name="X" className="w-5 h-5" />
@@ -959,9 +1325,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                   {/* Modal Content */}
                   <div className="p-6 space-y-6">
                     {/* Error Message */}
-                    {error && (
+                    {modalError && (
                       <div className="p-3 rounded-lg bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800">
-                        <p className="text-sm text-red-700 dark:text-red-300">{error}</p>
+                        <p className="text-sm text-red-700 dark:text-red-300">{modalError}</p>
                       </div>
                     )}
 
@@ -1012,18 +1378,20 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       {canUpdateStatus ? (
                         <>
                           <div className="flex gap-2 flex-wrap">
-                            {['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'].map((status) => {
+                            {STATUS_SELECTION_OPTIONS.map((status) => {
                               const config = getStatusConfig(status, null, status === 'REJECTED' ? 'NOT_SELECTED' : null);
-                              const isCurrent = selectedApplication.status === status;
+                              const currentStatus = getDerivedApplicationStatus(selectedApplication);
+                              const isCurrent = currentStatus === status;
+                              const isSelected = pendingStatus === status;
                               const isWithdrawnApp = isWithdrawn(selectedApplication);
                               
                               return (
                                 <button
                                   key={status}
-                                  onClick={() => !isCurrent && !isWithdrawnApp && handleStatusChange(selectedApplication.id, status)}
-                                  disabled={updating === selectedApplication.id || isCurrent || isWithdrawnApp}
+                                  onClick={() => !isWithdrawnApp && setPendingStatus(status)}
+                                  disabled={updating === selectedApplication.id || isWithdrawnApp}
                                   className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-                                    isCurrent
+                                    isSelected
                                       ? `${config.color} border-white/80 dark:border-slate-100/70 shadow-sm ring-1 ring-black/5 dark:ring-white/10`
                                       : isWithdrawnApp
                                       ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 border-gray-300 dark:border-slate-700 cursor-not-allowed'
@@ -1031,7 +1399,12 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                                   }`}
                                   title={isWithdrawnApp ? 'Cannot change status of withdrawn applications' : ''}
                                 >
-                                  {config.label}
+                                  <span className="inline-flex items-center gap-1.5">
+                                    {config.label}
+                                    {isCurrent && (
+                                      <span className="text-[10px] uppercase tracking-wide opacity-75">Current</span>
+                                    )}
+                                  </span>
                                 </button>
                               );
                             })}
@@ -1065,6 +1438,15 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       {selectedApplication.dispositionNotes && (
                         <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
                           Note: {selectedApplication.dispositionNotes}
+                        </p>
+                      )}
+                      {selectedPrimaryAction?.helperText && (
+                        <p className={`text-xs mt-2 ${
+                          selectedPrimaryAction.disabled
+                            ? 'text-amber-600 dark:text-amber-400'
+                            : 'text-gray-500 dark:text-slate-400'
+                        }`}>
+                          {selectedPrimaryAction.helperText}
                         </p>
                       )}
                     </div>
@@ -1105,19 +1487,19 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     )}
 
                     {/* Custom Answers */}
-                    {selectedApplication.answers && selectedApplication.answers.length > 0 && (
+                    {selectedApplicationResponses.length > 0 && (
                       <div>
                         <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                           Application Questions
                         </h3>
                         <div className="space-y-3">
-                          {selectedApplication.answers.map((answer, idx) => (
-                            <div key={idx} className="p-3 rounded-lg bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
+                          {selectedApplicationResponses.map((response, idx) => (
+                            <div key={response.id || idx} className="p-3 rounded-lg bg-gray-50 dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
                               <p className="text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
-                                Question {idx + 1}
+                                {response.prompt || `Question ${idx + 1}`}
                               </p>
-                              <p className="text-sm text-gray-900 dark:text-slate-100">
-                                {answer.answer}
+                              <p className={`text-sm ${response.isMissing ? 'text-gray-500 dark:text-slate-400 italic' : 'text-gray-900 dark:text-slate-100'}`}>
+                                {response.response}
                               </p>
                             </div>
                           ))}
@@ -1130,21 +1512,30 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                   <div className="flex gap-3 p-6 border-t border-gray-200 dark:border-slate-700">
                     <Button
                       variant="outline"
-                      onClick={() => setShowDetails(false)}
+                      onClick={() => {
+                        setShowDetails(false);
+                        setModalError('');
+                      }}
                       className="flex-1 border-gray-300 dark:border-slate-500 bg-white dark:bg-slate-800 text-gray-800 dark:text-slate-100 hover:bg-gray-50 dark:hover:bg-slate-700"
                     >
                       Close
                     </Button>
-                    {canStartReview && (
+                    {(canStartReview || canUpdateStatus) && (
                       <Button
                         variant="default"
-                        onClick={handleStartReview}
-                        loading={startingReview}
-                        disabled={startingReview || isWithdrawn(selectedApplication)}
+                        onClick={handlePrimaryAction}
+                        loading={startingReview || updating === selectedApplication?.id}
+                        disabled={startingReview || updating === selectedApplication?.id || !selectedPrimaryAction || selectedPrimaryAction.disabled}
                         className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white font-semibold shadow-md"
                       >
-                        {!startingReview && <Icon name="Play" className="w-4 h-4 mr-2" />}
-                        {startingReview ? 'Starting...' : 'Start Review'}
+                        {!startingReview && updating !== selectedApplication?.id && (
+                          <Icon name={selectedPrimaryAction?.icon || 'CheckCircle'} className="w-4 h-4 mr-2" />
+                        )}
+                        {startingReview
+                          ? 'Opening...'
+                          : updating === selectedApplication?.id
+                          ? 'Saving...'
+                          : (selectedPrimaryAction?.label || 'Confirm Status')}
                       </Button>
                     )}
                   </div>
@@ -1213,6 +1604,216 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
             </div>
           </div>
         </div>,
+        document.body
+      )}
+
+      {interviewingScheduleModal.open && typeof document !== 'undefined' && createPortal(
+        <AnimatePresence>
+          {interviewingScheduleModal.open && (
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+            >
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm"
+                onClick={closeInterviewingScheduleModal}
+                aria-hidden="true"
+              />
+              <motion.div
+                initial={{ y: 16, opacity: 0, scale: 0.97 }}
+                animate={{ y: 0, opacity: 1, scale: 1 }}
+                exit={{ y: 16, opacity: 0, scale: 0.97 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                role="dialog"
+                aria-modal="true"
+                onClick={(event) => event.stopPropagation()}
+                className="relative w-full max-w-2xl rounded-2xl border border-white/20 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                      Move To Interviewing
+                    </h3>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
+                      Choose how this interview should be scheduled.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeInterviewingScheduleModal}
+                    className="p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 dark:hover:bg-slate-700 dark:hover:text-slate-200"
+                  >
+                    <Icon name="X" className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {[
+                    {
+                      value: 'AUTO',
+                      title: 'Auto schedule',
+                      description: 'Use organization rules (working hours, buffers, and conflict checks) to assign the best slot.',
+                    },
+                    {
+                      value: 'MANUAL',
+                      title: 'Pick date & time now',
+                      description: 'Set an exact interview slot immediately.',
+                    },
+                  ].map((option) => {
+                    const isActive = interviewingScheduleModal.mode === option.value;
+                    return (
+                      <button
+                        key={option.value}
+                        type="button"
+                        onClick={() => setInterviewingScheduleModal((previous) => ({
+                          ...previous,
+                          mode: option.value,
+                          error: '',
+                        }))}
+                        className={`text-left rounded-xl border p-3 transition-colors ${
+                          isActive
+                            ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-200'
+                            : 'border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-500/60'
+                        }`}
+                      >
+                        <p className="text-sm font-semibold">{option.title}</p>
+                        <p className="text-xs mt-1 opacity-85">{option.description}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {interviewingScheduleModal.mode === 'MANUAL' && (
+                  <div className="space-y-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40 p-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                        Date & Time
+                      </label>
+                      <input
+                        type="datetime-local"
+                        value={interviewingScheduleModal.scheduledFor}
+                        onChange={(event) => setInterviewingScheduleModal((previous) => ({
+                          ...previous,
+                          scheduledFor: event.target.value,
+                          error: '',
+                        }))}
+                        min={toLocalDatetimeValue(new Date())}
+                        className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                          Timezone
+                        </label>
+                        <input
+                          type="text"
+                          value={interviewingScheduleModal.timezone}
+                          onChange={(event) => setInterviewingScheduleModal((previous) => ({
+                            ...previous,
+                            timezone: event.target.value,
+                            error: '',
+                          }))}
+                          className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                          Duration
+                        </label>
+                        <select
+                          value={interviewingScheduleModal.duration}
+                          onChange={(event) => setInterviewingScheduleModal((previous) => ({
+                            ...previous,
+                            duration: Number(event.target.value),
+                            error: '',
+                          }))}
+                          className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          {INTERVIEW_SCHEDULING_DURATION_OPTIONS.map((option) => (
+                            <option key={option.value} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                        Meeting link <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <input
+                        type="url"
+                        value={interviewingScheduleModal.meetingLink}
+                        onChange={(event) => setInterviewingScheduleModal((previous) => ({
+                          ...previous,
+                          meetingLink: event.target.value,
+                          error: '',
+                        }))}
+                        placeholder="https://meet.example.com/session"
+                        className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                        Notes <span className="text-gray-400 font-normal">(optional)</span>
+                      </label>
+                      <textarea
+                        value={interviewingScheduleModal.notes}
+                        onChange={(event) => setInterviewingScheduleModal((previous) => ({
+                          ...previous,
+                          notes: event.target.value,
+                          error: '',
+                        }))}
+                        rows={2}
+                        placeholder="Optional scheduling note for the candidate."
+                        className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+                      />
+                    </div>
+                  </div>
+                )}
+
+                {interviewingScheduleModal.error && (
+                  <div className="rounded-lg border border-rose-200 dark:border-rose-500/40 bg-rose-50 dark:bg-rose-500/10 px-3 py-2">
+                    <p className="text-sm text-rose-700 dark:text-rose-200">
+                      {interviewingScheduleModal.error}
+                    </p>
+                  </div>
+                )}
+
+                <div className="flex gap-3">
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={closeInterviewingScheduleModal}
+                    disabled={updating === interviewingScheduleModal.applicationId}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white"
+                    onClick={handleConfirmInterviewingTransition}
+                    loading={updating === interviewingScheduleModal.applicationId}
+                    disabled={updating === interviewingScheduleModal.applicationId}
+                  >
+                    {interviewingScheduleModal.mode === 'MANUAL'
+                      ? 'Set Status & Schedule'
+                      : 'Set Status'}
+                  </Button>
+                </div>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>,
         document.body
       )}
     </div>

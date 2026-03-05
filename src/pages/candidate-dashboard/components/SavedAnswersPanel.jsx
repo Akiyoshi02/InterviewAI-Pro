@@ -5,7 +5,7 @@ import apiClient from '../../../services/apiClient.js';
 
 const truncate = (str, len = 80) => {
   if (!str || typeof str !== 'string') return '';
-  return str.length <= len ? str : str.slice(0, len) + '…';
+  return str.length <= len ? str : str.slice(0, len) + '...';
 };
 
 const SavedAnswersPanel = () => {
@@ -120,13 +120,14 @@ const SavedAnswersPanel = () => {
           (item.notes || '').toLowerCase().includes(searchQuery.toLowerCase())
       )
     : list;
+  const isEmptyLibraryState = !loading && filteredList.length === 0 && !showAddForm;
 
   return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
+    <div className={`rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur ${isEmptyLibraryState ? 'xl:min-h-[21rem]' : ''}`}>
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-3 mb-4 sm:mb-5">
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Personal Answer Library</h2>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
             {list.length} saved answer{list.length !== 1 ? 's' : ''}
           </p>
         </div>
@@ -143,38 +144,38 @@ const SavedAnswersPanel = () => {
       </div>
 
       {saveSuccess && (
-        <div className="mb-3 rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 p-2 text-xs text-emerald-700 dark:text-emerald-200">
+        <div className="mb-3 rounded-lg border border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 p-2.5 text-xs text-emerald-700 dark:text-emerald-200">
           {saveSuccess}
         </div>
       )}
       {error && (
-        <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-2 text-xs text-amber-800 dark:text-amber-200">
+        <div className="mb-3 rounded-lg border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-2.5 text-xs text-amber-800 dark:text-amber-200">
           {error}
         </div>
       )}
 
       {showAddForm && (
-        <div className="mb-4 rounded-xl border border-blue-200/60 dark:border-blue-700/50 bg-blue-50/50 dark:bg-blue-900/20 p-3 space-y-3">
+        <div className="mb-5 rounded-xl border border-blue-200/60 dark:border-blue-700/50 bg-blue-50/50 dark:bg-blue-900/20 p-4 space-y-3">
           <input
             type="text"
             placeholder="Question (e.g. Tell me about a challenge you faced)"
             value={addForm.questionText}
             onChange={(e) => setAddForm((p) => ({ ...p, questionText: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2 text-sm"
+            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2.5 text-sm"
           />
           <textarea
             placeholder="Your answer"
             value={addForm.answer}
             onChange={(e) => setAddForm((p) => ({ ...p, answer: e.target.value }))}
             rows={3}
-            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2 text-sm resize-y"
+            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2.5 text-sm resize-y"
           />
           <input
             type="text"
             placeholder="Notes (optional)"
             value={addForm.notes}
             onChange={(e) => setAddForm((p) => ({ ...p, notes: e.target.value }))}
-            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2 text-sm"
+            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2.5 text-sm"
           />
           <div className="flex gap-2">
             <Button size="sm" onClick={handleSaveNew} loading={saving} disabled={saving || !addForm.questionText?.trim() || !addForm.answer?.trim()}>
@@ -194,7 +195,7 @@ const SavedAnswersPanel = () => {
             placeholder="Search questions or answers..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2 text-sm"
+            className="w-full rounded-lg border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-800 text-gray-900 dark:text-slate-100 placeholder:text-gray-500 p-2.5 text-sm"
           />
         </div>
       )}
@@ -206,7 +207,7 @@ const SavedAnswersPanel = () => {
           ))}
         </div>
       ) : filteredList.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-600 p-5 text-center">
+        <div className="rounded-xl border border-dashed border-gray-300 dark:border-slate-600 p-5 sm:p-6 text-center min-h-[9.5rem] sm:min-h-[11.5rem] flex flex-col items-center justify-center">
           <Icon name="BookOpen" size={28} className="mx-auto text-gray-300 dark:text-slate-600 mb-2" />
           {list.length === 0 ? (
             <>
@@ -227,11 +228,11 @@ const SavedAnswersPanel = () => {
           )}
         </div>
       ) : (
-        <div className="space-y-2 max-h-[320px] overflow-y-auto">
+        <div className="space-y-3 max-h-[360px] overflow-y-auto">
           {filteredList.map((item) => (
             <div
               key={item.id}
-              className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/60 dark:bg-slate-900/50 p-3"
+              className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/60 dark:bg-slate-900/50 p-3.5 sm:p-4"
             >
               {editingId === item.id ? (
                 <div className="space-y-2">
@@ -253,12 +254,12 @@ const SavedAnswersPanel = () => {
                 </div>
               ) : (
                 <>
-                  <p className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-1">
+                  <p className="text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100 mb-1">
                     {truncate(item.questionText, 60)}
                   </p>
-                  <p className="text-xs text-gray-600 dark:text-slate-400 line-clamp-2">{truncate(item.answer, 120)}</p>
+                  <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-400 line-clamp-2 leading-relaxed">{truncate(item.answer, 120)}</p>
                   {item.notes && (
-                    <p className="text-xs text-gray-500 dark:text-slate-500 mt-1 italic">{truncate(item.notes, 60)}</p>
+                    <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-500 mt-1 italic">{truncate(item.notes, 60)}</p>
                   )}
                   <div className="flex items-center justify-between mt-2">
                     {item.savedAt && (
@@ -283,7 +284,7 @@ const SavedAnswersPanel = () => {
                             disabled={deletingId === item.id}
                             className="px-2 py-1 rounded-lg text-xs font-medium text-white bg-red-600 hover:bg-red-700 disabled:opacity-50"
                           >
-                            {deletingId === item.id ? '…' : 'Confirm'}
+                            {deletingId === item.id ? '...' : 'Confirm'}
                           </button>
                           <button
                             type="button"

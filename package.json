@@ -64,7 +64,11 @@
     "start": "vite",
     "build": "vite build --sourcemap",
     "serve": "vite preview",
-    "test": "vitest"
+    "test": "vitest",
+    "lint:candidate": "node scripts/candidate-lint-gate.mjs",
+    "test:candidate": "vitest run src/components/__tests__/ProtectedRoute.test.jsx src/pages/register/__tests__/register.referral.test.jsx src/pages/candidate-dashboard/__tests__/CandidateDashboard.flow.test.jsx src/pages/candidate-dashboard/components/__tests__/MyApplicationsList.withdraw.test.jsx src/pages/candidate-dashboard/components/__tests__/SchedulingWidget.test.jsx",
+    "test:e2e:candidate": "playwright test tests/e2e/candidate-smoke.spec.js",
+    "test:e2e:job-flow": "playwright test tests/e2e/company-candidate-job-flow.spec.js"
   },
   "eslintConfig": {
     "extends": [
@@ -85,6 +89,7 @@
     ]
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@tailwindcss/aspect-ratio": "^0.4.2",
     "@tailwindcss/container-queries": "^0.1.1",
     "@tailwindcss/line-clamp": "^0.1.0",

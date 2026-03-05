@@ -59,7 +59,7 @@ const TranscriptionPanel = ({
       )}
     >
       <div className="absolute inset-0 opacity-50 bg-[radial-gradient(circle_at_0%_0%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_100%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
-      <div className="relative z-10 flex flex-col h-full">
+      <div className="relative z-10 flex flex-col h-full min-h-0">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between p-4 border-b border-white/30 dark:border-slate-700 gap-2 sm:gap-0">
         <div className="flex items-center space-x-2">
@@ -131,7 +131,7 @@ const TranscriptionPanel = ({
       {/* Transcription Content */}
       <div 
         ref={scrollRef}
-        className="h-64 sm:h-80 md:h-96 lg:h-[473px] overflow-y-auto p-4 space-y-3 sm:space-y-4"
+        className="flex-1 min-h-[16rem] sm:min-h-[20rem] md:min-h-[24rem] lg:min-h-[28rem] overflow-y-auto p-4 space-y-3 sm:space-y-4"
       >
         {conversationHistory?.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center p-4">
@@ -145,7 +145,7 @@ const TranscriptionPanel = ({
         {conversationHistory?.map((entry, index) => (
           <div
             key={`${entry.timestamp}-${index}`}
-            className={`flex space-x-3 ${
+            className={`flex items-start gap-3 ${
               entry.role === 'interviewer' ? 'justify-start' : 'justify-end'
             }`}
           >

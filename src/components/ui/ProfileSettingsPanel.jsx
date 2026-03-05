@@ -167,6 +167,84 @@ const departmentOptions = [
 ];
 const OTHER_DEPARTMENT_VALUE = 'other';
 
+const recruiterWorkingDayOptions = [
+  { value: 1, label: 'Mon' },
+  { value: 2, label: 'Tue' },
+  { value: 3, label: 'Wed' },
+  { value: 4, label: 'Thu' },
+  { value: 5, label: 'Fri' },
+  { value: 6, label: 'Sat' },
+  { value: 0, label: 'Sun' },
+];
+
+const defaultRecruiterInterviewAvailability = Object.freeze({
+  timezone: 'UTC',
+  workingDays: [1, 2, 3, 4, 5],
+  businessHoursStart: '09:00',
+  businessHoursEnd: '17:00',
+  maxInterviewsPerDay: 8,
+});
+
+const normalizeWorkingDays = (rawWorkingDays) => {
+  if (!Array.isArray(rawWorkingDays) || rawWorkingDays.length === 0) {
+    return [...defaultRecruiterInterviewAvailability.workingDays];
+  }
+  const normalized = rawWorkingDays
+    .map((day) => Number.parseInt(day, 10))
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+  return normalized.length > 0
+    ? [...new Set(normalized)].sort((a, b) => a - b)
+    : [...defaultRecruiterInterviewAvailability.workingDays];
+};
+
+const normalizeTimeInput = (value, fallback) => {
+  if (typeof value !== 'string') return fallback;
+  const trimmed = value.trim();
+  return /^\d{2}:\d{2}$/.test(trimmed) ? trimmed : fallback;
+};
+
+const normalizeTimezone = (value, fallback = 'UTC') => {
+  const timezone = typeof value === 'string' ? value.trim() : '';
+  if (!timezone) return fallback;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return timezone;
+  } catch {
+    return fallback;
+  }
+};
+
+const parseNumberWithinRange = (value, fallback, minimum, maximum) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+};
+
+const normalizeRecruiterInterviewAvailability = (value = null, fallbackTimezone = 'UTC') => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    timezone: normalizeTimezone(
+      source.timezone,
+      normalizeTimezone(fallbackTimezone, defaultRecruiterInterviewAvailability.timezone),
+    ),
+    workingDays: normalizeWorkingDays(source.workingDays),
+    businessHoursStart: normalizeTimeInput(
+      source.businessHoursStart,
+      defaultRecruiterInterviewAvailability.businessHoursStart,
+    ),
+    businessHoursEnd: normalizeTimeInput(
+      source.businessHoursEnd,
+      defaultRecruiterInterviewAvailability.businessHoursEnd,
+    ),
+    maxInterviewsPerDay: parseNumberWithinRange(
+      source.maxInterviewsPerDay,
+      defaultRecruiterInterviewAvailability.maxInterviewsPerDay,
+      1,
+      40,
+    ),
+  };
+};
+
 const candidatePreferencesDefaults = {
   notificationCadence: 'weekly',
   practiceReminders: true,
@@ -512,6 +590,12 @@ const ProfileSettingsPanel = ({
   const titleSize = isCompact ? 'text-xl' : 'text-2xl';
 
   const [profileForm, setProfileForm] = useState(() => buildProfileDefaults(user, userType));
+  const [recruiterInterviewAvailability, setRecruiterInterviewAvailability] = useState(
+    () => normalizeRecruiterInterviewAvailability(
+      user?.interviewAvailability,
+      user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+    ),
+  );
   const [preferences, setPreferences] = useState(
     getPreferenceDefaultsByUserType(userType),
   );
@@ -542,6 +626,12 @@ const ProfileSettingsPanel = ({
 
   useEffect(() => {
     setProfileForm(buildProfileDefaults(user, userType));
+    setRecruiterInterviewAvailability(
+      normalizeRecruiterInterviewAvailability(
+        user?.interviewAvailability,
+        user?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      ),
+    );
   }, [user, userType]);
 
   useEffect(() => {
@@ -658,6 +748,38 @@ const ProfileSettingsPanel = ({
     }
   };
 
+  const handleRecruiterAvailabilityFieldChange = (field, value) => {
+    setRecruiterInterviewAvailability((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
+    if (profileStatus) {
+      setProfileStatus(null);
+    }
+  };
+
+  const handleRecruiterWorkingDayToggle = (day) => {
+    setRecruiterInterviewAvailability((previous) => {
+      const exists = previous.workingDays.includes(day);
+      const nextDays = exists
+        ? previous.workingDays.filter((entry) => entry !== day)
+        : [...previous.workingDays, day];
+      return {
+        ...previous,
+        workingDays: normalizeWorkingDays(nextDays),
+      };
+    });
+    if (saveAllStatus) {
+      setSaveAllStatus(null);
+    }
+    if (profileStatus) {
+      setProfileStatus(null);
+    }
+  };
+
   const handlePhotoFileChange = (event) => {
     const file = event?.target?.files?.[0];
     if (!file) return;
@@ -753,6 +875,11 @@ const ProfileSettingsPanel = ({
               ? null
               : profileForm.department || null,
             phoneNumber: profileForm.phoneNumber,
+            timezone: recruiterInterviewAvailability.timezone || profileForm.timezone || null,
+            interviewAvailability: normalizeRecruiterInterviewAvailability(
+              recruiterInterviewAvailability,
+              recruiterInterviewAvailability.timezone || profileForm.timezone || 'UTC',
+            ),
           }
         : isAdmin
           ? {
@@ -1383,6 +1510,78 @@ const ProfileSettingsPanel = ({
             </div>
             <StatusMessage status={profileStatus} />
           </div>
+
+          {isCompany && (
+            <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+              <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-xl bg-violet-50 dark:bg-violet-900/30 flex items-center justify-center">
+                    <Icon name="CalendarClock" size={18} className="text-violet-600 dark:text-violet-300" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Interview Availability</h3>
+                    <p className="text-sm text-gray-500 dark:text-slate-400">
+                      Auto-scheduling uses this weekly window for your account.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className={formGrid}>
+                <Input
+                  label="Timezone"
+                  value={recruiterInterviewAvailability.timezone}
+                  onChange={(event) => handleRecruiterAvailabilityFieldChange('timezone', event.target.value)}
+                  placeholder={Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'}
+                />
+                <Input
+                  label="Business Start"
+                  type="time"
+                  value={recruiterInterviewAvailability.businessHoursStart}
+                  onChange={(event) => handleRecruiterAvailabilityFieldChange('businessHoursStart', event.target.value)}
+                />
+                <Input
+                  label="Business End"
+                  type="time"
+                  value={recruiterInterviewAvailability.businessHoursEnd}
+                  onChange={(event) => handleRecruiterAvailabilityFieldChange('businessHoursEnd', event.target.value)}
+                />
+                <Input
+                  label="Max interviews/day"
+                  type="number"
+                  min={1}
+                  max={40}
+                  value={recruiterInterviewAvailability.maxInterviewsPerDay}
+                  onChange={(event) => handleRecruiterAvailabilityFieldChange('maxInterviewsPerDay', event.target.value)}
+                />
+              </div>
+
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-2">
+                  Working days
+                </p>
+                <div className="grid grid-cols-7 gap-2 w-full">
+                  {recruiterWorkingDayOptions.map((day) => {
+                    const isActive = recruiterInterviewAvailability.workingDays.includes(day.value);
+                    return (
+                      <button
+                        key={day.value}
+                        type="button"
+                        onClick={() => handleRecruiterWorkingDayToggle(day.value)}
+                        className={`w-full py-2 rounded-lg text-xs font-medium border transition-colors ${
+                          isActive
+                            ? 'bg-violet-100 border-violet-300 text-violet-700 dark:bg-violet-600/20 dark:border-violet-500/40 dark:text-violet-200'
+                            : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300'
+                        }`}
+                      >
+                        {day.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Educational Background Section - Only for Candidates */}
           {isCandidate && (

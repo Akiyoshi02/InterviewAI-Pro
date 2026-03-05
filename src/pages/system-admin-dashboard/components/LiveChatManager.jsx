@@ -353,7 +353,7 @@ const LiveChatManager = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-[320px_1fr] gap-6">
-        <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 shadow-lg h-full">
+        <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 shadow-lg h-full flex flex-col">
           <UnifiedFilterPanel
             className="mb-4 p-3 sm:p-4"
             title="Chat Filters"
@@ -361,6 +361,7 @@ const LiveChatManager = () => {
             activeCount={activeFilterCount}
             onClear={clearFilters}
             clearLabel="Clear Filters"
+            stackHeader
           >
             <div className="grid grid-cols-1 gap-3">
               <UnifiedSearchField
@@ -368,7 +369,7 @@ const LiveChatManager = () => {
                 type="text"
                 value={chatFilters.searchQuery}
                 onChange={(event) => setChatFilters((prev) => ({ ...prev, searchQuery: event.target.value }))}
-                placeholder="Visitor, message text, or account type"
+                placeholder="Visitor, message, or account type"
               />
               <UnifiedFilterSelect
                 label="Chat Status"
@@ -407,9 +408,9 @@ const LiveChatManager = () => {
               />
             </div>
           </UnifiedFilterPanel>
-          <div className="space-y-3 max-h-[520px] overflow-y-auto pr-1">
+          <div className="space-y-3 flex-1 min-h-[120px] overflow-y-auto pr-1">
             {filteredChats.length === 0 ? (
-              <div className="text-center text-xs text-gray-500 dark:text-slate-400 py-6">
+              <div className="flex h-full min-h-[120px] items-center justify-center text-center text-xs text-gray-500 dark:text-slate-400 py-6">
                 No chats found.
               </div>
             ) : (

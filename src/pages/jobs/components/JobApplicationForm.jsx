@@ -5,6 +5,59 @@ import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient.js';
 import { useAuth } from '../../../contexts/AuthContext.jsx';
 
+const normalizeQuestionType = (type) => {
+  const normalized = (type || '').toString().trim().toUpperCase();
+  if (normalized === 'TEXTAREA') return 'TEXTAREA';
+  if (normalized === 'SELECT') return 'SELECT';
+  if (normalized === 'CHECKBOX') return 'CHECKBOX';
+  if (normalized === 'NUMBER') return 'NUMBER';
+  if (normalized === 'DATE') return 'DATE';
+  if (normalized === 'URL') return 'URL';
+  if (normalized === 'FILE') return 'FILE';
+  return 'TEXT';
+};
+
+const getApplicationQuestions = (job) => {
+  const fromApplicationQuestions = Array.isArray(job?.applicationQuestions) && job.applicationQuestions.length > 0
+    ? job.applicationQuestions
+    : [];
+
+  const fromCustomFields = Array.isArray(job?.customFormFields) && job.customFormFields.length > 0
+    ? job.customFormFields.map((field) => ({
+      id: field.id,
+      question: field.label || field.question || '',
+      type: field.type,
+      required: field.required,
+      options: field.options,
+      placeholder: field.placeholder,
+    }))
+    : [];
+
+  const source = fromApplicationQuestions.length > 0 ? fromApplicationQuestions : fromCustomFields;
+
+  return source
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = (question.id || `question_${index + 1}`).toString().trim() || `question_${index + 1}`;
+      const prompt = (question.question || question.label || '').toString().trim();
+      return {
+        id,
+        question: prompt,
+        type: normalizeQuestionType(question.type),
+        required: Boolean(question.required),
+        options: Array.isArray(question.options)
+          ? question.options
+            .map((option) => (option || '').toString().trim())
+            .filter(Boolean)
+          : [],
+        placeholder: (question.placeholder || '').toString().trim(),
+      };
+    })
+    .filter((question) => question.question);
+};
+
 const JobApplicationForm = ({ job, onClose, onSuccess }) => {
   const { user, setAuthenticatedUser } = useAuth();
   const [formData, setFormData] = useState({
@@ -17,6 +70,7 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
   const [isUpdatingResume, setIsUpdatingResume] = useState(false);
   const [resumeStatus, setResumeStatus] = useState(null);
   const resumeInputRef = useRef(null);
+  const applicationQuestions = getApplicationQuestions(job);
 
   const handleAnswerChange = (questionId, value) => {
     setFormData((prev) => {
@@ -40,8 +94,8 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
 
   const validateForm = () => {
     // Check required custom questions
-    if (job.applicationQuestions) {
-      for (const question of job.applicationQuestions) {
+    if (applicationQuestions.length > 0) {
+      for (const question of applicationQuestions) {
         if (question.required && !getAnswer(question.id)) {
           setError(`Please answer: ${question.question}`);
           return false;
@@ -193,7 +247,7 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
                   Apply to {job.title}
                 </h2>
                 <p className="text-sm text-gray-600 dark:text-slate-400">
-                  {job.department} • {job.location}
+                  {job.department} - {job.location}
                 </p>
               </div>
             </div>
@@ -367,13 +421,13 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
             </div>
 
             {/* Custom Application Questions */}
-            {job.applicationQuestions && job.applicationQuestions.length > 0 && (
+            {applicationQuestions.length > 0 && (
               <div className="space-y-4">
                 <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
                   <Icon name="HelpCircle" className="w-4 h-4" />
                   Additional Questions
                 </h3>
-                {job.applicationQuestions.map((question, index) => (
+                {applicationQuestions.map((question, index) => (
                   <div key={question.id || index}>
                     <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-2">
                       {question.question}
@@ -410,13 +464,40 @@ const JobApplicationForm = ({ job, onClose, onSuccess }) => {
                           className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
                         />
                       </div>
+                    ) : question.type === 'CHECKBOX' ? (
+                      <div className="relative group">
+                        <select
+                          value={getAnswer(question.id)}
+                          onChange={(e) => handleAnswerChange(question.id, e.target.value)}
+                          required={question.required}
+                          disabled={submitting}
+                          className="w-full appearance-none px-3 pr-10 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
+                        >
+                          <option value="">Select an option...</option>
+                          <option value="true">Yes</option>
+                          <option value="false">No</option>
+                        </select>
+                        <Icon
+                          name="ChevronDown"
+                          className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500 dark:text-slate-400 pointer-events-none transition-transform duration-200 group-focus-within:rotate-180"
+                        />
+                      </div>
                     ) : (
                       <input
-                        type="text"
+                        type={
+                          question.type === 'NUMBER'
+                            ? 'number'
+                            : question.type === 'DATE'
+                              ? 'date'
+                              : question.type === 'URL' || question.type === 'FILE'
+                                ? 'url'
+                                : 'text'
+                        }
                         value={getAnswer(question.id)}
                         onChange={(e) => handleAnswerChange(question.id, e.target.value)}
                         required={question.required}
                         disabled={submitting}
+                        placeholder={question.placeholder || (question.type === 'FILE' ? 'Paste a file URL' : '')}
                         className="w-full px-3 py-2 border border-gray-300 dark:border-slate-600 rounded-lg bg-white dark:bg-slate-900 text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-blue-500 focus:border-transparent disabled:opacity-50"
                       />
                     )}

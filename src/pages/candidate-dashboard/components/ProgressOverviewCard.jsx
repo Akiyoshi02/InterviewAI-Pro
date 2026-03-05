@@ -95,8 +95,8 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
     .join(' - ') || 'Upcoming interview';
 
   return (
-    <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-3 sm:mb-4">
+    <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 shadow-[0_25px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_25px_70px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex items-center justify-between mb-4 sm:mb-5">
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Your Progress</h2>
         <div className="flex items-center space-x-2">
           {gradeMetrics?.changeText && gradeMetrics.changeText !== 'Maintained' ? (
@@ -112,7 +112,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
         </div>
       </div>
       {/* Progress Ring */}
-      <div className="flex items-center justify-center mb-4">
+      <div className="flex items-center justify-center mb-5">
         <div className="relative w-24 h-24 sm:w-28 sm:h-28">
           <svg className="w-24 h-24 sm:w-28 sm:h-28 transform -rotate-90 drop-shadow-[0_10px_30px_rgba(59,130,246,0.25)]" viewBox="0 0 120 120">
             <circle
@@ -170,18 +170,18 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
         </div>
       )}
       {/* Stats Grid */}
-      <div className="grid grid-cols-3 gap-3 mb-4">
+      <div className="grid grid-cols-3 gap-4 mb-5">
         <div className="text-center">
           <div className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">
             {scheduledInterviews.length}
           </div>
-          <div className="text-xs text-gray-500 dark:text-slate-400">Upcoming</div>
+          <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Upcoming</div>
         </div>
         <div className="text-center">
           <div className="text-base sm:text-lg font-semibold text-green-600 dark:text-green-400">
             {averageScore > 0 ? `${Math.round(averageScore)}%` : 'N/A'}
           </div>
-          <div className="text-xs text-gray-500 dark:text-slate-400">Avg Score</div>
+          <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Avg Score</div>
           {scoreMetrics?.changeText && (
             <div className={`text-xs font-medium mt-0.5 ${getChangeColor(scoreMetrics.changeType)}`}>
               {scoreMetrics.changeText}
@@ -190,7 +190,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
         </div>
         <div className="text-center">
           <div className="text-base sm:text-lg font-semibold text-purple-600 dark:text-purple-400">{currentGrade}</div>
-          <div className="text-xs text-gray-500 dark:text-slate-400">Grade</div>
+          <div className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">Grade</div>
           {gradeMetrics?.changeText && gradeMetrics.changeText !== 'Maintained' && (
             <div className={`text-xs font-medium mt-0.5 ${getChangeColor(gradeMetrics.changeType)}`}>
               {gradeMetrics.changeText}
@@ -200,7 +200,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
       </div>
       {/* Next Interview */}
       {nextScheduledInterview && (
-        <div className="rounded-xl border border-blue-200/40 dark:border-blue-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 p-3 shadow-inner shadow-blue-500/10">
+        <div className="rounded-xl border border-blue-200/40 dark:border-blue-700/50 bg-gradient-to-r from-blue-50 to-purple-50 dark:from-blue-900/30 dark:to-purple-900/30 p-3.5 sm:p-4 shadow-inner shadow-blue-500/10">
           <div className="flex items-center space-x-2.5">
             <div className="w-8 h-8 rounded-lg bg-white/80 dark:bg-slate-800/80 flex items-center justify-center shadow">
               <Icon name="Calendar" size={20} color="#2563eb" />

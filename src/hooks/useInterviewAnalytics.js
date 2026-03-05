@@ -36,7 +36,7 @@ const CALIBRATION_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
 /**
  * Main Interview Analytics Hook
  */
-export const useInterviewAnalytics = (videoElement, options = {}) => {
+export const useInterviewAnalytics = (videoTarget, options = {}) => {
   const {
     enablePose = true,
     enableFace = true,
@@ -139,6 +139,14 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
     metricsRef.current = metrics;
   }, [metrics]);
 
+  const resolveVideoElement = useCallback(() => {
+    if (!videoTarget) return null;
+    if (typeof videoTarget === 'object' && videoTarget !== null && 'current' in videoTarget) {
+      return videoTarget.current;
+    }
+    return videoTarget;
+  }, [videoTarget]);
+
   // Keep threshold/weight references in sync with calibrated overrides.
   useEffect(() => {
     const refreshReferences = () => {
@@ -219,7 +227,6 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
               minFacePresenceConfidence: 0.5,
               minTrackingConfidence: 0.5,
               outputFaceBlendshapes: true,
-              outputFacialTransformationMatrixes: true,
             });
             setFaceLandmarker(faceModel);
             setInitializationStatus(prev => ({ ...prev, face: 'ready' }));
@@ -563,6 +570,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
    * Main detection function
    */
   const runDetection = useCallback(async () => {
+    const videoElement = resolveVideoElement();
     if (!videoElement) return;
 
     const startTimeMs = performance.now();
@@ -652,7 +660,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
       setCollectedData(prev => [...prev, dataPoint]);
     }
   }, [
-    videoElement, 
+    resolveVideoElement,
     poseLandmarker, 
     faceLandmarker, 
     analyzePose, 
@@ -666,7 +674,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
    * Start detection loop
    */
   useEffect(() => {
-    if (isInitialized && videoElement) {
+    if (isInitialized && videoTarget) {
       if (detectionIntervalRef.current) {
         clearInterval(detectionIntervalRef.current);
       }
@@ -678,7 +686,7 @@ export const useInterviewAnalytics = (videoElement, options = {}) => {
         clearInterval(detectionIntervalRef.current);
       }
     };
-  }, [isInitialized, videoElement, runDetection]);
+  }, [isInitialized, videoTarget, runDetection]);
 
   /**
    * Reset all metrics

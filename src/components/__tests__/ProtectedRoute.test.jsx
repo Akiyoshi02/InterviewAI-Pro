@@ -65,6 +65,15 @@ const renderWithRoutes = (initialPath) =>
           )}
         />
         <Route
+          path="/system-admin-dashboard"
+          element={(
+            <ProtectedRoute roles={['SYSTEM_ADMIN']}>
+              <div>System Admin Dashboard</div>
+              <LocationEcho />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/register"
           element={(
             <>
@@ -292,5 +301,19 @@ describe('ProtectedRoute organization lock behavior', () => {
 
     expect(screen.queryByText('Company Dashboard')).not.toBeNull();
     expect(screen.getByTestId('location').textContent).toBe('/company-dashboard');
+  });
+
+  it('blocks candidate accounts from system admin direct URL access', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'CANDIDATE',
+      },
+    });
+
+    renderWithRoutes('/system-admin-dashboard');
+
+    expect(screen.queryByText('Candidate Dashboard')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/candidate-dashboard');
   });
 });

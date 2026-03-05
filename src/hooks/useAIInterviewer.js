@@ -200,11 +200,21 @@ export const useAIInterviewer = (config = {}) => {
           // Get questions from backend
           const backendQuestions = backendSyncRef.current.getQuestions();
           if (backendQuestions && backendQuestions.length > 0) {
+            const questionBank = backendQuestions
+              .map((question, index) => ({
+                id: question?.id || `q_${index + 1}`,
+                question: question?.question || question?.questionText || '',
+                questionType: question?.type || question?.questionType || 'behavioral',
+              }))
+              .filter((question) => String(question.question || '').trim().length > 0);
+
             // Update config with backend question count
             mergedConfig.totalQuestions = backendQuestions.length;
+            mergedConfig.questionBank = questionBank;
             activeInterviewConfigRef.current = {
               ...activeInterviewConfigRef.current,
               totalQuestions: backendQuestions.length,
+              questionBank,
             };
           }
 

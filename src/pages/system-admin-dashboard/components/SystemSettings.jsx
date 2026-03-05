@@ -556,6 +556,27 @@ const SystemSettings = () => {
           </div>
         </div>
 
+        <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Empty-content Events</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {Number.isFinite(aiHealth?.runtimeModel?.emptyContentEvents) ? aiHealth.runtimeModel.emptyContentEvents : 0}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+              Last empty-content model: {aiHealth?.runtimeModel?.lastEmptyContentModel || 'N/A'}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Last Empty-content Cause</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {aiHealth?.runtimeModel?.lastEmptyContentDoneReason || 'N/A'}
+            </p>
+            <p className="text-xs text-gray-500 dark:text-slate-400 mt-2">
+              Thinking present: {aiHealth?.runtimeModel?.lastEmptyContentHadThinking ? 'Yes' : 'No'} · Retry exhausted: {aiHealth?.runtimeModel?.lastEmptyContentRetryExhausted ? 'Yes' : 'No'}
+            </p>
+          </div>
+        </div>
+
         <div className="mt-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
           <p className="text-xs text-gray-500 dark:text-slate-400">Last Attempt Path</p>
           <p className="text-sm text-gray-900 dark:text-slate-100 mt-1 break-words">

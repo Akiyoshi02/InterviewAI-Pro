@@ -17,18 +17,26 @@ export class GDPRController {
     try {
       const userId = req.user.id;
       const email = req.user.email;
+      const accountType = String(req.user.accountType || '').toUpperCase();
+      const primaryOrganizationId = req.user.profile?.primaryOrganizationId || null;
 
       // Collect data from all relevant collections in parallel
       const [
         profileSnap,
-        interviewSnaps,
-        applicationSnaps,
+        interviewByCandidateSnap,
+        interviewByCompanySnap,
+        interviewLegacySnap,
+        jobApplicationSnap,
+        legacyApplicationSnap,
         notificationSnaps,
         consentSnaps,
       ] = await Promise.allSettled([
         db.collection('users').doc(userId).get(),
-        db.collection('interviews').where('userId', '==', userId).get(),
-        db.collection('applications').where('candidateId', '==', userId).get(),
+        db.collection('interviews').where('candidateId', '==', userId).get(),
+        db.collection('interviews').where('companyId', '==', userId).get(),
+        db.collection('interviews').where('userId', '==', userId).get(), // Legacy compatibility
+        db.collection('jobApplications').where('candidateId', '==', userId).get(),
+        db.collection('applications').where('candidateId', '==', userId).get(), // Legacy compatibility
         db.collection('notifications').where('userId', '==', userId).get(),
         db.collection('gdpr_consents').where('userId', '==', userId).get(),
       ]);
@@ -49,13 +57,35 @@ export class GDPRController {
         delete profileData.passwordResetToken;
       }
 
+      const toUniqueById = (entries = []) => Array.from(
+        new Map((entries || []).filter((item) => item?.id).map((item) => [item.id, item])).values(),
+      );
+
+      const interviews = toUniqueById([
+        ...safeData(interviewByCandidateSnap),
+        ...safeData(interviewByCompanySnap),
+        ...safeData(interviewLegacySnap),
+      ]);
+
+      const applications = toUniqueById([
+        ...safeData(jobApplicationSnap),
+        ...safeData(legacyApplicationSnap),
+      ]);
+
+      const companyApplications = accountType === 'COMPANY' && primaryOrganizationId
+        ? await db.collection('jobApplications').where('organizationId', '==', primaryOrganizationId).get().then(
+          (snapshot) => snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() })),
+        ).catch(() => [])
+        : [];
+
       const exportPayload = {
         exportedAt: new Date().toISOString(),
         requestedBy: email,
         userId,
         profile: profileData,
-        interviews: safeData(interviewSnaps),
-        applications: safeData(applicationSnaps),
+        interviews,
+        applications,
+        companyApplications,
         notifications: safeData(notificationSnaps),
         consentHistory: safeData(consentSnaps),
       };

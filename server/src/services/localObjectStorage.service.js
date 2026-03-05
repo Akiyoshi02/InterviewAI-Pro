@@ -32,6 +32,7 @@ export const normalizeUploadsPublicPath = (value) => {
     'profile-photos/',
     'resumes/',
     'company-logos/',
+    'company-covers/',
     'company-verifications/',
     'job-advert-images/',
     'job-advert-videos/',

@@ -52,8 +52,8 @@ const DATE_PRESET_DAY_LOOKBACK = Object.freeze({
 });
 
 export const DERIVED_STATUS_LABELS = Object.freeze({
-  SUBMITTED: 'Submitted',
-  SCREENING: 'Under Review',
+  SUBMITTED: 'Under Review',
+  SCREENING: 'Screening',
   INTERVIEWING: 'Interviewing',
   SHORTLISTED: 'Shortlisted',
   HIRED: 'Hired',
@@ -82,8 +82,8 @@ export const APPLICATION_STATUS_FILTER_OPTIONS = Object.freeze([
   { value: 'all', label: 'All Statuses' },
   { value: 'ACTIVE', label: 'Active Pipeline' },
   { value: 'FINAL', label: 'Final Outcomes' },
-  { value: 'SUBMITTED', label: 'Submitted' },
-  { value: 'SCREENING', label: 'Under Review' },
+  { value: 'SUBMITTED', label: 'Under Review' },
+  { value: 'SCREENING', label: 'Screening' },
   { value: 'INTERVIEWING', label: 'Interviewing' },
   { value: 'SHORTLISTED', label: 'Shortlisted' },
   { value: 'HIRED', label: 'Hired' },

@@ -65,6 +65,7 @@ const extractEvidence = (evaluation, questions, dimensionKey) => {
 
       if (dimensionKey === 'communicationSkills' && (
         q.questionType?.toLowerCase()?.includes('behavioral') ||
+        q.questionType?.toLowerCase()?.includes('situational') ||
         /explain|describe|tell me|communication|teamwork|conflict/i.test(q.question || '')
       )) {
         evidence.push({ type: 'quote', text: answerSnippet, source: `Q${i + 1}: ${(q.question || '').slice(0, 60)}…` });

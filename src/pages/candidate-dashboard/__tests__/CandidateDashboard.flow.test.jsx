@@ -234,4 +234,45 @@ describe('CandidateDashboard flow', () => {
       expect(apiClient.applications.getMyApplications).toHaveBeenCalledTimes(2);
     });
   });
+
+  it('renders resiliently when APIs return empty candidate data', async () => {
+    apiClient.interviews.getMyInterviews.mockResolvedValue({
+      success: true,
+      interviews: [],
+    });
+    apiClient.analytics.getDashboard.mockResolvedValue({
+      success: true,
+      stats: null,
+    });
+    apiClient.analytics.getCandidateDashboardMetrics.mockResolvedValue({
+      success: true,
+      metrics: null,
+    });
+    apiClient.applications.getMyApplications.mockResolvedValue({
+      success: true,
+      applications: [],
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(apiClient.interviews.getMyInterviews).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId('dashboard-quick-actions')).not.toBeNull();
+      expect(screen.queryByTestId('progress-overview-card')).not.toBeNull();
+      expect(screen.queryByTestId('recent-activity-feed')).not.toBeNull();
+    });
+  });
+
+  it('shows error state and allows retry when initial fetch throws', async () => {
+    apiClient.interviews.getMyInterviews.mockImplementation(() => {
+      throw new Error('Unable to load candidate dashboard');
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.queryByText('Unable to load candidate dashboard')).not.toBeNull();
+      expect(screen.queryByRole('button', { name: 'Retry' })).not.toBeNull();
+    });
+  });
 });

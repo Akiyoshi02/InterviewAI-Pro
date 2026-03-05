@@ -14,8 +14,12 @@ import { onAuthStateChanged } from 'firebase/auth';
 import { auth, authHelpers, realtimeDb } from '../../config/firebase.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import Button from '../ui/Button.jsx';
+import LoadingIndicator from '../ui/LoadingIndicator.jsx';
+import Icon from '../AppIcon.jsx';
 import { useToast } from '../ui/Toast.jsx';
 import { useLLM } from '../../hooks/useLLM.js';
+import audioRecorderService from '../../services/audioRecorderService.js';
+import { transcribeWithFallback } from '../../services/localWhisperService.js';
 
 const CHAT_ROOT = 'liveChats';
 const CHAT_SESSION_KEY = 'liveChatSessionId';
@@ -74,6 +78,10 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
   const [chatStatus, setChatStatus] = useState('open');
   const [messages, setMessages] = useState([]);
   const [messageDraft, setMessageDraft] = useState('');
+  const [chatRecording, setChatRecording] = useState(false);
+  const [chatTranscribing, setChatTranscribing] = useState(false);
+  const [chatRecordingError, setChatRecordingError] = useState(null);
+  const [chatVoiceStatus, setChatVoiceStatus] = useState('idle');
   const [displayName, setDisplayName] = useState(getStorageValue(CHAT_NAME_KEY, '', 'local'));
   const [nameDraft, setNameDraft] = useState(displayName);
   const [isEditingName, setIsEditingName] = useState(false);
@@ -87,6 +95,13 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
   const lastAccountTypeRef = useRef(getStorageValue(CHAT_LAST_ACCOUNT_TYPE_KEY, 'ANONYMOUS', 'local'));
   const { getChatSuggestions, loading: suggestionsLoading } = useLLM();
   const canStartChat = Boolean((nameDraft || guestNameInputRef.current?.value || '').trim());
+  const chatMicDisabled = !chatRecording && (isLoading || chatTranscribing || chatVoiceStatus === 'processing');
+  const chatMicStatusMessage = {
+    recording: 'Listening... tap the mic again to send your message.',
+    transcribing: 'Transcribing with Whisper...',
+    processing: 'Sending your message...'
+  }[chatVoiceStatus] || null;
+  const statusTextClass = sizeSettings?.statusText || 'text-xs';
 
   const accountDisplayName = useMemo(() => getAccountDisplayName(user), [user]);
   const accountType = (user?.accountType || 'ANONYMOUS').toUpperCase();
@@ -145,6 +160,12 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
     });
     return () => unsubscribe();
   }, [chatSessionId]);
+
+  useEffect(() => {
+    return () => {
+      audioRecorderService?.abort?.();
+    };
+  }, []);
 
   useEffect(() => {
     if (!chatSessionId || !realtimeDb) return;
@@ -345,8 +366,8 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
     }
   }, [ensureChatSession, nameDraft, showError, showSuccess]);
 
-  const handleSendMessage = useCallback(async () => {
-    const trimmedMessage = messageDraft.trim();
+  const handleSendMessage = useCallback(async (overrideText = null) => {
+    const trimmedMessage = (typeof overrideText === 'string' ? overrideText : messageDraft).trim();
     if (!trimmedMessage) return;
     if (trimmedMessage.length > MAX_MESSAGE_LENGTH) {
       showError(`Message is too long. Please keep it under ${MAX_MESSAGE_LENGTH} characters.`);
@@ -420,6 +441,83 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
       }
     });
   };
+
+  const stopChatRecordingAndTranscribe = useCallback(async () => {
+    setChatRecordingError(null);
+    try {
+      setChatVoiceStatus('transcribing');
+      const audioBlob = await audioRecorderService.stop();
+      setChatRecording(false);
+
+      if (!audioBlob || audioBlob.size === 0) {
+        setChatRecordingError('I could not capture any audio. Please try again.');
+        setChatVoiceStatus('idle');
+        return;
+      }
+
+      setChatTranscribing(true);
+      const transcription = await transcribeWithFallback(audioBlob, { language: 'en' });
+      const transcriptText = transcription?.text?.trim()
+        || transcription?.segments?.map((segment) => segment?.text || '').join(' ').trim();
+
+      if (transcriptText) {
+        if (messageDraft?.trim()) {
+          setMessageDraft((prev) => `${prev} ${transcriptText}`.trim());
+          setChatVoiceStatus('idle');
+          requestAnimationFrame(() => {
+            resizeMessageInput();
+            if (messageInputRef.current) {
+              messageInputRef.current.focus();
+              const length = messageInputRef.current.value.length;
+              messageInputRef.current.setSelectionRange(length, length);
+            }
+          });
+        } else {
+          setChatVoiceStatus('processing');
+          await handleSendMessage(transcriptText);
+          setChatVoiceStatus('idle');
+        }
+      } else {
+        setChatRecordingError('I did not catch that. Could you try again?');
+        setChatVoiceStatus('idle');
+      }
+    } catch (error) {
+      console.error('Live chat voice input error:', error);
+      setChatRecordingError(error?.message || 'Transcription failed. Please try again.');
+      setChatVoiceStatus('idle');
+    } finally {
+      setChatRecording(false);
+      setChatTranscribing(false);
+      setChatVoiceStatus('idle');
+    }
+  }, [handleSendMessage, messageDraft, resizeMessageInput]);
+
+  const handleChatMicClick = useCallback(async () => {
+    if (chatTranscribing) return;
+
+    if (chatRecording) {
+      await stopChatRecordingAndTranscribe();
+      return;
+    }
+
+    setChatRecordingError(null);
+
+    try {
+      const started = await audioRecorderService.start();
+      if (started) {
+        setChatRecording(true);
+        setChatVoiceStatus('recording');
+      } else {
+        setChatRecordingError('Microphone unavailable. Please check your permissions.');
+        setChatVoiceStatus('idle');
+      }
+    } catch (error) {
+      console.error('Live chat microphone access error:', error);
+      setChatRecordingError(error?.message || 'Unable to access microphone.');
+      setChatRecording(false);
+      setChatVoiceStatus('idle');
+    }
+  }, [chatRecording, chatTranscribing, stopChatRecordingAndTranscribe]);
 
   return (
     <>
@@ -573,7 +671,7 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
                   )}
                 </div>
               )}
-              <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
                 <textarea
                   ref={messageInputRef}
                   rows={1}
@@ -582,17 +680,48 @@ const DashboardLiveChatTab = ({ sizeSettings, isActive = true }) => {
                   onKeyDown={handleMessageKeyDown}
                   placeholder="Write a message..."
                   className={`min-w-0 w-full resize-none overflow-hidden rounded-full border border-white/40 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 px-3 py-2 ${sizeSettings.inputText} text-gray-900 dark:text-slate-100 placeholder:text-gray-400 dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-blue-400 dark:focus:ring-blue-500 min-h-[44px]`}
+                  disabled={chatTranscribing}
                 />
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleChatMicClick}
+                  disabled={chatMicDisabled}
+                  aria-pressed={chatRecording}
+                  aria-label={chatRecording ? 'Stop voice input' : 'Record a message'}
+                  className={`shrink-0 rounded-full border border-white/40 dark:border-slate-700/60 backdrop-blur text-blue-600 dark:text-blue-300 hover:text-purple-500 dark:hover:text-purple-300 transition ${
+                    chatRecording
+                      ? 'bg-red-600 text-white shadow-lg shadow-red-500/40 animate-pulse'
+                      : ''
+                  }`}
+                >
+                  {chatTranscribing ? (
+                    <LoadingIndicator size={18} tone="current" />
+                  ) : (
+                    <Icon name={chatRecording ? 'Square' : 'Mic'} size={18} />
+                  )}
+                </Button>
                 <Button
                   onClick={handleSendMessage}
                   loading={isLoading}
                   iconName="Send"
                   size="icon"
-                  disabled={isLoading || !messageDraft.trim()}
+                  disabled={isLoading || chatTranscribing || !messageDraft.trim()}
                   className="shrink-0 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white border-none shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
                   aria-label="Send message"
                 />
               </div>
+              {chatMicStatusMessage && (
+                <p className={`mt-2 ${statusTextClass} text-blue-600 dark:text-blue-300`}>
+                  {chatMicStatusMessage}
+                </p>
+              )}
+              {chatRecordingError && (
+                <p className={`mt-2 ${statusTextClass} text-amber-500 dark:text-amber-400`}>
+                  {chatRecordingError}
+                </p>
+              )}
               </div>
             )}
           </>

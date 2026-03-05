@@ -12,6 +12,7 @@ const NOTIFICATION_ICONS = {
   review_submitted: { icon: 'ClipboardCheck', color: 'text-indigo-500' },
   org_approved: { icon: 'Building2', color: 'text-emerald-500' },
   org_rejected: { icon: 'XCircle', color: 'text-rose-500' },
+  interview_candidate_message: { icon: 'MessageCircle', color: 'text-blue-500' },
   default: { icon: 'Bell', color: 'text-gray-500' },
 };
 

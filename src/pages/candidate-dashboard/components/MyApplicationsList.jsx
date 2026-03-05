@@ -93,12 +93,12 @@ const getStatusConfig = (application = {}) => {
 
   const configs = {
     SUBMITTED: {
-      label: 'Submitted',
+      label: 'Under Review',
       color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300',
-      icon: 'Send',
+      icon: 'Eye',
     },
     SCREENING: {
-      label: 'Under Review',
+      label: 'Screening',
       color: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-300',
       icon: 'Eye',
     },

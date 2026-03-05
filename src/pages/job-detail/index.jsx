@@ -10,6 +10,7 @@ import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import { CANDIDATE_FEED_EVENTS, PUBLIC_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
+import { buildJobShareCardUrl, buildJobSharePackage, prepareJobShareAttachments } from '../../utils/jobShare.js';
 import JobApplicationForm from '../jobs/components/JobApplicationForm';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -74,17 +75,26 @@ const JobDetailPage = () => {
     try {
       const result = await apiClient.applications.getMyApplications();
       if (result.success && result.applications) {
-        const application = result.applications.find((app) => app.jobId === id);
-        if (application) {
-          setHasApplied(true);
-          setApplicationStatus(application.status);
+        const applicationsForJob = result.applications
+          .filter((app) => app.jobId === id)
+          .sort((left, right) => {
+            const leftDate = new Date(left?.createdAt || left?.submittedAt || 0).getTime() || 0;
+            const rightDate = new Date(right?.createdAt || right?.submittedAt || 0).getTime() || 0;
+            return rightDate - leftDate;
+          });
+        const latestApplication = applicationsForJob[0];
+
+        if (latestApplication) {
+          const isWithdrawn = latestApplication.status === 'REJECTED' && Boolean(latestApplication.withdrawnBy);
+          setHasApplied(!isWithdrawn);
+          setApplicationStatus(latestApplication.status);
           return;
         }
       }
       setHasApplied(false);
       setApplicationStatus(null);
     } catch {
-      // Silent failure — apply button stays visible if status check fails
+      // Silent failure -- apply button stays visible if status check fails.
     }
   };
 
@@ -258,38 +268,109 @@ const JobDetailPage = () => {
     navigate('/practice-interview-setup');
   };
 
-  const handleShare = (platform) => {
+  const handleShare = async (platform) => {
     const jobUrl = window.location.href;
-    const shareText = `Check out this job: ${job?.title} at ${job?.organization?.name || 'Company'}`;
+    const shareCardUrl = buildJobShareCardUrl(job?.id, {
+      apiBaseUrl: API_URL,
+      version: job?.updatedAt || job?.publishedAt || job?.createdAt || '',
+    });
+    const sharePackage = buildJobSharePackage(job, {
+      jobUrl,
+      shareUrl: shareCardUrl,
+      organizationName: job?.organization?.name || '',
+      apiBaseUrl: API_URL,
+    });
+    const targetShareUrl = sharePackage.primaryShareUrl || jobUrl;
+    const isLikelyMobile = /android|iphone|ipad|ipod/i.test(
+      typeof navigator !== 'undefined' ? navigator.userAgent || '' : '',
+    );
     
     let shareUrl = '';
-    switch (platform) {
-      case 'whatsapp':
-        shareUrl = `https://wa.me/?text=${encodeURIComponent(shareText + ' ' + jobUrl)}`;
-        break;
-      case 'facebook':
-        shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(jobUrl)}`;
-        break;
-      case 'twitter':
-        shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(shareText)}&url=${encodeURIComponent(jobUrl)}`;
-        break;
-      case 'linkedin':
-        shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(jobUrl)}`;
-        break;
-      default:
-        if (navigator.share) {
-          navigator.share({ title: job?.title, text: shareText, url: jobUrl });
+    try {
+      switch (platform) {
+        case 'whatsapp':
+          if (navigator.share && isLikelyMobile) {
+            const attachmentResult = await prepareJobShareAttachments(job, {
+              apiBaseUrl: API_URL,
+              maxImages: 1,
+              includeVideo: true,
+            });
+            const primaryAttachment = attachmentResult.files[0]
+              ? [attachmentResult.files[0]]
+              : [];
+            const canAttachFiles = primaryAttachment.length > 0
+              && typeof navigator.canShare === 'function'
+              && navigator.canShare({ files: primaryAttachment });
+            if (canAttachFiles) {
+              await navigator.share({
+                files: primaryAttachment,
+                text: sharePackage.whatsappCaptionText || sharePackage.summaryText,
+              });
+              setInfoMessage('Share sheet opened with one attached media file and caption.');
+              setTimeout(() => setInfoMessage(''), 3200);
+              return;
+            }
+          }
+          shareUrl = `https://wa.me/?text=${encodeURIComponent(sharePackage.whatsappText)}`;
+          break;
+        case 'facebook':
+          shareUrl = `https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(targetShareUrl)}&quote=${encodeURIComponent(sharePackage.summaryText)}`;
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(sharePackage.detailedText);
+            setInfoMessage('Share opened. Detailed job summary copied to clipboard.');
+            setTimeout(() => setInfoMessage(''), 3500);
+          }
+          break;
+        case 'twitter':
+          shareUrl = `https://twitter.com/intent/tweet?text=${encodeURIComponent(sharePackage.summaryText)}&url=${encodeURIComponent(targetShareUrl)}`;
+          break;
+        case 'linkedin':
+          shareUrl = `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(targetShareUrl)}`;
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(sharePackage.detailedText);
+            setInfoMessage('Share opened. Detailed job summary copied to clipboard.');
+            setTimeout(() => setInfoMessage(''), 3500);
+          }
+          break;
+        default:
+          if (navigator.share) {
+            const attachmentResult = await prepareJobShareAttachments(job, {
+              apiBaseUrl: API_URL,
+              maxImages: 1,
+              includeVideo: true,
+            });
+            const sharePayload = {
+              title: sharePackage.title,
+              text: sharePackage.nativeShareText,
+              url: targetShareUrl,
+            };
+            const canAttachFiles = attachmentResult.files.length > 0
+              && typeof navigator.canShare === 'function'
+              && navigator.canShare({ files: attachmentResult.files });
+            if (canAttachFiles) {
+              sharePayload.files = attachmentResult.files;
+            }
+            await navigator.share(sharePayload);
+            return;
+          }
+          if (navigator.clipboard?.writeText) {
+            await navigator.clipboard.writeText(sharePackage.detailedText);
+            setInfoMessage('Detailed job share package copied to clipboard!');
+            setTimeout(() => setInfoMessage(''), 3000);
+          } else {
+            setInfoMessage('Sharing is unavailable in this browser.');
+            setTimeout(() => setInfoMessage(''), 3000);
+          }
           return;
-        } else {
-          navigator.clipboard.writeText(jobUrl);
-          setInfoMessage('Job URL copied to clipboard!');
-          setTimeout(() => setInfoMessage(''), 3000);
-          return;
-        }
-    }
-    
-    if (shareUrl) {
-      window.open(shareUrl, '_blank', 'width=600,height=400');
+      }
+
+      if (shareUrl) {
+        window.open(shareUrl, '_blank', 'width=600,height=400');
+      }
+    } catch (err) {
+      if (err?.name === 'AbortError') return;
+      setInfoMessage(err?.message || 'Failed to share job.');
+      setTimeout(() => setInfoMessage(''), 3500);
     }
   };
 

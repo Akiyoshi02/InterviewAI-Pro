@@ -20,6 +20,7 @@ const RecordingConsentScreen = ({ onConsentGiven }) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const canContinue = consentRecording && !isSubmitting;
+  const checkboxBaseClass = 'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-colors';
 
   const handleContinue = async () => {
     if (!canContinue) return;
@@ -97,9 +98,19 @@ const RecordingConsentScreen = ({ onConsentGiven }) => {
               type="checkbox"
               checked={consentRecording}
               onChange={(e) => setConsentRecording(e.target.checked)}
-              className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500 dark:bg-slate-800 dark:checked:bg-blue-600"
+              className="sr-only"
               data-testid="consent-recording"
             />
+            <span
+              className={`${checkboxBaseClass} ${
+                consentRecording
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-300 bg-white text-transparent dark:border-slate-500 dark:bg-slate-800'
+              }`}
+              aria-hidden="true"
+            >
+              <Icon name="Check" size={12} className="text-current" />
+            </span>
             <span className="text-sm text-slate-700 dark:text-slate-300 group-hover:text-slate-900 dark:group-hover:text-slate-100">
               <strong>I consent to this session being recorded (audio and video)</strong> and to the use of this data as described above.
             </span>
@@ -111,9 +122,19 @@ const RecordingConsentScreen = ({ onConsentGiven }) => {
               type="checkbox"
               checked={consentPrivacy}
               onChange={(e) => setConsentPrivacy(e.target.checked)}
-              className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-blue-600 focus:ring-blue-500 dark:bg-slate-800 dark:checked:bg-blue-600"
+              className="sr-only"
               data-testid="consent-privacy"
             />
+            <span
+              className={`${checkboxBaseClass} ${
+                consentPrivacy
+                  ? 'border-blue-600 bg-blue-600 text-white'
+                  : 'border-slate-300 bg-white text-transparent dark:border-slate-500 dark:bg-slate-800'
+              }`}
+              aria-hidden="true"
+            >
+              <Icon name="Check" size={12} className="text-current" />
+            </span>
             <span className="text-sm text-slate-600 dark:text-slate-400 group-hover:text-slate-700 dark:group-hover:text-slate-300">
               I have read the{' '}
               <Link

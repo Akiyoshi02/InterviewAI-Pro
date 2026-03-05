@@ -61,7 +61,7 @@ const AchievementBadges = ({
 
   const earnedBadges = badgeData.filter((badge) => badge?.earned);
   const availableBadges = badgeData.filter((badge) => !badge?.earned);
-  const visibleAvailableBadges = showAllAvailable ? availableBadges : availableBadges.slice(0, 6);
+  const visibleAvailableBadges = showAllAvailable ? availableBadges : availableBadges.slice(0, 4);
   const overallProgressPercent = badgeData.length
     ? Math.round((earnedBadges.length / badgeData.length) * 100)
     : 0;
@@ -105,11 +105,11 @@ const AchievementBadges = ({
   };
 
   return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2 mb-3 sm:mb-4">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3.5 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex flex-col xs:flex-row xs:items-center justify-between gap-2.5 mb-3 sm:mb-4">
         <div>
           <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Achievement Badges</h2>
-          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
+          <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 leading-relaxed">
             {earnedBadges?.length} of {badgeData?.length} badges earned
           </p>
         </div>
@@ -141,31 +141,31 @@ const AchievementBadges = ({
       </div>
       {/* Earned Badges */}
       {earnedBadges?.length > 0 && (
-        <div className="mb-4">
-          <h3 className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-3">Earned Badges</h3>
+        <div className="mb-3">
+          <h3 className="text-sm sm:text-base font-medium text-gray-900 dark:text-slate-100 mb-2">Earned Badges</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {earnedBadges?.map((badge) => (
               <div
                 key={badge?.id}
-                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-3 text-center hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200 cursor-pointer group bg-white/80 dark:bg-slate-900/70 backdrop-blur`}
+                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-2.5 sm:p-3 text-center hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200 cursor-pointer group bg-white/80 dark:bg-slate-900/70 backdrop-blur`}
               >
-                <div className={`w-10 h-10 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-2 group-hover:scale-105 transition-transform duration-200`}>
-                  <Icon name={badge?.icon} size={20} color="white" />
+                <div className={`w-9 h-9 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-1.5 group-hover:scale-105 transition-transform duration-200`}>
+                  <Icon name={badge?.icon} size={18} color="white" />
                 </div>
-                <h4 className="font-medium text-gray-900 dark:text-slate-100 text-sm mb-1">{badge?.name}</h4>
-                <p className="text-xs text-gray-500 dark:text-slate-400 line-clamp-2">{badge?.description}</p>
-                <div className={`text-xs font-medium mt-2 ${getRarityColor(badge?.rarity)}`}>
+                <h4 className="font-medium text-gray-900 dark:text-slate-100 text-xs sm:text-sm mb-0.5">{badge?.name}</h4>
+                <p className="text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{badge?.description}</p>
+                <div className={`text-[11px] sm:text-xs font-medium mt-1.5 ${getRarityColor(badge?.rarity)}`}>
                   {badge?.rarity?.toUpperCase()}
                 </div>
                 {badge?.earnedDate && (
-                  <div className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                  <div className="text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 mt-0.5">
                     Earned {new Date(badge.earnedDate)?.toLocaleDateString()}
                   </div>
                 )}
                 
                 {/* Earned indicator */}
-                <div className="absolute -top-2 -right-2 w-6 h-6 bg-success rounded-full flex items-center justify-center shadow-md shadow-emerald-500/40">
-                  <Icon name="Check" size={12} color="white" />
+                <div className="absolute -top-2 -right-2 w-5 h-5 bg-success rounded-full flex items-center justify-center shadow-md shadow-emerald-500/40">
+                  <Icon name="Check" size={10} color="white" />
                 </div>
               </div>
             ))}
@@ -175,26 +175,26 @@ const AchievementBadges = ({
       {/* Available Badges */}
       {availableBadges?.length > 0 && (
         <div>
-          <h3 className="text-sm font-medium text-gray-900 dark:text-slate-100 mb-3">Available Badges</h3>
+          <h3 className="text-sm sm:text-base font-medium text-gray-900 dark:text-slate-100 mb-2">Available Badges</h3>
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
             {visibleAvailableBadges?.map((badge) => (
               <div
                 key={badge?.id}
-                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-3 text-center opacity-70 hover:opacity-95 transition-all duration-200 cursor-pointer bg-white/70 dark:bg-slate-900/70`}
+                className={`relative border-2 ${getRarityBorder(badge?.rarity)} rounded-xl p-2.5 sm:p-3 text-center opacity-70 hover:opacity-95 transition-all duration-200 cursor-pointer bg-white/70 dark:bg-slate-900/70`}
               >
-                <div className={`w-10 h-10 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-2`}>
-                  <Icon name={badge?.icon} size={20} color="white" />
+                <div className={`w-9 h-9 ${badge?.color} rounded-full flex items-center justify-center mx-auto mb-1.5`}>
+                  <Icon name={badge?.icon} size={18} color="white" />
                 </div>
-                <h4 className="font-medium text-gray-900 dark:text-slate-100 text-sm mb-1">{badge?.name}</h4>
-                <p className="text-xs text-gray-500 dark:text-slate-400 line-clamp-2">{badge?.description}</p>
-                <div className={`text-xs font-medium mt-2 ${getRarityColor(badge?.rarity)}`}>
+                <h4 className="font-medium text-gray-900 dark:text-slate-100 text-xs sm:text-sm mb-0.5">{badge?.name}</h4>
+                <p className="text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{badge?.description}</p>
+                <div className={`text-[11px] sm:text-xs font-medium mt-1.5 ${getRarityColor(badge?.rarity)}`}>
                   {badge?.rarity?.toUpperCase()}
                 </div>
                 
                 {/* Progress indicator */}
                 {badge?.progress !== undefined && badge?.total && (
-                  <div className="mt-2">
-                    <div className="text-xs text-gray-500 dark:text-slate-400 mb-1">
+                  <div className="mt-1.5">
+                    <div className="text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 mb-1">
                       {badge?.progress}/{badge?.total}
                     </div>
                     <div className="w-full bg-gray-100 dark:bg-slate-900/70 rounded-full h-1">
@@ -207,8 +207,8 @@ const AchievementBadges = ({
                 )}
 
                 {/* Lock indicator */}
-                <div className="absolute -top-2 -right-2 w-6 h-6 bg-muted rounded-full flex items-center justify-center">
-                  <Icon name="Lock" size={12} className="text-muted-foreground" />
+                <div className="absolute -top-2 -right-2 w-5 h-5 bg-muted rounded-full flex items-center justify-center">
+                  <Icon name="Lock" size={10} className="text-muted-foreground" />
                 </div>
               </div>
             ))}

@@ -8,6 +8,7 @@ const DashboardQuickActions = ({
   recentActivity = [],
   onActionClick,
   className = '',
+  showStats = true,
   // Stats props for real data (optional - will show "N/A" if not provided)
   stats = {}
 }) => {
@@ -212,6 +213,7 @@ const DashboardQuickActions = ({
         </div>
       )}
       {/* Quick Stats - Uses real data passed via stats prop */}
+      {showStats && (
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         {userType === 'candidate' ? (
           <>
@@ -253,6 +255,7 @@ const DashboardQuickActions = ({
           </>
         )}
       </div>
+      )}
     </div>
   );
 };

@@ -42,10 +42,16 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
       } else if (status === 'SCHEDULED') {
         type = 'live';
         const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
-        title = `Upcoming: ${jobRole}`;
+        title = `Upcoming: ${companyName} - ${jobRole}`;
         description = scheduledDate 
-          ? `${companyName} - ${scheduledDate.toLocaleDateString()}`
-          : `${companyName}`;
+          ? scheduledDate.toLocaleDateString()
+          : 'Date pending';
+      } else if (status === 'PENDING') {
+        type = 'live';
+        title = `Interview Pending: ${jobRole}`;
+        description = companyName !== 'Practice Session'
+          ? `${companyName} - waiting for schedule confirmation`
+          : 'Waiting for schedule confirmation';
       } else {
         type = 'practice';
         title = `${jobRole} Session`;
@@ -143,8 +149,8 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
     : (typeof onViewHistory === 'function' ? 'Open My Applications' : 'View Complete Activity History');
 
   return (
-    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-      <div className="flex items-center justify-between mb-3 sm:mb-4">
+    <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-5 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
+      <div className="flex items-center justify-between mb-4 sm:mb-5">
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recent Activity</h2>
         <Button
           variant="ghost"
@@ -156,11 +162,11 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
           {viewAllLabel}
         </Button>
       </div>
-      <div className="space-y-2.5">
+      <div className="space-y-3">
         {visibleActivities?.length > 0 ? visibleActivities?.map((activity) => (
           <div
             key={activity?.id}
-            className="flex items-start space-x-3 p-2.5 sm:p-3 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200"
+            className="flex items-start space-x-3 p-3 sm:p-3.5 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200"
           >
             <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white ${getActivityColor(activity?.type)}`}>
               <Icon name={getActivityIcon(activity?.type)} size={16} color="currentColor" />
@@ -169,10 +175,10 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
             <div className="flex-1 min-w-0">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <h3 className="font-medium text-gray-900 dark:text-slate-100 truncate">
+                  <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100 line-clamp-2 break-words">
                     {activity?.title}
                   </h3>
-                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                  <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1 leading-relaxed">
                     {activity?.description}
                   </p>
 
@@ -215,26 +221,26 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
                   )}
                 </div>
 
-                <div className="text-xs text-gray-400 dark:text-slate-500 font-mono ml-4">
+                <div className="text-xs text-gray-400 dark:text-slate-500 font-mono tabular-nums ml-4">
                   {getTimeAgo(activity?.timestamp)}
                 </div>
               </div>
             </div>
           </div>
         )) : (
-          <div className="rounded-xl border border-dashed border-white/40 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 p-4 text-center">
+          <div className="rounded-xl border border-dashed border-white/40 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 p-5 text-center">
             <div className="inline-flex items-center justify-center w-10 h-10 rounded-full bg-blue-50 dark:bg-blue-900/30 mb-2">
               <Icon name="Activity" size={18} className="text-blue-600 dark:text-blue-400" />
             </div>
             <p className="text-sm font-medium text-gray-900 dark:text-slate-100">No activity yet</p>
-            <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+            <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1">
               Complete your first interview to build your activity timeline.
             </p>
           </div>
         )}
       </div>
       {/* View More Button */}
-      <div className="mt-4 pt-3 border-t border-white/30 dark:border-slate-700/60">
+      <div className="mt-5 pt-4 border-t border-white/30 dark:border-slate-700/60">
         <Button
           variant="outline"
           fullWidth

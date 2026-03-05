@@ -1,6 +1,7 @@
 import {
   jobApplicationStore,
   jobStore,
+  interviewStore,
   userStore,
   activityLogStore,
   organizationStore,
@@ -10,6 +11,7 @@ import {
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
+import { generateMeetingToken } from '../services/meetingLink.service.js';
 import { buildJobSnapshot, buildOrganizationSnapshot } from '../utils/applicationSnapshot.util.js';
 import {
   APPLICATION_STATUSES,
@@ -24,10 +26,582 @@ import {
 import logger from '../utils/logger.js';
 
 const STATUS_TRANSITION_ERROR_CODE = 'INVALID_APPLICATION_STATUS_TRANSITION';
+const DEFAULT_INTERVIEW_TIMEZONE = process.env.DEFAULT_INTERVIEW_TIMEZONE || 'UTC';
+const DEFAULT_AUTO_SCHEDULE_LEAD_HOURS = Math.max(
+  1,
+  Number.parseInt(process.env.INTERVIEW_AUTO_SCHEDULE_LEAD_HOURS || '24', 10) || 24,
+);
+const DEFAULT_AUTO_SCHEDULE_SLOT_MINUTES = Math.max(
+  15,
+  Number.parseInt(process.env.INTERVIEW_AUTO_SCHEDULE_SLOT_MINUTES || '30', 10) || 30,
+);
+const DEFAULT_AUTO_SCHEDULE_BUFFER_MINUTES = Math.max(
+  0,
+  Number.parseInt(process.env.INTERVIEW_AUTO_SCHEDULE_BUFFER_MINUTES || '15', 10) || 15,
+);
+const DEFAULT_AUTO_SCHEDULE_WINDOW_DAYS = Math.max(
+  1,
+  Number.parseInt(process.env.INTERVIEW_AUTO_SCHEDULE_WINDOW_DAYS || '14', 10) || 14,
+);
+const DEFAULT_AUTO_SCHEDULE_MAX_INTERVIEWS_PER_DAY = Math.max(
+  1,
+  Number.parseInt(process.env.INTERVIEW_AUTO_SCHEDULE_MAX_INTERVIEWS_PER_DAY || '8', 10) || 8,
+);
+const DEFAULT_WORKING_DAYS = Object.freeze([1, 2, 3, 4, 5]);
+const DEFAULT_BUSINESS_START_MINUTES = 9 * 60;
+const DEFAULT_BUSINESS_END_MINUTES = 17 * 60;
+const DEFAULT_INTERVIEW_DURATION_MINUTES = 30;
+const DEFAULT_CONFLICT_SCOPE = 'RECRUITER';
+const MAX_SLOT_SEARCH_ITERATIONS = 10000;
+const WEEKDAY_LOOKUP = Object.freeze({
+  SUN: 0,
+  SUNDAY: 0,
+  MON: 1,
+  MONDAY: 1,
+  TUE: 2,
+  TUESDAY: 2,
+  WED: 3,
+  WEDNESDAY: 3,
+  THU: 4,
+  THURSDAY: 4,
+  FRI: 5,
+  FRIDAY: 5,
+  SAT: 6,
+  SATURDAY: 6,
+});
+const TERMINAL_INTERVIEW_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
+const INTERVIEW_SCHEDULING_MODES = new Set(['AUTO', 'MANUAL']);
+
+const normalizeInterviewModeType = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim().toUpperCase())
+    .filter(Boolean);
+};
+
+const getRequestOrigin = (req) => {
+  const forwardedProtoHeader = req?.headers?.['x-forwarded-proto'];
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : typeof forwardedProtoHeader === 'string'
+      ? forwardedProtoHeader.split(',')[0]
+      : '';
+  const forwardedHostHeader = req?.headers?.['x-forwarded-host'];
+  const forwardedHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : typeof forwardedHostHeader === 'string'
+      ? forwardedHostHeader.split(',')[0]
+      : '';
+
+  const protocol = (forwardedProto || req?.protocol || 'http').toString().trim().toLowerCase() || 'http';
+  const host = (forwardedHost || req?.get?.('host') || '').toString().trim();
+  if (!host) {
+    return `${protocol}://localhost:${process.env.PORT || 3000}`;
+  }
+  return `${protocol}://${host}`;
+};
+
+const roundToNextScheduleSlot = (date, intervalMinutes = DEFAULT_AUTO_SCHEDULE_SLOT_MINUTES) => {
+  const intervalMs = Math.max(1, intervalMinutes) * 60 * 1000;
+  const roundedMs = Math.ceil(date.getTime() / intervalMs) * intervalMs;
+  return new Date(roundedMs);
+};
+
+const normalizeIanaTimezone = (value, fallback = DEFAULT_INTERVIEW_TIMEZONE) => {
+  const timezone = typeof value === 'string' ? value.trim() : '';
+  if (!timezone) return fallback;
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone: timezone });
+    return timezone;
+  } catch {
+    return fallback;
+  }
+};
+
+const parseIntegerWithinRange = (value, fallback, minimum, maximum = Number.POSITIVE_INFINITY) => {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, parsed));
+};
+
+const parseTimeToMinutes = (value, fallbackMinutes) => {
+  if (typeof value !== 'string') return fallbackMinutes;
+  const trimmed = value.trim();
+  const match = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+  if (!match) return fallbackMinutes;
+  const hours = Number.parseInt(match[1], 10);
+  const minutes = Number.parseInt(match[2], 10);
+  if (!Number.isInteger(hours) || !Number.isInteger(minutes)) return fallbackMinutes;
+  if (hours < 0 || hours > 23 || minutes < 0 || minutes > 59) return fallbackMinutes;
+  return (hours * 60) + minutes;
+};
+
+const normalizeWorkingDays = (value) => {
+  const fallback = [...DEFAULT_WORKING_DAYS];
+  if (!Array.isArray(value) || value.length === 0) return fallback;
+
+  const normalized = value
+    .map((day) => {
+      if (Number.isInteger(day) && day >= 0 && day <= 6) return day;
+      const asNumber = Number.parseInt(day, 10);
+      if (Number.isInteger(asNumber) && asNumber >= 0 && asNumber <= 6) return asNumber;
+      const key = String(day || '').trim().toUpperCase();
+      if (!key) return null;
+      return WEEKDAY_LOOKUP[key] ?? null;
+    })
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6);
+
+  return normalized.length > 0 ? [...new Set(normalized)].sort((a, b) => a - b) : fallback;
+};
+
+const parseConflictScope = (value) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (normalized === 'ORGANIZATION') return 'ORGANIZATION';
+  return DEFAULT_CONFLICT_SCOPE;
+};
+
+const normalizeRecruiterInterviewAvailability = (value = null, fallback = {}) => {
+  if (!value || typeof value !== 'object') return null;
+  const timezone = normalizeIanaTimezone(
+    value.timezone,
+    normalizeIanaTimezone(fallback.timezone, DEFAULT_INTERVIEW_TIMEZONE),
+  );
+  const workingDays = normalizeWorkingDays(value.workingDays ?? fallback.workingDays);
+  const businessHoursStartMinutes = parseTimeToMinutes(
+    value.businessHoursStart,
+    fallback.businessHoursStartMinutes ?? DEFAULT_BUSINESS_START_MINUTES,
+  );
+  const parsedEndMinutes = parseTimeToMinutes(
+    value.businessHoursEnd,
+    fallback.businessHoursEndMinutes ?? DEFAULT_BUSINESS_END_MINUTES,
+  );
+  const durationMinutes = parseIntegerWithinRange(
+    value.durationMinutes,
+    fallback.durationMinutes ?? DEFAULT_INTERVIEW_DURATION_MINUTES,
+    15,
+    180,
+  );
+  const businessHoursEndMinutes = parsedEndMinutes > (businessHoursStartMinutes + 15)
+    ? parsedEndMinutes
+    : Math.min(24 * 60, businessHoursStartMinutes + durationMinutes + 15);
+  const maxInterviewsPerDay = parseIntegerWithinRange(
+    value.maxInterviewsPerDay,
+    fallback.maxInterviewsPerDay ?? DEFAULT_AUTO_SCHEDULE_MAX_INTERVIEWS_PER_DAY,
+    1,
+    40,
+  );
+
+  return {
+    timezone,
+    workingDays,
+    businessHoursStartMinutes,
+    businessHoursEndMinutes,
+    maxInterviewsPerDay,
+    durationMinutes,
+  };
+};
+
+const resolveRecruiterAvailabilityOverrides = (recruiter = null, fallback = {}) => {
+  const recruiterProfile = recruiter?.profile && typeof recruiter.profile === 'object'
+    ? recruiter.profile
+    : recruiter;
+  if (!recruiterProfile || typeof recruiterProfile !== 'object') return null;
+  const recruiterAvailability = normalizeRecruiterInterviewAvailability(
+    recruiterProfile.interviewAvailability,
+    {
+      ...fallback,
+      timezone: recruiterProfile.timezone || fallback.timezone || DEFAULT_INTERVIEW_TIMEZONE,
+    },
+  );
+  if (!recruiterAvailability) return null;
+  return recruiterAvailability;
+};
+
+const LOCAL_DATE_FORMATTER_CACHE = new Map();
+
+const getLocalDateFormatter = (timezone) => {
+  const cacheKey = timezone || 'UTC';
+  if (LOCAL_DATE_FORMATTER_CACHE.has(cacheKey)) {
+    return LOCAL_DATE_FORMATTER_CACHE.get(cacheKey);
+  }
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone: cacheKey,
+    weekday: 'short',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  LOCAL_DATE_FORMATTER_CACHE.set(cacheKey, formatter);
+  return formatter;
+};
+
+const getLocalTimeParts = (date, timezone) => {
+  const formatter = getLocalDateFormatter(timezone);
+  const parts = formatter.formatToParts(date);
+  const values = {};
+  parts.forEach((part) => {
+    if (part.type !== 'literal') {
+      values[part.type] = part.value;
+    }
+  });
+
+  const weekdayToken = String(values.weekday || '').trim().toUpperCase();
+  const weekday = WEEKDAY_LOOKUP[weekdayToken] ?? null;
+  const year = Number.parseInt(values.year, 10);
+  const month = Number.parseInt(values.month, 10);
+  const day = Number.parseInt(values.day, 10);
+  const hour = Number.parseInt(values.hour, 10);
+  const minute = Number.parseInt(values.minute, 10);
+
+  if (
+    !Number.isInteger(weekday)
+    || !Number.isInteger(year)
+    || !Number.isInteger(month)
+    || !Number.isInteger(day)
+    || !Number.isInteger(hour)
+    || !Number.isInteger(minute)
+  ) {
+    return null;
+  }
+
+  const dateKey = `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+  return {
+    weekday,
+    minutesFromStartOfDay: (hour * 60) + minute,
+    dateKey,
+  };
+};
+
+const isNonTerminalScheduledInterview = (interview) => {
+  const status = String(interview?.status || '').trim().toUpperCase();
+  if (TERMINAL_INTERVIEW_STATUSES.has(status)) return false;
+  if (!interview?.scheduledFor) return false;
+  const startMs = Date.parse(interview.scheduledFor);
+  return Number.isFinite(startMs);
+};
+
+const buildScheduledInterviewIndex = ({ interviews = [], timezone, bufferMinutes }) => {
+  const safeBufferMinutes = Math.max(0, bufferMinutes || 0);
+  const bufferMs = safeBufferMinutes * 60 * 1000;
+  const indexed = [];
+  const dailyCounts = new Map();
+
+  interviews.forEach((interview) => {
+    if (!isNonTerminalScheduledInterview(interview)) return;
+    const startMs = Date.parse(interview.scheduledFor);
+    const durationMinutes = parseIntegerWithinRange(
+      interview?.duration,
+      DEFAULT_INTERVIEW_DURATION_MINUTES,
+      15,
+      180,
+    );
+    const endMs = startMs + (durationMinutes * 60 * 1000);
+    const localParts = getLocalTimeParts(new Date(startMs), timezone);
+    if (localParts?.dateKey) {
+      dailyCounts.set(localParts.dateKey, (dailyCounts.get(localParts.dateKey) || 0) + 1);
+    }
+    indexed.push({
+      interviewId: interview.id,
+      startWithBufferMs: startMs - bufferMs,
+      endWithBufferMs: endMs + bufferMs,
+    });
+  });
+
+  return {
+    indexed,
+    dailyCounts,
+  };
+};
+
+const findConstraintBasedAutoScheduleSlot = ({ settings, existingInterviews = [] }) => {
+  const now = new Date();
+  now.setSeconds(0, 0);
+  const startDate = new Date(now.getTime() + (settings.leadHours * 60 * 60 * 1000));
+  const initialSlot = roundToNextScheduleSlot(startDate, settings.slotMinutes);
+  const slotStepMs = settings.slotMinutes * 60 * 1000;
+  const durationMs = settings.durationMinutes * 60 * 1000;
+  const slotSearchEndMs = initialSlot.getTime() + (settings.scheduleWindowDays * 24 * 60 * 60 * 1000);
+  const workingDays = new Set(settings.workingDays || DEFAULT_WORKING_DAYS);
+
+  const {
+    indexed: indexedInterviews,
+    dailyCounts,
+  } = buildScheduledInterviewIndex({
+    interviews: existingInterviews,
+    timezone: settings.timezone,
+    bufferMinutes: settings.bufferMinutes,
+  });
+
+  let cursorMs = initialSlot.getTime();
+  let iterations = 0;
+  while (cursorMs <= slotSearchEndMs && iterations < MAX_SLOT_SEARCH_ITERATIONS) {
+    iterations += 1;
+    const slotDate = new Date(cursorMs);
+    const localParts = getLocalTimeParts(slotDate, settings.timezone);
+    if (localParts) {
+      const slotStartMinutes = localParts.minutesFromStartOfDay;
+      const slotEndMinutes = slotStartMinutes + settings.durationMinutes;
+      const withinWorkingDay = workingDays.has(localParts.weekday);
+      const withinBusinessHours = (
+        slotStartMinutes >= settings.businessHoursStartMinutes
+        && slotEndMinutes <= settings.businessHoursEndMinutes
+      );
+      const currentDayLoad = dailyCounts.get(localParts.dateKey) || 0;
+      const withinDailyLimit = currentDayLoad < settings.maxInterviewsPerDay;
+
+      if (withinWorkingDay && withinBusinessHours && withinDailyLimit) {
+        const candidateStartWithBuffer = cursorMs - (settings.bufferMinutes * 60 * 1000);
+        const candidateEndWithBuffer = cursorMs + durationMs + (settings.bufferMinutes * 60 * 1000);
+        const hasConflict = indexedInterviews.some((entry) => (
+          candidateStartWithBuffer < entry.endWithBufferMs
+          && candidateEndWithBuffer > entry.startWithBufferMs
+        ));
+        if (!hasConflict) {
+          return {
+            scheduledFor: slotDate.toISOString(),
+            iterations,
+            conflictChecks: indexedInterviews.length,
+          };
+        }
+      }
+    }
+    cursorMs += slotStepMs;
+  }
+
+  return {
+    scheduledFor: null,
+    iterations,
+    conflictChecks: indexedInterviews.length,
+  };
+};
+
+const resolveInterviewAutomationSettings = (organization, job, recruiter = null, options = {}) => {
+  const orgSettings = organization?.settings && typeof organization.settings === 'object'
+    ? organization.settings
+    : {};
+  const automation = orgSettings.interviewAutomation && typeof orgSettings.interviewAutomation === 'object'
+    ? orgSettings.interviewAutomation
+    : {};
+  const templateConfig = job?.templateConfig && typeof job.templateConfig === 'object'
+    ? job.templateConfig
+    : {};
+
+  const leadHours = parseIntegerWithinRange(
+    automation.leadHours,
+    DEFAULT_AUTO_SCHEDULE_LEAD_HOURS,
+    1,
+    72,
+  );
+  const slotMinutes = parseIntegerWithinRange(
+    automation.slotMinutes,
+    DEFAULT_AUTO_SCHEDULE_SLOT_MINUTES,
+    15,
+    180,
+  );
+  const scheduleWindowDays = parseIntegerWithinRange(
+    automation.scheduleWindowDays,
+    DEFAULT_AUTO_SCHEDULE_WINDOW_DAYS,
+    1,
+    90,
+  );
+  const bufferMinutes = parseIntegerWithinRange(
+    automation.bufferMinutes,
+    DEFAULT_AUTO_SCHEDULE_BUFFER_MINUTES,
+    0,
+    180,
+  );
+  const maxInterviewsPerDay = parseIntegerWithinRange(
+    automation.maxInterviewsPerDay,
+    DEFAULT_AUTO_SCHEDULE_MAX_INTERVIEWS_PER_DAY,
+    1,
+    40,
+  );
+
+  const durationMinutes = parseIntegerWithinRange(
+    automation.durationMinutes ?? templateConfig.duration,
+    DEFAULT_INTERVIEW_DURATION_MINUTES,
+    15,
+    180,
+  );
+
+  const interviewTypes = normalizeInterviewModeType(automation.interviewTypes).length > 0
+    ? normalizeInterviewModeType(automation.interviewTypes)
+    : (
+      normalizeInterviewModeType(templateConfig.interviewTypes).length > 0
+        ? normalizeInterviewModeType(templateConfig.interviewTypes)
+        : ['BEHAVIORAL', 'TECHNICAL']
+    );
+  const skillFocus = Array.isArray(templateConfig.skillFocus) && templateConfig.skillFocus.length > 0
+    ? templateConfig.skillFocus
+    : (Array.isArray(job?.skills) ? job.skills : []);
+
+  const organizationTimezone = normalizeIanaTimezone(
+    (typeof automation.timezone === 'string' && automation.timezone.trim())
+      ? automation.timezone.trim()
+      : ((recruiter?.profile?.timezone || recruiter?.timezone || DEFAULT_INTERVIEW_TIMEZONE)),
+    DEFAULT_INTERVIEW_TIMEZONE,
+  );
+  const organizationWorkingDays = normalizeWorkingDays(automation.workingDays);
+  const organizationBusinessHoursStartMinutes = parseTimeToMinutes(
+    automation.businessHoursStart,
+    DEFAULT_BUSINESS_START_MINUTES,
+  );
+  const parsedBusinessHoursEndMinutes = parseTimeToMinutes(
+    automation.businessHoursEnd,
+    DEFAULT_BUSINESS_END_MINUTES,
+  );
+  const organizationBusinessHoursEndMinutes = parsedBusinessHoursEndMinutes > (organizationBusinessHoursStartMinutes + 15)
+    ? parsedBusinessHoursEndMinutes
+    : Math.min(24 * 60, organizationBusinessHoursStartMinutes + durationMinutes + 15);
+  const conflictScope = parseConflictScope(automation.conflictScope);
+  const meetingLinkTemplate = typeof automation.meetingLinkTemplate === 'string' && automation.meetingLinkTemplate.trim()
+    ? automation.meetingLinkTemplate.trim()
+    : '';
+
+  const recruiterAvailability = resolveRecruiterAvailabilityOverrides(recruiter, {
+    timezone: organizationTimezone,
+    workingDays: organizationWorkingDays,
+    businessHoursStartMinutes: organizationBusinessHoursStartMinutes,
+    businessHoursEndMinutes: organizationBusinessHoursEndMinutes,
+    maxInterviewsPerDay,
+    durationMinutes,
+  });
+
+  const timezone = recruiterAvailability?.timezone || organizationTimezone;
+  const workingDays = recruiterAvailability?.workingDays || organizationWorkingDays;
+  const businessHoursStartMinutes = recruiterAvailability?.businessHoursStartMinutes ?? organizationBusinessHoursStartMinutes;
+  const businessHoursEndMinutes = recruiterAvailability?.businessHoursEndMinutes ?? organizationBusinessHoursEndMinutes;
+  const effectiveMaxInterviewsPerDay = recruiterAvailability?.maxInterviewsPerDay ?? maxInterviewsPerDay;
+  const effectiveDurationMinutes = recruiterAvailability?.durationMinutes ?? durationMinutes;
+
+  const now = new Date();
+  now.setSeconds(0, 0);
+  const baseDate = new Date(now.getTime() + leadHours * 60 * 60 * 1000);
+  const scheduledFor = roundToNextScheduleSlot(baseDate, slotMinutes).toISOString();
+
+  let autoScheduleEnabled = automation.autoScheduleOnInterviewing !== false;
+  if (options?.forceAutoSchedule === true) {
+    autoScheduleEnabled = true;
+  } else if (options?.forceAutoSchedule === false) {
+    autoScheduleEnabled = false;
+  }
+
+  return {
+    autoScheduleEnabled,
+    timezone,
+    leadHours,
+    slotMinutes,
+    scheduledFor,
+    scheduleWindowDays,
+    bufferMinutes,
+    maxInterviewsPerDay: effectiveMaxInterviewsPerDay,
+    workingDays,
+    businessHoursStartMinutes,
+    businessHoursEndMinutes,
+    conflictScope,
+    durationMinutes: effectiveDurationMinutes,
+    interviewTypes,
+    skillFocus,
+    meetingLinkTemplate,
+    availabilitySource: recruiterAvailability ? 'RECRUITER' : 'ORGANIZATION',
+  };
+};
+
+const buildAutomatedMeetingLink = ({
+  interviewId,
+  candidateId = '',
+  jobId = '',
+  settings,
+  req,
+}) => {
+  const template = settings?.meetingLinkTemplate || '';
+  if (template) {
+    return template
+      .replaceAll('{interviewId}', interviewId)
+      .replaceAll('{candidateId}', candidateId)
+      .replaceAll('{jobId}', jobId);
+  }
+  const frontendBase = String(process.env.FRONTEND_URL || getRequestOrigin(req)).trim().replace(/\/$/, '');
+  return `${frontendBase}/interview-lobby/${encodeURIComponent(interviewId)}`;
+};
+
+const queueInterviewScheduledEmail = ({
+  interview,
+  candidate,
+  job,
+  organization,
+  operation = 'AUTO_SCHEDULED_INTERVIEW',
+} = {}) => {
+  if (!interview || !candidate?.email || !organization) return;
+  queueEmailJob({
+    type: 'INTERVIEW_SCHEDULED',
+    payload: {
+      interviewId: interview.id,
+      candidateId: interview.candidateId || null,
+      recipient: candidate.email,
+      operation,
+    },
+    handler: async () => {
+      await emailNotifications.sendInterviewScheduled(interview, candidate, job, organization);
+      logger.info(`Interview scheduled email sent to ${candidate.email}`);
+    },
+  });
+};
+
+const APPLICATION_STATUS_EMAIL_MESSAGES = Object.freeze({
+  SUBMITTED:
+    'Your application has been received and is now under review by the hiring team.',
+  SCREENING:
+    'Your application is currently in screening. The team is reviewing your CV and profile details.',
+  INTERVIEWING:
+    'Great news. Your application has moved to interviewing. Interview scheduling details will follow shortly.',
+  SHORTLISTED:
+    'You have been shortlisted. The hiring team will share next steps soon.',
+  REJECTED:
+    'Thank you for your interest. We have moved forward with other candidates for this role.',
+  HIRED:
+    'Congratulations. You have been selected for this role.',
+});
+
+const buildApplicationStatusEmailMessage = ({
+  status = null,
+  previousStatus = null,
+  dispositionReason = null,
+} = {}) => {
+  const normalizedStatus = normalizeApplicationStatus(status);
+  if (!normalizedStatus) return '';
+
+  if (normalizedStatus === 'REJECTED') {
+    const normalizedReason = typeof dispositionReason === 'string' ? dispositionReason.trim() : '';
+    return normalizedReason
+      ? `Thank you for your interest. ${normalizedReason}`
+      : APPLICATION_STATUS_EMAIL_MESSAGES.REJECTED;
+  }
+
+  const baseMessage = APPLICATION_STATUS_EMAIL_MESSAGES[normalizedStatus] || '';
+  if (!baseMessage) return '';
+
+  const normalizedPrevious = normalizeApplicationStatus(previousStatus);
+  if (normalizedPrevious && normalizedPrevious === normalizedStatus) {
+    return '';
+  }
+
+  return baseMessage;
+};
 
 const parseOptionalStatus = (value) => {
   if (!value) return null;
   return normalizeApplicationStatus(value);
+};
+
+const parseInterviewSchedulingMode = (value) => {
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim().toUpperCase();
+  if (!INTERVIEW_SCHEDULING_MODES.has(normalized)) return null;
+  return normalized;
 };
 
 const parseOptionalLimit = (value) => {
@@ -35,6 +609,31 @@ const parseOptionalLimit = (value) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) return null;
   return parsed;
+};
+
+const normalizeJobQuestions = (job = {}) => {
+  const rawQuestions = Array.isArray(job?.applicationQuestions) && job.applicationQuestions.length > 0
+    ? job.applicationQuestions
+    : (Array.isArray(job?.customFormFields) ? job.customFormFields : []);
+
+  return rawQuestions
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      return {
+        id: (question.id || `question_${index + 1}`).toString().trim() || `question_${index + 1}`,
+        question: (question.question || question.label || '').toString().trim(),
+        required: Boolean(question.required),
+      };
+    })
+    .filter((question) => question.question);
+};
+
+const normalizeAnswerValue = (value) => {
+  if (typeof value === 'string') return value.trim();
+  if (value == null) return '';
+  return String(value).trim();
 };
 
 const buildApplicationJobPayload = (application, liveJob = null) => {
@@ -46,6 +645,7 @@ const buildApplicationJobPayload = (application, liveJob = null) => {
   );
   const source = liveJob || snapshot;
   const isDeleted = !liveJob && hasDeletionMarker;
+  const applicationQuestions = normalizeJobQuestions(source);
 
   if (!source && !application?.jobId && !hasDeletionMarker) {
     return null;
@@ -59,6 +659,7 @@ const buildApplicationJobPayload = (application, liveJob = null) => {
     employmentType: source?.employmentType || null,
     experienceLevel: source?.experienceLevel || null,
     skills: Array.isArray(source?.skills) ? source.skills : [],
+    applicationQuestions,
     isDeleted,
     deletedAt: application?.jobDeletedAt || null,
   };
@@ -130,6 +731,222 @@ const sanitizeApplication = (application, candidate = null, job = null, organiza
   };
 };
 
+const loadSchedulingCandidates = async ({
+  application,
+  recruiter,
+  settings,
+  interviewIdToExclude = null,
+} = {}) => {
+  if (!application || !settings?.autoScheduleEnabled) return [];
+
+  const recruiterId = recruiter?.id || application.reviewedBy || null;
+  let interviews = [];
+  if (settings.conflictScope === 'ORGANIZATION' || !recruiterId) {
+    interviews = await interviewStore.listByOrganization(application.organizationId, { limit: 200 }).catch(() => []);
+  } else {
+    interviews = await interviewStore.listByCompany(recruiterId, { limit: 200 }).catch(() => []);
+  }
+
+  return interviews.filter((interview) => (
+    interview
+    && interview.id
+    && interview.id !== interviewIdToExclude
+    && isNonTerminalScheduledInterview(interview)
+  ));
+};
+
+const ensureInterviewAutomationForInterviewing = async ({
+  req,
+  application,
+  job,
+  organization,
+  recruiter,
+  candidate,
+  interviewSchedulingMode = null,
+} = {}) => {
+  if (!application || !job || !organization) {
+    return { interview: null, created: false, scheduled: false };
+  }
+
+  const forceAutoSchedule = interviewSchedulingMode === 'AUTO'
+    ? true
+    : interviewSchedulingMode === 'MANUAL'
+      ? false
+      : undefined;
+  const settings = resolveInterviewAutomationSettings(organization, job, recruiter, { forceAutoSchedule });
+  const nowIso = new Date().toISOString();
+  let interview = null;
+  let created = false;
+  let scheduled = false;
+  let slotFound = false;
+  let selectedSlot = null;
+  let schedulingStats = null;
+  let emailOperation = null;
+
+  if (application.interviewId) {
+    interview = await interviewStore.getById(application.interviewId).catch(() => null);
+    if (interview && TERMINAL_INTERVIEW_STATUSES.has(String(interview.status || '').toUpperCase())) {
+      interview = null;
+    }
+  }
+
+  if (!interview) {
+    const relatedInterviews = await interviewStore.listByJob(application.jobId, { limit: 200 }).catch(() => []);
+    interview = relatedInterviews.find((candidateInterview) =>
+      candidateInterview.candidateId === application.candidateId
+      && !TERMINAL_INTERVIEW_STATUSES.has(String(candidateInterview.status || '').toUpperCase()),
+    ) || null;
+  }
+
+  if (!interview) {
+    const interviewPayload = {
+      mode: 'HIRING',
+      candidateId: application.candidateId,
+      companyId: recruiter?.id || application.reviewedBy || null,
+      organizationId: application.organizationId,
+      jobId: application.jobId,
+      jobStage: 'INTERVIEWING',
+      pipelineStatus: 'SCREENING',
+      status: 'PENDING',
+      scheduledFor: null,
+      timezone: settings.timezone,
+      scheduleStatus: null,
+      scheduledBy: null,
+      scheduledAt: null,
+      jobRole: job.title || 'Position',
+      experienceLevel: job.experienceLevel || 'MID',
+      industry: job.department || organization.industry || null,
+      interviewTypes: settings.interviewTypes,
+      skillFocus: settings.skillFocus,
+      duration: settings.durationMinutes,
+    };
+    interview = await interviewStore.create(interviewPayload);
+    created = true;
+  }
+
+  if (settings.autoScheduleEnabled) {
+    const schedulingCandidates = await loadSchedulingCandidates({
+      application,
+      recruiter,
+      settings,
+      interviewIdToExclude: interview.id,
+    });
+    const slotDecision = findConstraintBasedAutoScheduleSlot({
+      settings,
+      existingInterviews: schedulingCandidates,
+    });
+    selectedSlot = slotDecision.scheduledFor || null;
+    slotFound = Boolean(selectedSlot);
+    schedulingStats = {
+      iterations: slotDecision.iterations || 0,
+      conflictChecks: slotDecision.conflictChecks || 0,
+      candidatePoolSize: schedulingCandidates.length,
+      conflictScope: settings.conflictScope,
+      availabilitySource: settings.availabilitySource || 'ORGANIZATION',
+    };
+  }
+
+  const shouldApplyAutoSchedule = settings.autoScheduleEnabled
+    && Boolean(selectedSlot)
+    && (created || !interview.scheduledFor || String(interview.status || '').toUpperCase() === 'PENDING');
+
+  if (shouldApplyAutoSchedule) {
+    const wasPreviouslyScheduled = Boolean(interview.scheduledFor);
+    const meetingTokenData = generateMeetingToken();
+    interview = await interviewStore.update(interview.id, {
+      status: 'SCHEDULED',
+      scheduledFor: selectedSlot,
+      timezone: settings.timezone,
+      ...meetingTokenData,
+      scheduleStatus: wasPreviouslyScheduled ? 'RESCHEDULED' : 'SCHEDULED',
+      scheduledBy: recruiter?.id || application.reviewedBy || null,
+      scheduledAt: nowIso,
+      interviewTypes: settings.interviewTypes,
+      skillFocus: settings.skillFocus,
+      duration: settings.durationMinutes,
+    });
+    scheduled = true;
+    emailOperation = created ? 'AUTO_CREATED_AND_SCHEDULED' : 'AUTO_SCHEDULED';
+  }
+
+  if (application.interviewId !== interview.id) {
+    await jobApplicationStore.update(application.id, { interviewId: interview.id });
+  }
+
+  if (created) {
+    await publishOrganizationRealtimeUpdate(application.organizationId, 'interview-created', {
+      interviewId: interview.id,
+      status: interview.status || null,
+      candidateId: interview.candidateId || null,
+      jobId: interview.jobId || null,
+    });
+    await publishCandidateRealtimeUpdate(application.candidateId, 'interview-created', {
+      interviewId: interview.id,
+      status: interview.status || null,
+      organizationId: interview.organizationId || null,
+      jobId: interview.jobId || null,
+    });
+  }
+
+  if (scheduled) {
+    await activityLogStore.record({
+      organizationId: application.organizationId,
+      actorId: recruiter?.id || application.reviewedBy || null,
+      actorRole: recruiter?.organizationContext?.membership?.role || null,
+      action: created ? 'INTERVIEW_AUTO_CREATED_AND_SCHEDULED' : 'INTERVIEW_AUTO_SCHEDULED',
+      targetType: 'INTERVIEW',
+      targetId: interview.id,
+      metadata: {
+        applicationId: application.id,
+        scheduledFor: interview.scheduledFor || null,
+        timezone: interview.timezone || null,
+        strategy: 'CONSTRAINT_BASED_V1',
+        slotFound,
+        ...(schedulingStats || {}),
+      },
+    });
+    await publishOrganizationRealtimeUpdate(application.organizationId, 'interview-scheduled', {
+      interviewId: interview.id,
+      status: 'SCHEDULED',
+      scheduledFor: interview.scheduledFor || null,
+      candidateId: interview.candidateId || null,
+      jobId: interview.jobId || null,
+      autoScheduled: true,
+      strategy: 'CONSTRAINT_BASED_V1',
+    });
+    await publishCandidateRealtimeUpdate(application.candidateId, 'interview-scheduled', {
+      interviewId: interview.id,
+      status: 'SCHEDULED',
+      scheduledFor: interview.scheduledFor || null,
+      organizationId: interview.organizationId || null,
+      jobId: interview.jobId || null,
+      autoScheduled: true,
+      strategy: 'CONSTRAINT_BASED_V1',
+    });
+    queueInterviewScheduledEmail({
+      interview,
+      candidate,
+      job,
+      organization,
+      operation: emailOperation || 'AUTO_SCHEDULED_INTERVIEW',
+    });
+  }
+
+  return {
+    interview,
+    created,
+    scheduled,
+    slotFound,
+    mode: settings.autoScheduleEnabled ? 'AUTO' : 'MANUAL',
+    strategy: 'CONSTRAINT_BASED_V1',
+    scheduleDecision: {
+      requestedAutoSchedule: settings.autoScheduleEnabled,
+      selectedSlot: selectedSlot || null,
+      ...(schedulingStats || {}),
+    },
+  };
+};
+
 export class ApplicationController {
   /**
    * Submit a job application
@@ -139,6 +956,7 @@ export class ApplicationController {
       const { jobId } = req.params;
       const { resumeUrl, coverLetter, answers } = req.body;
       const candidateId = req.user.id;
+      const normalizedResumeUrl = (resumeUrl || req.user?.profile?.resumeUrl || '').toString().trim();
       let organization = null;
 
       // Get the job
@@ -162,13 +980,25 @@ export class ApplicationController {
         return res.status(400).json({ error: 'Applications are closed for this position' });
       }
 
-      // Validate answers match questions BEFORE transaction
-      if (job.applicationQuestions && job.applicationQuestions.length > 0) {
-        const requiredQuestions = job.applicationQuestions.filter((q) => q.required);
-        const answeredQuestionIds = new Set((answers || []).map((a) => a.questionId));
-        
+      // Enforce resume requirement server-side even if the client is bypassed.
+      if (!normalizedResumeUrl) {
+        return res.status(400).json({ error: 'Resume is required to submit an application' });
+      }
+
+      // Validate required answers before creating the application.
+      const applicationQuestions = normalizeJobQuestions(job);
+      if (applicationQuestions.length > 0) {
+        const requiredQuestions = applicationQuestions.filter((question) => question.required);
+        const answersByQuestionId = new Map(
+          (Array.isArray(answers) ? answers : []).map((answer) => [
+            (answer?.questionId || '').toString().trim(),
+            normalizeAnswerValue(answer?.answer),
+          ]),
+        );
+
         for (const question of requiredQuestions) {
-          if (!answeredQuestionIds.has(question.id)) {
+          const candidateAnswer = answersByQuestionId.get(question.id);
+          if (!candidateAnswer) {
             return res.status(400).json({
               error: `Missing required answer for: ${question.question}`,
             });
@@ -192,7 +1022,7 @@ export class ApplicationController {
           candidateId,
           organizationId: job.organizationId,
           status: 'SUBMITTED',
-          resumeUrl: resumeUrl || req.user.profile?.resumeUrl,
+          resumeUrl: normalizedResumeUrl,
           coverLetter: coverLetter || null,
           answers: answers || [],
           jobSnapshot: buildJobSnapshot(job),
@@ -454,8 +1284,16 @@ export class ApplicationController {
     try {
       const { id } = req.params;
       const { status } = req.body;
+      const requestedInterviewSchedulingMode = parseInterviewSchedulingMode(req.body?.interviewSchedulingMode);
       const userId = req.user.id;
       const organizationId = req.user.organizationContext?.organization?.id;
+
+      if (req.body?.interviewSchedulingMode != null && !requestedInterviewSchedulingMode) {
+        return res.status(400).json({
+          error: 'Invalid interview scheduling mode',
+          details: { allowedModes: [...INTERVIEW_SCHEDULING_MODES] },
+        });
+      }
 
       const application = await jobApplicationStore.getById(id);
       if (!application) {
@@ -572,17 +1410,65 @@ export class ApplicationController {
         jobStore.getById(application.jobId),
         organizationStore.getById(organizationId),
       ]);
-      if (candidate?.email && job && organization) {
+      let interviewAutomation = null;
+      let interviewAutomationWarning = null;
+      if (nextStatus === 'INTERVIEWING' && previousStatus !== 'INTERVIEWING' && job && organization) {
+        try {
+          interviewAutomation = await ensureInterviewAutomationForInterviewing({
+            req,
+            application: {
+              ...updated,
+              id: updated.id || application.id,
+              jobId: updated.jobId || application.jobId,
+              organizationId: updated.organizationId || application.organizationId,
+              candidateId: updated.candidateId || application.candidateId,
+              reviewedBy: userId,
+            },
+            job,
+            organization,
+            recruiter: req.user,
+            candidate,
+            interviewSchedulingMode: requestedInterviewSchedulingMode,
+          });
+          if (
+            requestedInterviewSchedulingMode !== 'MANUAL'
+            && interviewAutomation?.mode === 'AUTO'
+            && !interviewAutomation?.scheduled
+          ) {
+            interviewAutomationWarning = 'No available interview slots matched automation constraints. Schedule manually from the interview workspace.';
+          }
+        } catch (automationError) {
+          interviewAutomationWarning = 'Interview automation could not complete automatically. Please review interview scheduling.';
+          logger.error('Failed to auto-create/schedule interview after INTERVIEWING transition:', automationError);
+        }
+      }
+
+      const responseApplication = interviewAutomation?.interview?.id
+        ? { ...updated, interviewId: interviewAutomation.interview.id }
+        : updated;
+      const shouldNotifyCandidate = previousStatus && previousStatus !== nextStatus;
+      if (shouldNotifyCandidate && candidate?.email && job && organization) {
+        const statusMessage = buildApplicationStatusEmailMessage({
+          status: responseApplication.status,
+          previousStatus,
+          dispositionReason: responseApplication.dispositionReason || null,
+        });
         queueEmailJob({
           type: 'APPLICATION_STATUS_UPDATED',
           payload: {
-            applicationId: updated.id,
+            applicationId: responseApplication.id,
             candidateId: application.candidateId,
             recipient: candidate.email || null,
-            status: updated.status,
+            status: responseApplication.status,
           },
           handler: async () => {
-            await emailNotifications.sendApplicationStatusUpdated(updated, candidate, job, organization);
+            await emailNotifications.sendApplicationStatusUpdated(
+              responseApplication,
+              candidate,
+              job,
+              organization,
+              statusMessage,
+            );
             logger.info(`Status update email sent to ${candidate.email}`);
           },
         });
@@ -590,7 +1476,21 @@ export class ApplicationController {
 
       res.json({
         success: true,
-        application: sanitizeApplication(updated, null, null, null),
+        application: sanitizeApplication(responseApplication, null, null, null),
+        ...(interviewAutomation?.interview
+          ? {
+            interview: interviewAutomation.interview,
+            interviewAutomation: {
+              created: Boolean(interviewAutomation.created),
+              scheduled: Boolean(interviewAutomation.scheduled),
+              slotFound: Boolean(interviewAutomation.slotFound),
+              mode: interviewAutomation.mode || null,
+              strategy: interviewAutomation.strategy || null,
+              scheduleDecision: interviewAutomation.scheduleDecision || null,
+            },
+          }
+          : {}),
+        ...(interviewAutomationWarning ? { warning: interviewAutomationWarning } : {}),
       });
     } catch (error) {
       logger.error('Update application status error:', error);
@@ -793,6 +1693,25 @@ export class ApplicationController {
       const results = [];
       const updatedApplications = [];
       const statusChangedAt = new Date().toISOString();
+      const candidateCache = new Map();
+      const jobCache = new Map();
+      let organization = null;
+
+      const resolveCandidate = async (candidateId) => {
+        if (!candidateId) return null;
+        if (candidateCache.has(candidateId)) return candidateCache.get(candidateId);
+        const candidate = await userStore.getSummary(candidateId).catch(() => null);
+        candidateCache.set(candidateId, candidate);
+        return candidate;
+      };
+
+      const resolveJob = async (jobId) => {
+        if (!jobId) return null;
+        if (jobCache.has(jobId)) return jobCache.get(jobId);
+        const job = await jobStore.getById(jobId).catch(() => null);
+        jobCache.set(jobId, job);
+        return job;
+      };
 
       for (const item of fetchedApplications) {
         const { applicationId, application, error } = item;
@@ -881,25 +1800,104 @@ export class ApplicationController {
           statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
         });
 
-        updatedApplications.push(updated);
+        let updatedRecord = updated;
+        const shouldRunInterviewAutomation = targetStatus === 'INTERVIEWING' && previousStatus !== 'INTERVIEWING';
+        let candidate = null;
+        let job = null;
+        if (shouldRunInterviewAutomation) {
+          if (!organization) {
+            organization = await organizationStore.getById(organizationId).catch(() => null);
+          }
+          [candidate, job] = await Promise.all([
+            resolveCandidate(updated.candidateId),
+            resolveJob(updated.jobId),
+          ]);
+          if (job && organization) {
+            try {
+              const interviewAutomation = await ensureInterviewAutomationForInterviewing({
+                req,
+                application: {
+                  ...updated,
+                  id: updated.id || application.id,
+                  jobId: updated.jobId || application.jobId,
+                  organizationId: updated.organizationId || application.organizationId,
+                  candidateId: updated.candidateId || application.candidateId,
+                  reviewedBy: userId,
+                },
+                job,
+                organization,
+                recruiter: req.user,
+                candidate,
+              });
+              if (interviewAutomation?.interview?.id) {
+                updatedRecord = { ...updatedRecord, interviewId: interviewAutomation.interview.id };
+              }
+            } catch (automationError) {
+              logger.error(`Bulk status update interview automation failed for application ${applicationId}:`, automationError);
+            }
+          }
+        }
+
+        updatedApplications.push(updatedRecord);
         results.push({
           applicationId,
           updated: true,
-          status: updated.status,
+          status: updatedRecord.status,
+          interviewId: updatedRecord.interviewId || null,
         });
 
         await publishOrganizationRealtimeUpdate(organizationId, 'application-status-updated', {
-          applicationId: updated.id,
-          jobId: updated.jobId || null,
-          candidateId: updated.candidateId || null,
-          status: updated.status || targetStatus,
+          applicationId: updatedRecord.id,
+          jobId: updatedRecord.jobId || null,
+          candidateId: updatedRecord.candidateId || null,
+          status: updatedRecord.status || targetStatus,
         });
-        await publishCandidateRealtimeUpdate(updated.candidateId, 'application-status-updated', {
-          applicationId: updated.id,
-          jobId: updated.jobId || null,
+        await publishCandidateRealtimeUpdate(updatedRecord.candidateId, 'application-status-updated', {
+          applicationId: updatedRecord.id,
+          jobId: updatedRecord.jobId || null,
           organizationId,
-          status: updated.status || targetStatus,
+          status: updatedRecord.status || targetStatus,
         });
+
+        const shouldNotifyCandidate = previousStatus && previousStatus !== targetStatus;
+        if (shouldNotifyCandidate) {
+          if (!organization) {
+            organization = await organizationStore.getById(organizationId).catch(() => null);
+          }
+          if (!candidate || !job) {
+            [candidate, job] = await Promise.all([
+              resolveCandidate(updatedRecord.candidateId),
+              resolveJob(updatedRecord.jobId),
+            ]);
+          }
+          if (candidate?.email && job && organization) {
+            const statusMessage = buildApplicationStatusEmailMessage({
+              status: updatedRecord.status,
+              previousStatus,
+              dispositionReason: updatedRecord.dispositionReason || null,
+            });
+            queueEmailJob({
+              type: 'APPLICATION_STATUS_UPDATED',
+              payload: {
+                applicationId: updatedRecord.id,
+                candidateId: updatedRecord.candidateId,
+                recipient: candidate.email || null,
+                status: updatedRecord.status,
+                source: 'BULK_STATUS_UPDATE',
+              },
+              handler: async () => {
+                await emailNotifications.sendApplicationStatusUpdated(
+                  updatedRecord,
+                  candidate,
+                  job,
+                  organization,
+                  statusMessage,
+                );
+                logger.info(`Bulk status update email sent to ${candidate.email}`);
+              },
+            });
+          }
+        }
       }
 
       await activityLogStore.record({

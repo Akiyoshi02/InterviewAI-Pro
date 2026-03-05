@@ -42,7 +42,7 @@ const PracticeInterviewSetup = () => {
     personality: null, // AI interviewer personality traits
     voice: null, // Voice/actor selection (separate from personality)
     interviewerName: null, // Generated or custom interviewer name
-    prepNotes: '', // GAP: prep notes saved to first question when session has questions
+    prepNotes: '',
     advancedSettings: {
       skillFocus: [],
       language: 'en',
@@ -124,6 +124,7 @@ const PracticeInterviewSetup = () => {
     try {
       if (!user) {
         setError('Your session has expired. Please sign in again.');
+        setIsCreating(false);
         await logout();
         navigate('/login');
         return;
@@ -131,6 +132,7 @@ const PracticeInterviewSetup = () => {
 
       if (user.accountType?.toUpperCase() !== 'CANDIDATE') {
         setError('Practice interviews are only available for candidate accounts.');
+        setIsCreating(false);
         return;
       }
 
@@ -150,6 +152,7 @@ const PracticeInterviewSetup = () => {
           voice: formData.voice,
           interviewerName: formData.interviewerName,
           advancedSettings: formData.advancedSettings,
+          prepNotes: formData.prepNotes || '',
         }
       };
 
@@ -558,6 +561,7 @@ const PracticeInterviewSetup = () => {
                         personality: null,
                         voice: null,
                         interviewerName: null,
+                        prepNotes: '',
                         advancedSettings: {
                           skillFocus: [],
                           language: 'en',

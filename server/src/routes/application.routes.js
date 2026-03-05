@@ -157,6 +157,10 @@ router.patch(
     body('dispositionNotes').optional({ nullable: true }).isString().isLength({ max: 2000 }),
     body('dispositionTags').optional({ nullable: true }).isArray({ max: 8 }),
     body('dispositionTags.*').optional().isString().isLength({ max: 80 }),
+    body('interviewSchedulingMode')
+      .optional({ nullable: true })
+      .isIn(['AUTO', 'MANUAL'])
+      .withMessage('Invalid interview scheduling mode'),
   ],
   validateRequest,
   ApplicationController.updateApplicationStatus,

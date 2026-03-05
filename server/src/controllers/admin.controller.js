@@ -23,6 +23,13 @@ import {
   LABELS as CLASS_LABELS,
 } from '../utils/classificationMetrics.util.js';
 import { calibrateFromCollectedData } from '../services/mediapipeCalibration.service.js';
+import {
+  buildStructuredInterviewQuestionPlanAsync,
+  buildStructuredInterviewQuestionPlan,
+  getStructuredInterviewCatalog,
+  applyQuestionStrategyDefaults,
+  normalizeOrganizationTemplateForPlanner,
+} from '../services/structuredInterview.service.js';
 
 const ensureRealtimeAdmin = async ({ uid, email, fullName }) => {
   if (!realtimeDb || !uid) return;
@@ -75,6 +82,39 @@ const getRetentionPolicy = (settings) => ({
 const getCutoffIsoFromDays = (days) => {
   const ms = Number(days) * 24 * 60 * 60 * 1000;
   return new Date(Date.now() - ms).toISOString();
+};
+
+const normalizeMode = (value) => {
+  const normalized = (value || '').toString().trim().toUpperCase();
+  return normalized === 'HIRING' ? 'HIRING' : 'PRACTICE';
+};
+
+const safeNumber = (value, fallback = null) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return parsed;
+};
+
+const getInterviewTemplatesCollection = () => firestore.collection('interviewTemplates');
+
+const resolveStructuredTemplateOverrideForPreview = async ({ templateId, mode }) => {
+  const normalizedTemplateId = (templateId || '').toString().trim();
+  if (!normalizedTemplateId) return null;
+
+  try {
+    const templateDoc = await getInterviewTemplatesCollection().doc(normalizedTemplateId).get();
+    if (!templateDoc.exists) return null;
+
+    return normalizeOrganizationTemplateForPlanner(templateDoc.data(), {
+      fallbackMode: mode,
+    });
+  } catch (error) {
+    logger.warn('Failed to resolve template override for structured preview.', {
+      templateId: normalizedTemplateId,
+      error: error?.message || String(error),
+    });
+    return null;
+  }
 };
 
 const splitIntoChunks = (items = [], chunkSize = 450) => {
@@ -1716,6 +1756,8 @@ export class AdminController {
 
       const completed = interviews.filter((i) => i.status === 'COMPLETED');
       const withScore = completed.filter((i) => i.overallScore != null && !Number.isNaN(Number(i.overallScore)));
+      const withStructuredPlan = completed.filter((i) => i?.questionPlan && typeof i.questionPlan === 'object');
+      const withStructuredEnabled = withStructuredPlan.filter((i) => i.questionPlan?.enabled === true);
 
       const scoreBuckets = { '0-20': 0, '21-40': 0, '41-60': 0, '61-80': 0, '81-100': 0 };
       withScore.forEach((i) => {
@@ -1737,6 +1779,91 @@ export class AdminController {
         else if (s <= 80) finalScoreBuckets['61-80'] += 1;
         else finalScoreBuckets['81-100'] += 1;
       });
+
+      const structuredByMode = {
+        HIRING: { total: 0, structured: 0 },
+        PRACTICE: { total: 0, structured: 0 },
+      };
+      completed.forEach((interview) => {
+        const mode = normalizeMode(interview?.mode);
+        structuredByMode[mode].total += 1;
+        if (interview?.questionPlan?.enabled === true) {
+          structuredByMode[mode].structured += 1;
+        }
+      });
+
+      const templateMap = new Map();
+      withStructuredEnabled.forEach((interview) => {
+        const templateId = interview.questionPlan?.templateId || 'unassigned';
+        const templateName = interview.questionPlan?.templateName || 'Unknown Template';
+        const current = templateMap.get(templateId) || {
+          templateId,
+          templateName,
+          interviewCount: 0,
+          pendingEvaluationCount: 0,
+          llmFillInterviews: 0,
+          llmFillQuestions: 0,
+          sumOverallScore: 0,
+          overallScoreCount: 0,
+          sumFinalScore: 0,
+          finalScoreCount: 0,
+          sumCoreRatio: 0,
+          coreRatioCount: 0,
+        };
+
+        current.interviewCount += 1;
+        if (interview.pendingEvaluation) {
+          current.pendingEvaluationCount += 1;
+        }
+        const llmFillCount = safeNumber(interview.questionPlan?.llmFillCount, 0) || 0;
+        if (llmFillCount > 0) {
+          current.llmFillInterviews += 1;
+        }
+        current.llmFillQuestions += llmFillCount;
+
+        const overallScore = safeNumber(interview.overallScore);
+        if (overallScore != null) {
+          current.sumOverallScore += overallScore;
+          current.overallScoreCount += 1;
+        }
+
+        const finalScore = safeNumber(interview.finalOverallScore ?? interview.overallScore);
+        if (finalScore != null) {
+          current.sumFinalScore += finalScore;
+          current.finalScoreCount += 1;
+        }
+
+        const coreCount = safeNumber(interview.questionPlan?.coreQuestionCount, 0) || 0;
+        const randomCount = safeNumber(interview.questionPlan?.randomizedQuestionCount, 0) || 0;
+        const denominator = coreCount + randomCount + llmFillCount;
+        if (denominator > 0) {
+          current.sumCoreRatio += coreCount / denominator;
+          current.coreRatioCount += 1;
+        }
+
+        templateMap.set(templateId, current);
+      });
+
+      const templateMetrics = [...templateMap.values()]
+        .map((item) => ({
+          templateId: item.templateId,
+          templateName: item.templateName,
+          interviewCount: item.interviewCount,
+          pendingEvaluationCount: item.pendingEvaluationCount,
+          llmFillInterviews: item.llmFillInterviews,
+          llmFillQuestions: item.llmFillQuestions,
+          averageOverallScore:
+            item.overallScoreCount > 0 ? Math.round((item.sumOverallScore / item.overallScoreCount) * 10) / 10 : null,
+          averageFinalScore:
+            item.finalScoreCount > 0 ? Math.round((item.sumFinalScore / item.finalScoreCount) * 10) / 10 : null,
+          averageCoreRatio:
+            item.coreRatioCount > 0 ? Math.round((item.sumCoreRatio / item.coreRatioCount) * 1000) / 1000 : null,
+        }))
+        .sort((left, right) => right.interviewCount - left.interviewCount);
+
+      const structuredAdoptionRate = completed.length > 0
+        ? Math.round((withStructuredEnabled.length / completed.length) * 1000) / 10
+        : 0;
 
       const calibrationPairs = reviews.filter(
         (r) =>
@@ -1783,6 +1910,28 @@ export class AdminController {
           scoreDistribution: scoreBuckets,
           finalScoreDistribution: finalScoreBuckets,
           smeOverrideCount: completed.filter((i) => i.finalScoreSource === 'SME').length,
+          structured: {
+            withStructuredPlan: withStructuredPlan.length,
+            withStructuredEnabled: withStructuredEnabled.length,
+            adoptionRatePercent: structuredAdoptionRate,
+            byMode: {
+              hiring: {
+                total: structuredByMode.HIRING.total,
+                structured: structuredByMode.HIRING.structured,
+                adoptionRatePercent: structuredByMode.HIRING.total > 0
+                  ? Math.round((structuredByMode.HIRING.structured / structuredByMode.HIRING.total) * 1000) / 10
+                  : 0,
+              },
+              practice: {
+                total: structuredByMode.PRACTICE.total,
+                structured: structuredByMode.PRACTICE.structured,
+                adoptionRatePercent: structuredByMode.PRACTICE.total > 0
+                  ? Math.round((structuredByMode.PRACTICE.structured / structuredByMode.PRACTICE.total) * 1000) / 10
+                  : 0,
+              },
+            },
+            templates: templateMetrics,
+          },
         },
         calibration: {
           reviewsWithBothScores: calibrationPairs.length,
@@ -1800,6 +1949,209 @@ export class AdminController {
       });
     } catch (error) {
       logger.error('Get fairness calibration error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Structured interview governance overview:
+   * - catalog (question library + templates)
+   * - current global defaults from system settings
+   * - observed template usage from recent interviews
+   */
+  static async getStructuredInterviewGovernance(req, res, next) {
+    try {
+      const limit = Math.min(parseInt(req.query.limit, 10) || 500, 2000);
+      const [settings, interviews, templateSnapshot] = await Promise.all([
+        systemSettingsStore.get(),
+        interviewStore.listRecent(limit),
+        getInterviewTemplatesCollection().limit(2000).get(),
+      ]);
+      const organizationTemplates = templateSnapshot.docs
+        .map((doc) => normalizeOrganizationTemplateForPlanner(doc.data(), { fallbackMode: 'HIRING' }))
+        .filter(Boolean);
+      const catalog = getStructuredInterviewCatalog({ templateOverrides: organizationTemplates });
+
+      const withPlan = interviews.filter((interview) => interview?.questionPlan && typeof interview.questionPlan === 'object');
+      const withStructuredEnabled = withPlan.filter((interview) => interview.questionPlan?.enabled === true);
+
+      const templateUsageMap = new Map();
+      withStructuredEnabled.forEach((interview) => {
+        const templateId = interview.questionPlan?.templateId || 'unassigned';
+        const templateName = interview.questionPlan?.templateName || 'Unknown Template';
+        const current = templateUsageMap.get(templateId) || {
+          templateId,
+          templateName,
+          interviews: 0,
+          completed: 0,
+          inProgress: 0,
+          pendingEvaluation: 0,
+          llmFillQuestions: 0,
+          overallScoreCount: 0,
+          overallScoreSum: 0,
+        };
+
+        current.interviews += 1;
+        const status = String(interview?.status || '').toUpperCase();
+        if (status === 'COMPLETED') current.completed += 1;
+        if (status === 'IN_PROGRESS') current.inProgress += 1;
+        if (interview?.pendingEvaluation) current.pendingEvaluation += 1;
+        current.llmFillQuestions += safeNumber(interview?.questionPlan?.llmFillCount, 0) || 0;
+
+        const overallScore = safeNumber(interview?.overallScore);
+        if (overallScore != null) {
+          current.overallScoreCount += 1;
+          current.overallScoreSum += overallScore;
+        }
+
+        templateUsageMap.set(templateId, current);
+      });
+
+      const templateUsage = [...templateUsageMap.values()]
+        .map((item) => ({
+          templateId: item.templateId,
+          templateName: item.templateName,
+          interviews: item.interviews,
+          completed: item.completed,
+          inProgress: item.inProgress,
+          pendingEvaluation: item.pendingEvaluation,
+          llmFillQuestions: item.llmFillQuestions,
+          averageOverallScore:
+            item.overallScoreCount > 0
+              ? Math.round((item.overallScoreSum / item.overallScoreCount) * 10) / 10
+              : null,
+        }))
+        .sort((left, right) => right.interviews - left.interviews);
+
+      const modeStats = {
+        hiring: { total: 0, structured: 0 },
+        practice: { total: 0, structured: 0 },
+      };
+
+      interviews.forEach((interview) => {
+        const mode = normalizeMode(interview?.mode).toLowerCase();
+        modeStats[mode].total += 1;
+        if (interview?.questionPlan?.enabled === true) {
+          modeStats[mode].structured += 1;
+        }
+      });
+
+      return res.json({
+        success: true,
+        governance: {
+          catalog,
+          defaults: settings?.structuredInterviewDefaults || {},
+          usage: {
+            sampleSize: interviews.length,
+            interviewsWithPlan: withPlan.length,
+            interviewsWithStructuredEnabled: withStructuredEnabled.length,
+            overallStructuredAdoptionRatePercent:
+              interviews.length > 0
+                ? Math.round((withStructuredEnabled.length / interviews.length) * 1000) / 10
+                : 0,
+            byMode: {
+              hiring: {
+                ...modeStats.hiring,
+                adoptionRatePercent: modeStats.hiring.total > 0
+                  ? Math.round((modeStats.hiring.structured / modeStats.hiring.total) * 1000) / 10
+                  : 0,
+              },
+              practice: {
+                ...modeStats.practice,
+                adoptionRatePercent: modeStats.practice.total > 0
+                  ? Math.round((modeStats.practice.structured / modeStats.practice.total) * 1000) / 10
+                  : 0,
+              },
+            },
+            templates: templateUsage,
+          },
+        },
+      });
+    } catch (error) {
+      logger.error('Get structured interview governance error:', error);
+      next(error);
+    }
+  }
+
+  /**
+   * Preview structured interview question selection without creating an interview.
+   */
+  static async previewStructuredInterviewPlan(req, res, next) {
+    try {
+      const body = req.body || {};
+      const mode = normalizeMode(body.mode);
+      const totalQuestions = Math.min(Math.max(parseInt(body.totalQuestions, 10) || 10, 1), 50);
+      const settings = await systemSettingsStore.get();
+      const modeDefaults = settings?.structuredInterviewDefaults?.[mode.toLowerCase()] || {};
+
+      const providedStrategy = body?.questionStrategy
+        && typeof body.questionStrategy === 'object'
+        ? body.questionStrategy
+        : (
+          body?.config?.questionStrategy
+          && typeof body.config.questionStrategy === 'object'
+            ? body.config.questionStrategy
+            : {}
+        );
+
+      const mergedConfig = applyQuestionStrategyDefaults(
+        {
+          questionStrategy: {
+            ...(modeDefaults || {}),
+            ...(providedStrategy || {}),
+          },
+          advancedSettings: {
+            difficulty: body?.difficulty
+              || body?.config?.advancedSettings?.difficulty
+              || 'medium',
+          },
+        },
+        mode,
+      );
+
+      const interviewLike = {
+        id: body?.interviewId || 'preview-interview',
+        mode,
+        candidateId: body?.candidateId || 'preview-candidate',
+        organizationId: body?.organizationId || 'preview-organization',
+        jobRole: body?.jobRole || 'General',
+        experienceLevel: body?.experienceLevel || 'mid',
+        industry: body?.industry || 'any',
+        interviewTypes: Array.isArray(body?.interviewTypes) && body.interviewTypes.length
+          ? body.interviewTypes
+          : ['behavioral'],
+        skillFocus: Array.isArray(body?.skillFocus) ? body.skillFocus : [],
+        config: mergedConfig,
+      };
+      const templateOverride = await resolveStructuredTemplateOverrideForPreview({
+        templateId: mergedConfig?.questionStrategy?.templateId,
+        mode,
+      });
+
+      const plan = mode === 'PRACTICE'
+        ? await buildStructuredInterviewQuestionPlanAsync({
+          interview: interviewLike,
+          totalQuestions,
+          templateOverrides: templateOverride ? [templateOverride] : [],
+        })
+        : buildStructuredInterviewQuestionPlan({
+          interview: interviewLike,
+          totalQuestions,
+          templateOverrides: templateOverride ? [templateOverride] : [],
+        });
+
+      return res.json({
+        success: true,
+        preview: {
+          mode,
+          totalQuestions,
+          defaultsApplied: modeDefaults,
+          resolvedStrategy: mergedConfig.questionStrategy,
+          plan,
+        },
+      });
+    } catch (error) {
+      logger.error('Preview structured interview plan error:', error);
       next(error);
     }
   }

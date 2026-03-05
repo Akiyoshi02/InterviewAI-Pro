@@ -115,6 +115,14 @@ const AIInterviewerPreview = ({
   const { error: showErrorToast, warning: showWarningToast } = useToast();
   const previousVoiceGenderRef = useRef(null);
 
+  const isSpeechCancellationError = (error) => {
+    const normalizedError = String(error?.error || error?.message || error || '').toLowerCase();
+    return normalizedError.includes('interrupted')
+      || normalizedError.includes('canceled')
+      || normalizedError.includes('cancelled')
+      || normalizedError.includes('aborted');
+  };
+
   // Load available default voices
   useEffect(() => {
     const detectedOS = detectOS();
@@ -205,7 +213,7 @@ const AIInterviewerPreview = ({
 
   const handleRandomizeName = () => {
     // Stop preview if it's currently playing
-    if (isSpeaking || previewMode) {
+    if (isSpeaking || previewMode || speechService.isSpeaking()) {
       speechService.cancel();
       setIsSpeaking(false);
       setPreviewMode(false);
@@ -221,15 +229,15 @@ const AIInterviewerPreview = ({
   // Cleanup: cancel speech when component unmounts
   useEffect(() => {
     return () => {
-      if (isSpeaking) {
+      if (speechService.isSpeaking()) {
         speechService.cancel();
       }
     };
-  }, [isSpeaking]);
+  }, []);
 
   // Cancel speech when voice changes (not when interviewer style changes)
   useEffect(() => {
-    if (isSpeaking) {
+    if (isSpeaking || speechService.isSpeaking()) {
       speechService.cancel();
       setIsSpeaking(false);
       setPreviewMode(false);
@@ -238,7 +246,7 @@ const AIInterviewerPreview = ({
   }, [selectedVoice]);
 
   const handlePreviewInteraction = async () => {
-    if (isSpeaking || previewMode) {
+    if (isSpeaking || previewMode || speechService.isSpeaking()) {
       speechService.cancel();
       setIsSpeaking(false);
       setPreviewMode(false);
@@ -295,13 +303,22 @@ const AIInterviewerPreview = ({
           setPreviewMode(false);
         },
         onError: (error) => {
+          if (isSpeechCancellationError(error)) {
+            setIsSpeaking(false);
+            setPreviewMode(false);
+            return;
+          }
           console.error('Preview speech error:', error);
           setIsSpeaking(false);
           setPreviewMode(false);
-          showErrorToast('Failed to play preview. Please try again.');
         }
       });
     } catch (error) {
+      if (isSpeechCancellationError(error)) {
+        setIsSpeaking(false);
+        setPreviewMode(false);
+        return;
+      }
       console.error('Preview error:', error);
       setIsSpeaking(false);
       setPreviewMode(false);

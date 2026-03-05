@@ -25,12 +25,14 @@ import { useAIInterviewer } from '../../hooks/useAIInterviewer';
 import apiClient from '../../services/apiClient';
 import { realtimeDb } from '../../config/firebase.js';
 import { InterviewDatasetCollector } from '../../services/interviewDatasetService';
+import { buildSuggestedTestAnswer } from './utils/testAnswerHelper.js';
 
 const isBackendInterviewId = (id) => Boolean(id && !/^interview_\d+$/.test(id));
 const RECORDING_MIN_BYTES = Math.max(
   1024,
   Number.parseInt(import.meta.env.VITE_RECORDING_MIN_BYTES || '51200', 10) || 51200,
 );
+const AUTO_COMPLETE_MAX_STEPS = 48;
 
 const DEFAULT_INTERVIEW_CONFIG = {
   jobRole: 'Software Engineer',
@@ -51,6 +53,13 @@ const DEFAULT_INTERVIEW_CONFIG = {
     practiceMode: false,
     difficulty: 'medium',
   },
+};
+
+const getViewportMode = () => {
+  if (typeof window === 'undefined') return 'desktop';
+  if (window.innerWidth >= 1024) return 'desktop';
+  if (window.innerWidth >= 768) return 'tablet';
+  return 'mobile';
 };
 
 const LiveInterviewSession = () => {
@@ -91,12 +100,27 @@ const LiveInterviewSession = () => {
   const [sessionNotice, setSessionNotice] = useState('');
   const [activeInterviewConfig, setActiveInterviewConfig] = useState(DEFAULT_INTERVIEW_CONFIG);
   const [screenShareStream, setScreenShareStream] = useState(null);
+  const [emotionAnalysisStream, setEmotionAnalysisStream] = useState(null);
+  const [viewportMode, setViewportMode] = useState(getViewportMode);
 
   useEffect(() => {
     if (!sessionNotice || isUploadingRecording) return undefined;
     const timeoutId = setTimeout(() => setSessionNotice(''), 5000);
     return () => clearTimeout(timeoutId);
   }, [sessionNotice, isUploadingRecording]);
+
+  useEffect(() => {
+    const handleResize = () => {
+      setViewportMode((previousMode) => {
+        const nextMode = getViewportMode();
+        return previousMode === nextMode ? previousMode : nextMode;
+      });
+    };
+
+    handleResize();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Explicit recording consent (FR2). Restore from session so refresh doesn't re-prompt.
   const [recordingConsentGiven, setRecordingConsentGiven] = useState(() => {
@@ -213,6 +237,11 @@ const LiveInterviewSession = () => {
     isScreenSharing: false,
     isWhiteboardActive: false
   });
+  const testAnswerHelperEnabled = import.meta.env.DEV
+    || String(import.meta.env.VITE_ENABLE_TEST_ANSWER_HELPER || '').toLowerCase() === 'true';
+  const [testAnswerDraft, setTestAnswerDraft] = useState('');
+  const [isAutoCompleting, setIsAutoCompleting] = useState(false);
+  const [isTestHelperOpen, setIsTestHelperOpen] = useState(true);
 
   const [poseMetrics, setPoseMetrics] = useState({
     posture: 'good',
@@ -227,10 +256,31 @@ const LiveInterviewSession = () => {
 
   const poseMetricsRef = useRef(poseMetrics);
   const lastRealtimeEventRef = useRef('');
+  const interviewPhaseRef = useRef(interviewPhase);
+  const currentMessageRef = useRef(currentMessage);
+  const questionsAskedRef = useRef(questionsAsked);
+  const totalQuestionsRef = useRef(1);
+  const interviewConfigRef = useRef(activeInterviewConfig);
+  const autoCompleteCancelledRef = useRef(false);
 
   useEffect(() => {
     poseMetricsRef.current = poseMetrics;
   }, [poseMetrics]);
+  useEffect(() => {
+    interviewPhaseRef.current = interviewPhase;
+  }, [interviewPhase]);
+  useEffect(() => {
+    currentMessageRef.current = currentMessage;
+  }, [currentMessage]);
+  useEffect(() => {
+    questionsAskedRef.current = questionsAsked;
+  }, [questionsAsked]);
+  useEffect(() => {
+    totalQuestionsRef.current = Math.max(aiTotalQuestions || sessionState?.totalQuestions || 0, 1);
+  }, [aiTotalQuestions, sessionState?.totalQuestions]);
+  useEffect(() => {
+    interviewConfigRef.current = activeInterviewConfig;
+  }, [activeInterviewConfig]);
 
   const advancedSettings = activeInterviewConfig?.advancedSettings || DEFAULT_INTERVIEW_CONFIG.advancedSettings;
   const realTimeFeedbackEnabled = Boolean(advancedSettings?.realTimeFeedback);
@@ -240,6 +290,44 @@ const LiveInterviewSession = () => {
     : DEFAULT_INTERVIEW_CONFIG.interviewTypes;
   const effectiveTotalQuestions = Math.max(aiTotalQuestions || sessionState?.totalQuestions || 0, 1);
   const estimatedTimeRemaining = Math.max((effectiveTotalQuestions - Math.max(questionsAsked, 0)) * 3, 0);
+  const getSuggestedTestAnswer = useCallback(
+    (overrides = {}) => buildSuggestedTestAnswer({
+      phase: overrides.phase ?? interviewPhaseRef.current,
+      currentQuestion: overrides.currentQuestion ?? currentMessageRef.current,
+      jobRole: overrides.jobRole ?? interviewConfigRef.current?.jobRole,
+      experienceLevel: overrides.experienceLevel ?? interviewConfigRef.current?.experienceLevel,
+      industry: overrides.industry ?? interviewConfigRef.current?.industry,
+    }),
+    [],
+  );
+
+  useEffect(() => {
+    if (!testAnswerHelperEnabled || !recordingConsentGiven || isAutoCompleting) return;
+    setTestAnswerDraft(
+      buildSuggestedTestAnswer({
+      phase: interviewPhase,
+      currentQuestion: currentMessage,
+      jobRole: activeInterviewConfig?.jobRole,
+      experienceLevel: activeInterviewConfig?.experienceLevel,
+      industry: activeInterviewConfig?.industry,
+      }),
+    );
+  }, [
+    testAnswerHelperEnabled,
+    recordingConsentGiven,
+    isAutoCompleting,
+    interviewPhase,
+    currentMessage,
+    activeInterviewConfig?.jobRole,
+    activeInterviewConfig?.experienceLevel,
+    activeInterviewConfig?.industry,
+  ]);
+
+  useEffect(() => {
+    if (testAnswerHelperEnabled && recordingConsentGiven) {
+      setIsTestHelperOpen(true);
+    }
+  }, [testAnswerHelperEnabled, recordingConsentGiven]);
 
   const getQuestionCategoryProgress = useCallback(() => {
     const types = interviewTypes;
@@ -292,6 +380,9 @@ const LiveInterviewSession = () => {
         const backendStoredConfig = backendInterview?.config && typeof backendInterview.config === 'object'
           ? backendInterview.config
           : {};
+        const resolvedPrepNotes = typeof backendStoredConfig?.prepNotes === 'string'
+          ? backendStoredConfig.prepNotes
+          : (parsedConfig?.prepNotes || '');
         const resolvedDuration = Math.max(
           Number(
             backendInterview?.duration
@@ -346,6 +437,7 @@ const LiveInterviewSession = () => {
           personality: backendStoredConfig?.personality ?? parsedConfig?.personality ?? DEFAULT_INTERVIEW_CONFIG.personality,
           voice: backendStoredConfig?.voice ?? parsedConfig?.voice ?? DEFAULT_INTERVIEW_CONFIG.voice,
           interviewerName: backendStoredConfig?.interviewerName ?? parsedConfig?.interviewerName ?? DEFAULT_INTERVIEW_CONFIG.interviewerName,
+          prepNotes: resolvedPrepNotes,
           advancedSettings: mergedAdvancedSettings,
           interviewId: isBackendInterviewId(idFromUrl)
             ? idFromUrl
@@ -354,28 +446,24 @@ const LiveInterviewSession = () => {
 
         localStorage.setItem('interviewConfig', JSON.stringify(config));
 
-        // GAP: Save prep notes to first question when we have questions (e.g. after start or from lobby)
-        const prepNotes = parsedConfig?.prepNotes || '';
-        if (
-          idFromUrl &&
-          isBackendInterviewId(idFromUrl) &&
-          prepNotes.trim() &&
-          Array.isArray(backendInterview?.questions) &&
-          backendInterview.questions.length > 0
-        ) {
-          try {
-            await apiClient.interviews.saveQuestionNotes(
-              idFromUrl,
-              backendInterview.questions[0].id,
-              prepNotes.trim()
-            );
-          } catch (saveNotesErr) {
-            console.warn('Could not save prep notes to question:', saveNotesErr);
-          }
-        }
-
         await initializeInterview(config);
         setActiveInterviewConfig(config);
+
+        if (idFromUrl && isBackendInterviewId(idFromUrl) && resolvedPrepNotes.trim()) {
+          try {
+            const refreshed = await apiClient.interviews.getById(idFromUrl);
+            const firstQuestion = refreshed?.interview?.questions?.[0];
+            if (firstQuestion?.id && firstQuestion?.prepNotes !== resolvedPrepNotes.trim()) {
+              await apiClient.interviews.saveQuestionNotes(
+                idFromUrl,
+                firstQuestion.id,
+                resolvedPrepNotes.trim(),
+              );
+            }
+          } catch (saveNotesErr) {
+            console.warn('Could not synchronize prep notes to first question:', saveNotesErr);
+          }
+        }
 
         datasetCollectorRef.current = new InterviewDatasetCollector({
           ...config,
@@ -474,13 +562,30 @@ const LiveInterviewSession = () => {
   }, [sessionState?.isActive, sessionState?.isPaused]);
 
   const handleMediaStreamReady = useCallback((stream) => {
-    mediaStreamRef.current = stream || null;
-    // Attach stream to hidden video for emotion analysis
-    if (stream && emotionVideoRef.current) {
-      emotionVideoRef.current.srcObject = stream;
-      emotionVideoRef.current.play().catch(() => {});
-    }
+    const normalizedStream = stream || null;
+    mediaStreamRef.current = normalizedStream;
+    setEmotionAnalysisStream(normalizedStream);
   }, []);
+
+  useEffect(() => {
+    const videoElement = emotionVideoRef.current;
+    if (!videoElement) return;
+
+    if (!emotionAnalysisStream) {
+      if (videoElement.srcObject) {
+        videoElement.srcObject = null;
+      }
+      return;
+    }
+
+    if (videoElement.srcObject !== emotionAnalysisStream) {
+      videoElement.srcObject = emotionAnalysisStream;
+    }
+
+    if (videoElement.paused) {
+      videoElement.play().catch(() => {});
+    }
+  }, [emotionAnalysisStream]);
 
   const startSessionRecording = useCallback(() => {
     const stream = mediaStreamRef.current;
@@ -603,6 +708,7 @@ const LiveInterviewSession = () => {
     }
 
     let recordingBlob = null;
+    let navigationTarget = '/candidate-dashboard';
     try {
       recordingBlob = await stopSessionRecording();
     } catch (recordingError) {
@@ -612,12 +718,34 @@ const LiveInterviewSession = () => {
     // Conclude AI interview and get summary
     try {
       const interviewSummary = await concludeAIInterview();
-      const backendInterview = interviewSummary?.backendInterview || null;
+      let backendInterview = interviewSummary?.backendInterview || null;
+
+      // If backend finalization was missed during hook teardown, retry once directly.
+      if (isBackendInterviewId(interviewId.current) && !backendInterview) {
+        try {
+          const fallbackFinalize = await apiClient.interviews.end(interviewId.current);
+          if (fallbackFinalize?.success && fallbackFinalize?.interview) {
+            backendInterview = fallbackFinalize.interview;
+          }
+        } catch (fallbackError) {
+          console.error('Fallback interview finalization failed:', fallbackError);
+        }
+      }
+
+      const persistedSummary = backendInterview
+        ? { ...interviewSummary, backendInterview }
+        : interviewSummary;
       
       // Store interview summary under both current and legacy keys.
-      localStorage.setItem('lastInterviewSummary', JSON.stringify(interviewSummary));
-      localStorage.setItem('lastInterviewSession', JSON.stringify(interviewSummary));
+      localStorage.setItem('lastInterviewSummary', JSON.stringify(persistedSummary));
+      localStorage.setItem('lastInterviewSession', JSON.stringify(persistedSummary));
       localStorage.setItem('lastInterviewId', String(interviewId.current || ''));
+
+      if (isBackendInterviewId(interviewId.current) && !backendInterview) {
+        const finalizeFailureMessage = 'Interview ended, but server finalization failed. Please check your dashboard and retry if needed.';
+        setSessionNotice(finalizeFailureMessage);
+        localStorage.setItem('lastInterviewNotice', finalizeFailureMessage);
+      }
 
       if (backendInterview?.pendingEvaluation || backendInterview?.llmUnavailable) {
         const pendingMessage = 'AI deep evaluation unavailable right now; session saved, scoring will be completed when the AI service is back online.';
@@ -650,6 +778,13 @@ const LiveInterviewSession = () => {
         } finally {
           setIsUploadingRecording(false);
         }
+      }
+
+      const id = interviewId.current;
+      if (id && isBackendInterviewId(id)) {
+        navigationTarget = backendInterview
+          ? `/interview-results/${id}`
+          : '/candidate-dashboard';
       }
       
       // Finalize pose analytics and save to localStorage
@@ -710,15 +845,10 @@ const LiveInterviewSession = () => {
 
     } catch (error) {
       console.error('Failed to finalize interview:', error);
+      navigationTarget = '/candidate-dashboard';
     }
 
-    // Navigate to results page when we have a backend interview ID, otherwise dashboard
-    const id = interviewId.current;
-    if (id && isBackendInterviewId(id)) {
-      navigate(`/interview-results/${id}`);
-    } else {
-      navigate('/candidate-dashboard');
-    }
+    navigate(navigationTarget);
   };
 
   const handleEmergencyExit = () => {
@@ -806,23 +936,24 @@ const LiveInterviewSession = () => {
     try {
       // Store the answer
       setAiState(prev => ({ ...prev, currentAnswer: answer }));
+      const activePhase = String(interviewPhaseRef.current || '').toLowerCase();
       
       // Determine which phase we're in and send to AI
-      if (interviewPhase === 'introduction') {
+      if (activePhase === 'introduction') {
         const response = await sendIntroduction(answer);
         setSessionState((prev) => ({
           ...prev,
           currentQuestion: response?.questionNumber || 1,
           questionType: response?.questionType || prev?.questionType,
         }));
-      } else if (interviewPhase === 'questions') {
-        const questionText = currentMessage || '';
+      } else if (activePhase === 'questions') {
+        const questionText = currentMessageRef.current || '';
         const response = await sendAnswer(answer);
 
         // Record Q&A pair for training data collection
         if (datasetCollectorRef.current && questionText) {
           datasetCollectorRef.current.addInterviewerMessage(questionText, {
-            questionNumber: questionsAsked,
+            questionNumber: questionsAskedRef.current,
             phase: 'questions',
           });
           datasetCollectorRef.current.addCandidateMessage(answer);
@@ -842,16 +973,103 @@ const LiveInterviewSession = () => {
         // Update session progress
         setSessionState(prev => ({
           ...prev,
-          currentQuestion: response?.questionNumber ?? questionsAsked,
+          currentQuestion: response?.questionNumber ?? questionsAskedRef.current,
           questionType: response?.questionType || prev?.questionType,
         }));
-      } else if (interviewPhase === 'candidate_questions') {
+      } else if (activePhase === 'candidate_questions') {
         await askQuestion(answer);
       }
     } catch (error) {
       console.error('Failed to process answer:', error);
     }
   };
+
+  const handleSendTestAnswer = async () => {
+    const scriptedAnswer = String(testAnswerDraft || '').trim();
+    if (!scriptedAnswer || isAutoCompleting || isAIProcessing || isAISpeaking || isTranscribing) {
+      return;
+    }
+    await handleAnswerComplete(scriptedAnswer);
+    setSessionNotice('Testing answer submitted.');
+  };
+
+  const handleCopyTestAnswer = async () => {
+    const scriptedAnswer = String(testAnswerDraft || '').trim();
+    if (!scriptedAnswer || !navigator?.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(scriptedAnswer);
+      setSessionNotice('Testing answer copied.');
+    } catch {
+      setSessionNotice('Unable to copy testing answer.');
+    }
+  };
+
+  const waitForAutoCompleteStep = useCallback((ms = 250) => new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  }), []);
+
+  const handleAutoCompleteInterview = useCallback(async () => {
+    if (isAutoCompleting) {
+      autoCompleteCancelledRef.current = true;
+      setSessionNotice('Stopping auto-complete...');
+      return;
+    }
+    if (isAIProcessing || isAISpeaking || isTranscribing) {
+      setSessionNotice('Wait for the current AI step to finish, then start auto-complete.');
+      return;
+    }
+
+    autoCompleteCancelledRef.current = false;
+    setIsAutoCompleting(true);
+    setSessionNotice('Auto-complete started.');
+    try {
+      for (let step = 0; step < AUTO_COMPLETE_MAX_STEPS; step += 1) {
+        if (autoCompleteCancelledRef.current) break;
+
+        const phase = String(interviewPhaseRef.current || '').toLowerCase();
+        if (phase === 'closing' || phase === 'completed') break;
+
+        const generatedAnswer = getSuggestedTestAnswer();
+        if (!generatedAnswer.trim()) break;
+
+        await handleAnswerComplete(generatedAnswer);
+        await waitForAutoCompleteStep(250);
+
+        if (phase === 'candidate_questions') {
+          break;
+        }
+        if (questionsAskedRef.current >= totalQuestionsRef.current && String(interviewPhaseRef.current || '').toLowerCase() !== 'questions') {
+          break;
+        }
+      }
+
+      if (autoCompleteCancelledRef.current) {
+        setSessionNotice('Auto-complete stopped.');
+        return;
+      }
+
+      await handleEndSession();
+    } catch (error) {
+      console.error('Auto-complete failed:', error);
+      setSessionNotice('Auto-complete failed. You can continue manually.');
+    } finally {
+      autoCompleteCancelledRef.current = false;
+      setIsAutoCompleting(false);
+    }
+  }, [
+    getSuggestedTestAnswer,
+    handleAnswerComplete,
+    handleEndSession,
+    isAIProcessing,
+    isAISpeaking,
+    isAutoCompleting,
+    isTranscribing,
+    waitForAutoCompleteStep,
+  ]);
+
+  useEffect(() => () => {
+    autoCompleteCancelledRef.current = true;
+  }, []);
 
   const handleFeedbackGenerated = (_feedback) => {
     // Real-time feedback is surfaced via session state
@@ -945,9 +1163,19 @@ const LiveInterviewSession = () => {
     setAiState({ currentAnswer: '' });
   }, [clearConversation]);
 
-  const handlePoseMetricsUpdate = (metrics, fullMetrics = null) => {
-    setPoseMetrics(metrics);
-    
+  const handlePoseMetricsUpdate = useCallback((metrics, fullMetrics = null) => {
+    setPoseMetrics((previousMetrics) => {
+      if (!metrics) return previousMetrics;
+      if (
+        previousMetrics?.lastUpdated === metrics?.lastUpdated
+        && previousMetrics?.confidence === metrics?.confidence
+        && previousMetrics?.postureScore === metrics?.postureScore
+      ) {
+        return previousMetrics;
+      }
+      return metrics;
+    });
+
     // Save to session storage for current session tracking
     saveSessionPoseData({
       interviewId: interviewId.current,
@@ -955,7 +1183,7 @@ const LiveInterviewSession = () => {
       fullMetrics: fullMetrics,
       lastUpdated: Date.now(),
     });
-  };
+  }, []);
 
   const handleRecordingConsentGiven = async (data) => {
     const consentPayload = {
@@ -1038,6 +1266,90 @@ const LiveInterviewSession = () => {
         </div>
       )}
 
+      {testAnswerHelperEnabled && recordingConsentGiven && (
+        <div className="pointer-events-none fixed left-1/2 top-20 z-40 w-full max-w-[1200px] -translate-x-1/2 px-3 sm:px-4">
+          <AnimatePresence initial={false}>
+            {isTestHelperOpen ? (
+              <motion.div
+                key="test-helper-open"
+                initial={{ opacity: 0, y: -20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.18, ease: 'easeOut' }}
+                className="pointer-events-auto rounded-xl border border-amber-300/70 dark:border-amber-600/50 bg-amber-50/95 dark:bg-amber-900/20 px-4 py-3 shadow-xl shadow-black/25 backdrop-blur-md"
+              >
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
+                  <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                    Testing Helper - Suggested answer for current prompt
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-amber-700 dark:text-amber-300 uppercase tracking-wide">
+                      Dev/Test only
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsTestHelperOpen(false)}
+                      className="px-2 py-1 rounded-md text-xs font-medium border border-amber-400/70 text-amber-900 dark:text-amber-100 hover:bg-amber-100/70 dark:hover:bg-amber-800/30"
+                    >
+                      Hide
+                    </button>
+                  </div>
+                </div>
+                <textarea
+                  value={testAnswerDraft}
+                  onChange={(event) => setTestAnswerDraft(event.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-amber-300/80 dark:border-amber-600/60 bg-white dark:bg-slate-900 text-sm text-gray-900 dark:text-slate-100 p-2"
+                  placeholder="Suggested testing answer will appear here."
+                />
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={handleCopyTestAnswer}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium border border-amber-400/80 text-amber-900 dark:text-amber-100 hover:bg-amber-100/70 dark:hover:bg-amber-800/30"
+                  >
+                    Copy
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleSendTestAnswer}
+                    disabled={isAutoCompleting || isAIProcessing || isAISpeaking || isTranscribing || !String(testAnswerDraft || '').trim()}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Send This Answer
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAutoCompleteInterview}
+                    disabled={(!isAutoCompleting && (isAIProcessing || isAISpeaking || isTranscribing))}
+                    className="px-3 py-1.5 rounded-lg text-xs font-medium bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {isAutoCompleting ? 'Stop Auto-complete' : 'Auto-complete Interview'}
+                  </button>
+                </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="test-helper-collapsed"
+                initial={{ opacity: 0, y: -14 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -12 }}
+                transition={{ duration: 0.15, ease: 'easeOut' }}
+                className="pointer-events-auto flex justify-center"
+              >
+                <button
+                  type="button"
+                  onClick={() => setIsTestHelperOpen(true)}
+                  className="rounded-full border border-amber-300/80 dark:border-amber-600/50 bg-amber-100/95 dark:bg-amber-900/50 px-4 py-2 text-xs font-semibold text-amber-900 dark:text-amber-100 shadow-lg shadow-black/20"
+                >
+                  Open Testing Helper
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      )}
+
       {/* Explicit recording consent (FR2) - must agree before interview UI and recording */}
       <AnimatePresence mode="wait">
         {!recordingConsentGiven && (
@@ -1054,27 +1366,32 @@ const LiveInterviewSession = () => {
         initial="hidden"
         whileInView="visible"
         viewport={viewportConfig}
-        className="relative z-10 mx-auto max-w-[1800px] px-2 xs:px-3 sm:px-4 md:px-5 lg:px-6 py-3 xs:py-4 md:py-6 pb-24 lg:pb-6"
+        className="relative z-10 mx-auto max-w-[1800px] px-2 xs:px-3 sm:px-4 md:px-5 lg:px-6 py-3 xs:py-4 md:py-6 pb-24 lg:pb-6 lg:min-h-[calc(100vh-4rem)] lg:flex lg:flex-col"
       >
         
         {/* Desktop Layout (3 columns) */}
+        {viewportMode === 'desktop' && (
         <motion.div
           variants={fadeUpChild}
-          className="hidden lg:grid lg:grid-cols-12 gap-3 xl:gap-4"
+          className="grid lg:grid-cols-12 gap-3 xl:gap-4 lg:flex-1 lg:min-h-0 lg:items-stretch"
         >
-          {/* Left Column - AI Interviewer & Controls */}
-          <div className="lg:col-span-4 xl:col-span-4 flex flex-col gap-3 xl:gap-4">
-            <AIInterviewerPanel
-              isActive={sessionState?.isActive}
-              currentQuestion={currentMessage}
-              isSpeaking={isAISpeaking}
-              isProcessing={isAIProcessing}
-              interviewerName={activeInterviewConfig?.interviewerName}
-              questionProgress={{
-                currentQuestion: questionsAsked,
-                totalQuestions: aiTotalQuestions
-              }}
-            />
+          {/* Left Column - Body Language & Controls */}
+          <div className="lg:col-span-4 xl:col-span-4 flex flex-col gap-3 xl:gap-4 lg:h-full">
+            {nonverbalFeedbackEnabled ? (
+              <PoseAnalysisPanel poseMetrics={poseMetrics} />
+            ) : (
+              <AIInterviewerPanel
+                isActive={sessionState?.isActive}
+                currentQuestion={currentMessage}
+                isSpeaking={isAISpeaking}
+                isProcessing={isAIProcessing}
+                interviewerName={activeInterviewConfig?.interviewerName}
+                questionProgress={{
+                  currentQuestion: questionsAsked,
+                  totalQuestions: aiTotalQuestions
+                }}
+              />
+            )}
             <SessionControlPanel
               sessionDuration={sessionState?.sessionDuration}
               isPaused={sessionState?.isPaused}
@@ -1092,7 +1409,7 @@ const LiveInterviewSession = () => {
           </div>
 
           {/* Center Column - Video & Transcription */}
-          <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-3 xl:gap-4">
+          <div className="lg:col-span-5 xl:col-span-5 flex flex-col gap-3 xl:gap-4 lg:h-full">
             <CandidateVideoFeed
               isVideoEnabled={videoState?.isVideoEnabled}
               isAudioEnabled={videoState?.isAudioEnabled}
@@ -1104,7 +1421,7 @@ const LiveInterviewSession = () => {
               interviewId={interviewId.current}
               analyticsDataRef={analyticsDataRef}
             />
-            <div className="flex-1 min-h-[400px]">
+            <div className="min-h-[400px] lg:min-h-0 lg:flex-1">
               <TranscriptionPanel
                 isListening={isAIListening}
                 isAudioEnabled={videoState?.isAudioEnabled}
@@ -1124,8 +1441,8 @@ const LiveInterviewSession = () => {
             </div>
           </div>
 
-          {/* Right Column - Progress & Feedback */}
-          <div className="lg:col-span-3 xl:col-span-3 flex flex-col gap-3 xl:gap-4">
+          {/* Right Column - Progress, AI Interviewer & Feedback */}
+          <div className="lg:col-span-3 xl:col-span-3 flex flex-col gap-3 xl:gap-4 lg:h-full">
             <QuestionProgressIndicator
               currentQuestion={questionsAsked}
               totalQuestions={aiTotalQuestions}
@@ -1134,9 +1451,22 @@ const LiveInterviewSession = () => {
               categoryProgress={getQuestionCategoryProgress()}
               nextQuestionType={getNextQuestionType()}
             />
-            {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
+            {nonverbalFeedbackEnabled && (
+              <AIInterviewerPanel
+                isActive={sessionState?.isActive}
+                currentQuestion={currentMessage}
+                isSpeaking={isAISpeaking}
+                isProcessing={isAIProcessing}
+                interviewerName={activeInterviewConfig?.interviewerName}
+                questionProgress={{
+                  currentQuestion: questionsAsked,
+                  totalQuestions: aiTotalQuestions
+                }}
+                className="flex-shrink-0"
+              />
+            )}
             {/* Hidden video for emotion analysis */}
-            <video ref={emotionVideoRef} muted playsInline className="hidden" />
+            <video ref={emotionVideoRef} muted playsInline autoPlay className="hidden" />
             <EmotionDetector
               videoRef={emotionVideoRef}
               interviewId={interviewId.current}
@@ -1164,26 +1494,32 @@ const LiveInterviewSession = () => {
             />
           </div>
         </motion.div>
+        )}
 
         {/* Tablet Layout (2 columns) */}
+        {viewportMode === 'tablet' && (
         <motion.div
           variants={fadeUpChild}
-          className="hidden md:grid lg:hidden md:grid-cols-12 gap-2 xs:gap-3"
+          className="grid md:grid-cols-12 gap-2 xs:gap-3"
         >
           {/* Left Column - 7 cols */}
           <div className="md:col-span-7 flex flex-col gap-2 xs:gap-3">
-            <AIInterviewerPanel
-              isActive={sessionState?.isActive}
-              currentQuestion={currentMessage}
-              isSpeaking={isAISpeaking}
-              isProcessing={isAIProcessing}
-              interviewerName={activeInterviewConfig?.interviewerName}
-              questionProgress={{
-                currentQuestion: questionsAsked,
-                totalQuestions: aiTotalQuestions
-              }}
-            />
-            <div className="flex-1 min-h-[300px] xs:min-h-[350px]">
+            {nonverbalFeedbackEnabled ? (
+              <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />
+            ) : (
+              <AIInterviewerPanel
+                isActive={sessionState?.isActive}
+                currentQuestion={currentMessage}
+                isSpeaking={isAISpeaking}
+                isProcessing={isAIProcessing}
+                interviewerName={activeInterviewConfig?.interviewerName}
+                questionProgress={{
+                  currentQuestion: questionsAsked,
+                  totalQuestions: aiTotalQuestions
+                }}
+              />
+            )}
+            <div className="min-h-[300px] xs:min-h-[350px]">
               <TranscriptionPanel
                 isListening={isAIListening}
                 isAudioEnabled={videoState?.isAudioEnabled}
@@ -1198,7 +1534,6 @@ const LiveInterviewSession = () => {
                 onToggleListening={handleToggleListening}
                 onAnswerComplete={handleAnswerComplete}
                 onClearConversation={handleClearConversation}
-                className="h-full"
               />
             </div>
             <SessionControlPanel
@@ -1238,7 +1573,20 @@ const LiveInterviewSession = () => {
               categoryProgress={getQuestionCategoryProgress()}
               nextQuestionType={getNextQuestionType()}
             />
-            {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} className="flex-shrink-0" />}
+            {nonverbalFeedbackEnabled && (
+              <AIInterviewerPanel
+                isActive={sessionState?.isActive}
+                currentQuestion={currentMessage}
+                isSpeaking={isAISpeaking}
+                isProcessing={isAIProcessing}
+                interviewerName={activeInterviewConfig?.interviewerName}
+                questionProgress={{
+                  currentQuestion: questionsAsked,
+                  totalQuestions: aiTotalQuestions
+                }}
+                className="flex-shrink-0"
+              />
+            )}
             <div className="flex-1 min-h-[250px]">
               <RealTimeFeedbackPanel
                 isActive={sessionState?.isActive}
@@ -1253,25 +1601,31 @@ const LiveInterviewSession = () => {
             </div>
           </div>
         </motion.div>
+        )}
 
         {/* Mobile Layout (Single Column) */}
+        {viewportMode === 'mobile' && (
         <motion.div
           variants={fadeUpChild}
-          className="md:hidden flex flex-col gap-2 xs:gap-3"
+          className="flex flex-col gap-2 xs:gap-3"
         >
-          {/* Question Display - Priority 1 */}
-          <AIInterviewerPanel
-            isActive={sessionState?.isActive}
-            currentQuestion={currentMessage}
-            isSpeaking={isAISpeaking}
-            isProcessing={isAIProcessing}
-            interviewerName={activeInterviewConfig?.interviewerName}
-            onQuestionComplete={handleQuestionComplete}
-            questionProgress={{
-              currentQuestion: sessionState?.currentQuestion,
-              totalQuestions: sessionState?.totalQuestions
-            }}
-          />
+          {/* Body Language - Priority 1 (swapped with AI Interviewer) */}
+          {nonverbalFeedbackEnabled ? (
+            <PoseAnalysisPanel poseMetrics={poseMetrics} />
+          ) : (
+            <AIInterviewerPanel
+              isActive={sessionState?.isActive}
+              currentQuestion={currentMessage}
+              isSpeaking={isAISpeaking}
+              isProcessing={isAIProcessing}
+              interviewerName={activeInterviewConfig?.interviewerName}
+              onQuestionComplete={handleQuestionComplete}
+              questionProgress={{
+                currentQuestion: sessionState?.currentQuestion,
+                totalQuestions: sessionState?.totalQuestions
+              }}
+            />
+          )}
 
           {/* Compact Progress Bar */}
           <QuestionProgressIndicator
@@ -1296,8 +1650,21 @@ const LiveInterviewSession = () => {
             analyticsDataRef={analyticsDataRef}
           />
 
-          {/* Pose Analysis Panel - Mobile */}
-          {nonverbalFeedbackEnabled && <PoseAnalysisPanel poseMetrics={poseMetrics} />}
+          {/* AI Interviewer - Mobile (swapped with Body Language) */}
+          {nonverbalFeedbackEnabled && (
+            <AIInterviewerPanel
+              isActive={sessionState?.isActive}
+              currentQuestion={currentMessage}
+              isSpeaking={isAISpeaking}
+              isProcessing={isAIProcessing}
+              interviewerName={activeInterviewConfig?.interviewerName}
+              onQuestionComplete={handleQuestionComplete}
+              questionProgress={{
+                currentQuestion: sessionState?.currentQuestion,
+                totalQuestions: sessionState?.totalQuestions
+              }}
+            />
+          )}
 
           {/* Transcription Panel */}
           <div className="min-h-[220px] xs:min-h-[280px]">
@@ -1315,7 +1682,6 @@ const LiveInterviewSession = () => {
               onToggleListening={handleToggleListening}
               onAnswerComplete={handleAnswerComplete}
               onClearConversation={handleClearConversation}
-              className="h-full"
             />
           </div>
 
@@ -1349,6 +1715,7 @@ const LiveInterviewSession = () => {
             onEmergencyExit={handleEmergencyExit}
           />
         </motion.div>
+        )}
       </motion.main>      {/* Floating Session Controls - Hidden on mobile to avoid overlap */}
       <div className="hidden md:block">
         <InterviewSessionControls

@@ -389,7 +389,7 @@ const EMPTY_FORM = {
 };
 
 const CompanyPublicProfileEditorPage = () => {
-  const { user, logout, setAuthenticatedUser } = useAuth();
+  const { user, logout, setAuthenticatedUser, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
@@ -826,6 +826,17 @@ const CompanyPublicProfileEditorPage = () => {
   };
 
   const isSavingAny = saving || isSavingLogo || isSavingCover || isApplyingCrop;
+
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Loading profile editor"
+        message="Preparing your public company profile."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
 
   if (!isAdmin) {
     return (

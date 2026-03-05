@@ -215,7 +215,7 @@ const RealTimeFeedbackPanel = ({
           </div>
         )}
 
-        <div className="p-4 space-y-4 max-h-64 overflow-y-auto flex-1">
+        <div className="p-4 space-y-4 min-h-0 overflow-y-auto flex-1">
           {feedback ? (
             <>
               {feedback?.strengths?.length > 0 && (

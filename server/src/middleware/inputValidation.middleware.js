@@ -413,19 +413,21 @@ export const commonValidators = {
 
   // URL validation
   url: (field, required = false) => {
-    let validator = body(field)
-      .trim();
+    let validator = body(field);
     
     if (required) {
       validator = validator
+        .trim()
         .notEmpty()
         .withMessage(`${field} is required`);
     } else {
-      validator = validator.optional({ nullable: true, checkFalsy: true });
+      validator = validator
+        .optional({ nullable: true, checkFalsy: true })
+        .trim();
     }
     
     return validator
-      .isURL({ protocols: ['http', 'https'], require_protocol: true })
+      .isURL({ protocols: ['http', 'https'], require_protocol: true, require_tld: false })
       .withMessage(`${field} must be a valid URL`)
       .isLength({ max: LENGTH_LIMITS.URL })
       .withMessage(`${field} must be ${LENGTH_LIMITS.URL} characters or less`);
@@ -633,7 +635,7 @@ export const validationSchemas = {
         'jobTitle', 'department', 'hiringVolume', 'companyWebsite', 'companyLocation',
         'companyAddress', 'companyDescription', 'businessRegistrationNumber',
         'companyEmail', 'companyPhoneNumber', 'establishedYear', 'facebookUrl', 'companyLinkedinUrl',
-        'teamInvitationToken',
+        'teamInvitationToken', 'refCode',
       ],
       validators: [
         commonValidators.email('email', false),
@@ -677,6 +679,7 @@ export const validationSchemas = {
         commonValidators.url('facebookUrl'),
         commonValidators.url('companyLinkedinUrl'),
         commonValidators.token('teamInvitationToken').optional(),
+        commonValidators.token('refCode').optional(),
       ],
     },
     
@@ -765,7 +768,7 @@ export const validationSchemas = {
         'duration', 'difficulty', 'personality', 'totalQuestions', 'skillFocus',
         'candidateId', 'jobId', 'jobStage', 'invitationId', 'status',
         'pipelineStatus', 'reviewerAssignments', 'config',
-        'scheduledFor', 'timezone', 'meetingLink', 'scheduleStatus',
+        'scheduledFor', 'timezone', 'scheduleStatus',
       ],
       validators: [
         commonValidators.enum('mode', ALLOWED_VALUES.INTERVIEW_MODE, true),
@@ -800,6 +803,11 @@ export const validationSchemas = {
         body('reviewerAssignments').optional().isArray({ max: 20 }),
         body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
         body('config').optional().isObject(),
+        body('config.prepNotes')
+          .optional()
+          .isString()
+          .isLength({ max: 500 })
+          .withMessage('Prep notes must be 500 characters or less'),
         body('scheduledFor')
           .optional()
           .isISO8601()
@@ -809,43 +817,129 @@ export const validationSchemas = {
           .trim()
           .isLength({ max: 64 })
           .withMessage('timezone must be at most 64 characters'),
-        commonValidators.url('meetingLink'),
       ],
     },
 
     schedule: {
-      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      allowedFields: ['scheduledFor', 'strategy', 'timezone', 'duration', 'interviewTypes', 'notes'],
       validators: [
         body('scheduledFor')
+          .optional({ nullable: true, checkFalsy: true })
           .trim()
-          .notEmpty()
-          .withMessage('scheduledFor is required')
           .isISO8601()
           .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('strategy')
+          .optional({ nullable: true })
+          .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+          .isIn(['MANUAL', 'AUTO', 'PREFERRED_FIRST'])
+          .withMessage('strategy must be MANUAL, AUTO, or PREFERRED_FIRST'),
         body('timezone')
           .optional()
           .trim()
           .isLength({ max: 64 })
           .withMessage('timezone must be at most 64 characters'),
-        commonValidators.url('meetingLink'),
+        commonValidators.integer('duration', { min: 15, max: 180 }),
+        commonValidators.stringArray('interviewTypes'),
+        body('notes')
+          .optional()
+          .trim()
+          .isLength({ max: 500 })
+          .withMessage('notes must be at most 500 characters'),
       ],
     },
 
     reschedule: {
-      allowedFields: ['scheduledFor', 'timezone', 'meetingLink'],
+      allowedFields: [
+        'scheduledFor',
+        'strategy',
+        'timezone',
+        'duration',
+        'interviewTypes',
+        'notes',
+        'rescheduleRequestId',
+        'rescheduleDecisionNote',
+      ],
       validators: [
         body('scheduledFor')
+          .optional({ nullable: true, checkFalsy: true })
           .trim()
-          .notEmpty()
-          .withMessage('scheduledFor is required')
           .isISO8601()
           .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+        body('strategy')
+          .optional({ nullable: true })
+          .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+          .isIn(['MANUAL', 'AUTO', 'PREFERRED_FIRST'])
+          .withMessage('strategy must be MANUAL, AUTO, or PREFERRED_FIRST'),
         body('timezone')
           .optional()
           .trim()
           .isLength({ max: 64 })
           .withMessage('timezone must be at most 64 characters'),
-        commonValidators.url('meetingLink'),
+        commonValidators.integer('duration', { min: 15, max: 180 }),
+        commonValidators.stringArray('interviewTypes'),
+        body('notes')
+          .optional()
+          .trim()
+          .isLength({ max: 500 })
+          .withMessage('notes must be at most 500 characters'),
+        body('rescheduleRequestId')
+          .optional()
+          .trim()
+          .isLength({ max: LENGTH_LIMITS.ID })
+          .withMessage('rescheduleRequestId must be a valid identifier'),
+        body('rescheduleDecisionNote')
+          .optional()
+          .trim()
+          .isLength({ max: 500 })
+          .withMessage('rescheduleDecisionNote must be at most 500 characters'),
+      ],
+    },
+
+    requestReschedule: {
+      allowedFields: ['reason', 'preferredSlots', 'timezone'],
+      validators: [
+        body('reason')
+          .trim()
+          .notEmpty()
+          .withMessage('reason is required')
+          .isLength({ min: 20, max: 500 })
+          .withMessage('reason must be between 20 and 500 characters'),
+        body('preferredSlots')
+          .optional()
+          .isArray({ max: 3 })
+          .withMessage('preferredSlots can include up to 3 values'),
+        body('preferredSlots.*')
+          .optional()
+          .isISO8601()
+          .withMessage('Each preferred slot must be a valid ISO 8601 datetime'),
+        body('timezone')
+          .optional()
+          .trim()
+          .isLength({ max: 64 })
+          .withMessage('timezone must be at most 64 characters'),
+      ],
+    },
+
+    rejectRescheduleRequest: {
+      allowedFields: ['reason'],
+      validators: [
+        body('reason')
+          .optional()
+          .trim()
+          .isLength({ max: 500 })
+          .withMessage('reason must be at most 500 characters'),
+      ],
+    },
+
+    contactCompany: {
+      allowedFields: ['message'],
+      validators: [
+        body('message')
+          .trim()
+          .notEmpty()
+          .withMessage('message is required')
+          .isLength({ min: 10, max: 1000 })
+          .withMessage('message must be between 10 and 1000 characters'),
       ],
     },
 
@@ -898,7 +992,7 @@ export const validationSchemas = {
         'title', 'department', 'location', 'employmentType', 'experienceLevel',
         'compensationRange', 'salaryCurrency', 'salaryMin', 'salaryMax', 'benefits',
         'description', 'requirements', 'responsibilities', 'skills', 'status',
-        'applicationQuestions', 'acceptingApplications', 'postingDuration',
+        'applicationQuestions', 'customFormFields', 'acceptingApplications', 'postingDuration',
         'scheduledPublishAt',
       ],
       validators: [
@@ -920,6 +1014,7 @@ export const validationSchemas = {
         commonValidators.stringArray('skills'),
         commonValidators.enum('status', ALLOWED_VALUES.JOB_STATUS),
         body('applicationQuestions').optional().isArray(),
+        body('customFormFields').optional().isArray(),
         commonValidators.boolean('acceptingApplications'),
         commonValidators.integer('postingDuration', { min: 1, max: 365 }),
         commonValidators.isoDate('scheduledPublishAt'),
@@ -1102,13 +1197,41 @@ export const validationSchemas = {
     },
     
     updateSettings: {
-      allowedFields: ['featureFlags', 'maintenanceMode', 'nonverbalFeedbackEnabled', 'defaultAIConfig', 'dataRetention'],
+      allowedFields: [
+        'featureFlags',
+        'maintenanceMode',
+        'nonverbalFeedbackEnabled',
+        'defaultAIConfig',
+        'dataRetention',
+        'structuredInterviewDefaults',
+      ],
       validators: [
         body('featureFlags').optional().isObject(),
         commonValidators.boolean('maintenanceMode'),
         body('nonverbalFeedbackEnabled').optional().isBoolean(),
         body('defaultAIConfig').optional().isObject(),
         body('dataRetention').optional().isObject(),
+        body('structuredInterviewDefaults').optional().isObject(),
+      ],
+    },
+
+    questionCatalogImport: {
+      allowedFields: ['sourceKey', 'source', 'dryRun', 'approve', 'batchLabel'],
+      validators: [
+        body('sourceKey').optional().isString().isLength({ min: 1, max: LENGTH_LIMITS.SHORT_TEXT }),
+        body('source').optional().isString().isLength({ min: 1, max: LENGTH_LIMITS.SHORT_TEXT }),
+        body('dryRun').optional().isBoolean(),
+        body('approve').optional().isBoolean(),
+        body('batchLabel').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+      ],
+    },
+
+    questionCatalogReview: {
+      allowedFields: ['reviewStatus', 'questionIds'],
+      validators: [
+        body('reviewStatus').isIn(['PENDING', 'APPROVED', 'REJECTED']),
+        body('questionIds').optional().isArray({ min: 1, max: 500 }),
+        body('questionIds.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
       ],
     },
 

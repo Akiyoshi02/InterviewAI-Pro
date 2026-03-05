@@ -7,16 +7,17 @@ import CandidateManager from '../company-dashboard/components/CandidateManager';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import EmailTemplatesManager from '../../components/ui/EmailTemplatesManager';
 import Icon from '../../components/AppIcon';
+import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { hasPermission } from '../../utils/rolePermissions';
 
 const CompanyCandidatesPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
-  const userType = user?.accountType === 'COMPANY' ? 'company' : null;
+  const userType = user?.accountType?.toUpperCase() === 'COMPANY' ? 'company' : null;
   
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
@@ -26,6 +27,17 @@ const CompanyCandidatesPage = () => {
     await logout();
     navigate('/login');
   };
+
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Loading candidates"
+        message="Syncing your candidate pipeline and review queue."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
 
   if (!userType) {
     return null;

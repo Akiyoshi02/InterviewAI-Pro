@@ -104,6 +104,25 @@ router.get(
 );
 
 /**
+ * GET /api/interviews/:id/validate-meeting-access
+ * Validate a meeting token and return interview data if access is valid.
+ * Used by the interview lobby when a candidate opens the meeting link.
+ */
+router.get(
+  '/:id/validate-meeting-access',
+  authenticate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.validateMeetingLink
+);
+
+/**
  * GET /api/interviews/:id/evaluation
  * Get interview evaluation/feedback
  */
@@ -184,6 +203,76 @@ router.patch(
   validationSchemas.interview.reschedule.validators,
   validateRequest,
   InterviewController.rescheduleInterview,
+);
+
+/**
+ * POST /api/interviews/:id/reschedule-request
+ * Candidate requests interview rescheduling with a valid reason.
+ */
+router.post(
+  '/:id/reschedule-request',
+  authenticate,
+  requireCandidate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.requestReschedule.allowedFields),
+  validationSchemas.interview.requestReschedule.validators,
+  validateRequest,
+  InterviewController.requestInterviewReschedule,
+);
+
+/**
+ * POST /api/interviews/:id/reschedule-request/:requestId/reject
+ * Company rejects a pending candidate reschedule request.
+ */
+router.post(
+  '/:id/reschedule-request/:requestId/reject',
+  authenticate,
+  requireCompany,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    param('requestId')
+      .trim()
+      .notEmpty()
+      .withMessage('Request ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.rejectRescheduleRequest.allowedFields),
+  validationSchemas.interview.rejectRescheduleRequest.validators,
+  validateRequest,
+  InterviewController.rejectInterviewRescheduleRequest,
+);
+
+/**
+ * POST /api/interviews/:id/contact-company
+ * Candidate sends a message to the company about this interview.
+ */
+router.post(
+  '/:id/contact-company',
+  authenticate,
+  requireCandidate,
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.contactCompany.allowedFields),
+  validationSchemas.interview.contactCompany.validators,
+  validateRequest,
+  InterviewController.contactCompanyAboutInterview,
 );
 
 /**

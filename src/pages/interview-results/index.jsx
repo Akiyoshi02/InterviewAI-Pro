@@ -394,7 +394,7 @@ const InterviewResultsPage = () => {
     : Array.isArray(interview?.questions) ? interview.questions : [];
   const companyName = formatCompanyLabel(interview.company);
   const jobRole = interview.jobRole || interview.position || 'Interview';
-  const completedAt = interview.completedAt || interview.updatedAt || interview.createdAt;
+  const completedAt = interview.endedAt || interview.completedAt || interview.updatedAt || interview.createdAt;
 
   const radarData = buildRadarData(evalObj, questions);
   const questionChartData = buildQuestionChartData(questions);

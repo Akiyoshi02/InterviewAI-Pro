@@ -2,6 +2,7 @@ import { LLMService } from '../services/llm.service.js';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'crypto';
+import admin from '../config/firebase.js';
 import {
   activityLogStore,
   hydrateInterviewParticipants,
@@ -9,15 +10,40 @@ import {
   invitationStore,
   jobApplicationStore,
   jobStore,
+  organizationStore,
   notificationStore,
   publishAdminRealtimeUpdate,
+  publishCandidateRealtimeUpdate,
   publishOrganizationRealtimeUpdate,
   recordRealtimeEvent,
   systemSettingsStore,
   userStore,
 } from '../services/firebaseData.service.js';
+import { emailNotifications } from '../services/email.service.js';
+import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
 import { createSignedDownloadPath } from '../services/localObjectStorage.service.js';
+import {
+  evaluateSlotAgainstInterviewAutomation,
+  isNonTerminalScheduledInterview,
+  resolveInterviewAutomationSettings,
+  selectSlotFromPreferredOrAuto,
+} from '../services/interviewScheduling.service.js';
+import { generateMeetingToken, validateMeetingAccess } from '../services/meetingLink.service.js';
+import {
+  applyQuestionStrategyDefaults,
+  buildStructuredInterviewQuestionPlanAsync,
+  buildStructuredInterviewQuestionPlan,
+  computeRubricWeightedScore,
+  normalizeOrganizationTemplateForPlanner,
+  reconcileQuestionScore,
+} from '../services/structuredInterview.service.js';
 import { uploadsPaths } from '../middleware/upload.middleware.js';
+import {
+  appendStatusHistory,
+  buildStatusHistoryEntry,
+  normalizeApplicationStatus,
+} from '../utils/applicationLifecycle.util.js';
+import { ReferralController } from './referral.controller.js';
 import logger from '../utils/logger.js';
 
 const ensureAccess = (interview, user, { allowOrganizationMembers = true } = {}) => {
@@ -54,6 +80,86 @@ const canCreateHiringInterview = (role) => {
 const SCHEDULING_ROLES = new Set(['ADMIN', 'RECRUITER']);
 const RECORDING_VIEW_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
 const DEFAULT_TIMEZONE = process.env.DEFAULT_INTERVIEW_TIMEZONE || 'UTC';
+const MAX_RESCHEDULE_REQUESTS_PER_INTERVIEW = Math.max(
+  1,
+  Number.parseInt(process.env.MAX_RESCHEDULE_REQUESTS_PER_INTERVIEW || '1', 10) || 1,
+);
+const RESCHEDULE_REQUEST_COOLDOWN_HOURS = Math.max(
+  1,
+  Number.parseInt(process.env.RESCHEDULE_REQUEST_COOLDOWN_HOURS || '12', 10) || 12,
+);
+const RESCHEDULE_MIN_NOTICE_HOURS = Math.max(
+  1,
+  Number.parseInt(process.env.RESCHEDULE_MIN_NOTICE_HOURS || '6', 10) || 6,
+);
+const RESCHEDULE_REASON_MIN_LENGTH = Math.max(
+  10,
+  Number.parseInt(process.env.RESCHEDULE_REASON_MIN_LENGTH || '20', 10) || 20,
+);
+const RESCHEDULE_REASON_MAX_LENGTH = 500;
+const MAX_PREFERRED_RESCHEDULE_SLOTS = 3;
+const INTERVIEW_SCHEDULING_STRATEGIES = new Set(['MANUAL', 'AUTO', 'PREFERRED_FIRST']);
+
+const normalizeIsoDate = (value) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toISOString();
+};
+
+const normalizeRescheduleRequests = (value) => {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((request) => (request && typeof request === 'object' ? request : null))
+    .filter(Boolean)
+    .map((request) => ({
+      id: typeof request.id === 'string' ? request.id : crypto.randomUUID(),
+      status: ['PENDING', 'APPROVED', 'REJECTED'].includes(String(request.status || '').toUpperCase())
+        ? String(request.status || '').toUpperCase()
+        : 'PENDING',
+      reason: typeof request.reason === 'string' ? request.reason.trim() : '',
+      preferredSlots: Array.isArray(request.preferredSlots)
+        ? request.preferredSlots
+          .map((slot) => normalizeIsoDate(slot))
+          .filter(Boolean)
+        : [],
+      timezone: typeof request.timezone === 'string' && request.timezone.trim()
+        ? request.timezone.trim()
+        : null,
+      requestedAt: normalizeIsoDate(request.requestedAt) || new Date().toISOString(),
+      requestedBy: request.requestedBy || null,
+      reviewedAt: normalizeIsoDate(request.reviewedAt),
+      reviewedBy: request.reviewedBy || null,
+      reviewNote: typeof request.reviewNote === 'string' && request.reviewNote.trim()
+        ? request.reviewNote.trim()
+        : null,
+      decisionSource: typeof request.decisionSource === 'string' && request.decisionSource.trim()
+        ? request.decisionSource.trim()
+        : null,
+    }))
+    .sort((left, right) => Date.parse(left.requestedAt || 0) - Date.parse(right.requestedAt || 0));
+};
+
+const getPendingRescheduleRequest = (interview) => {
+  const requests = normalizeRescheduleRequests(interview?.rescheduleRequests);
+  for (let index = requests.length - 1; index >= 0; index -= 1) {
+    if (requests[index].status === 'PENDING') {
+      return requests[index];
+    }
+  }
+  return null;
+};
+
+const enrichInterviewSchedulingMeta = (interview) => {
+  if (!interview) return interview;
+  const normalizedRequests = normalizeRescheduleRequests(interview.rescheduleRequests);
+  const pendingRescheduleRequest = getPendingRescheduleRequest({ rescheduleRequests: normalizedRequests });
+  return {
+    ...interview,
+    rescheduleRequests: normalizedRequests,
+    pendingRescheduleRequest,
+  };
+};
 
 const buildAbsoluteApiUrl = (req, relativePath) => {
   if (!relativePath || typeof relativePath !== 'string') return null;
@@ -175,11 +281,11 @@ const attachSingleInterviewParticipants = async (interview) => {
   if (!interview) return null;
   const participantMap = await userStore.getSummaries([interview.candidateId, interview.companyId].filter(Boolean));
 
-  return {
+  return enrichInterviewSchedulingMeta({
     ...interview,
     candidate: interview.candidateId ? participantMap.get(interview.candidateId) || null : null,
     company: interview.companyId ? participantMap.get(interview.companyId) || null : null,
-  };
+  });
 };
 
 const isTerminalInterviewStatus = (status) => {
@@ -210,12 +316,18 @@ const normalizeAiConfig = (value, fallback = DEFAULT_SYSTEM_AI_CONFIG) => {
   };
 };
 
-const mergeInterviewConfigWithSystemDefaults = (rawConfig, systemDefaultAIConfig) => {
+const mergeInterviewConfigWithSystemDefaults = (
+  rawConfig,
+  systemDefaultAIConfig,
+  structuredInterviewDefaults = null,
+  mode = 'PRACTICE',
+) => {
   const sourceConfig = rawConfig && typeof rawConfig === 'object' ? rawConfig : {};
   const advancedSettings =
     sourceConfig.advancedSettings && typeof sourceConfig.advancedSettings === 'object'
       ? sourceConfig.advancedSettings
       : {};
+  const normalizedMode = String(mode || '').toUpperCase() === 'HIRING' ? 'HIRING' : 'PRACTICE';
 
   const baselineAiConfig = normalizeAiConfig(systemDefaultAIConfig || DEFAULT_SYSTEM_AI_CONFIG);
   const mergedAiConfig = normalizeAiConfig(
@@ -226,10 +338,29 @@ const mergeInterviewConfigWithSystemDefaults = (rawConfig, systemDefaultAIConfig
     },
     baselineAiConfig,
   );
+  const modeDefaults = structuredInterviewDefaults
+    && typeof structuredInterviewDefaults === 'object'
+    && structuredInterviewDefaults[normalizedMode.toLowerCase()]
+    && typeof structuredInterviewDefaults[normalizedMode.toLowerCase()] === 'object'
+    ? structuredInterviewDefaults[normalizedMode.toLowerCase()]
+    : null;
+  const sourceQuestionStrategy = sourceConfig.questionStrategy && typeof sourceConfig.questionStrategy === 'object'
+    ? sourceConfig.questionStrategy
+    : null;
+  const mergedQuestionStrategy = applyQuestionStrategyDefaults(
+    {
+      questionStrategy: {
+        ...(modeDefaults || {}),
+        ...(sourceQuestionStrategy || {}),
+      },
+    },
+    normalizedMode,
+  ).questionStrategy;
 
   return {
     ...sourceConfig,
     aiConfig: mergedAiConfig,
+    questionStrategy: mergedQuestionStrategy,
     advancedSettings: {
       ...advancedSettings,
       aiConfig: mergedAiConfig,
@@ -254,6 +385,39 @@ const resolveInterviewLlmOptions = (interviewConfig) => {
 };
 
 const EVALUATION_RUN_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+const getInterviewTemplatesCollection = () => admin.firestore().collection('interviewTemplates');
+
+const resolveOrganizationTemplateOverride = async (interview) => {
+  const templateId = String(interview?.config?.questionStrategy?.templateId || '').trim();
+  if (!templateId) return null;
+
+  const organizationId = String(interview?.organizationId || '').trim() || null;
+
+  try {
+    const templateDoc = await getInterviewTemplatesCollection().doc(templateId).get();
+    if (!templateDoc.exists) return null;
+
+    const template = templateDoc.data() || null;
+    if (!template) return null;
+
+    const isOrganizationTemplate = organizationId && template.organizationId === organizationId;
+    const isPublicTemplate = template.isPublic === true;
+    if (!isOrganizationTemplate && !isPublicTemplate) {
+      return null;
+    }
+
+    return normalizeOrganizationTemplateForPlanner(template, {
+      fallbackMode: interview?.mode,
+    });
+  } catch (error) {
+    logger.warn('Failed to resolve organization structured template override.', {
+      interviewId: interview?.id || null,
+      templateId,
+      error: error?.message || String(error),
+    });
+    return null;
+  }
+};
 
 const canRunEvaluation = (interview, user) => {
   if (user?.accountType === 'SYSTEM_ADMIN') {
@@ -363,6 +527,266 @@ const evaluateInterviewWithFallback = async ({
   }
 };
 
+const isHiringInterview = (interview) => String(interview?.mode || '').toUpperCase() === 'HIRING';
+
+const loadHiringInterviewEmailContext = async (interview) => {
+  if (!isHiringInterview(interview)) return null;
+
+  const runStoreCall = async (storeCall) => {
+    if (typeof storeCall !== 'function') return null;
+    try {
+      const value = storeCall();
+      return await Promise.resolve(value);
+    } catch {
+      return null;
+    }
+  };
+
+  const loadCandidateSummary = async (candidateId) => {
+    if (!candidateId) return null;
+
+    const single = await runStoreCall(() => userStore.getSummary(candidateId));
+    if (single) return single;
+
+    const batched = await runStoreCall(() => userStore.getSummaries([candidateId]));
+    if (batched instanceof Map) return batched.get(candidateId) || null;
+    if (Array.isArray(batched)) {
+      return batched.find((entry) => entry?.id === candidateId) || null;
+    }
+    return null;
+  };
+
+  const [candidate, job, organization] = await Promise.all([
+    interview?.candidateId ? loadCandidateSummary(interview.candidateId) : null,
+    interview?.jobId ? runStoreCall(() => jobStore.getById(interview.jobId)) : null,
+    interview?.organizationId ? runStoreCall(() => organizationStore.getById(interview.organizationId)) : null,
+  ]);
+
+  if (!candidate?.email || !organization) return null;
+  return { candidate, job, organization };
+};
+
+const queueHiringInterviewEmail = async ({
+  type,
+  interview,
+  payload = {},
+  send,
+  logLabel,
+}) => {
+  if (!isHiringInterview(interview) || typeof send !== 'function') return false;
+
+  const context = await loadHiringInterviewEmailContext(interview);
+  if (!context) return false;
+
+  queueEmailJob({
+    type,
+    payload: {
+      interviewId: interview.id,
+      candidateId: interview.candidateId || null,
+      recipient: context.candidate.email,
+      ...payload,
+    },
+    handler: async () => {
+      await send(context);
+      logger.info(`${logLabel} email sent to ${context.candidate.email}`);
+    },
+  });
+
+  return true;
+};
+
+const normalizeSchedulingStrategy = (value, { hasScheduledFor = false, hasPendingRequest = false } = {}) => {
+  const normalized = String(value || '').trim().toUpperCase();
+  if (INTERVIEW_SCHEDULING_STRATEGIES.has(normalized)) {
+    return normalized;
+  }
+  if (hasScheduledFor) return 'MANUAL';
+  if (hasPendingRequest) return 'PREFERRED_FIRST';
+  return 'AUTO';
+};
+
+const getSlotValidationErrorCode = (reasonCodes = []) => {
+  if (!Array.isArray(reasonCodes) || reasonCodes.length === 0) {
+    return 'INVALID_SCHEDULE_SLOT';
+  }
+  if (reasonCodes.includes('CONFLICT')) return 'SLOT_CONFLICT';
+  if (reasonCodes.includes('TOO_SOON')) return 'SLOT_TOO_SOON';
+  if (reasonCodes.includes('OUTSIDE_WINDOW')) return 'SLOT_OUTSIDE_WINDOW';
+  if (
+    reasonCodes.includes('NON_WORKING_DAY')
+    || reasonCodes.includes('OUTSIDE_BUSINESS_HOURS')
+    || reasonCodes.includes('DAILY_LIMIT_REACHED')
+  ) {
+    return 'SLOT_OUTSIDE_AVAILABILITY';
+  }
+  return 'INVALID_SCHEDULE_SLOT';
+};
+
+const getSlotValidationErrorMessage = (reasonCodes = []) => {
+  const code = getSlotValidationErrorCode(reasonCodes);
+  switch (code) {
+    case 'SLOT_CONFLICT':
+      return 'Selected interview time conflicts with another scheduled interview.';
+    case 'SLOT_TOO_SOON':
+      return 'Selected interview time is too soon based on minimum notice settings.';
+    case 'SLOT_OUTSIDE_WINDOW':
+      return 'Selected interview time is outside the scheduling window.';
+    case 'SLOT_OUTSIDE_AVAILABILITY':
+      return 'Selected interview time is outside configured working days/hours or daily limits.';
+    default:
+      return 'Selected interview time does not meet scheduling constraints.';
+  }
+};
+
+const resolveSchedulingCandidates = async ({
+  interview,
+  settings,
+  recruiterId,
+  interviewIdToExclude = null,
+} = {}) => {
+  if (!interview || !settings) return [];
+
+  let interviews = [];
+  if (settings.conflictScope === 'ORGANIZATION' || !recruiterId) {
+    interviews = await interviewStore.listByOrganization(interview.organizationId, { limit: 250 }).catch(() => []);
+  } else {
+    interviews = await interviewStore.listByCompany(recruiterId, { limit: 250 }).catch(() => []);
+  }
+
+  return interviews.filter((entry) => (
+    entry
+    && entry.id
+    && entry.id !== interviewIdToExclude
+    && isNonTerminalScheduledInterview(entry)
+  ));
+};
+
+const resolveHiringSchedulingContext = async ({ interview, user }) => {
+  if (!isHiringInterview(interview)) return null;
+  if (String(user?.accountType || '').toUpperCase() !== 'COMPANY') return null;
+
+  const [organization, job, recruiter] = await Promise.all([
+    interview?.organizationId ? organizationStore.getById(interview.organizationId).catch(() => null) : null,
+    interview?.jobId ? jobStore.getById(interview.jobId).catch(() => null) : null,
+    user?.id ? userStore.getById(user.id).catch(() => null) : null,
+  ]);
+
+  if (!organization) return null;
+
+  const recruiterContext = recruiter || user;
+  const settings = resolveInterviewAutomationSettings(organization, job, recruiterContext, { forceAutoSchedule: true });
+  const recruiterId = recruiterContext?.id || user?.id || interview?.companyId || null;
+  const existingInterviews = await resolveSchedulingCandidates({
+    interview,
+    settings,
+    recruiterId,
+    interviewIdToExclude: interview.id,
+  });
+
+  return {
+    settings,
+    recruiterId,
+    existingInterviews,
+  };
+};
+
+const resolveScheduledForFromStrategy = ({
+  strategy,
+  scheduledFor,
+  preferredSlots = [],
+  schedulingContext,
+  durationMinutes,
+} = {}) => {
+  if (!schedulingContext?.settings) {
+    const normalizedManual = new Date(scheduledFor);
+    if (Number.isNaN(normalizedManual.getTime())) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'scheduledFor is required and must be a valid datetime',
+        code: 'INVALID_SCHEDULE_SLOT',
+      };
+    }
+    return {
+      ok: true,
+      scheduledFor: normalizedManual.toISOString(),
+      scheduleDecision: {
+        strategy,
+        source: 'MANUAL',
+      },
+    };
+  }
+
+  const { settings, existingInterviews } = schedulingContext;
+  const parsedDuration = Number.parseInt(durationMinutes, 10);
+  const effectiveDurationMinutes = Number.isFinite(parsedDuration)
+    ? Math.min(180, Math.max(15, parsedDuration))
+    : settings.durationMinutes;
+  const effectiveSettings = effectiveDurationMinutes !== settings.durationMinutes
+    ? { ...settings, durationMinutes: effectiveDurationMinutes }
+    : settings;
+
+  if (strategy === 'MANUAL') {
+    const evaluation = evaluateSlotAgainstInterviewAutomation({
+      scheduledFor,
+      settings: effectiveSettings,
+      existingInterviews,
+    });
+    if (!evaluation.isValid) {
+      const code = getSlotValidationErrorCode(evaluation.reasonCodes);
+      return {
+        ok: false,
+        status: 409,
+        error: getSlotValidationErrorMessage(evaluation.reasonCodes),
+        code,
+        details: {
+          reasonCodes: evaluation.reasonCodes,
+          conflictInterviewId: evaluation.conflictInterviewId || null,
+        },
+      };
+    }
+    return {
+      ok: true,
+      scheduledFor: new Date(scheduledFor).toISOString(),
+      scheduleDecision: {
+        strategy,
+        source: 'MANUAL',
+        reasonCodes: [],
+      },
+    };
+  }
+
+  const decision = selectSlotFromPreferredOrAuto({
+    strategy,
+    preferredSlots,
+    settings: effectiveSettings,
+    existingInterviews,
+  });
+  if (!decision?.scheduledFor) {
+    return {
+      ok: false,
+      status: 409,
+      error: 'No available interview slots matched availability constraints. Try widening working hours or scheduling window.',
+      code: 'NO_SLOT_AVAILABLE',
+      details: {
+        strategy,
+        preferredSlotEvaluations: decision?.preferredSlotEvaluations || [],
+      },
+    };
+  }
+
+  return {
+    ok: true,
+    scheduledFor: decision.scheduledFor,
+    scheduleDecision: {
+      strategy,
+      source: decision.source || 'AUTO_EARLIEST',
+      preferredSlotEvaluations: decision.preferredSlotEvaluations || [],
+      slotSearch: decision.slotSearch || null,
+    },
+  };
+};
+
 export class InterviewController {
   static async createInterview(req, res, next) {
     try {
@@ -384,7 +808,6 @@ export class InterviewController {
         reviewerAssignments,
         scheduledFor,
         timezone,
-        meetingLink,
         scheduleStatus,
       } = req.body;
       const userId = req.user.id;
@@ -395,6 +818,10 @@ export class InterviewController {
       const organizationRole = String(organizationContext?.membership?.role || '').toUpperCase();
       const normalizedMode = String(mode || '').toUpperCase();
       const normalizedCandidateId = typeof candidateId === 'string' ? candidateId.trim() : null;
+      const normalizedScheduledFor = scheduledFor || null;
+      const defaultInterviewStatus = normalizedMode === 'HIRING' && !normalizedScheduledFor
+        ? 'PENDING'
+        : 'SCHEDULED';
       let systemSettings = null;
 
       if (normalizedMode === 'PRACTICE' && accountType !== 'CANDIDATE') {
@@ -437,10 +864,17 @@ export class InterviewController {
           mergedInterviewConfig = mergeInterviewConfigWithSystemDefaults(
             config,
             systemSettings?.defaultAIConfig,
+            systemSettings?.structuredInterviewDefaults,
+            normalizedMode,
           );
         } catch (settingsError) {
           logger.warn('Failed to load system AI defaults; using fallback defaults.', settingsError);
-          mergedInterviewConfig = mergeInterviewConfigWithSystemDefaults(config, DEFAULT_SYSTEM_AI_CONFIG);
+          mergedInterviewConfig = mergeInterviewConfigWithSystemDefaults(
+            config,
+            DEFAULT_SYSTEM_AI_CONFIG,
+            null,
+            normalizedMode,
+          );
         }
       }
 
@@ -455,6 +889,7 @@ export class InterviewController {
         }
       }
 
+      let linkedApplication = null;
       if (normalizedMode === 'HIRING') {
         const candidateProfile = await userStore.getById(normalizedCandidateId);
         if (!candidateProfile) {
@@ -485,12 +920,28 @@ export class InterviewController {
             });
           }
 
-          const linkedApplication = await jobApplicationStore.checkDuplicate(jobId, normalizedCandidateId);
+          linkedApplication = await jobApplicationStore.checkDuplicate(jobId, normalizedCandidateId);
           if (!linkedApplication && !invitationId) {
             return res.status(409).json({
               error: 'Candidate must have an application or invitation before creating a hiring interview',
               code: 'APPLICATION_OR_INVITATION_REQUIRED',
             });
+          }
+
+          if (linkedApplication) {
+            const linkedStatus = normalizeApplicationStatus(linkedApplication.status);
+            const allowPromotionViaInvitation = Boolean(invitationId);
+            if (linkedStatus !== 'INTERVIEWING' && !allowPromotionViaInvitation) {
+              return res.status(409).json({
+                error: `Application must be in INTERVIEWING before creating an interview. Current status: ${linkedStatus || 'UNKNOWN'}.`,
+                code: 'APPLICATION_NOT_READY_FOR_INTERVIEW',
+                details: {
+                  applicationId: linkedApplication.id,
+                  currentStatus: linkedStatus,
+                  requiredStatus: 'INTERVIEWING',
+                },
+              });
+            }
           }
 
           const jobInterviews = await interviewStore.listByJob(jobId, { limit: 200 });
@@ -499,6 +950,11 @@ export class InterviewController {
             && !isTerminalInterviewStatus(interview.status),
           );
           if (existingActiveInterview) {
+            if (linkedApplication && linkedApplication.interviewId !== existingActiveInterview.id) {
+              await jobApplicationStore.update(linkedApplication.id, {
+                interviewId: existingActiveInterview.id,
+              });
+            }
             const hydratedExisting = await attachSingleInterviewParticipants(existingActiveInterview);
             return res.json({
               success: true,
@@ -522,13 +978,13 @@ export class InterviewController {
         jobId: jobId || null,
         jobStage: jobStage || null,
         invitationId: invitationId || null,
-        status: status || 'SCHEDULED',
-        scheduledFor: scheduledFor || null,
+        status: status || defaultInterviewStatus,
+        scheduledFor: normalizedScheduledFor,
         timezone: timezone || DEFAULT_TIMEZONE,
-        meetingLink: meetingLink || null,
-        scheduleStatus: scheduleStatus || (scheduledFor ? 'SCHEDULED' : null),
-        scheduledBy: scheduledFor ? userId : null,
-        scheduledAt: scheduledFor ? new Date().toISOString() : null,
+        ...(normalizedScheduledFor ? generateMeetingToken() : {}),
+        scheduleStatus: scheduleStatus || (normalizedScheduledFor ? 'SCHEDULED' : null),
+        scheduledBy: normalizedScheduledFor ? userId : null,
+        scheduledAt: normalizedScheduledFor ? new Date().toISOString() : null,
         pipelineStatus: pipelineStatus || null,
         reviewerAssignments: Array.isArray(reviewerAssignments) ? reviewerAssignments : [],
         jobRole,
@@ -539,6 +995,43 @@ export class InterviewController {
         duration,
         config: mergedInterviewConfig || null, // Store full config object (personality, voice, interviewerName, advancedSettings)
       });
+
+      if (normalizedMode === 'HIRING' && linkedApplication) {
+        const nextApplicationStatus = normalizeApplicationStatus(linkedApplication.status);
+        const shouldPromoteToInterviewing = nextApplicationStatus !== 'INTERVIEWING';
+        const statusChangedAt = new Date().toISOString();
+
+        await jobApplicationStore.update(linkedApplication.id, {
+          interviewId: interview.id,
+          ...(shouldPromoteToInterviewing
+            ? {
+              status: 'INTERVIEWING',
+              reviewedAt: statusChangedAt,
+              reviewedBy: userId,
+              statusSource: 'INTERVIEW_CREATED',
+              statusChangedAt,
+              dispositionCode: null,
+              dispositionCategory: null,
+              dispositionReason: null,
+              dispositionNotes: null,
+              dispositionTags: [],
+              dispositionAt: null,
+              dispositionBy: null,
+              statusHistory: appendStatusHistory(
+                linkedApplication.statusHistory,
+                buildStatusHistoryEntry({
+                  previousStatus: linkedApplication.status,
+                  status: 'INTERVIEWING',
+                  changedAt: statusChangedAt,
+                  changedBy: userId,
+                  source: 'INTERVIEW_CREATED',
+                  note: 'Application moved to interviewing during interview creation.',
+                }),
+              ),
+            }
+            : {}),
+        });
+      }
 
       const hydrated = await attachSingleInterviewParticipants({ ...interview, questions: [] });
 
@@ -557,8 +1050,27 @@ export class InterviewController {
             jobId: interview.jobId || null,
           });
         }
+        if (interview.candidateId) {
+          await publishCandidateRealtimeUpdate(interview.candidateId, 'interview-created', {
+            interviewId: interview.id,
+            status: interview.status || 'SCHEDULED',
+            organizationId: interview.organizationId || null,
+            jobId: interview.jobId || null,
+          });
+        }
       } catch (eventError) {
         logger.warn('Failed to publish interview-created realtime event:', eventError);
+      }
+
+      if (interview.scheduledFor) {
+        await queueHiringInterviewEmail({
+          type: 'INTERVIEW_SCHEDULED',
+          interview,
+          payload: { operation: 'CREATE_INTERVIEW' },
+          send: async ({ candidate, job, organization }) =>
+            emailNotifications.sendInterviewScheduled(interview, candidate, job, organization),
+          logLabel: 'Interview scheduled',
+        });
       }
 
       res.status(201).json({
@@ -586,6 +1098,34 @@ export class InterviewController {
     } catch (error) {
       logger.error('Get interview error:', error);
       next(error);
+    }
+  }
+
+  static async validateMeetingLink(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { token } = req.query;
+      if (!token) {
+        return res.status(400).json({ error: 'Meeting token is required.', code: 'MISSING_TOKEN' });
+      }
+      const interview = await interviewStore.getById(id);
+      if (!interview) {
+        return res.status(404).json({ error: 'Interview not found.', code: 'NOT_FOUND' });
+      }
+      if (req.user?.accountType === 'CANDIDATE' && interview.candidateId !== req.user.id) {
+        return res.status(403).json({ error: 'Not authorized to access this interview.', code: 'FORBIDDEN' });
+      }
+
+      const result = validateMeetingAccess(interview, token);
+      if (!result.valid) {
+        return res.status(403).json({ error: result.message, code: result.code });
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(interview);
+      return res.json({ success: true, interview: hydrated });
+    } catch (error) {
+      logger.error('Validate meeting link error:', error);
+      return next(error);
     }
   }
 
@@ -621,7 +1161,14 @@ export class InterviewController {
   static async scheduleInterview(req, res, next) {
     try {
       const { id } = req.params;
-      const { scheduledFor, timezone, meetingLink } = req.body;
+      const {
+        scheduledFor,
+        timezone,
+        duration,
+        interviewTypes,
+        notes,
+        strategy,
+      } = req.body;
       const interview = await interviewStore.getById(id);
       const access = canManageSchedule(interview, req.user);
       if (!access.allowed) {
@@ -632,15 +1179,52 @@ export class InterviewController {
         return res.status(409).json({ error: 'Cannot schedule a completed or cancelled interview' });
       }
 
+      const schedulingContext = await resolveHiringSchedulingContext({
+        interview,
+        user: req.user,
+      });
+      const schedulingStrategy = normalizeSchedulingStrategy(strategy, {
+        hasScheduledFor: Boolean(scheduledFor),
+      });
+      if (schedulingStrategy === 'MANUAL' && !scheduledFor) {
+        return res.status(400).json({
+          error: 'scheduledFor is required when using manual scheduling.',
+          code: 'SCHEDULED_FOR_REQUIRED',
+        });
+      }
+
+      const slotResolution = resolveScheduledForFromStrategy({
+        strategy: schedulingStrategy,
+        scheduledFor,
+        preferredSlots: [],
+        schedulingContext,
+        durationMinutes: duration || interview?.duration,
+      });
+      if (!slotResolution.ok) {
+        return res.status(slotResolution.status || 409).json({
+          error: slotResolution.error,
+          code: slotResolution.code || 'SCHEDULING_FAILED',
+          ...(slotResolution.details ? { details: slotResolution.details } : {}),
+        });
+      }
+
       const scheduledAt = new Date().toISOString();
+      const meetingTokenData = generateMeetingToken();
       const updatedInterview = await interviewStore.update(id, {
         status: 'SCHEDULED',
-        scheduledFor,
-        timezone: timezone || interview.timezone || DEFAULT_TIMEZONE,
-        meetingLink: typeof meetingLink === 'string' && meetingLink.trim() ? meetingLink.trim() : null,
+        scheduledFor: slotResolution.scheduledFor,
+        timezone: timezone || schedulingContext?.settings?.timezone || interview.timezone || DEFAULT_TIMEZONE,
+        ...meetingTokenData,
+        ...(Number.isFinite(Number(duration)) ? { duration: Number(duration) } : {}),
+        ...(Array.isArray(interviewTypes) ? { interviewTypes } : {}),
+        ...(typeof notes === 'string' ? { scheduleNote: notes.trim() || null } : {}),
         scheduleStatus: 'SCHEDULED',
         scheduledBy: req.user.id,
         scheduledAt,
+        scheduleDecision: slotResolution.scheduleDecision || null,
+        schedulingStrategy,
+        availabilitySource: schedulingContext?.settings?.availabilitySource || null,
+        conflictScope: schedulingContext?.settings?.conflictScope || null,
       });
 
       if (updatedInterview.organizationId) {
@@ -654,7 +1238,11 @@ export class InterviewController {
           metadata: {
             scheduledFor: updatedInterview.scheduledFor || null,
             timezone: updatedInterview.timezone || null,
-            meetingLink: updatedInterview.meetingLink || null,
+            duration: updatedInterview.duration || null,
+            schedulingStrategy,
+            scheduleDecision: slotResolution.scheduleDecision || null,
+            availabilitySource: schedulingContext?.settings?.availabilitySource || null,
+            conflictScope: schedulingContext?.settings?.conflictScope || null,
           },
         });
       }
@@ -674,9 +1262,27 @@ export class InterviewController {
             jobId: updatedInterview.jobId || null,
           });
         }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'interview-scheduled', {
+            interviewId: updatedInterview.id,
+            status: 'SCHEDULED',
+            scheduledFor: updatedInterview.scheduledFor || null,
+            organizationId: updatedInterview.organizationId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
       } catch (eventError) {
         logger.warn('Failed to publish interview-scheduled realtime event:', eventError);
       }
+
+      await queueHiringInterviewEmail({
+        type: 'INTERVIEW_SCHEDULED',
+        interview: updatedInterview,
+        payload: { operation: 'SCHEDULE_INTERVIEW' },
+        send: async ({ candidate, job, organization }) =>
+          emailNotifications.sendInterviewScheduled(updatedInterview, candidate, job, organization),
+        logLabel: 'Interview scheduled',
+      });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.json({ success: true, interview: hydrated });
@@ -689,7 +1295,16 @@ export class InterviewController {
   static async rescheduleInterview(req, res, next) {
     try {
       const { id } = req.params;
-      const { scheduledFor, timezone, meetingLink } = req.body;
+      const {
+        scheduledFor,
+        timezone,
+        duration,
+        interviewTypes,
+        notes,
+        rescheduleRequestId,
+        rescheduleDecisionNote,
+        strategy,
+      } = req.body;
       const interview = await interviewStore.getById(id);
       const access = canManageSchedule(interview, req.user);
       if (!access.allowed) {
@@ -700,17 +1315,111 @@ export class InterviewController {
         return res.status(409).json({ error: 'Cannot reschedule a completed or cancelled interview' });
       }
 
+      const normalizedRequests = normalizeRescheduleRequests(interview?.rescheduleRequests);
+      const pendingRequest = rescheduleRequestId
+        ? normalizedRequests.find((request) => request.id === rescheduleRequestId) || null
+        : getPendingRescheduleRequest({ rescheduleRequests: normalizedRequests });
+      if (rescheduleRequestId && !pendingRequest) {
+        return res.status(404).json({ error: 'Reschedule request not found for this interview' });
+      }
+
+      const schedulingContext = await resolveHiringSchedulingContext({
+        interview,
+        user: req.user,
+      });
+      const schedulingStrategy = normalizeSchedulingStrategy(strategy, {
+        hasScheduledFor: Boolean(scheduledFor),
+        hasPendingRequest: Boolean(pendingRequest),
+      });
+      if (schedulingStrategy === 'MANUAL' && !scheduledFor) {
+        return res.status(400).json({
+          error: 'scheduledFor is required when using manual scheduling.',
+          code: 'SCHEDULED_FOR_REQUIRED',
+        });
+      }
+
+      const preferredSlots = schedulingStrategy === 'PREFERRED_FIRST'
+        ? (pendingRequest?.preferredSlots || [])
+        : [];
+      const slotResolution = resolveScheduledForFromStrategy({
+        strategy: schedulingStrategy,
+        scheduledFor,
+        preferredSlots,
+        schedulingContext,
+        durationMinutes: duration || interview?.duration,
+      });
+      if (!slotResolution.ok) {
+        return res.status(slotResolution.status || 409).json({
+          error: slotResolution.error,
+          code: slotResolution.code || 'SCHEDULING_FAILED',
+          ...(slotResolution.details ? { details: slotResolution.details } : {}),
+        });
+      }
+
       const scheduledAt = new Date().toISOString();
+      let nextRequests = normalizedRequests;
+      let approvedRequestId = null;
+      const approverId = req.user.id;
+      const decisionNote = typeof rescheduleDecisionNote === 'string' && rescheduleDecisionNote.trim()
+        ? rescheduleDecisionNote.trim()
+        : (typeof notes === 'string' && notes.trim() ? notes.trim() : null);
+
+      if (rescheduleRequestId) {
+        nextRequests = normalizedRequests.map((request) => {
+          if (request.id !== rescheduleRequestId) return request;
+          if (request.status !== 'PENDING') return request;
+          approvedRequestId = request.id;
+          return {
+            ...request,
+            status: 'APPROVED',
+            reviewedAt: scheduledAt,
+            reviewedBy: approverId,
+            reviewNote: decisionNote || request.reviewNote || null,
+            decisionSource: 'COMPANY_RESCHEDULED',
+          };
+        });
+      } else {
+        // If company reschedules while a pending request exists, auto-approve the latest pending request.
+        for (let index = nextRequests.length - 1; index >= 0; index -= 1) {
+          if (nextRequests[index].status === 'PENDING') {
+            approvedRequestId = nextRequests[index].id;
+            nextRequests[index] = {
+              ...nextRequests[index],
+              status: 'APPROVED',
+              reviewedAt: scheduledAt,
+              reviewedBy: approverId,
+              reviewNote: decisionNote || nextRequests[index].reviewNote || null,
+              decisionSource: 'AUTO_APPROVED_ON_RESCHEDULE',
+            };
+            break;
+          }
+        }
+      }
+
+      const rescheduleTokenData = generateMeetingToken();
       const updatedInterview = await interviewStore.update(id, {
         status: 'SCHEDULED',
-        scheduledFor,
-        timezone: timezone || interview.timezone || DEFAULT_TIMEZONE,
-        meetingLink: typeof meetingLink === 'string' && meetingLink.trim()
-          ? meetingLink.trim()
-          : (interview.meetingLink || null),
+        scheduledFor: slotResolution.scheduledFor,
+        timezone: timezone || schedulingContext?.settings?.timezone || interview.timezone || DEFAULT_TIMEZONE,
+        ...rescheduleTokenData,
+        ...(Number.isFinite(Number(duration)) ? { duration: Number(duration) } : {}),
+        ...(Array.isArray(interviewTypes) ? { interviewTypes } : {}),
+        ...(typeof notes === 'string' ? { scheduleNote: notes.trim() || null } : {}),
         scheduleStatus: 'RESCHEDULED',
         scheduledBy: req.user.id,
         scheduledAt,
+        rescheduleRequests: nextRequests,
+        scheduleDecision: slotResolution.scheduleDecision || null,
+        schedulingStrategy,
+        availabilitySource: schedulingContext?.settings?.availabilitySource || null,
+        conflictScope: schedulingContext?.settings?.conflictScope || null,
+        ...(approvedRequestId
+          ? {
+            rescheduleRequestStatus: 'RESOLVED',
+            lastResolvedRescheduleRequestId: approvedRequestId,
+            lastResolvedRescheduleRequestAt: scheduledAt,
+          }
+          : {}),
       });
 
       if (updatedInterview.organizationId) {
@@ -724,7 +1433,12 @@ export class InterviewController {
           metadata: {
             scheduledFor: updatedInterview.scheduledFor || null,
             timezone: updatedInterview.timezone || null,
-            meetingLink: updatedInterview.meetingLink || null,
+            duration: updatedInterview.duration || null,
+            rescheduleRequestId: approvedRequestId,
+            schedulingStrategy,
+            scheduleDecision: slotResolution.scheduleDecision || null,
+            availabilitySource: schedulingContext?.settings?.availabilitySource || null,
+            conflictScope: schedulingContext?.settings?.conflictScope || null,
           },
         });
       }
@@ -735,15 +1449,413 @@ export class InterviewController {
           status: 'SCHEDULED',
           scheduledFor: updatedInterview.scheduledFor || null,
           scheduleStatus: 'RESCHEDULED',
+          rescheduleRequestId: approvedRequestId,
         });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-rescheduled', {
+            interviewId: updatedInterview.id,
+            status: 'SCHEDULED',
+            scheduledFor: updatedInterview.scheduledFor || null,
+            candidateId: updatedInterview.candidateId || null,
+            jobId: updatedInterview.jobId || null,
+            scheduleStatus: 'RESCHEDULED',
+            rescheduleRequestId: approvedRequestId,
+          });
+        }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'interview-rescheduled', {
+            interviewId: updatedInterview.id,
+            status: 'SCHEDULED',
+            scheduledFor: updatedInterview.scheduledFor || null,
+            organizationId: updatedInterview.organizationId || null,
+            jobId: updatedInterview.jobId || null,
+            scheduleStatus: 'RESCHEDULED',
+            rescheduleRequestId: approvedRequestId,
+          });
+        }
       } catch (eventError) {
         logger.warn('Failed to publish interview-rescheduled realtime event:', eventError);
       }
+
+      await queueHiringInterviewEmail({
+        type: 'INTERVIEW_RESCHEDULED',
+        interview: updatedInterview,
+        payload: { operation: 'RESCHEDULE_INTERVIEW' },
+        send: async ({ candidate, job, organization }) =>
+          emailNotifications.sendInterviewRescheduled(updatedInterview, candidate, job, organization),
+        logLabel: 'Interview rescheduled',
+      });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.json({ success: true, interview: hydrated });
     } catch (error) {
       logger.error('Reschedule interview error:', error);
+      return next(error);
+    }
+  }
+
+  static async requestInterviewReschedule(req, res, next) {
+    try {
+      const { id } = req.params;
+      const {
+        reason,
+        preferredSlots,
+        timezone,
+      } = req.body || {};
+      const interview = await interviewStore.getById(id);
+      const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (req.user?.accountType !== 'CANDIDATE' || interview?.candidateId !== req.user?.id) {
+        return res.status(403).json({ error: 'Only the candidate can request a reschedule' });
+      }
+
+      if (!isHiringInterview(interview)) {
+        return res.status(409).json({ error: 'Reschedule requests are only supported for hiring interviews' });
+      }
+
+      if (String(interview?.status || '').toUpperCase() !== 'SCHEDULED' || !interview?.scheduledFor) {
+        return res.status(409).json({ error: 'Interview must be scheduled before requesting a reschedule' });
+      }
+
+      const scheduledAtMs = Date.parse(interview.scheduledFor);
+      const nowMs = Date.now();
+      if (Number.isFinite(scheduledAtMs) && scheduledAtMs - nowMs < RESCHEDULE_MIN_NOTICE_HOURS * 60 * 60 * 1000) {
+        return res.status(409).json({
+          error: `Reschedule requests must be submitted at least ${RESCHEDULE_MIN_NOTICE_HOURS} hours before the interview`,
+        });
+      }
+
+      const trimmedReason = typeof reason === 'string' ? reason.trim() : '';
+      if (trimmedReason.length < RESCHEDULE_REASON_MIN_LENGTH) {
+        return res.status(400).json({
+          error: `Please provide at least ${RESCHEDULE_REASON_MIN_LENGTH} characters explaining why a reschedule is needed`,
+        });
+      }
+      if (trimmedReason.length > RESCHEDULE_REASON_MAX_LENGTH) {
+        return res.status(400).json({
+          error: `Reschedule reason must be at most ${RESCHEDULE_REASON_MAX_LENGTH} characters`,
+        });
+      }
+
+      const normalizedRequests = normalizeRescheduleRequests(interview?.rescheduleRequests);
+      const candidateRequests = normalizedRequests.filter((request) => request.requestedBy === req.user.id);
+      const hasPendingRequest = normalizedRequests.some((request) => request.status === 'PENDING');
+      if (hasPendingRequest) {
+        return res.status(409).json({ error: 'A reschedule request is already pending review' });
+      }
+
+      if (candidateRequests.length >= MAX_RESCHEDULE_REQUESTS_PER_INTERVIEW) {
+        return res.status(429).json({
+          error: 'You have already used your reschedule request for this interview. Please contact the hiring team via email for further changes.',
+          code: 'RESCHEDULE_LIMIT_REACHED',
+        });
+      }
+
+      const latestRequest = candidateRequests[candidateRequests.length - 1] || null;
+      if (latestRequest?.requestedAt) {
+        const latestRequestMs = Date.parse(latestRequest.requestedAt);
+        if (
+          Number.isFinite(latestRequestMs)
+          && nowMs - latestRequestMs < RESCHEDULE_REQUEST_COOLDOWN_HOURS * 60 * 60 * 1000
+        ) {
+          return res.status(429).json({
+            error: `Please wait at least ${RESCHEDULE_REQUEST_COOLDOWN_HOURS} hours before submitting another reschedule request`,
+          });
+        }
+      }
+
+      const normalizedPreferredSlots = Array.isArray(preferredSlots)
+        ? preferredSlots
+          .map((slot) => normalizeIsoDate(slot))
+          .filter(Boolean)
+          .filter((slot) => Date.parse(slot) > nowMs)
+          .slice(0, MAX_PREFERRED_RESCHEDULE_SLOTS)
+        : [];
+      const requestedAt = new Date().toISOString();
+      const requestEntry = {
+        id: crypto.randomUUID(),
+        status: 'PENDING',
+        reason: trimmedReason,
+        preferredSlots: normalizedPreferredSlots,
+        timezone: typeof timezone === 'string' && timezone.trim()
+          ? timezone.trim()
+          : (interview?.timezone || DEFAULT_TIMEZONE),
+        requestedAt,
+        requestedBy: req.user.id,
+        reviewedAt: null,
+        reviewedBy: null,
+        reviewNote: null,
+        decisionSource: null,
+      };
+
+      const updatedInterview = await interviewStore.update(id, {
+        rescheduleRequests: [...normalizedRequests, requestEntry],
+        rescheduleRequestStatus: 'PENDING',
+        latestRescheduleRequestId: requestEntry.id,
+        latestRescheduleRequestAt: requestedAt,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.accountType || null,
+          action: 'INTERVIEW_RESCHEDULE_REQUESTED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            requestId: requestEntry.id,
+            preferredSlots: requestEntry.preferredSlots,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-reschedule-requested', {
+          actor: req.user.id,
+          requestId: requestEntry.id,
+          requestedAt,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-reschedule-requested', {
+            interviewId: updatedInterview.id,
+            requestId: requestEntry.id,
+            candidateId: updatedInterview.candidateId || null,
+            jobId: updatedInterview.jobId || null,
+            requestedAt,
+          });
+        }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'interview-reschedule-requested', {
+            interviewId: updatedInterview.id,
+            requestId: requestEntry.id,
+            organizationId: updatedInterview.organizationId || null,
+            requestedAt,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-reschedule-requested realtime event:', eventError);
+      }
+
+      if (updatedInterview.companyId) {
+        notificationStore.create({
+          userId: updatedInterview.companyId,
+          type: 'interview_reschedule_request',
+          title: 'Candidate requested reschedule',
+          message: 'A candidate requested to reschedule their interview.',
+          link: '/company-interviews',
+        }).catch(() => {});
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({
+        success: true,
+        interview: hydrated,
+        request: requestEntry,
+      });
+    } catch (error) {
+      logger.error('Request interview reschedule error:', error);
+      return next(error);
+    }
+  }
+
+  static async rejectInterviewRescheduleRequest(req, res, next) {
+    try {
+      const { id, requestId } = req.params;
+      const reviewNote = typeof req.body?.reason === 'string' ? req.body.reason.trim() : '';
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      const normalizedRequests = normalizeRescheduleRequests(interview?.rescheduleRequests);
+      const requestIndex = normalizedRequests.findIndex((request) => request.id === requestId);
+      if (requestIndex < 0) {
+        return res.status(404).json({ error: 'Reschedule request not found' });
+      }
+
+      const targetRequest = normalizedRequests[requestIndex];
+      if (targetRequest.status !== 'PENDING') {
+        return res.status(409).json({ error: 'Only pending requests can be rejected' });
+      }
+
+      const reviewedAt = new Date().toISOString();
+      normalizedRequests[requestIndex] = {
+        ...targetRequest,
+        status: 'REJECTED',
+        reviewedAt,
+        reviewedBy: req.user.id,
+        reviewNote: reviewNote || null,
+        decisionSource: 'COMPANY_REJECTED',
+      };
+
+      const updatedInterview = await interviewStore.update(id, {
+        rescheduleRequests: normalizedRequests,
+        rescheduleRequestStatus: 'RESOLVED',
+        lastResolvedRescheduleRequestId: targetRequest.id,
+        lastResolvedRescheduleRequestAt: reviewedAt,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_RESCHEDULE_REQUEST_REJECTED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            requestId: targetRequest.id,
+            reviewNote: reviewNote || null,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-reschedule-request-rejected', {
+          actor: req.user.id,
+          requestId: targetRequest.id,
+          reviewedAt,
+        });
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(
+            updatedInterview.organizationId,
+            'interview-reschedule-request-rejected',
+            {
+              interviewId: updatedInterview.id,
+              requestId: targetRequest.id,
+              candidateId: updatedInterview.candidateId || null,
+              reviewedAt,
+            },
+          );
+        }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(
+            updatedInterview.candidateId,
+            'interview-reschedule-request-rejected',
+            {
+              interviewId: updatedInterview.id,
+              requestId: targetRequest.id,
+              organizationId: updatedInterview.organizationId || null,
+              reviewedAt,
+            },
+          );
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-reschedule-request-rejected realtime event:', eventError);
+      }
+
+      if (updatedInterview.candidateId) {
+        notificationStore.create({
+          userId: updatedInterview.candidateId,
+          type: 'interview_reschedule_request_rejected',
+          title: 'Reschedule request update',
+          message: 'Your reschedule request was reviewed by the hiring team.',
+          link: '/candidate-dashboard',
+        }).catch(() => {});
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({
+        success: true,
+        interview: hydrated,
+      });
+    } catch (error) {
+      logger.error('Reject interview reschedule request error:', error);
+      return next(error);
+    }
+  }
+
+  static async contactCompanyAboutInterview(req, res, next) {
+    try {
+      const { id } = req.params;
+      const { message } = req.body;
+      const trimmedMessage = (message || '').trim();
+      if (!trimmedMessage || trimmedMessage.length < 10) {
+        return res.status(400).json({ error: 'Message must be at least 10 characters.' });
+      }
+      if (trimmedMessage.length > 1000) {
+        return res.status(400).json({ error: 'Message must be at most 1000 characters.' });
+      }
+
+      const interview = await interviewStore.getById(id);
+      if (!interview) {
+        return res.status(404).json({ error: 'Interview not found' });
+      }
+      if (req.user?.accountType !== 'CANDIDATE' || interview.candidateId !== req.user.id) {
+        return res.status(403).json({ error: 'Not authorized to contact company for this interview' });
+      }
+      if (!isHiringInterview(interview)) {
+        return res.status(400).json({ error: 'Contact messages are only supported for hiring interviews' });
+      }
+
+      const sentAt = new Date().toISOString();
+      const candidateName = req.user.fullName || req.user.email || 'A candidate';
+
+      await interviewStore.update(id, {
+        lastCandidateContact: {
+          message: trimmedMessage,
+          candidateName,
+          candidateId: req.user.id,
+          sentAt,
+        },
+      });
+
+      if (interview.companyId) {
+        await notificationStore.create({
+          userId: interview.companyId,
+          type: 'interview_candidate_message',
+          title: 'Message from candidate',
+          message: `${candidateName}: ${trimmedMessage.length > 120 ? `${trimmedMessage.slice(0, 120)}...` : trimmedMessage}`,
+          link: `/company-interviews?interviewId=${interview.id}`,
+          metadata: {
+            interviewId: interview.id,
+            candidateId: req.user.id,
+            candidateName,
+            fullMessage: trimmedMessage,
+            sentAt,
+          },
+        });
+      }
+
+      if (interview.organizationId) {
+        await activityLogStore.record({
+          organizationId: interview.organizationId,
+          actorId: req.user.id,
+          actorRole: 'CANDIDATE',
+          action: 'INTERVIEW_CANDIDATE_MESSAGE',
+          targetType: 'INTERVIEW',
+          targetId: interview.id,
+          metadata: {
+            message: trimmedMessage,
+            sentAt,
+          },
+        });
+      }
+
+      try {
+        await recordRealtimeEvent(id, 'interview-candidate-message', {
+          actor: req.user.id,
+          sentAt,
+        });
+        if (interview.organizationId) {
+          await publishOrganizationRealtimeUpdate(interview.organizationId, 'interview-candidate-message', {
+            interviewId: interview.id,
+            candidateId: req.user.id,
+            sentAt,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-candidate-message realtime event:', eventError);
+      }
+
+      return res.json({ success: true, sentAt });
+    } catch (error) {
+      logger.error('Contact company about interview error:', error);
       return next(error);
     }
   }
@@ -802,9 +1914,33 @@ export class InterviewController {
             jobId: updatedInterview.jobId || null,
           });
         }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'interview-cancelled', {
+            interviewId: updatedInterview.id,
+            status: 'CANCELLED',
+            cancelledAt,
+            organizationId: updatedInterview.organizationId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
       } catch (eventError) {
         logger.warn('Failed to publish interview-cancelled realtime event:', eventError);
       }
+
+      await queueHiringInterviewEmail({
+        type: 'INTERVIEW_CANCELLED',
+        interview: updatedInterview,
+        payload: { operation: 'CANCEL_INTERVIEW' },
+        send: async ({ candidate, job, organization }) =>
+          emailNotifications.sendInterviewCancelled(
+            updatedInterview,
+            candidate,
+            job,
+            organization,
+            reason || '',
+          ),
+        logLabel: 'Interview cancelled',
+      });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.json({ success: true, interview: hydrated });
@@ -932,6 +2068,7 @@ export class InterviewController {
       const { id } = req.params;
       let interview = await interviewStore.getWithQuestions(id);
       let llmUnavailable = Boolean(interview?.llmUnavailable);
+      let questionPlanSummary = null;
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
@@ -949,6 +2086,9 @@ export class InterviewController {
       }
 
       if (!interview.questions || interview.questions.length === 0) {
+        const normalizedPrepNotes = typeof interview?.config?.prepNotes === 'string'
+          ? interview.config.prepNotes.trim()
+          : '';
         const config = {
           jobRole: interview.jobRole,
           experienceLevel: interview.experienceLevel,
@@ -964,30 +2104,150 @@ export class InterviewController {
         };
 
         let generatedQuestions = [];
-        try {
-          generatedQuestions = await LLMService.generateInterviewQuestions(config);
-        } catch (generationError) {
-          if (!isLikelyOllamaUnavailableError(generationError)) {
-            throw generationError;
-          }
-          llmUnavailable = true;
-          generatedQuestions = buildFallbackQuestions(interview);
-          await interviewStore.update(id, {
-            llmUnavailable: true,
-            llmUnavailableAt: new Date().toISOString(),
-            pendingEvaluation: true,
-            llmFallbackReason: String(generationError?.message || 'OLLAMA_UNAVAILABLE').slice(0, 500),
+        const templateOverride = await resolveOrganizationTemplateOverride(interview);
+
+        const normalizedInterviewMode = String(interview?.mode || '').toUpperCase();
+        const structuredPlan = normalizedInterviewMode === 'PRACTICE'
+          ? await buildStructuredInterviewQuestionPlanAsync({
+            interview,
+            totalQuestions: config.totalQuestions,
+            templateOverrides: templateOverride ? [templateOverride] : [],
+          })
+          : buildStructuredInterviewQuestionPlan({
+            interview,
+            totalQuestions: config.totalQuestions,
+            templateOverrides: templateOverride ? [templateOverride] : [],
           });
-          logger.warn('Ollama unavailable at interview start; fallback question pack applied.');
+
+        if (structuredPlan.enabled && structuredPlan.questions.length > 0) {
+          generatedQuestions = [...structuredPlan.questions];
+          questionPlanSummary = {
+            strategy: structuredPlan.strategy?.mode || 'HYBRID_TEMPLATE',
+            enabled: true,
+            templateId: structuredPlan.template?.id || null,
+            templateName: structuredPlan.template?.name || null,
+            templateSource: structuredPlan.template?.source || null,
+            coreQuestionCount: structuredPlan.coreQuestionCount || 0,
+            randomizedQuestionCount: structuredPlan.randomizedQuestionCount || 0,
+            llmFillCount: structuredPlan.llmFillCount || 0,
+            questionLibraryVersion: structuredPlan.metadata?.libraryVersion || null,
+            catalogVersion: structuredPlan.metadata?.catalogVersion || structuredPlan.metadata?.libraryVersion || null,
+            catalogSource: structuredPlan.metadata?.catalogSource || null,
+            approvedPoolSize: structuredPlan.metadata?.approvedPoolSize || null,
+            matchedPoolSize: structuredPlan.metadata?.matchedPoolSize || null,
+            scorecardBlueprint: structuredPlan.scorecardBlueprint || null,
+            generatedAt: new Date().toISOString(),
+          };
+        }
+
+        const llmFillNeeded = Math.max(config.totalQuestions - generatedQuestions.length, 0);
+        if (llmFillNeeded > 0 && (!structuredPlan.enabled || structuredPlan.strategy?.allowLlmFill)) {
+          try {
+            const llmGenerated = await LLMService.generateInterviewQuestions({
+              ...config,
+              totalQuestions: llmFillNeeded,
+            });
+
+            const llmQuestions = (Array.isArray(llmGenerated) ? llmGenerated : []).map((question, index) => ({
+              ...question,
+              id: question?.id || `llm_q_${generatedQuestions.length + index + 1}`,
+              sequence: generatedQuestions.length + index + 1,
+              questionSource: structuredPlan.enabled ? 'LLM_FILL' : 'LLM',
+              questionTemplateId: structuredPlan.template?.id || null,
+              approvedQuestion: false,
+              isCoreQuestion: false,
+            }));
+
+            generatedQuestions = [...generatedQuestions, ...llmQuestions];
+            if (questionPlanSummary) {
+              questionPlanSummary.llmFillCount = llmQuestions.length;
+            }
+          } catch (generationError) {
+            if (!isLikelyOllamaUnavailableError(generationError)) {
+              throw generationError;
+            }
+            if (!generatedQuestions.length) {
+              llmUnavailable = true;
+              generatedQuestions = buildFallbackQuestions(interview);
+              await interviewStore.update(id, {
+                llmUnavailable: true,
+                llmUnavailableAt: new Date().toISOString(),
+                pendingEvaluation: true,
+                llmFallbackReason: String(generationError?.message || 'OLLAMA_UNAVAILABLE').slice(0, 500),
+              });
+              logger.warn('Ollama unavailable at interview start; fallback question pack applied.');
+            } else {
+              if (questionPlanSummary) {
+                questionPlanSummary.llmFillCount = 0;
+              }
+              logger.warn('Ollama unavailable for LLM fill; continuing with structured question set only.');
+            }
+          }
+        }
+
+        if (!generatedQuestions.length && !structuredPlan.enabled) {
+          try {
+            generatedQuestions = await LLMService.generateInterviewQuestions(config);
+          } catch (generationError) {
+            if (!isLikelyOllamaUnavailableError(generationError)) {
+              throw generationError;
+            }
+            llmUnavailable = true;
+            generatedQuestions = buildFallbackQuestions(interview);
+            await interviewStore.update(id, {
+              llmUnavailable: true,
+              llmUnavailableAt: new Date().toISOString(),
+              pendingEvaluation: true,
+              llmFallbackReason: String(generationError?.message || 'OLLAMA_UNAVAILABLE').slice(0, 500),
+            });
+            logger.warn('Ollama unavailable at interview start; fallback question pack applied.');
+          }
+        }
+
+        if (!generatedQuestions.length) {
+          generatedQuestions = buildFallbackQuestions(interview);
+          questionPlanSummary = questionPlanSummary || {
+            strategy: 'FALLBACK',
+            enabled: false,
+            templateId: null,
+            templateName: null,
+            templateSource: null,
+            coreQuestionCount: 0,
+            randomizedQuestionCount: 0,
+            llmFillCount: 0,
+            questionLibraryVersion: null,
+            catalogVersion: null,
+            catalogSource: null,
+            approvedPoolSize: null,
+            matchedPoolSize: null,
+            scorecardBlueprint: null,
+            generatedAt: new Date().toISOString(),
+          };
         }
 
         await interviewStore.addQuestions(id, generatedQuestions);
         interview = await interviewStore.getWithQuestions(id);
+
+        if (
+          normalizedPrepNotes
+          && Array.isArray(interview?.questions)
+          && interview.questions.length > 0
+          && !interview.questions[0]?.prepNotes
+        ) {
+          await interviewStore.updateQuestion(id, interview.questions[0].id, {
+            prepNotes: normalizedPrepNotes,
+          });
+          interview.questions[0] = {
+            ...interview.questions[0],
+            prepNotes: normalizedPrepNotes,
+          };
+        }
       }
 
       const updatedInterview = await interviewStore.update(id, {
         status: 'IN_PROGRESS',
         startedAt: new Date().toISOString(),
+        ...(questionPlanSummary ? { questionPlan: questionPlanSummary } : {}),
         ...(llmUnavailable ? { llmUnavailable: true, pendingEvaluation: true } : {}),
       });
 
@@ -1053,9 +2313,11 @@ export class InterviewController {
       });
       const { evaluation, pendingEvaluation, llmUnavailable, metadata, reasonCode } = evaluationResult;
 
+      const completionTimestamp = new Date().toISOString();
       const updatedInterview = await interviewStore.update(id, {
         status: 'COMPLETED',
-        endedAt: new Date().toISOString(),
+        endedAt: completionTimestamp,
+        completedAt: completionTimestamp,
         evaluation,
         overallScore: pendingEvaluation ? null : evaluation?.overallScore ?? null,
         readinessLevel: pendingEvaluation ? null : evaluation?.readinessLevel ?? null,
@@ -1095,6 +2357,18 @@ export class InterviewController {
         }
       }
 
+      // Award referral bonus exactly once when a referred candidate completes first interview.
+      if (updatedInterview.candidateId) {
+        try {
+          await ReferralController.onFirstInterviewInternal({
+            userId: updatedInterview.candidateId,
+          });
+        } catch (referralError) {
+          // Non-fatal: interview completion should not fail due to referral bookkeeping.
+          logger.warn('Failed to process referral first-interview bonus:', referralError);
+        }
+      }
+
       try {
         await recordRealtimeEvent(id, 'interview-ended', {
           actor: req.user.id,
@@ -1112,6 +2386,17 @@ export class InterviewController {
             readinessLevel: updatedInterview.readinessLevel ?? null,
             candidateId: updatedInterview.candidateId || null,
             companyId: updatedInterview.companyId || null,
+            jobId: updatedInterview.jobId || null,
+          });
+        }
+        if (updatedInterview.candidateId) {
+          await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'interview-ended', {
+            interviewId: updatedInterview.id,
+            status: 'COMPLETED',
+            endedAt: updatedInterview.endedAt,
+            overallScore: updatedInterview.overallScore ?? null,
+            readinessLevel: updatedInterview.readinessLevel ?? null,
+            organizationId: updatedInterview.organizationId || null,
             jobId: updatedInterview.jobId || null,
           });
         }
@@ -1140,6 +2425,20 @@ export class InterviewController {
           link: `/interview-results/${updatedInterview.id}`,
         }).catch(() => {});
       }
+
+      await queueHiringInterviewEmail({
+        type: 'INTERVIEW_COMPLETED_UNDER_REVIEW',
+        interview: updatedInterview,
+        payload: { operation: 'END_INTERVIEW' },
+        send: async ({ candidate, job, organization }) =>
+          emailNotifications.sendInterviewCompletedUnderReview(
+            updatedInterview,
+            candidate,
+            job,
+            organization,
+          ),
+        logLabel: 'Interview completed under review',
+      });
 
       const hydrated = await attachSingleInterviewParticipants({
         ...updatedInterview,
@@ -1306,7 +2605,9 @@ export class InterviewController {
         (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
       );
 
-      const hydrated = await hydrateInterviewParticipants(interviewsArray);
+      const hydrated = (await hydrateInterviewParticipants(interviewsArray)).map((interview) =>
+        enrichInterviewSchedulingMeta(interview),
+      );
 
       res.json({ success: true, interviews: hydrated });
     } catch (error) {
@@ -1326,7 +2627,9 @@ export class InterviewController {
       const interviews = organizationId
         ? await interviewStore.listByOrganization(organizationId, { limit: listLimit })
         : await interviewStore.listByCompany(companyId, { limit: listLimit });
-      const hydrated = await hydrateInterviewParticipants(interviews);
+      const hydrated = (await hydrateInterviewParticipants(interviews)).map((interview) =>
+        enrichInterviewSchedulingMeta(interview),
+      );
 
       res.json({ success: true, interviews: hydrated });
     } catch (error) {
@@ -1400,21 +2703,59 @@ export class InterviewController {
       });
 
       let evaluation = null;
+      let resolvedScore = null;
+      let rubricScore = null;
+      let criterionScores = [];
+      let followUpQuestion = null;
+      let followUpMetadata = null;
       try {
         evaluation = await LLMService.analyzeAnswer({
           question: question.question,
           answer,
           criteria: question.evaluationCriteria,
           difficulty: question.difficulty,
+          rubric: question.rubric || null,
           llmOptions: resolveInterviewLlmOptions(interview.config),
         });
 
+        criterionScores = Array.isArray(evaluation?.criterionScores) ? evaluation.criterionScores : [];
+        rubricScore = computeRubricWeightedScore({
+          rubric: question.rubric || null,
+          criterionScores,
+        });
+        resolvedScore = reconcileQuestionScore({
+          llmScore: evaluation?.score,
+          rubricScore,
+        });
+
+        followUpQuestion = evaluation?.suggestions?.[0] || null;
+        const followUpEnabled = interview?.config?.advancedSettings?.followUpQuestions !== false;
+        if (followUpEnabled && question?.rubric && Number.isFinite(resolvedScore) && resolvedScore < 7.5) {
+          try {
+            followUpMetadata = await LLMService.generateRubricFollowUpQuestion({
+              question: question.question,
+              answer,
+              analysis: evaluation,
+              rubric: question.rubric,
+              llmOptions: resolveInterviewLlmOptions(interview.config),
+            });
+            if (followUpMetadata?.question) {
+              followUpQuestion = followUpMetadata.question;
+            }
+          } catch (followUpError) {
+            logger.warn('Failed to generate rubric follow-up question:', followUpError);
+          }
+        }
+
         await interviewStore.updateQuestion(id, questionId, {
-          score: evaluation.score || null,
+          score: resolvedScore ?? evaluation?.score ?? null,
+          rubricScore: rubricScore ?? null,
+          criterionScores,
           strengths: evaluation.strengths || [],
           weaknesses: evaluation.weaknesses || [],
           feedback: evaluation || null,
-          followUpQuestion: evaluation.suggestions?.[0] || null,
+          followUpQuestion,
+          followUpMetadata: followUpMetadata || null,
         });
       } catch (evalError) {
         logger.error('Error evaluating answer:', evalError);
@@ -1425,7 +2766,7 @@ export class InterviewController {
           actor: req.user.id,
           questionId,
           answeredAt: updatedQuestion.answeredAt || answeredAt.toISOString(),
-          score: evaluation?.score ?? updatedQuestion?.score ?? null,
+          score: resolvedScore ?? evaluation?.score ?? updatedQuestion?.score ?? null,
         });
       } catch (eventError) {
         logger.warn('Failed to publish answer-submitted realtime event:', eventError);
@@ -1446,7 +2787,7 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const { questionId } = req.body;
-      const interview = await interviewStore.getById(id);
+      const interview = await interviewStore.getWithQuestions(id);
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
@@ -1480,7 +2821,7 @@ export class InterviewController {
       const { id, questionId } = req.params;
       const { prepNotes } = req.body;
       
-      const interview = await interviewStore.getById(id);
+      const interview = await interviewStore.getWithQuestions(id);
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
@@ -1554,7 +2895,7 @@ export class InterviewController {
 
       const safeInterview = {
         jobRole: interview.jobRole || interview.position || 'Interview',
-        completedAt: interview.completedAt || interview.updatedAt,
+        completedAt: interview.completedAt || interview.endedAt || interview.updatedAt,
         overallScore: interview.overallScore,
         readinessLevel: interview.readinessLevel,
         evaluation: interview.evaluation,

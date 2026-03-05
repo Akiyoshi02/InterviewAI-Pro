@@ -33,7 +33,7 @@ const StatusBadge = ({ ok }) => (
 const EMPTY_FORM = { url: '', events: [], description: '' };
 
 const CompanyWebhooksPage = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, status } = useAuth();
   const { maintenanceMode } = useMaintenanceMode();
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
@@ -146,6 +146,17 @@ const CompanyWebhooksPage = () => {
     }));
   };
 
+  if (status === 'loading' || !user) {
+    return (
+      <LoadingState
+        title="Checking your session"
+        message="Verifying secure access to webhooks."
+        variant="fullscreen"
+        tone="primary"
+      />
+    );
+  }
+
   if (!isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -155,7 +166,7 @@ const CompanyWebhooksPage = () => {
   }
 
   if (loading) {
-    return <LoadingState title="Loading webhooks" message="Please wait…" variant="fullscreen" tone="primary" />;
+    return <LoadingState title="Loading webhooks" message="Please wait..." variant="fullscreen" tone="primary" />;
   }
 
   return (
@@ -194,7 +205,7 @@ const CompanyWebhooksPage = () => {
                 >
                   <p className="text-sm font-semibold text-amber-800 dark:text-amber-300 flex items-center gap-2">
                     <Icon name="Key" size={15} />
-                    Webhook created – save your signing secret now
+                    Webhook created - save your signing secret now
                   </p>
                   <p className="text-xs text-amber-700 dark:text-amber-400">
                     This secret will only be shown once. Store it securely to verify incoming webhook signatures.
@@ -259,7 +270,7 @@ const CompanyWebhooksPage = () => {
                   {formError && <p className="text-xs text-red-500">{formError}</p>}
                   <div className="flex gap-2">
                     <Button onClick={handleCreate} disabled={saving} size="sm">
-                      {saving ? 'Creating…' : 'Create webhook'}
+                      {saving ? 'Creating...' : 'Create webhook'}
                     </Button>
                     <Button variant="outline" size="sm" onClick={() => { setShowForm(false); setForm(EMPTY_FORM); setFormError(null); }}>
                       Cancel
@@ -317,7 +328,7 @@ const CompanyWebhooksPage = () => {
                     <div className="space-y-1 border-t border-gray-100 dark:border-slate-700 pt-3">
                       <p className="text-xs font-medium text-gray-600 dark:text-slate-400 mb-2">Recent deliveries</p>
                       {deliveriesLoading ? (
-                        <p className="text-xs text-gray-400">Loading…</p>
+                        <p className="text-xs text-gray-400">Loading...</p>
                       ) : deliveries.length === 0 ? (
                         <p className="text-xs text-gray-400">No deliveries yet.</p>
                       ) : (
@@ -325,7 +336,7 @@ const CompanyWebhooksPage = () => {
                           <div key={d.id} className="flex items-center justify-between text-xs text-gray-600 dark:text-slate-400 py-1 border-b border-gray-100 dark:border-slate-700/50">
                             <span className="font-mono">{d.eventType}</span>
                             <StatusBadge ok={d.status === 'delivered'} />
-                            <span>{d.createdAt ? new Date(d.createdAt).toLocaleString() : '—'}</span>
+                            <span>{d.createdAt ? new Date(d.createdAt).toLocaleString() : '--'}</span>
                           </div>
                         ))
                       )}
@@ -340,7 +351,7 @@ const CompanyWebhooksPage = () => {
                       onClick={() => handleTest(wh.id)}
                       disabled={testingId === wh.id}
                     >
-                      {testingId === wh.id ? 'Sending…' : 'Test'}
+                      {testingId === wh.id ? 'Sending...' : 'Test'}
                     </Button>
                     <Button
                       size="sm"

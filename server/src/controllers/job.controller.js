@@ -86,6 +86,200 @@ const normalizeAdvertImageUrls = (job) => {
   return [];
 };
 
+const normalizeWhitespace = (value) => (value == null ? '' : String(value).replace(/\s+/g, ' ').trim());
+
+const humanizeToken = (value) => {
+  const cleaned = normalizeWhitespace(value).replaceAll('_', ' ').toLowerCase();
+  if (!cleaned) return '';
+  return cleaned.replace(/\b\w/g, (character) => character.toUpperCase());
+};
+
+const stripMarkup = (value) => normalizeWhitespace(value).replace(/<[^>]*>/g, '').trim();
+
+const truncateText = (value, maxLength = 200) => {
+  const normalized = stripMarkup(value);
+  if (!normalized) return '';
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 3)).trim()}...`;
+};
+
+const escapeHtml = (value) => String(value || '')
+  .replaceAll('&', '&amp;')
+  .replaceAll('<', '&lt;')
+  .replaceAll('>', '&gt;')
+  .replaceAll('"', '&quot;')
+  .replaceAll("'", '&#39;');
+
+const getRequestOrigin = (req) => {
+  const forwardedProtoHeader = req.headers['x-forwarded-proto'];
+  const forwardedProto = Array.isArray(forwardedProtoHeader)
+    ? forwardedProtoHeader[0]
+    : typeof forwardedProtoHeader === 'string'
+      ? forwardedProtoHeader.split(',')[0]
+      : '';
+  const forwardedHostHeader = req.headers['x-forwarded-host'];
+  const forwardedHost = Array.isArray(forwardedHostHeader)
+    ? forwardedHostHeader[0]
+    : typeof forwardedHostHeader === 'string'
+      ? forwardedHostHeader.split(',')[0]
+      : '';
+
+  const protocol = normalizeWhitespace(forwardedProto || req.protocol || 'http').toLowerCase() || 'http';
+  const host = normalizeWhitespace(forwardedHost || req.get('host') || '');
+  if (!host) {
+    return `${protocol}://localhost:${process.env.PORT || 3000}`;
+  }
+  return `${protocol}://${host}`;
+};
+
+const toAbsolutePublicUrl = (value, baseUrl) => {
+  const raw = normalizeWhitespace(value);
+  if (!raw) return '';
+  if (/^https?:\/\//i.test(raw)) return raw;
+  if (raw.startsWith('//')) return `https:${raw}`;
+  const normalizedBase = normalizeWhitespace(baseUrl).replace(/\/$/, '');
+  if (!normalizedBase) return raw;
+  return `${normalizedBase}${raw.startsWith('/') ? raw : `/${raw}`}`;
+};
+
+const buildShareRoleSnapshot = (job) => [
+  normalizeWhitespace(job?.department),
+  humanizeToken(job?.employmentType),
+  humanizeToken(job?.experienceLevel),
+  normalizeWhitespace(job?.location),
+].filter(Boolean).join(' | ');
+
+const buildShareMetaDescription = (job) => {
+  const roleSnapshot = buildShareRoleSnapshot(job);
+  const compensation = normalizeWhitespace(job?.compensationRange || job?.salaryRange || '');
+  const overview = truncateText(job?.description, 240);
+  return [
+    roleSnapshot,
+    compensation ? `Compensation: ${compensation}` : '',
+    overview,
+  ].filter(Boolean).join(' - ');
+};
+
+const buildShareHtml = ({
+  title,
+  description,
+  shareUrl,
+  jobUrl,
+  imageUrl,
+  videoUrl,
+  organizationName,
+}) => {
+  const safeTitle = escapeHtml(title);
+  const safeDescription = escapeHtml(description);
+  const safeShareUrl = escapeHtml(shareUrl);
+  const safeJobUrl = escapeHtml(jobUrl);
+  const safeImageUrl = escapeHtml(imageUrl);
+  const safeVideoUrl = escapeHtml(videoUrl);
+  const safeOrganizationName = escapeHtml(organizationName || 'Company');
+
+  const optionalImageTags = imageUrl
+    ? `
+    <meta property="og:image" content="${safeImageUrl}" />
+    <meta property="og:image:alt" content="${safeTitle}" />
+    <meta name="twitter:image" content="${safeImageUrl}" />`
+    : '';
+
+  const optionalVideoTags = videoUrl
+    ? `
+    <meta property="og:video" content="${safeVideoUrl}" />
+    <meta property="og:video:type" content="video/mp4" />`
+    : '';
+
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>${safeTitle}</title>
+  <meta name="description" content="${safeDescription}" />
+  <meta name="robots" content="noindex,nofollow,max-image-preview:large" />
+
+  <meta property="og:type" content="website" />
+  <meta property="og:title" content="${safeTitle}" />
+  <meta property="og:description" content="${safeDescription}" />
+  <meta property="og:url" content="${safeShareUrl}" />
+  <meta property="og:site_name" content="Interviewer" />${optionalImageTags}${optionalVideoTags}
+
+  <meta name="twitter:card" content="${imageUrl ? 'summary_large_image' : 'summary'}" />
+  <meta name="twitter:title" content="${safeTitle}" />
+  <meta name="twitter:description" content="${safeDescription}" />
+
+  <link rel="canonical" href="${safeJobUrl}" />
+  <meta http-equiv="refresh" content="0;url=${safeJobUrl}" />
+  <style>
+    :root {
+      color-scheme: light dark;
+      font-family: "Segoe UI", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: radial-gradient(circle at top, #e6f4ff, #f6f8fb 48%);
+      color: #0f172a;
+    }
+    .card {
+      width: min(640px, 100%);
+      border-radius: 16px;
+      border: 1px solid #d5e3f8;
+      background: #ffffff;
+      box-shadow: 0 18px 42px rgba(15, 23, 42, 0.12);
+      padding: 24px;
+    }
+    .eyebrow {
+      margin: 0 0 8px;
+      font-size: 13px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: #3366aa;
+      font-weight: 600;
+    }
+    h1 {
+      margin: 0 0 12px;
+      font-size: 24px;
+      line-height: 1.28;
+      color: #0b2447;
+    }
+    p {
+      margin: 0 0 18px;
+      color: #334155;
+      line-height: 1.5;
+    }
+    a {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      padding: 10px 18px;
+      background: #0b5fff;
+      color: #ffffff;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 14px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <p class="eyebrow">${safeOrganizationName}</p>
+    <h1>${safeTitle}</h1>
+    <p>${safeDescription}</p>
+    <a href="${safeJobUrl}">View Job</a>
+  </main>
+  <script>
+    window.location.replace(${JSON.stringify(jobUrl)});
+  </script>
+</body>
+</html>`;
+};
+
 const normalizeAdvertImagePayload = (payload = {}) => {
   const normalized = { ...payload };
   const hasAdvertImageUrls = Object.prototype.hasOwnProperty.call(normalized, 'advertImageUrls');
@@ -150,9 +344,75 @@ const publishJobVisibilityUpdate = async ({ organizationId, previousJob, updated
   });
 };
 
+const normalizeApplicationQuestions = (job) => {
+  const rawQuestions = Array.isArray(job?.applicationQuestions) && job.applicationQuestions.length > 0
+    ? job.applicationQuestions
+    : (Array.isArray(job?.customFormFields) ? job.customFormFields : []);
+
+  return rawQuestions
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = (question.id || `question_${index + 1}`).toString().trim() || `question_${index + 1}`;
+      const prompt = (question.question || question.label || '').toString().trim();
+      const type = (question.type || 'TEXT').toString().trim().toUpperCase();
+      return {
+        id,
+        question: prompt,
+        type: type || 'TEXT',
+        required: Boolean(question.required),
+        options: Array.isArray(question.options)
+          ? question.options
+            .map((option) => (option || '').toString().trim())
+            .filter(Boolean)
+          : [],
+        placeholder: (question.placeholder || '').toString().trim() || null,
+      };
+    })
+    .filter((question) => question.question);
+};
+
+const normalizeCustomFormFields = (job) => {
+  const rawFields = Array.isArray(job?.customFormFields) && job.customFormFields.length > 0
+    ? job.customFormFields
+    : normalizeApplicationQuestions(job).map((question) => ({
+      id: question.id,
+      label: question.question,
+      type: (question.type || 'TEXT').toString().trim().toLowerCase(),
+      required: Boolean(question.required),
+      options: Array.isArray(question.options) ? question.options : [],
+      placeholder: question.placeholder || '',
+    }));
+
+  return rawFields
+    .map((rawField, index) => {
+      const field = rawField && typeof rawField === 'object'
+        ? rawField
+        : { label: rawField };
+      const id = (field.id || `field_${index + 1}`).toString().trim() || `field_${index + 1}`;
+      const label = (field.label || field.question || '').toString().trim();
+      return {
+        id,
+        label,
+        type: (field.type || 'text').toString().trim().toLowerCase() || 'text',
+        required: Boolean(field.required),
+        options: Array.isArray(field.options)
+          ? field.options
+            .map((option) => (option || '').toString().trim())
+            .filter(Boolean)
+          : [],
+        placeholder: (field.placeholder || '').toString().trim() || '',
+      };
+    })
+    .filter((field) => field.label);
+};
+
 const sanitizeJob = (job) => {
   if (!job) return null;
   const advertImageUrls = normalizeAdvertImageUrls(job);
+  const applicationQuestions = normalizeApplicationQuestions(job);
+  const customFormFields = normalizeCustomFormFields(job);
   return {
     id: job.id,
     organizationId: job.organizationId,
@@ -172,6 +432,8 @@ const sanitizeJob = (job) => {
     advertVideoUrl: job.advertVideoUrl || null,
     status: job.status,
     stages: job.stages || [],
+    applicationQuestions,
+    customFormFields,
     templateConfig: job.templateConfig || {},
     publishedAt: job.publishedAt,
     postingDuration: job.postingDuration || 30,
@@ -340,6 +602,8 @@ export class JobController {
           }
           
           const advertImageUrls = normalizeAdvertImageUrls(job);
+          const applicationQuestions = normalizeApplicationQuestions(job);
+          const customFormFields = normalizeCustomFormFields(job);
           return {
             id: job.id,
             title: job.title,
@@ -351,6 +615,8 @@ export class JobController {
             requirements: job.requirements || [],
             responsibilities: job.responsibilities || [],
             skills: job.skills || [],
+            applicationQuestions,
+            customFormFields,
             advertImageUrls,
             advertImageUrl: advertImageUrls[0] || null,
             advertImageAlt: job.advertImageAlt || null,
@@ -407,6 +673,8 @@ export class JobController {
       }
 
       const advertImageUrls = normalizeAdvertImageUrls(job);
+      const applicationQuestions = normalizeApplicationQuestions(job);
+      const customFormFields = normalizeCustomFormFields(job);
       res.json({
         success: true,
         job: {
@@ -421,6 +689,8 @@ export class JobController {
           requirements: job.requirements || [],
           responsibilities: job.responsibilities || [],
           skills: job.skills || [],
+          applicationQuestions,
+          customFormFields,
           advertImageUrl: advertImageUrls[0] || null,
           advertImageAlt: job.advertImageAlt || null,
           advertVideoUrl: job.advertVideoUrl || null,
@@ -447,6 +717,61 @@ export class JobController {
       });
     } catch (error) {
       logger.error('Get public job error:', error);
+      next(error);
+    }
+  }
+
+  static async getPublicJobSharePage(req, res, next) {
+    try {
+      let job = await jobStore.getById(req.params.id);
+      if (job?.status === 'PUBLISHED' && job.scheduledPublishAt && !job.publishedAt) {
+        await jobStore.autoPublishScheduledJobs();
+        job = await jobStore.getById(req.params.id);
+      }
+      if (!isJobCurrentlyPublic(job)) {
+        return res.status(404).send('Job not found');
+      }
+
+      let organization = null;
+      if (job.organizationId) {
+        try {
+          organization = await organizationStore.getById(job.organizationId);
+        } catch (err) {
+          logger.warn(`Failed to fetch organization ${job.organizationId} for shared job ${job.id}:`, err);
+        }
+      }
+
+      const requestOrigin = getRequestOrigin(req).replace(/\/$/, '');
+      const apiBaseUrl = normalizeWhitespace(process.env.PUBLIC_API_URL || requestOrigin).replace(/\/$/, '');
+      const frontendBaseUrl = normalizeWhitespace(process.env.FRONTEND_URL || requestOrigin).replace(/\/$/, '');
+      const encodedJobId = encodeURIComponent(job.id);
+
+      const shareUrl = `${apiBaseUrl}/api/public/jobs/${encodedJobId}/share`;
+      const jobUrl = `${frontendBaseUrl}/jobs/${encodedJobId}`;
+      const advertImageUrls = normalizeAdvertImageUrls(job);
+      const imageUrl = toAbsolutePublicUrl(
+        advertImageUrls[0] || organization?.logo || '',
+        apiBaseUrl || requestOrigin,
+      );
+      const videoUrl = toAbsolutePublicUrl(job.advertVideoUrl || '', apiBaseUrl || requestOrigin);
+      const title = `${normalizeWhitespace(job.title) || 'Job Opportunity'} | ${normalizeWhitespace(organization?.name || 'Company')}`;
+      const description = buildShareMetaDescription(job) || 'Explore this opportunity and apply now.';
+
+      const html = buildShareHtml({
+        title,
+        description,
+        shareUrl,
+        jobUrl,
+        imageUrl,
+        videoUrl,
+        organizationName: organization?.name || 'Company',
+      });
+
+      res.set('Content-Type', 'text/html; charset=utf-8');
+      res.set('Cache-Control', 'public, max-age=300');
+      res.status(200).send(html);
+    } catch (error) {
+      logger.error('Get public job share page error:', error);
       next(error);
     }
   }

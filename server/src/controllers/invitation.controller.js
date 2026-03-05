@@ -368,6 +368,11 @@ export class InvitationController {
         ? await interviewStore.getById(invitation.acceptedInterviewId)
         : await interviewStore.getByInvitationId(invitation.id);
       if (existingInterview) {
+        if (application?.id && application.interviewId !== existingInterview.id) {
+          application = await jobApplicationStore.update(application.id, {
+            interviewId: existingInterview.id,
+          });
+        }
         const finalizedInvitation = await invitationStore.finalizeAcceptance(invitation.id, {
           interviewId: existingInterview.id,
           applicationId: application?.id || invitation.acceptedApplicationId || null,
@@ -391,6 +396,7 @@ export class InvitationController {
         jobId: invitation.jobId,
         jobStage: invitation.stage || 'INITIAL_SCREENING',
         invitationId: invitation.id,
+        status: 'PENDING',
         jobRole: job.title,
         experienceLevel: job.experienceLevel || 'MID',
         industry: job.department || 'Technology',
@@ -405,6 +411,12 @@ export class InvitationController {
         applicationId: application?.id || null,
       });
       acceptanceFinalized = true;
+
+      if (application?.id) {
+        application = await jobApplicationStore.update(application.id, {
+          interviewId: interview.id,
+        });
+      }
 
       try {
         await recordRealtimeEvent(interview.id, 'interview-created', {

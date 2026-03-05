@@ -10,6 +10,11 @@
 const rawUrl = import.meta.env.VITE_LOCAL_WHISPER_URL?.trim();
 const LOCAL_WHISPER_URL = rawUrl ? rawUrl.replace(/\/$/, '') : null;
 const IS_WHISPER_ENABLED = Boolean(LOCAL_WHISPER_URL);
+const HEALTH_CACHE_WINDOW_MS = 300_000;
+
+let lastHealthCheckAt = 0;
+let lastHealthResult = false;
+let loggedUnavailableOnce = false;
 
 const getAudioExtension = (mimeType = '') => {
   const normalized = mimeType.toLowerCase();
@@ -40,27 +45,44 @@ export async function checkLocalWhisperHealth() {
     return false;
   }
 
+  const now = Date.now();
+  if (lastHealthCheckAt && now - lastHealthCheckAt < HEALTH_CACHE_WINDOW_MS) {
+    return lastHealthResult;
+  }
+
   try {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
-    
+
     const response = await fetch(`${LOCAL_WHISPER_URL}/health`, {
       method: 'GET',
-      signal: controller.signal
+      signal: controller.signal,
     });
-    
+
     clearTimeout(timeoutId);
-    
+
     if (!response.ok) {
       console.warn('Health check failed:', response.status);
+      lastHealthCheckAt = now;
+      lastHealthResult = false;
       return false;
     }
-    
+
     const data = await response.json();
-    console.log('✓ Whisper server healthy:', data);
-    return data.status === 'healthy' || data.status === 'ok';
+    console.log('Whisper server healthy:', data);
+    lastHealthCheckAt = now;
+    lastHealthResult = data.status === 'healthy' || data.status === 'ok';
+    if (lastHealthResult) {
+      loggedUnavailableOnce = false;
+    }
+    return lastHealthResult;
   } catch (error) {
-    console.warn('Local Whisper server not available:', error.message);
+    if (!loggedUnavailableOnce) {
+      console.warn('Local Whisper server not available:', error.message);
+      loggedUnavailableOnce = true;
+    }
+    lastHealthCheckAt = now;
+    lastHealthResult = false;
     return false;
   }
 }

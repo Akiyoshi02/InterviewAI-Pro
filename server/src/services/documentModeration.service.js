@@ -50,6 +50,7 @@ const RESUME_MAX_SIZE_BYTES = 50 * 1024 * 1024;
 const RESUME_MIN_ESTIMATED_PAGES = 1;
 const RESUME_MAX_ESTIMATED_PAGES = 6;
 const RESUME_LLM_REJECTION_CODE = 'RESUME_LLM_REJECTED';
+const RESUME_LLM_PRIMARY_REJECTION_CONFIDENCE = 0.65;
 const WORDS_PER_PAGE_ESTIMATE = 450;
 const CORE_RESUME_SECTIONS = [
   ['experience', 'work history', 'employment'],
@@ -434,12 +435,30 @@ export const validateResumeDocument = async (filePath, fileMeta = {}, context = 
     });
     if (llmVerdict) {
       analysis.llmVerdict = llmVerdict;
-      const confidence = typeof llmVerdict.confidence === 'number' ? llmVerdict.confidence : 0;
-      if (!llmVerdict.isOfficial || confidence < 0.65) {
-        throw createResumeLlmRejectionError(
-          llmVerdict.message || 'We could not confirm this is a valid resume. Please upload another file.',
-          llmVerdict,
-        );
+      const confidence = Number.isFinite(llmVerdict.confidence) ? Number(llmVerdict.confidence) : 0;
+      const isOfficial = typeof llmVerdict.isOfficial === 'boolean' ? llmVerdict.isOfficial : null;
+      const usedFallbackModel = Boolean(llmVerdict?._meta?.usedFallback);
+
+      if (isOfficial === false) {
+        if (usedFallbackModel) {
+          logger.warn('Ignoring fallback-model resume rejection and relying on heuristic validation.', {
+            confidence,
+            model: llmVerdict?._meta?.model || null,
+          });
+        } else if (confidence >= RESUME_LLM_PRIMARY_REJECTION_CONFIDENCE) {
+          throw createResumeLlmRejectionError(
+            llmVerdict.message || 'We could not confirm this is a valid resume. Please upload another file.',
+            llmVerdict,
+          );
+        } else {
+          logger.warn('Ignoring low-confidence primary-model resume rejection and relying on heuristics.', {
+            confidence,
+          });
+        }
+      } else if (isOfficial !== true) {
+        logger.warn('Resume LLM returned an invalid verdict shape; relying on heuristics.', {
+          verdict: llmVerdict,
+        });
       }
     }
   } catch (error) {

@@ -14,7 +14,7 @@
 
 import express from 'express';
 import { timingSafeEqual } from 'crypto';
-import { param, query } from 'express-validator';
+import { body, param, query } from 'express-validator';
 import { authenticate, optionalAuth } from '../middleware/auth.middleware.js';
 import { requireSystemAdmin } from '../middleware/admin.middleware.js';
 import { 
@@ -27,6 +27,7 @@ import {
 } from '../middleware/inputValidation.middleware.js';
 import { AdminController } from '../controllers/admin.controller.js';
 import { FineTuningController } from '../controllers/fineTuning.controller.js';
+import { QuestionCatalogController } from '../controllers/questionCatalog.controller.js';
 
 const router = express.Router();
 
@@ -284,6 +285,123 @@ router.get('/stats', AdminController.getStats);
  * Get fairness metrics and AI vs SME calibration (FR10)
  */
 router.get('/fairness-calibration', AdminController.getFairnessCalibration);
+
+/**
+ * GET /api/admin/structured-interviews/governance
+ * Structured interview library/template usage and defaults
+ */
+router.get(
+  '/structured-interviews/governance',
+  [commonValidators.queryParam.limit(200, 2000)],
+  validateRequest,
+  AdminController.getStructuredInterviewGovernance,
+);
+
+/**
+ * POST /api/admin/structured-interviews/preview
+ * Preview generated structured interview question plan from config
+ */
+router.post(
+  '/structured-interviews/preview',
+  [
+    body('mode').optional().isIn(ALLOWED_VALUES.INTERVIEW_MODE),
+    body('jobRole').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('experienceLevel').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('industry').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('interviewTypes').optional().isArray({ max: 10 }),
+    body('interviewTypes.*').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('skillFocus').optional().isArray({ max: 20 }),
+    body('skillFocus.*').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('totalQuestions').optional().isInt({ min: 1, max: 50 }),
+    body('difficulty').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
+    body('questionStrategy').optional().isObject(),
+    body('config').optional().isObject(),
+  ],
+  validateRequest,
+  AdminController.previewStructuredInterviewPlan,
+);
+
+// =============================================================================
+// QUESTION CATALOG (DATASET-FIRST PRACTICE INTERVIEWS)
+// =============================================================================
+
+/**
+ * GET /api/admin/question-catalog/sources
+ * List vetted dataset sources and license allowlist metadata.
+ */
+router.get(
+  '/question-catalog/sources',
+  [
+    query('includeDisabled').optional().isBoolean().withMessage('includeDisabled must be boolean'),
+  ],
+  validateRequest,
+  QuestionCatalogController.getSources,
+);
+
+/**
+ * POST /api/admin/question-catalog/import
+ * Trigger dataset import from a vetted source.
+ */
+router.post(
+  '/question-catalog/import',
+  stripUnexpectedFields(validationSchemas.admin.questionCatalogImport.allowedFields),
+  validationSchemas.admin.questionCatalogImport.validators,
+  validateRequest,
+  QuestionCatalogController.importSource,
+);
+
+/**
+ * GET /api/admin/question-catalog/imports
+ * List recent import batches.
+ */
+router.get(
+  '/question-catalog/imports',
+  [
+    commonValidators.queryParam.limit(50, 500),
+  ],
+  validateRequest,
+  QuestionCatalogController.getImports,
+);
+
+/**
+ * GET /api/admin/question-catalog/questions
+ * List catalog questions with optional filters.
+ */
+router.get(
+  '/question-catalog/questions',
+  [
+    commonValidators.queryParam.limit(200, 1000),
+    query('reviewStatus').optional().isIn(['PENDING', 'APPROVED', 'REJECTED']),
+    query('source').optional().isIn(['INTERNAL', 'EXTERNAL']),
+    query('type').optional().isIn(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN', 'CASE_STUDY']),
+  ],
+  validateRequest,
+  QuestionCatalogController.getQuestions,
+);
+
+/**
+ * PATCH /api/admin/question-catalog/questions/:id/review
+ * Approve/reject one or more catalog questions.
+ */
+router.patch(
+  '/question-catalog/questions/:id/review',
+  [
+    param('id').trim().notEmpty().isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.admin.questionCatalogReview.allowedFields),
+  validationSchemas.admin.questionCatalogReview.validators,
+  validateRequest,
+  QuestionCatalogController.updateQuestionReview,
+);
+
+/**
+ * POST /api/admin/question-catalog/cache/refresh
+ * Force refresh in-memory question catalog cache.
+ */
+router.post(
+  '/question-catalog/cache/refresh',
+  QuestionCatalogController.refreshCache,
+);
 
 /**
  * GET /api/admin/classification-metrics

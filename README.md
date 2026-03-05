@@ -1,84 +1,84 @@
-# 🤖 InterviewAI Pro
+# InterviewAI Pro
 
-AI-first mock interview coach that blends live video practice, real‑time analytics, and personalized study plans into a single experience. The platform pairs a React/Vite front-end with an Express/Firebase backend, plus local LLM + Whisper pipelines for zero-cost coaching.
-
----
-
-## ✨ Highlights
-
-- **Candidate + Company Dashboards** – Personalized insights, progress tracking, and quick actions for both sides of the hiring loop.
-- **Live AI Interview Session** – Real-time question flow, pose analysis, interviewer chat, and feedback panel.
-- **AI Career Assistant** – Context-aware chat assistant that can analyze sessions, generate study plans, or answer follow-up questions (text + mic).
-- **Voice + Pose Intelligence** – Local Whisper transcription, Ollama-powered scoring, and MediaPipe pose coaching.
-- **Secure Backend APIs** – Express server with JWT auth, Firebase integrations, rate limiting, validation, and Socket.IO.
+InterviewAI Pro is a mock interview platform that combines live practice sessions with automated feedback and progress tracking. The project includes a React/Vite frontend, an Express/Firebase backend, and optional local AI services for transcription and scoring.
 
 ---
 
-## 🧱 Architecture Snapshot
+## Overview
 
-| Layer | Responsibilities | Key Tech |
+- Separate candidate and company dashboards with role-specific insights
+- Live interview experience with question flow, chat, and feedback panels
+- AI assistant for follow-up guidance and study plan generation
+- Local speech and pose analysis support through Whisper and MediaPipe
+- Backend APIs with authentication, validation, rate limiting, and realtime updates
+
+---
+
+## Architecture
+
+| Layer | Responsibilities | Key Technology |
 | --- | --- | --- |
-| Frontend (`src/`) | Vite/React SPA, dashboards, live interview UI, AI assistant, pose overlays | React 18, Vite, Tailwind CSS, Lucide, MediaPipe |
-| Backend (`server/`) | Auth, analytics, interview orchestration, Firebase + Supabase adapters, sockets | Node.js, Express, Firebase Admin, Socket.IO, Winston |
-| AI/ML Services | Local inference with zero API spend | Ollama (LLM), Whisper server (Python), MediaPipe |
-| Deployment | Static app via GitHub Pages + API hosted separately | GitHub Actions Pages workflow, ENV-based API URL |
+| Frontend (`src/`) | Single-page app, dashboards, interview UI, assistant, pose overlays | React 18, Vite, Tailwind CSS, Lucide, MediaPipe |
+| Backend (`server/`) | Auth, analytics, interview orchestration, Firebase and Supabase adapters, sockets | Node.js, Express, Firebase Admin, Socket.IO, Winston |
+| AI/ML Services | Local inference and transcription | Ollama, Faster-Whisper (Python), MediaPipe |
+| Deployment | Static frontend hosting and separate API hosting | GitHub Actions Pages workflow, environment-based API URL |
 
 ---
 
-## 🧰 Tech Stack
+## Tech Stack
 
-- **Core**: React 18, Vite 5, Tailwind CSS, Redux Toolkit, React Hook Form
-- **3rd Party UI/Dev**: Framer Motion, Lucide, Radix Slot, D3/Recharts
-- **Server**: Express 4, Firebase Admin, JWT, CORS/Helmet, Socket.IO, Winston
-- **AI + Realtime**: Local Ollama, Faster-Whisper server, MediaPipe Tasks Vision
-- **Tooling**: ESLint (CRA base), npm, GitHub Actions (Pages), Nodemon
+- Core: React 18, Vite 5, Tailwind CSS, Redux Toolkit, React Hook Form
+- UI and Visualization: Framer Motion, Lucide, Radix Slot, D3, Recharts
+- Server: Express 4, Firebase Admin, JWT, CORS, Helmet, Socket.IO, Winston
+- AI and Realtime: Ollama, Faster-Whisper server, MediaPipe Tasks Vision
+- Tooling: ESLint, npm, GitHub Actions (Pages), Nodemon
 
 ---
 
-## 📁 Project Structure
+## Project Structure
 
-```
+```text
 .
-├── src/                     # React + Vite SPA
-│   ├── components/          # Shared UI + layout pieces
-│   ├── pages/               # Route-based feature modules
-│   ├── services/            # API, LLM, audio, pose helpers
-│   ├── hooks/contexts/      # State + feature hooks
-│   └── styles/              # Tailwind + global CSS
-├── server/                  # Express API + socket server
-│   ├── src/                 # Config, controllers, middleware, routes
-│   ├── prisma/              # (placeholder for DB schema)
-│   └── whisper_server.py    # Optional local Whisper endpoint
-├── public/                  # Static assets + manifest
-├── .github/workflows/       # GitHub Pages deploy pipeline
-└── README.md                # You are here
+|-- src/                     # React + Vite application
+|   |-- components/          # Shared UI and layout components
+|   |-- pages/               # Route-based feature modules
+|   |-- services/            # API, LLM, audio, and pose helpers
+|   |-- hooks/contexts/      # State and feature hooks
+|   `-- styles/              # Tailwind and global CSS
+|-- server/                  # Express API and socket server
+|   |-- src/                 # Config, controllers, middleware, routes
+|   |-- prisma/              # Placeholder for DB schema
+|   `-- whisper_server.py    # Optional local Whisper endpoint
+|-- public/                  # Static assets and manifest
+|-- .github/workflows/       # GitHub Pages deployment pipeline
+`-- README.md
 ```
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
 - Node.js 18+ and npm 9+
-- Python 3.10+ (if running the optional `whisper_server.py`)
-- Ollama installed locally for free LLM inference ([docs](https://ollama.ai))
+- Python 3.10+ (only if you plan to run `whisper_server.py`)
+- Ollama installed locally ([documentation](https://ollama.ai))
 
-### 1. Clone & Install
+### 1. Clone and Install
 
 ```bash
 git clone https://github.com/Akiyoshi02/InterviewAI-Pro.git
 cd InterviewAI-Pro
-npm install                 # Frontend dependencies
+npm install
 
 cd server
-npm install                 # Backend dependencies
+npm install
 cd ..
 ```
 
-### 2. Environment Variables
+### 2. Configure Environment Variables
 
-Create a root `.env` for the Vite app:
+Create a root `.env` file for the Vite app:
 
 ```bash
 VITE_API_URL=http://localhost:3000
@@ -91,75 +91,75 @@ VITE_FIREBASE_APP_ID=...
 VITE_OLLAMA_URL=http://localhost:11434
 VITE_OLLAMA_MODEL=qwen3:8b
 VITE_OLLAMA_FALLBACK_MODEL=qwen2.5:7b-instruct
-# Optional: Set VITE_LOCAL_WHISPER_URL if you are running a local Whisper server
+# Optional: set VITE_LOCAL_WHISPER_URL when using a local Whisper server
 ```
 
-Copy `server/.env.example` to `server/.env` and populate the values (Firebase Admin, Sightengine keys, Ollama, Whisper, etc.).
+Copy `server/.env.example` to `server/.env` and fill in required values (Firebase Admin, Sightengine, Ollama, Whisper, and related settings).
 
 ### 3. Run Locally
 
 ```bash
-# Terminal 1 – API + sockets
+# Terminal 1: API + sockets
 cd server
 npm run dev
 
-# Terminal 2 – Frontend
+# Terminal 2: Frontend
 cd ..
 npm run dev
-# default Vite port: 4028 (configured in vite.config.mjs)
+# Default Vite port: 4028 (set in vite.config.mjs)
 ```
 
-Optional services:
+Optional local services:
 
-- **Ollama**: `ollama run qwen3:8b --keepalive 1h` (primary), keep `qwen2.5:7b-instruct` installed for fallback
-- **Local Whisper**: `python server/whisper_server.py`
+- Ollama: `ollama run qwen3:8b --keepalive 1h`
+- Whisper: `python server/whisper_server.py`
 
 ### Qwen3-8B Configuration
 
-1. `ollama pull qwen3:8b` and `ollama pull qwen2.5:7b-instruct`.
+1. Pull required models:
+`ollama pull qwen3:8b`
+`ollama pull qwen2.5:7b-instruct`
 2. Set `VITE_OLLAMA_MODEL` and `OLLAMA_MODEL` to `qwen3:8b`.
 3. Set `VITE_OLLAMA_FALLBACK_MODEL` and `OLLAMA_FALLBACK_MODEL` to `qwen2.5:7b-instruct`.
-4. The app automatically sends an optimized preset for Qwen3: 16K context (`num_ctx=16384`), `gpu_layers=999`, `num_batch=256`, `top_k=40`, `top_p=0.9`, `temperature=0.65`, `repeat_penalty=1.0`, and generous `num_predict` limits. Override via the helper options only if you need different behavior.
+4. The app applies a tuned preset for Qwen3 by default (16K context and related generation settings). Override only if you need custom behavior.
 
 ---
 
-## 📜 Available Scripts
+## Available Scripts
 
 | Location | Command | Description |
 | --- | --- | --- |
-| `/` | `npm run dev` | Launch Vite dev server |
-| `/` | `npm run build` | Production build to `build/` |
-| `/` | `npm run serve` | Preview built assets |
-| `/server` | `npm run dev` | Nodemon hot reload server |
-| `/server` | `npm start` | Start Express server |
+| `/` | `npm run dev` | Start the Vite development server |
+| `/` | `npm run build` | Build production assets to `build/` |
+| `/` | `npm run serve` | Preview the built frontend |
+| `/server` | `npm run dev` | Run backend with Nodemon reload |
+| `/server` | `npm start` | Start the Express server |
 
 ---
 
-## 🚢 Deployment (GitHub Pages + API)
+## Deployment
 
-- Static site is deployed via `.github/workflows/deploy.yml`. Every push to `main` builds the Vite app and publishes the `build/` folder to GitHub Pages.
-- Set the backend URL via `VITE_API_URL` to point to your hosted Express instance (e.g., Render, Railway, Fly.io, Supabase Edge Functions).
-- Remember to enable GitHub Pages → “GitHub Actions” in repo settings after the first successful workflow run.
-
----
-
-## 🤝 Contribution Flow
-
-1. Branch from `main` using `feature/<kebab-description>` or `fix/<kebab-description>`.
-2. Make focused changes + write conventional commits (`feat`, `fix`, `chore`, etc.).
-3. Open a PR back into `main` with a concise summary + testing notes (see project workflow memory).
-4. Merge via GitHub UI; the Pages deploy workflow will run automatically.
+- The frontend deploys through `.github/workflows/deploy.yml`.
+- Pushes to `main` build the Vite app and publish the `build/` directory to GitHub Pages.
+- Set `VITE_API_URL` to your hosted backend endpoint (for example Render, Railway, Fly.io, or Supabase Edge Functions).
+- In repository settings, set GitHub Pages source to GitHub Actions after the first successful workflow run.
 
 ---
 
-## 📮 Support
+## Contribution
 
-Have questions or find a bug? Open an issue or ping in the PR comments and include:
+1. Create a branch from `main` using `feature/<description>` or `fix/<description>`.
+2. Keep changes focused and use conventional commit types (`feat`, `fix`, `chore`, and related).
+3. Open a pull request to `main` with a concise summary and test notes.
+4. Merge through GitHub UI. The deployment workflow will run automatically.
 
-- What you tried (screenshots/logs appreciated)
-- Whether you were running the local backend/LLM services
-- Steps to reproduce
+---
 
-Happy interviewing! 🎤💼
+## Support
 
+If you encounter a bug or need help, open an issue or comment on the relevant pull request and include:
 
+- What you tried
+- Relevant logs or screenshots
+- Whether local backend and LLM services were running
+- Clear steps to reproduce the issue

@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import { cn } from '../../../utils/cn';
@@ -19,8 +19,15 @@ const CandidateVideoFeed = ({
 }) => {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const lastPoseUpdateRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const analyticsOptions = useMemo(() => ({
+    enablePose: enablePoseDetection && isVideoEnabled,
+    enableFace: enablePoseDetection && isVideoEnabled,
+    collectData: true,
+    interviewId,
+  }), [enablePoseDetection, isVideoEnabled, interviewId]);
 
   // Initialize comprehensive interview analytics (pose + face-mesh)
   const { 
@@ -31,12 +38,7 @@ const CandidateVideoFeed = ({
     isPoseReady,
     isFaceReady,
     collectedData,
-  } = useInterviewAnalytics(videoRef.current, {
-    enablePose: enablePoseDetection && isVideoEnabled,
-    enableFace: enablePoseDetection && isVideoEnabled,
-    collectData: true,
-    interviewId,
-  });
+  } = useInterviewAnalytics(videoRef, analyticsOptions);
 
   useEffect(() => {
     if (analyticsDataRef && collectedData) {
@@ -45,6 +47,18 @@ const CandidateVideoFeed = ({
   }, [analyticsDataRef, collectedData, interviewId]);
   
   const poseEnabled = isPoseReady || isFaceReady;
+
+  const safePlay = useCallback((videoElement) => {
+    if (!videoElement) return;
+    const playPromise = videoElement.play?.();
+    if (playPromise?.catch) {
+      playPromise.catch((error) => {
+        if (error?.name !== 'AbortError') {
+          console.warn('Unable to auto-play candidate camera feed:', error);
+        }
+      });
+    }
+  }, []);
 
   // Initialize camera once on mount
   useEffect(() => {
@@ -62,10 +76,7 @@ const CandidateVideoFeed = ({
         // Wait for video ref to be available
         if (videoRef?.current) {
           videoRef.current.srcObject = mediaStream;
-          // Ensure video starts playing
-          await videoRef.current.play().catch(err => {
-            console.log('Auto-play prevented:', err);
-          });
+          safePlay(videoRef.current);
         }
         setIsLoading(false);
       } catch (error) {
@@ -89,11 +100,9 @@ const CandidateVideoFeed = ({
   useEffect(() => {
     if (stream && videoRef?.current && !videoRef.current.srcObject) {
       videoRef.current.srcObject = stream;
-      videoRef.current.play().catch(err => {
-        console.log('Auto-play prevented:', err);
-      });
+      safePlay(videoRef.current);
     }
-  }, [stream]);
+  }, [stream, safePlay]);
 
   // Sync audio track with isAudioEnabled prop
   useEffect(() => {
@@ -116,20 +125,21 @@ const CandidateVideoFeed = ({
         if (isVideoEnabled && videoRef?.current) {
           // Force video to refresh by reassigning srcObject
           videoRef.current.srcObject = stream;
-          videoRef.current.play().catch(err => {
-            console.log('Auto-play prevented:', err);
-          });
+          safePlay(videoRef.current);
         }
       }
     }
-  }, [stream, isVideoEnabled]);
+  }, [stream, isVideoEnabled, safePlay]);
 
   // Update parent component with pose metrics and full analytics
   useEffect(() => {
-    if (poseMetrics && onPoseMetricsUpdate) {
-      // Pass both simplified pose metrics and full metrics
-      onPoseMetricsUpdate(poseMetrics, fullMetrics);
-    }
+    if (!poseMetrics || !onPoseMetricsUpdate) return;
+
+    const poseUpdateKey = `${poseMetrics.lastUpdated ?? 0}:${poseMetrics.confidence ?? 0}:${poseMetrics.postureScore ?? 0}`;
+    if (lastPoseUpdateRef.current === poseUpdateKey) return;
+
+    lastPoseUpdateRef.current = poseUpdateKey;
+    onPoseMetricsUpdate(poseMetrics, fullMetrics);
   }, [poseMetrics, fullMetrics, onPoseMetricsUpdate]);
 
   const handleToggleVideo = () => {

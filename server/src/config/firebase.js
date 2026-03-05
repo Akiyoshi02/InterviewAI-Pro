@@ -5,7 +5,7 @@
 
 import admin from 'firebase-admin';
 import { readFileSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve, dirname, isAbsolute } from 'path';
 import { fileURLToPath } from 'url';
 import logger from '../utils/logger.js';
 
@@ -16,8 +16,14 @@ let firebaseInitialized = false;
 
 try {
   // Try to load service account key
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH || 
-                             resolve(__dirname, '../../../firebase-service-account.json');
+  const configuredServiceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH;
+  const serviceAccountPath = configuredServiceAccountPath
+    ? (
+        isAbsolute(configuredServiceAccountPath)
+          ? configuredServiceAccountPath
+          : resolve(__dirname, '../../', configuredServiceAccountPath)
+      )
+    : resolve(__dirname, '../../../firebase-service-account.json');
   
   let credential;
   

@@ -7,6 +7,7 @@ import {
   sliceAuditLogsPage,
   sortAuditLogsByCreatedAtDesc,
 } from '../utils/auditLogPagination.util.js';
+import { applyQuestionStrategyDefaults } from './structuredInterview.service.js';
 import {
   evaluateInvitationAcceptanceClaim,
   INVITATION_ACCEPTANCE_CLAIM_STATUS,
@@ -30,13 +31,13 @@ const emailVerificationsCollection = firestore.collection('emailVerifications');
 const savedAnswersCollection = firestore.collection('savedAnswers'); // GAP FEATURE: Personal Answer Library
 const notificationsCollection = firestore.collection('notifications');
 
-const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN']);
+const QUESTION_TYPES = new Set(['BEHAVIORAL', 'TECHNICAL', 'CODING', 'SYSTEM_DESIGN', 'CASE_STUDY']);
 const DIFFICULTY_LEVELS = new Set(['EASY', 'MEDIUM', 'HARD']);
 const ORG_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
 const JOB_STATUSES = new Set(['DRAFT', 'PUBLISHED', 'ARCHIVED']);
 const INVITATION_STATUSES = new Set(['PENDING', 'ACCEPTED', 'EXPIRED', 'REVOKED']);
 const PIPELINE_STATUSES = new Set(['SCREENING', 'INTERVIEW', 'FINAL', 'HIRED', 'REJECTED']);
-const ACTIVITY_ACTIONS = new Set(['JOB_CREATED', 'JOB_UPDATED', 'INVITATION_SENT', 'PIPELINE_MOVED', 'REVIEW_SUBMITTED', 'MEMBER_UPDATED']);
+const ACTIVITY_ACTIONS = new Set(['JOB_CREATED', 'JOB_UPDATED', 'INVITATION_SENT', 'PIPELINE_MOVED', 'REVIEW_SUBMITTED', 'MEMBER_UPDATED', 'INTERVIEW_CANDIDATE_MESSAGE']);
 
 const now = () => new Date().toISOString();
 
@@ -110,13 +111,25 @@ const isJobSoftDeleted = (job) => Boolean(job?.deletedAt);
 
 const buildUserSummary = (user) => {
   if (!user) return null;
+  const resolvedProfilePhotoUrl =
+    user.profilePhotoUrl
+    || user.photoURL
+    || user.avatarUrl
+    || user.profile?.profilePhotoUrl
+    || user.profile?.photoURL
+    || user.profile?.avatarUrl
+    || user.user_metadata?.photoURL
+    || null;
   return {
     id: user.id,
     email: user.email || null,
     fullName: user.fullName || null,
     accountType: user.accountType || null,
     companyName: user.companyName || null,
-    profilePhotoUrl: user.profilePhotoUrl || user.photoURL || null,
+    companyLogoUrl: user.companyLogoUrl || null,
+    profilePhotoUrl: resolvedProfilePhotoUrl,
+    photoURL: resolvedProfilePhotoUrl,
+    avatarUrl: resolvedProfilePhotoUrl,
   };
 };
 
@@ -129,6 +142,12 @@ const normalizeQuestionType = (type) => {
     case 'SYSTEM-DESIGN':
     case 'SYSTEM_DESIGN':
       return 'SYSTEM_DESIGN';
+    case 'CASE STUDY':
+    case 'CASE-STUDY':
+    case 'CASE_STUDY':
+      return 'CASE_STUDY';
+    case 'SITUATIONAL':
+      return 'BEHAVIORAL';
     default:
       return 'BEHAVIORAL';
   }
@@ -146,6 +165,63 @@ const ensureArray = (value) => {
   if (Array.isArray(value)) return value;
   return [value];
 };
+
+const APPLICATION_QUESTION_TYPES = new Set(['TEXT', 'TEXTAREA', 'SELECT', 'CHECKBOX', 'NUMBER', 'DATE', 'URL', 'FILE']);
+const CUSTOM_FORM_FIELD_TYPES = new Set(['text', 'textarea', 'select', 'checkbox', 'number', 'date', 'url', 'file']);
+
+const normalizeApplicationQuestionType = (type) => {
+  const normalized = (type || '').toString().trim().toUpperCase();
+  if (APPLICATION_QUESTION_TYPES.has(normalized)) return normalized;
+  return 'TEXT';
+};
+
+const normalizeCustomFieldType = (type) => {
+  const normalized = (type || '').toString().trim().toLowerCase();
+  if (CUSTOM_FORM_FIELD_TYPES.has(normalized)) return normalized;
+  return 'text';
+};
+
+const normalizeJobApplicationQuestions = (questions) =>
+  ensureArray(questions)
+    .map((rawQuestion, index) => {
+      const question = rawQuestion && typeof rawQuestion === 'object'
+        ? rawQuestion
+        : { question: rawQuestion };
+      const id = (question.id || `question_${index + 1}`).toString().trim();
+      const prompt = (question.question || question.label || '').toString().trim();
+      return {
+        id: id || `question_${index + 1}`,
+        question: prompt,
+        type: normalizeApplicationQuestionType(question.type),
+        required: Boolean(question.required),
+        options: ensureArray(question.options)
+          .map((option) => (option || '').toString().trim())
+          .filter(Boolean),
+        placeholder: (question.placeholder || '').toString().trim() || null,
+      };
+    })
+    .filter((question) => question.question);
+
+const normalizeJobCustomFormFields = (fields) =>
+  ensureArray(fields)
+    .map((rawField, index) => {
+      const field = rawField && typeof rawField === 'object'
+        ? rawField
+        : { label: rawField };
+      const id = (field.id || `field_${index + 1}`).toString().trim();
+      const label = (field.label || field.question || '').toString().trim();
+      return {
+        id: id || `field_${index + 1}`,
+        label,
+        type: normalizeCustomFieldType(field.type),
+        required: Boolean(field.required),
+        options: ensureArray(field.options)
+          .map((option) => (option || '').toString().trim())
+          .filter(Boolean),
+        placeholder: (field.placeholder || '').toString().trim() || '',
+      };
+    })
+    .filter((field) => field.label);
 
 const normalizeInterviewListLimit = (value, max = 200) => {
   if (value == null) return null;
@@ -210,6 +286,8 @@ export const userStore = {
       location: data.location || null,
       preferredLanguage: data.preferredLanguage || null,
       phoneNumber: data.phoneNumber || null,
+      timezone: data.timezone || null,
+      interviewAvailability: data.interviewAvailability || null,
       // Candidate education fields
       highestQualification: data.highestQualification || null,
       fieldOfStudy: data.fieldOfStudy || null,
@@ -421,15 +499,19 @@ export const interviewStore = {
       duration: data.duration || 30,
       scheduledFor: data.scheduledFor || null,
       timezone: data.timezone || null,
-      meetingLink: data.meetingLink || null,
+      meetingToken: data.meetingToken || null,
+      meetingTokenGeneratedAt: data.meetingTokenGeneratedAt || null,
+      meetingLinkEmailSent: data.meetingLinkEmailSent || false,
       scheduleStatus: data.scheduleStatus || (data.scheduledFor ? 'SCHEDULED' : null),
       scheduledBy: data.scheduledBy || null,
       scheduledAt: data.scheduledAt || null,
       startedAt: data.startedAt || null,
       endedAt: data.endedAt || null,
+      completedAt: data.completedAt || null,
       transcript: data.transcript || null,
       recordingUrl: data.recordingUrl || null,
       recording: data.recording && typeof data.recording === 'object' ? data.recording : null,
+      config: data.config && typeof data.config === 'object' ? data.config : null,
       evaluation: data.evaluation || null,
       overallScore: data.overallScore || null,
       readinessLevel: data.readinessLevel || null,
@@ -478,6 +560,15 @@ export const interviewStore = {
     return normalized;
   },
 
+  async listScheduledBetween(fromISO, toISO) {
+    const snap = await interviewsCollection
+      .where('status', '==', 'SCHEDULED')
+      .where('scheduledFor', '>=', fromISO)
+      .where('scheduledFor', '<=', toISO)
+      .get();
+    return snap.docs.map(docToData);
+  },
+
   async addQuestions(interviewId, questions = []) {
     if (!questions.length) return [];
     const batch = firestore.batch();
@@ -498,16 +589,27 @@ export const interviewStore = {
         difficulty: normalizeDifficulty(q.difficulty),
         expectedDuration: parseInt(q.expectedDuration, 10) || 3,
         evaluationCriteria: ensureArray(q.evaluationCriteria),
+        competencies: ensureArray(q.competencies),
+        rubric: q.rubric && typeof q.rubric === 'object' ? q.rubric : null,
+        questionSource: q.questionSource || q.source || null,
+        questionBankId: q.questionBankId || null,
+        questionTemplateId: q.questionTemplateId || null,
+        questionLibraryVersion: q.questionLibraryVersion || null,
+        approvedQuestion: Boolean(q.approvedQuestion),
+        isCoreQuestion: Boolean(q.isCoreQuestion),
         answer: q.answer || null,
         answerAudioUrl: q.answerAudioUrl || null,
         askedAt: q.askedAt || null,
         answeredAt: q.answeredAt || null,
         timeToAnswer: q.timeToAnswer || null,
         score: q.score || null,
+        rubricScore: q.rubricScore || null,
+        criterionScores: ensureArray(q.criterionScores),
         strengths: ensureArray(q.strengths).filter(Boolean),
         weaknesses: ensureArray(q.weaknesses).filter(Boolean),
         feedback: q.feedback || null,
         followUpQuestion: q.followUpQuestion || null,
+        followUpMetadata: q.followUpMetadata || null,
         createdAt: now(),
         updatedAt: now(),
       });
@@ -1849,6 +1951,19 @@ export const organizationStore = {
       settings: data.settings || {
         retentionPolicyDays: 365,
         defaultRole: 'RECRUITER',
+        interviewAutomation: {
+          autoScheduleOnInterviewing: true,
+          leadHours: 24,
+          slotMinutes: 30,
+          durationMinutes: 30,
+          bufferMinutes: 15,
+          scheduleWindowDays: 14,
+          maxInterviewsPerDay: 8,
+          businessHoursStart: '09:00',
+          businessHoursEnd: '17:00',
+          workingDays: [1, 2, 3, 4, 5],
+          conflictScope: 'RECRUITER',
+        },
       },
       createdAt: now(),
       updatedAt: now(),
@@ -2288,6 +2403,12 @@ export const jobStore = {
   async create(data = {}) {
     const docRef = jobsCollection.doc();
     const createdAt = now();
+    const normalizedApplicationQuestions = normalizeJobApplicationQuestions(
+      data.applicationQuestions || data.customFormFields,
+    );
+    const normalizedCustomFormFields = normalizeJobCustomFormFields(
+      data.customFormFields || data.applicationQuestions,
+    );
     const payload = {
       id: docRef.id,
       organizationId: data.organizationId,
@@ -2316,6 +2437,8 @@ export const jobStore = {
       advertVideoUrl: data.advertVideoUrl || null,
       status: sanitizeJobStatus(data.status),
       stages: ensureArray(data.stages),
+      applicationQuestions: normalizedApplicationQuestions,
+      customFormFields: normalizedCustomFormFields,
       templateConfig: data.templateConfig || {
         interviewTypes: ['BEHAVIORAL'],
         duration: 30,
@@ -2377,6 +2500,17 @@ export const jobStore = {
       ...(data.status ? { status: sanitizeJobStatus(data.status) } : {}),
       updatedAt: now(),
     };
+
+    const hasApplicationQuestions = Object.prototype.hasOwnProperty.call(data, 'applicationQuestions');
+    const hasCustomFormFields = Object.prototype.hasOwnProperty.call(data, 'customFormFields');
+    if (hasApplicationQuestions || hasCustomFormFields) {
+      payload.applicationQuestions = normalizeJobApplicationQuestions(
+        hasApplicationQuestions ? data.applicationQuestions : data.customFormFields,
+      );
+      payload.customFormFields = normalizeJobCustomFormFields(
+        hasCustomFormFields ? data.customFormFields : data.applicationQuestions,
+      );
+    }
     
     // Handle publishing logic
     if (data.status === 'PUBLISHED') {
@@ -3026,19 +3160,36 @@ export const jobApplicationStore = {
     }
 
     // Use a transaction to ensure duplicate check and create are atomic
-    return await db.runTransaction(async (transaction) => {
-      // Check for existing application within transaction
-      const existingQuery = jobApplicationsCollection
-        .where('jobId', '==', jobId)
-        .where('candidateId', '==', candidateId)
-        .orderBy('createdAt', 'desc')
-        .limit(1);
-      
-      const existingSnapshot = await transaction.get(existingQuery);
-      
-      if (!existingSnapshot.empty) {
-        const existingApplication = docToData(existingSnapshot.docs[0]);
-        
+    return await firestore.runTransaction(async (transaction) => {
+      // Check for existing application within transaction.
+      // Prefer indexed query, but gracefully fall back if composite indexes are still building.
+      let existingCandidates = [];
+      try {
+        const existingQuery = jobApplicationsCollection
+          .where('jobId', '==', jobId)
+          .where('candidateId', '==', candidateId)
+          .orderBy('createdAt', 'desc')
+          .limit(1);
+        const existingSnapshot = await transaction.get(existingQuery);
+        existingCandidates = existingSnapshot.docs.map((doc) => docToData(doc));
+      } catch (error) {
+        if (!isIndexBuildingError(error)) {
+          throw error;
+        }
+        logger.warn('Duplicate application index unavailable in transaction; using candidate-scoped fallback.');
+        const fallbackSnapshot = await transaction.get(
+          jobApplicationsCollection
+            .where('candidateId', '==', candidateId)
+            .limit(200),
+        );
+        existingCandidates = fallbackSnapshot.docs
+          .map((doc) => docToData(doc))
+          .filter((application) => application?.jobId === jobId);
+      }
+
+      const existingApplication = sortApplicationsByCreatedAtDesc(existingCandidates)[0] || null;
+
+      if (existingApplication) {
         // Allow re-applying if the previous application was withdrawn by the candidate
         const isWithdrawn = existingApplication.status === 'REJECTED' && existingApplication.withdrawnBy;
         
@@ -3488,6 +3639,11 @@ const SYSTEM_DATA_RETENTION_DEFAULTS = Object.freeze({
   activityLogDays: 90,
 });
 
+const SYSTEM_STRUCTURED_INTERVIEW_DEFAULTS = Object.freeze({
+  hiring: applyQuestionStrategyDefaults({}, 'HIRING').questionStrategy,
+  practice: applyQuestionStrategyDefaults({}, 'PRACTICE').questionStrategy,
+});
+
 const SYSTEM_DATA_RETENTION_LIMITS = Object.freeze({
   interviewDataDays: Object.freeze({ min: 30, max: 3650 }),
   activityLogDays: Object.freeze({ min: 7, max: 3650 }),
@@ -3543,6 +3699,20 @@ const normalizeDataRetention = (dataRetention = {}) => {
   };
 };
 
+const normalizeStructuredInterviewDefaults = (value = {}) => {
+  const source = value && typeof value === 'object' ? value : {};
+  return {
+    hiring: applyQuestionStrategyDefaults(
+      { questionStrategy: source.hiring || SYSTEM_STRUCTURED_INTERVIEW_DEFAULTS.hiring },
+      'HIRING',
+    ).questionStrategy,
+    practice: applyQuestionStrategyDefaults(
+      { questionStrategy: source.practice || SYSTEM_STRUCTURED_INTERVIEW_DEFAULTS.practice },
+      'PRACTICE',
+    ).questionStrategy,
+  };
+};
+
 const normalizeSystemSettings = (settings = {}) => {
   const source = settings && typeof settings === 'object' ? settings : {};
   return {
@@ -3553,6 +3723,7 @@ const normalizeSystemSettings = (settings = {}) => {
     nonverbalFeedbackEnabled: source.nonverbalFeedbackEnabled !== false,
     defaultAIConfig: normalizeDefaultAIConfig(source.defaultAIConfig),
     dataRetention: normalizeDataRetention(source.dataRetention),
+    structuredInterviewDefaults: normalizeStructuredInterviewDefaults(source.structuredInterviewDefaults),
   };
 };
 
@@ -3563,6 +3734,7 @@ const createDefaultSystemSettings = (adminId = null) => ({
   nonverbalFeedbackEnabled: true,
   defaultAIConfig: normalizeDefaultAIConfig(),
   dataRetention: normalizeDataRetention(),
+  structuredInterviewDefaults: normalizeStructuredInterviewDefaults(),
   createdAt: now(),
   updatedAt: now(),
   initializedBy: adminId || null,
@@ -4018,7 +4190,7 @@ export async function updatePracticeStreak(userId, interviewCompletedAt) {
 // NOTIFICATION STORE
 // ============================================================
 export const notificationStore = {
-  async create({ userId, type, title, message, link = null }) {
+  async create({ userId, type, title, message, link = null, metadata = null }) {
     const docRef = notificationsCollection.doc();
     const payload = {
       id: docRef.id,
@@ -4029,6 +4201,7 @@ export const notificationStore = {
       link: link || null,
       read: false,
       createdAt: now(),
+      ...(metadata && typeof metadata === 'object' ? { metadata } : {}),
     };
     await docRef.set(payload);
     return payload;

@@ -1,4 +1,5 @@
 import fs from 'fs/promises';
+import { jobStore } from '../services/firebaseData.service.js';
 import {
   createSignedDownloadPath,
   normalizeUploadsPublicPath,
@@ -13,18 +14,42 @@ const toAbsoluteApiUrl = (req, relativePath) => {
 };
 
 export class ObjectStorageController {
+  static pathMatchesAny(normalizedPath, candidates = []) {
+    const normalizedCandidates = (candidates || [])
+      .map((value) => normalizeUploadsPublicPath(value))
+      .filter(Boolean);
+    return normalizedCandidates.includes(normalizedPath);
+  }
+
+  static async isOrganizationJobMediaPath(normalizedPath, organizationId) {
+    if (!normalizedPath || !organizationId) return false;
+
+    const jobs = await jobStore.listByOrganization(organizationId, { includeDeleted: true });
+    return (jobs || []).some((job) => {
+      const advertImageUrls = Array.isArray(job?.advertImageUrls) ? job.advertImageUrls : [];
+      return [
+        job?.advertImageUrl || null,
+        job?.advertVideoUrl || null,
+        ...advertImageUrls,
+      ].map((value) => normalizeUploadsPublicPath(value)).includes(normalizedPath);
+    });
+  }
+
   /**
    * CRITICAL FIX: Validate file ownership before generating signed URL
    * This prevents users from accessing files they don't own
    */
-  static validateFileOwnership(normalizedPath, user) {
+  static async validateFileOwnership(normalizedPath, user) {
     // Parse file path to extract ownership information
     // File path patterns:
-    // - /uploads/profile-photos/{userId}/*
-    // - /uploads/resumes/{userId}/*
-    // - /uploads/company-logos/{organizationId}/*
-    // - /uploads/company-verifications/{organizationId}/*
-    // - /uploads/jobs/{organizationId}/{jobId}/*
+    // - /uploads/profile-photos/*
+    // - /uploads/resumes/*
+    // - /uploads/company-logos/*
+    // - /uploads/company-covers/*
+    // - /uploads/company-verifications/*
+    // - /uploads/job-advert-images/*
+    // - /uploads/job-advert-videos/*
+    // - /uploads/jobs/{organizationId}/{jobId}/* (legacy)
     // - /uploads/interviews/{interviewId}/*
 
     const pathParts = normalizedPath.split('/').filter(Boolean);
@@ -32,21 +57,30 @@ export class ObjectStorageController {
       return { valid: false, error: 'Invalid file path structure' };
     }
 
-    const [uploads, category, identifier] = pathParts;
-    
+    const [, category, identifier] = pathParts;
+
+    // System admin can access any file.
+    if (user.accountType === 'SYSTEM_ADMIN') {
+      return { valid: true };
+    }
+
     // Validate candidate files (profile photos, resumes)
     if (category === 'profile-photos' || category === 'resumes') {
       if (user.accountType !== 'CANDIDATE') {
         return { valid: false, error: 'Only candidates can access this file type' };
       }
-      if (identifier !== user.id) {
+      const ownCandidatePaths = [
+        user.profile?.profilePhotoUrl,
+        user.profile?.resumeUrl,
+      ];
+      if (!this.pathMatchesAny(normalizedPath, ownCandidatePaths)) {
         return { valid: false, error: 'You can only access your own files' };
       }
       return { valid: true };
     }
 
-    // Validate company files (logos, verifications)
-    if (category === 'company-logos' || category === 'company-verifications') {
+    // Validate company files (logos, covers, verifications)
+    if (category === 'company-logos' || category === 'company-covers' || category === 'company-verifications') {
       if (user.accountType !== 'COMPANY') {
         return { valid: false, error: 'Only company accounts can access this file type' };
       }
@@ -54,13 +88,22 @@ export class ObjectStorageController {
       if (!userOrgId) {
         return { valid: false, error: 'Organization context not found' };
       }
-      if (identifier !== userOrgId) {
-        return { valid: false, error: 'You can only access your organization\'s files' };
+
+      const ownCompanyPaths = [
+        user.profile?.companyLogoUrl,
+        user.profile?.companyCoverUrl,
+        user.profile?.companyVerificationUrl,
+        user.organizationContext?.organization?.logo,
+        user.organizationContext?.organization?.profile?.coverUrl,
+        user.organizationContext?.organization?.coverUrl,
+      ];
+      if (!this.pathMatchesAny(normalizedPath, ownCompanyPaths)) {
+        return { valid: false, error: 'You can only access your organization files' };
       }
       return { valid: true };
     }
 
-    // Validate job files (advert images/videos)
+    // Validate legacy nested job files
     if (category === 'jobs') {
       if (user.accountType !== 'COMPANY') {
         return { valid: false, error: 'Only company accounts can access job files' };
@@ -75,6 +118,23 @@ export class ObjectStorageController {
       return { valid: true };
     }
 
+    // Validate job advert media files.
+    if (category === 'job-advert-images' || category === 'job-advert-videos') {
+      if (user.accountType !== 'COMPANY') {
+        return { valid: false, error: 'Only company accounts can access job media files' };
+      }
+      const userOrgId = user.organizationContext?.organization?.id;
+      if (!userOrgId) {
+        return { valid: false, error: 'Organization context not found' };
+      }
+
+      const isOwnedMedia = await this.isOrganizationJobMediaPath(normalizedPath, userOrgId);
+      if (!isOwnedMedia) {
+        return { valid: false, error: 'You can only access job media from your organization' };
+      }
+      return { valid: true };
+    }
+
     // Validate interview recordings
     if (category === 'interviews') {
       // Interview recordings can be accessed by:
@@ -82,11 +142,6 @@ export class ObjectStorageController {
       // - Company members (ADMIN/RECRUITER/REVIEWER) of the organization that owns the interview
       // For now, we allow access (interview controller has its own access checks)
       // This is acceptable because signed URLs are time-limited
-      return { valid: true };
-    }
-
-    // System admin can access any file
-    if (user.accountType === 'SYSTEM_ADMIN') {
       return { valid: true };
     }
 
@@ -111,7 +166,7 @@ export class ObjectStorageController {
       }
 
       // CRITICAL FIX: Validate file ownership
-      const ownershipCheck = this.validateFileOwnership(normalizedPath, req.user);
+      const ownershipCheck = await this.validateFileOwnership(normalizedPath, req.user);
       if (!ownershipCheck.valid) {
         return res.status(403).json({
           error: ownershipCheck.error || 'Access denied',

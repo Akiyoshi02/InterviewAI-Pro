@@ -246,17 +246,9 @@ const UserContextNavigation = ({
       description: 'Jobs, applications, and candidates',
       items: [
         { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', description: 'Manage job postings', requiredPermission: 'ACCESS_JOBS_PAGE' },
+        { label: 'Templates', path: '/company-templates', icon: 'ListChecks', description: 'Manage structured interview templates', requiredPermission: 'ACCESS_JOBS_PAGE' },
         { label: 'Applications', path: '/company-applications', icon: 'FileText', description: 'Review candidate applications', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
         { label: 'Candidates', path: '/company-candidates', icon: 'Users', description: 'Manage candidate pipeline', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
-      ]
-    },
-    { 
-      key: 'interviews',
-      label: 'Interviews', 
-      icon: 'Calendar',
-      description: 'Invitations and interviews',
-      items: [
-        { label: 'Invitations', path: '/company-invitations', icon: 'Send', description: 'Send and manage interview invitations', requiredPermission: 'ACCESS_INVITATIONS_PAGE' },
         { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', description: 'View and manage interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
       ]
     },
@@ -360,8 +352,14 @@ const UserContextNavigation = ({
       key: 'governance',
       label: 'Governance',
       icon: 'Scale',
-      description: 'Policy, fairness, and auditing',
+      description: 'Policy, templates, fairness, and auditing',
       items: [
+        {
+          label: 'Templates',
+          path: '/system-admin-dashboard/templates',
+          icon: 'ListChecks',
+          description: 'Structured template defaults and adoption'
+        },
         {
           label: 'Fairness',
           path: '/system-admin-dashboard/fairness',
@@ -395,6 +393,12 @@ const UserContextNavigation = ({
           description: 'Inspect and export datasets'
         },
         {
+          label: 'Question Catalog',
+          path: '/system-admin-dashboard/question-catalog',
+          icon: 'BookOpenCheck',
+          description: 'Import and curate approved question pools'
+        },
+        {
           label: 'Classification Metrics',
           path: '/system-admin-dashboard/classification',
           icon: 'Grid3X3',
@@ -416,7 +420,7 @@ const UserContextNavigation = ({
           label: 'Research Tools',
           path: '/system-admin-dashboard/research-tools',
           icon: 'FlaskConical',
-          description: 'Record posture, analyze videos, add datasets'
+          description: 'Record posture and analyze videos'
         },
       ],
     },

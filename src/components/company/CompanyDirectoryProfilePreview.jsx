@@ -83,9 +83,14 @@ const Tag = ({ label }) => (
   </span>
 );
 
-const CompanyDirectoryProfilePreview = ({ company, onJobSelect }) => {
+const CompanyDirectoryProfilePreview = ({ company, onJobSelect, appliedJobIds = [] }) => {
   if (!company) return null;
   const canOpenJobs = typeof onJobSelect === 'function';
+  const appliedJobIdLookup = new Set(
+    (Array.isArray(appliedJobIds) ? appliedJobIds : [])
+      .map((jobId) => String(jobId || '').trim())
+      .filter(Boolean),
+  );
 
   const coverImageUrl = getAssetUrl(company.coverUrl || '');
   const logoImageUrl = getAssetUrl(company.logoUrl || '');
@@ -351,26 +356,39 @@ const CompanyDirectoryProfilePreview = ({ company, onJobSelect }) => {
 
           {company.openJobs?.length > 0 ? (
             <div className="space-y-2.5">
-              {company.openJobs.slice(0, 5).map((job) => (
-                <button
-                  key={job.id}
-                  type="button"
-                  onClick={() => onJobSelect?.(job)}
-                  disabled={!canOpenJobs}
-                  className={`w-full rounded-xl border border-white/60 dark:border-slate-700/60 bg-white/90 dark:bg-slate-900/60 px-4 py-3 text-left ${
-                    canOpenJobs
-                      ? 'transition-all hover:-translate-y-0.5 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm'
-                      : 'cursor-default'
-                  }`}
-                >
-                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{job.title}</p>
-                  <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                    {job.location || 'Location not specified'}
-                    {job.type ? ` - ${job.type}` : ''}
-                    {job.salary ? ` - ${job.salary}` : ''}
-                  </p>
-                </button>
-              ))}
+              {company.openJobs.slice(0, 5).map((job, index) => {
+                const jobId = String(job?.id || job?.jobId || '').trim();
+                const hasApplied = Boolean(jobId) && appliedJobIdLookup.has(jobId);
+
+                return (
+                  <button
+                    key={job?.id || job?.jobId || `${job?.title || 'job'}-${index}`}
+                    type="button"
+                    onClick={() => onJobSelect?.(job)}
+                    disabled={!canOpenJobs}
+                    className={`w-full rounded-xl border border-white/60 dark:border-slate-700/60 bg-white/90 dark:bg-slate-900/60 px-4 py-3 text-left ${
+                      canOpenJobs
+                        ? 'transition-all hover:-translate-y-0.5 hover:border-blue-300 dark:hover:border-blue-600 hover:shadow-sm'
+                        : 'cursor-default'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">{job.title}</p>
+                      {hasApplied && (
+                        <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-emerald-200/80 bg-emerald-50/90 px-2 py-0.5 text-[11px] font-medium text-emerald-700 dark:border-emerald-700/50 dark:bg-emerald-900/25 dark:text-emerald-300">
+                          <Icon name="BadgeCheck" size={11} />
+                          Applied
+                        </span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                      {job.location || 'Location not specified'}
+                      {job.type ? ` - ${job.type}` : ''}
+                      {job.salary ? ` - ${job.salary}` : ''}
+                    </p>
+                  </button>
+                );
+              })}
             </div>
           ) : (
             <p className="text-sm text-gray-500 dark:text-slate-400">

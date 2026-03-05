@@ -8,6 +8,7 @@ const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
 
 const STATUS_COLORS = {
+  PENDING: 'bg-indigo-400',
   SCHEDULED: 'bg-blue-500',
   IN_PROGRESS: 'bg-yellow-500',
   COMPLETED: 'bg-emerald-500',

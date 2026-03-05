@@ -1,11 +1,14 @@
 import React, { useMemo, useState } from 'react';
 import Icon from '../../../components/AppIcon';
+import AppImage from '../../../components/AppImage';
 import Button from '../../../components/ui/Button';
 import UnifiedFilterPanel, {
   FILTER_GRID_CLASS,
   UnifiedFilterSelect,
   UnifiedSearchField,
 } from '../../../components/ui/UnifiedFilterPanel';
+
+const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
 const normalizeText = (value) =>
   String(value || '')
@@ -38,6 +41,10 @@ const getStatusBadge = (statusCode) => {
     SCHEDULED: {
       color: 'bg-gradient-to-r from-indigo-500 to-blue-500 text-white shadow shadow-indigo-500/20',
       label: 'Scheduled',
+    },
+    PENDING: {
+      color: 'bg-gradient-to-r from-indigo-400 to-violet-500 text-white shadow shadow-indigo-500/20',
+      label: 'Pending Scheduling',
     },
     CANCELLED: {
       color: 'bg-gradient-to-r from-slate-500 to-gray-500 text-white shadow shadow-slate-500/20',
@@ -131,7 +138,13 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
           : 'TBD',
         aiScore: typeof interview?.overallScore === 'number' ? interview.overallScore : null,
         statusCode,
-        avatar: interview?.candidate?.photoURL || `https://ui-avatars.com/api/?name=${encodeURIComponent(interview?.candidate?.fullName || 'C')}&background=6366f1&color=fff`,
+        avatar: (() => {
+          const raw = interview?.candidate?.photoURL;
+          if (!raw) return `https://ui-avatars.com/api/?name=${encodeURIComponent(interview?.candidate?.fullName || 'C')}&background=6366f1&color=fff`;
+          if (/^https?:\/\//i.test(raw) || raw.startsWith('data:') || raw.startsWith('blob:')) return raw;
+          const path = raw.startsWith('/') ? raw : `/${raw}`;
+          return `${API_BASE}${path}`;
+        })(),
         duration: interview?.duration ? `${Math.round(interview.duration / 60)} min` : '--',
         experience: interview?.experienceLevel
           ? String(interview.experienceLevel).charAt(0).toUpperCase() + String(interview.experienceLevel).slice(1).toLowerCase()
@@ -321,7 +334,7 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
               <tr key={candidate.id} className="border-b border-white/20 dark:border-slate-700/50 hover:bg-white/60 dark:hover:bg-slate-800/60 transition-colors duration-200">
                 <td className="py-4 px-4">
                   <div className="flex items-center space-x-3">
-                    <img
+                    <AppImage
                       src={candidate.avatar}
                       alt={candidate.name}
                       className="w-10 h-10 rounded-full object-cover"
@@ -408,7 +421,7 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
         filteredCandidates.map((candidate) => (
           <div key={candidate.id} className="bg-white/70 dark:bg-slate-900/60 border border-white/40 dark:border-slate-700/50 rounded-xl p-3 sm:p-4 space-y-3 backdrop-blur">
             <div className="flex items-center space-x-3">
-              <img
+              <AppImage
                 src={candidate.avatar}
                 alt={candidate.name}
                 className="w-12 h-12 rounded-full object-cover"

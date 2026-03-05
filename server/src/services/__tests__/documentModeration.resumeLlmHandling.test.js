@@ -112,4 +112,38 @@ describe('documentModeration resume LLM handling', () => {
       }),
     }));
   });
+
+  it('treats fallback-model rejection as advisory and keeps heuristic result', async () => {
+    const { tempDir, filePath } = await createTempResumeFile();
+    cleanupDirs.push(tempDir);
+
+    verifyResumeDocumentMock.mockResolvedValue({
+      isOfficial: false,
+      confidence: 0.97,
+      message: 'The resume appears fictional.',
+      _meta: {
+        usedFallback: true,
+        model: 'qwen2.5:7b-instruct',
+      },
+    });
+
+    const result = await validateResumeDocument(filePath, {
+      originalname: 'resume.pdf',
+      mimetype: 'application/pdf',
+      size: 16 * 1024,
+    }, {
+      expectedFullName: 'John Doe',
+      expectedEmail: 'john.doe@example.com',
+    });
+
+    expect(result).toEqual(expect.objectContaining({
+      docType: 'pdf',
+      analysis: expect.objectContaining({
+        llmVerdict: expect.objectContaining({
+          isOfficial: false,
+          confidence: 0.97,
+        }),
+      }),
+    }));
+  });
 });
