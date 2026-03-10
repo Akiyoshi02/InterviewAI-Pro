@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import { BrowserRouter, Routes as RouterRoutes, Route, Navigate } from "react-router-dom";
 import ScrollToTop from "./components/ScrollToTop";
 import PageTitleManager from "./components/PageTitleManager";
@@ -7,65 +7,76 @@ import OAuthRedirectHandler from "./components/OAuthRedirectHandler";
 import ThemeToggleButton from "./components/ThemeToggleButton";
 import ProtectedRoute from "./components/ProtectedRoute";
 import LiveChatWidget from "./components/live-chat/LiveChatWidget";
-import NotFound from "./pages/NotFound";
-import HomePage from './pages/home';
-import SharedResultsPage from './pages/shared-results';
-import CandidateAnalyticsPage from './pages/candidate-analytics';
-import LongitudinalStudyPage from './pages/longitudinal-study';
-import ABTestingPage from './pages/ab-testing';
-import PrivacySettingsPage from './pages/privacy-settings';
 import CookieConsentBanner from './components/ui/CookieConsentBanner';
 import PWAInstallPrompt from './components/ui/PWAInstallPrompt';
-import OAuthCallbackPage from './pages/oauth-callback';
-import CompanyWebhooksPage from './pages/company-webhooks';
-import ReferralProgramPage from './pages/referral-program';
-import CompanyProfilePublicPage from './pages/company-profile-public';
-import CompaniesDirectoryPage from './pages/companies-directory';
-import CompanyPublicProfileEditorPage from './pages/company-public-profile-editor';
-import InterviewPrepLibraryPage from './pages/interview-prep-library';
-import GamificationPage from './pages/gamification';
-import * as Sentry from '@sentry/react';
-import LiveInterviewSession from './pages/live-interview-session';
-import InterviewLobby from './pages/interview-lobby';
-import CompanyDashboard from './pages/company-dashboard';
-import Login from './pages/login';
-import AdminLogin from './pages/admin-login';
-import PracticeInterviewSetup from './pages/practice-interview-setup';
-import InterviewResultsPage from './pages/interview-results';
-import Register from './pages/register';
-import ResetPassword from './pages/reset-password';
-import CandidateDashboard from './pages/candidate-dashboard';
-import CandidateSettingsPage from './pages/candidate-settings';
-import VerifyEmail from './pages/verify-email';
-import Privacy from './pages/privacy';
-import Terms from './pages/terms';
-import Contact from './pages/contact';
-import HelpCenter from './pages/help-center';
-import LearningCenter from './pages/learning-center';
-import SuccessStories from './pages/success-stories';
-import InterviewGuides from './pages/interview-guides';
-import HelpArticles from './pages/help-articles';
-import Onboarding from './pages/onboarding';
-import About from './pages/about';
-import Careers from './pages/careers';
-import Press from './pages/press';
-import APIDocsPage from './pages/api-docs';
-import StatusPage from './pages/status';
-import JobsPage from './pages/jobs';
-import JobDetailPage from './pages/job-detail';
-import InvitePage from './pages/invite';
-import SystemAdminDashboard from './pages/system-admin-dashboard';
-import AcceptTeamInvitePage from './pages/accept-team-invite';
-import CompanyJobsPage from './pages/company-jobs';
-import CompanyTemplatesPage from './pages/company-templates';
-import MyApplicationsPage from './pages/my-applications';
-import CompanyApplicationsPage from './pages/company-applications';
-import CompanyInterviewsPage from './pages/company-interviews';
-import CompanyCandidatesPage from './pages/company-candidates';
-import CompanyAnalyticsPage from './pages/company-analytics';
-import CompanyTeamMembersPage from './pages/company-team-members';
-import CompanySettingsPage from './pages/company-settings';
-import CompanyBillingPage from './pages/company-billing';
+
+const NotFound = lazy(() => import("./pages/NotFound"));
+const HomePage = lazy(() => import('./pages/home'));
+const SharedResultsPage = lazy(() => import('./pages/shared-results'));
+const CandidateAnalyticsPage = lazy(() => import('./pages/candidate-analytics'));
+const LongitudinalStudyPage = lazy(() => import('./pages/longitudinal-study'));
+const ABTestingPage = lazy(() => import('./pages/ab-testing'));
+const PrivacySettingsPage = lazy(() => import('./pages/privacy-settings'));
+const OAuthCallbackPage = lazy(() => import('./pages/oauth-callback'));
+const CompanyWebhooksPage = lazy(() => import('./pages/company-webhooks'));
+const ReferralProgramPage = lazy(() => import('./pages/referral-program'));
+const CompanyProfilePublicPage = lazy(() => import('./pages/company-profile-public'));
+const CompaniesDirectoryPage = lazy(() => import('./pages/companies-directory'));
+const CompanyPublicProfileEditorPage = lazy(() => import('./pages/company-public-profile-editor'));
+const InterviewPrepLibraryPage = lazy(() => import('./pages/interview-prep-library'));
+const GamificationPage = lazy(() => import('./pages/gamification'));
+const LiveInterviewSession = lazy(() => import('./pages/live-interview-session'));
+const InterviewLobby = lazy(() => import('./pages/interview-lobby'));
+const CompanyDashboard = lazy(() => import('./pages/company-dashboard'));
+const Login = lazy(() => import('./pages/login'));
+const AdminLogin = lazy(() => import('./pages/admin-login'));
+const PracticeInterviewSetup = lazy(() => import('./pages/practice-interview-setup'));
+const InterviewResultsPage = lazy(() => import('./pages/interview-results'));
+const Register = lazy(() => import('./pages/register'));
+const ResetPassword = lazy(() => import('./pages/reset-password'));
+const CandidateDashboard = lazy(() => import('./pages/candidate-dashboard'));
+const CandidateSettingsPage = lazy(() => import('./pages/candidate-settings'));
+const VerifyEmail = lazy(() => import('./pages/verify-email'));
+const Privacy = lazy(() => import('./pages/privacy'));
+const Terms = lazy(() => import('./pages/terms'));
+const Contact = lazy(() => import('./pages/contact'));
+const HelpCenter = lazy(() => import('./pages/help-center'));
+const LearningCenter = lazy(() => import('./pages/learning-center'));
+const SuccessStories = lazy(() => import('./pages/success-stories'));
+const InterviewGuides = lazy(() => import('./pages/interview-guides'));
+const HelpArticles = lazy(() => import('./pages/help-articles'));
+const Onboarding = lazy(() => import('./pages/onboarding'));
+const About = lazy(() => import('./pages/about'));
+const Careers = lazy(() => import('./pages/careers'));
+const Press = lazy(() => import('./pages/press'));
+const APIDocsPage = lazy(() => import('./pages/api-docs'));
+const StatusPage = lazy(() => import('./pages/status'));
+const JobsPage = lazy(() => import('./pages/jobs'));
+const JobDetailPage = lazy(() => import('./pages/job-detail'));
+const SystemAdminDashboard = lazy(() => import('./pages/system-admin-dashboard'));
+const AcceptTeamInvitePage = lazy(() => import('./pages/accept-team-invite/index.jsx'));
+const CompanyJobsPage = lazy(() => import('./pages/company-jobs'));
+const CompanyTemplatesPage = lazy(() => import('./pages/company-templates'));
+const MyApplicationsPage = lazy(() => import('./pages/my-applications'));
+const CompanyApplicationsPage = lazy(() => import('./pages/company-applications'));
+const CompanyInterviewsPage = lazy(() => import('./pages/company-interviews'));
+const CompanyCandidatesPage = lazy(() => import('./pages/company-candidates'));
+const CompanyReviewsPage = lazy(() => import('./pages/company-reviews'));
+const CompanyAnalyticsPage = lazy(() => import('./pages/company-analytics'));
+const CompanyTeamMembersPage = lazy(() => import('./pages/company-team-members'));
+const CompanySettingsPage = lazy(() => import('./pages/company-settings'));
+const CompanyBillingPage = lazy(() => import('./pages/company-billing'));
+const CandidateOfferPage = lazy(() => import('./pages/application-offer'));
+const CandidateOnboardingPage = lazy(() => import('./pages/application-onboarding'));
+const CompanyOfferPage = lazy(() => import('./pages/company-offer'));
+const CompanyOnboardingPage = lazy(() => import('./pages/company-onboarding'));
+const HiredHandoffPage = lazy(() => import('./pages/hired-handoff'));
+
+const RouteFallback = () => (
+  <div className="min-h-screen bg-slate-950 text-slate-100 flex items-center justify-center">
+    <div className="text-sm font-medium tracking-wide text-slate-300">Loading...</div>
+  </div>
+);
 
 const Routes = () => {
   return (
@@ -76,6 +87,7 @@ const Routes = () => {
       <OAuthRedirectHandler />
       <ThemeToggleButton />
       <LiveChatWidget />
+      <Suspense fallback={<RouteFallback />}>
       <RouterRoutes>
         {/* Define your route here */}
         <Route path="/" element={<HomePage />} />
@@ -122,8 +134,16 @@ const Routes = () => {
         <Route
           path="/company-templates"
           element={(
-            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_JOBS_PAGE']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_TEMPLATES_PAGE']}>
               <CompanyTemplatesPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-invitations"
+          element={(
+            <ProtectedRoute roles={['COMPANY']}>
+              <Navigate to="/company-applications" replace />
             </ProtectedRoute>
           )}
         />
@@ -140,6 +160,14 @@ const Routes = () => {
           element={(
             <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_INTERVIEWS_PAGE']}>
               <CompanyInterviewsPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-reviews"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['VIEW_REVIEWS']}>
+              <CompanyReviewsPage />
             </ProtectedRoute>
           )}
         />
@@ -178,7 +206,7 @@ const Routes = () => {
         <Route
           path="/company-billing"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_ORGANIZATION']}>
               <CompanyBillingPage />
             </ProtectedRoute>
           )}
@@ -220,6 +248,46 @@ const Routes = () => {
             </ProtectedRoute>
           )}
         />
+        <Route
+          path="/my-applications/:id/offer"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CandidateOfferPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/my-applications/:id/handoff"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <HiredHandoffPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/my-applications/:id/onboarding"
+          element={(
+            <ProtectedRoute roles={['CANDIDATE']}>
+              <CandidateOnboardingPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-applications/:id/offer"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['UPDATE_APPLICATION_STATUS']}>
+              <CompanyOfferPage />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
+          path="/company-applications/:id/onboarding"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['UPDATE_APPLICATION_STATUS']}>
+              <CompanyOnboardingPage />
+            </ProtectedRoute>
+          )}
+        />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route
           path="/onboarding"
@@ -258,14 +326,7 @@ const Routes = () => {
             </ProtectedRoute>
           )}
         />
-        <Route
-          path="/invite"
-          element={(
-            <ProtectedRoute roles={['CANDIDATE']}>
-              <InvitePage />
-            </ProtectedRoute>
-          )}
-        />
+        <Route path="/invite" element={<Navigate to="/jobs" replace />} />
         <Route
           path="/system-admin-dashboard"
           element={(
@@ -359,7 +420,7 @@ const Routes = () => {
         <Route
           path="/company-profile-editor"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_ORGANIZATION']}>
               <CompanyPublicProfileEditorPage />
             </ProtectedRoute>
           )}
@@ -375,7 +436,7 @@ const Routes = () => {
         <Route
           path="/company-webhooks"
           element={(
-            <ProtectedRoute roles={['COMPANY']}>
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['MANAGE_ORGANIZATION']}>
               <CompanyWebhooksPage />
             </ProtectedRoute>
           )}
@@ -393,6 +454,7 @@ const Routes = () => {
         />
         <Route path="*" element={<NotFound />} />
       </RouterRoutes>
+      </Suspense>
       </ErrorBoundary>
       <CookieConsentBanner />
       <PWAInstallPrompt />

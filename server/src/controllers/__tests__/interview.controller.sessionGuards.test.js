@@ -18,6 +18,7 @@ describe('InterviewController session guards', () => {
   it('requires recording consent before starting an interview', async () => {
     jest.spyOn(interviewStore, 'getWithQuestions').mockResolvedValue({
       id: 'int-guard-1',
+      mode: 'PRACTICE',
       status: 'SCHEDULED',
       candidateId: 'candidate-1',
       companyId: null,
@@ -47,6 +48,7 @@ describe('InterviewController session guards', () => {
   it('rejects endInterview when interview is not in progress', async () => {
     jest.spyOn(interviewStore, 'getWithQuestions').mockResolvedValue({
       id: 'int-guard-2',
+      mode: 'PRACTICE',
       status: 'SCHEDULED',
       candidateId: 'candidate-1',
       companyId: null,

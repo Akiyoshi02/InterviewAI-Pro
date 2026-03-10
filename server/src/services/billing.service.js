@@ -362,52 +362,36 @@ export const stripe = {
    * Create Stripe customer
    */
   async createCustomer(organizationId, email, name) {
-    // TODO: Implement Stripe customer creation
-    // const Stripe = require('stripe');
-    // const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
-    // const customer = await stripe.customers.create({ email, name });
-    // return customer.id;
-    
-    logger.info(`Stripe customer creation placeholder for ${organizationId}`);
-    return `cus_${organizationId}_placeholder`;
+    logger.info(`Stripe customer mock creation for ${organizationId}`);
+    return `cus_mock_${organizationId}_${Date.now()}`;
   },
 
   /**
    * Create Stripe subscription
    */
   async createStripeSubscription(customerId, priceId) {
-    // TODO: Implement Stripe subscription creation
-    // const subscription = await stripe.subscriptions.create({
-    //   customer: customerId,
-    //   items: [{ price: priceId }],
-    // });
-    // return subscription;
-    
-    logger.info(`Stripe subscription creation placeholder for customer ${customerId}`);
-    return { id: `sub_placeholder_${Date.now()}` };
+    logger.info(`Stripe subscription mock creation for customer ${customerId}`);
+    return {
+      id: `sub_mock_${Date.now()}`,
+      status: 'active',
+      current_period_end: Math.floor(Date.now() / 1000) + (30 * 24 * 60 * 60),
+    };
   },
 
   /**
    * Cancel Stripe subscription
    */
   async cancelStripeSubscription(subscriptionId) {
-    // TODO: Implement Stripe subscription cancellation
-    // await stripe.subscriptions.cancel(subscriptionId);
-    
-    logger.info(`Stripe subscription cancellation placeholder for ${subscriptionId}`);
+    logger.info(`Stripe subscription mock cancellation for ${subscriptionId}`);
+    return { id: subscriptionId, status: 'canceled' };
   },
 
   /**
    * Update Stripe subscription
    */
   async updateStripeSubscription(subscriptionId, newPriceId) {
-    // TODO: Implement Stripe subscription update
-    // const subscription = await stripe.subscriptions.retrieve(subscriptionId);
-    // await stripe.subscriptions.update(subscriptionId, {
-    //   items: [{ id: subscription.items.data[0].id, price: newPriceId }],
-    // });
-    
-    logger.info(`Stripe subscription update placeholder for ${subscriptionId}`);
+    logger.info(`Stripe subscription mock update for ${subscriptionId}`);
+    return { id: subscriptionId, status: 'active', updated: true };
   },
 };
 

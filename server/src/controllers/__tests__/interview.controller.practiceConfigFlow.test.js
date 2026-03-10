@@ -233,8 +233,11 @@ describe('InterviewController practice start config flow', () => {
     const getByIdSpy = jest.spyOn(firebaseData.interviewStore, 'getById');
     const getWithQuestionsSpy = jest.spyOn(firebaseData.interviewStore, 'getWithQuestions').mockResolvedValue({
       id: 'practice-int-003',
+      mode: 'PRACTICE',
+      status: 'SCHEDULED',
       candidateId: 'candidate-1',
       companyId: null,
+      organizationId: null,
       questions: [
         { id: 'q-1', question: 'Tell me about yourself.' },
       ],

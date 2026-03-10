@@ -161,6 +161,31 @@ const formatInterviewDateTime = (dateValue, timezone = 'UTC') => {
   }
 };
 
+const formatOfferCompensation = (offer = {}) => {
+  const amount = Number(offer?.compensationAmount);
+  const currency = String(offer?.compensationCurrency || '').trim().toUpperCase();
+  if (!Number.isFinite(amount) || amount <= 0 || !currency) return 'Compensation details will be shared in the dashboard.';
+
+  const periodLabel = {
+    YEARLY: 'per year',
+    MONTHLY: 'per month',
+    WEEKLY: 'per week',
+    DAILY: 'per day',
+    HOURLY: 'per hour',
+  }[String(offer?.compensationPeriod || '').trim().toUpperCase()] || '';
+
+  try {
+    const formattedAmount = new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+    return [formattedAmount, periodLabel].filter(Boolean).join(' ');
+  } catch {
+    return `${currency} ${amount}${periodLabel ? ` ${periodLabel}` : ''}`;
+  }
+};
+
 const DEFAULT_FOOTER_HTML = `
   <p class="footer-brand"><strong>InterviewAI Pro</strong></p>
   <p class="footer-links">
@@ -495,7 +520,7 @@ Great news! Your organization "${data.organizationName}" has been approved and i
 
 You can now:
 - Create and publish job postings
-- Send interview invitations to candidates
+- Review applications and move candidates into interviewing
 - Manage your team members
 - Access all platform features
 
@@ -515,7 +540,7 @@ The InterviewAI Pro Team
         <div class="features">
           <h3>You can now:</h3>
           <div class="feature-item">&bull; Create and publish job postings</div>
-          <div class="feature-item">&bull; Send interview invitations to candidates</div>
+          <div class="feature-item">&bull; Review applications and move candidates into interviewing</div>
           <div class="feature-item">&bull; Manage your team members</div>
           <div class="feature-item">&bull; Access all platform features</div>
         </div>
@@ -679,49 +704,6 @@ The InterviewAI Pro Team
     }),
   },
 
-  INVITATION_RECEIVED: {
-    subject: 'You\'ve Been Invited to an Interview!',
-    getText: (data) => `
-Hi there,
-
-You've been invited to interview for the position of "${data.jobTitle}" at ${data.companyName}.
-
-Interview Details:
-- Position: ${data.jobTitle}
-- Company: ${data.companyName}
-- Interview Stage: ${data.stage}
-- Duration: ${data.duration} minutes
-
-Click here to accept: ${data.invitationUrl}
-
-This invitation will expire on ${new Date(data.expiresAt).toLocaleDateString()}.
-
-Good luck!
-The InterviewAI Pro Team
-    `.trim(),
-    getHtml: (data) => renderEmailLayout({
-      title: 'Interview Invitation',
-      bodyHtml: `
-        <p>Hi there,</p>
-        <p>You've been invited to interview for the position of <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
-
-        <div class="details">
-          <div class="detail-item"><strong>Position:</strong> ${data.jobTitle}</div>
-          <div class="detail-item"><strong>Company:</strong> ${data.companyName}</div>
-          <div class="detail-item"><strong>Interview Stage:</strong> ${data.stage}</div>
-          <div class="detail-item"><strong>Duration:</strong> ${data.duration} minutes</div>
-          <div class="detail-item" style="border-bottom: none;"><strong>Expires:</strong> ${new Date(data.expiresAt).toLocaleDateString()}</div>
-        </div>
-
-        <div style="text-align: center;">
-          <a href="${data.invitationUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Accept Invitation</a>
-        </div>
-
-        <p class="note" style="margin-top: 32px;">Good luck with your interview!</p>
-      `,
-    }),
-  },
-
   APPLICATION_RECEIVED: {
     subject: 'Application Received for ${data.jobTitle}',
     getText: (data) => `
@@ -796,6 +778,151 @@ ${data.companyName}
 
         <div style="text-align: center;">
           <a href="${data.dashboardUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">View Details</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  APPLICATION_OFFER_SHARED: {
+    subject: 'Offer Details Ready - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+${data.resent ? 'Your offer details have been re-sent' : 'Your offer details are ready'} for "${data.jobTitle}" at ${data.companyName}.
+
+Offer summary:
+- Title: ${data.offerTitle}
+- Compensation: ${data.compensation}
+- Start date: ${formatEmailDate(data.startDate)}
+- Respond by: ${formatEmailDate(data.expiresAt)}
+
+Review your offer here: ${data.offerUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: data.resent ? 'Offer Details Re-sent' : 'Offer Details Ready',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>${data.resent ? 'Your offer details have been re-sent' : 'Your offer details are ready'} for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Offer title:</strong> ${data.offerTitle}</div>
+          <div class="detail-item"><strong>Compensation:</strong> ${data.compensation}</div>
+          <div class="detail-item"><strong>Start date:</strong> ${formatEmailDate(data.startDate)}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Respond by:</strong> ${formatEmailDate(data.expiresAt)}</div>
+        </div>
+
+        ${data.note ? `<div class="message-box">${data.note}</div>` : ''}
+
+        <div style="text-align: center;">
+          <a href="${data.offerUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Review Offer</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  APPLICATION_OFFER_ACCEPTED_CANDIDATE: {
+    subject: 'Offer Accepted - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+You have successfully accepted the offer for "${data.jobTitle}" at ${data.companyName}.
+
+We have notified the hiring team. You can review the final offer details here:
+${data.offerUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Offer Accepted',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>You have successfully accepted the offer for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+        <p>The hiring team has been notified.</p>
+
+        <div style="text-align: center;">
+          <a href="${data.offerUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">View Offer</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  APPLICATION_OFFER_DECLINED_CANDIDATE: {
+    subject: 'Offer Declined - ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.candidateName},
+
+You have declined the offer for "${data.jobTitle}" at ${data.companyName}.
+
+If you need to review the current offer details again, you can do so here:
+${data.offerUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Offer Declined',
+      bodyHtml: `
+        <p>Hi ${data.candidateName},</p>
+        <p>You have declined the offer for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+        <p>If you need to review the current offer details again, you can do so in your dashboard.</p>
+
+        <div style="text-align: center;">
+          <a href="${data.offerUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Open Offer</a>
+        </div>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  APPLICATION_OFFER_RESPONSE_TEAM: {
+    subject: '${data.responseLabel} - ${data.candidateName} for ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.recipientName},
+
+${data.candidateName} has ${data.responseLabel.toLowerCase()} the offer for "${data.jobTitle}" at ${data.companyName}.
+
+Compensation: ${data.compensation}
+Start date: ${formatEmailDate(data.startDate)}
+Responded at: ${formatEmailDate(data.respondedAt)}
+${data.declineReason ? `Decline note: ${data.declineReason}` : ''}
+
+Review the application here: ${data.offerUrl}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: `Offer ${data.responseLabel}`,
+      bodyHtml: `
+        <p>Hi ${data.recipientName},</p>
+        <p><strong>${data.candidateName}</strong> has ${data.responseLabel.toLowerCase()} the offer for <strong>${data.jobTitle}</strong> at <strong>${data.companyName}</strong>.</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Compensation:</strong> ${data.compensation}</div>
+          <div class="detail-item"><strong>Start date:</strong> ${formatEmailDate(data.startDate)}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Responded at:</strong> ${formatEmailDate(data.respondedAt)}</div>
+        </div>
+
+        ${data.declineReason ? `<div class="reason-box"><strong>Decline note</strong><p>${data.declineReason}</p></div>` : ''}
+
+        <div style="text-align: center;">
+          <a href="${data.offerUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Review Application</a>
         </div>
       `,
       footerHtml: `
@@ -926,6 +1053,53 @@ ${data.companyName}
 
         <p class="note" style="margin-top: 16px; font-size: 12px; color: #6b7280;">
           This link is active from 30 minutes before your scheduled time until the end of the interview window.
+        </p>
+      `,
+      footerHtml: `
+        <p><strong>${data.companyName}</strong></p>
+        <p>Best regards,<br>${data.companyName}</p>
+      `,
+    }),
+  },
+
+  REVIEW_REQUEST_REMINDER: {
+    subject: '${data.workflowLabel} - ${data.candidateName} for ${data.jobTitle}',
+    getText: (data) => `
+Hi ${data.reviewerName},
+
+${data.workflowMessage}
+
+Review details:
+- Candidate: ${data.candidateName}
+- Role: ${data.jobTitle}
+- Organization: ${data.companyName}
+- Interview completed: ${formatInterviewDateTime(data.completedAt, data.timezone)}
+- Review due: ${formatInterviewDateTime(data.dueAt, data.timezone)}
+
+Open your assigned review queue here: ${data.reviewUrl}
+
+Best regards,
+${data.companyName}
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: data.workflowLabel,
+      bodyHtml: `
+        <p>Hi ${data.reviewerName},</p>
+        <p>${data.workflowMessage}</p>
+
+        <div class="details">
+          <div class="detail-item"><strong>Candidate:</strong> ${data.candidateName}</div>
+          <div class="detail-item"><strong>Role:</strong> ${data.jobTitle}</div>
+          <div class="detail-item"><strong>Interview completed:</strong> ${formatInterviewDateTime(data.completedAt, data.timezone)}</div>
+          <div class="detail-item" style="border-bottom: none;"><strong>Review due:</strong> ${formatInterviewDateTime(data.dueAt, data.timezone)}</div>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.reviewUrl}" class="button" style="color: #FFFFFF !important; text-decoration: none;">Open Assigned Reviews</a>
+        </div>
+
+        <p class="note" style="margin-top: 16px;">
+          Use the assigned review workspace to submit structured feedback without changing the hiring pipeline.
         </p>
       `,
       footerHtml: `
@@ -1362,18 +1536,6 @@ export const emailNotifications = {
     });
   },
 
-  async sendInvitationReceived(invitation, job, company) {
-    return await sendTemplatedEmail('INVITATION_RECEIVED', {
-      email: invitation.email,
-      jobTitle: job.title,
-      companyName: company.displayName || company.name,
-      stage: invitation.stage || 'Interview',
-      duration: job.templateConfig?.duration || 30,
-      expiresAt: invitation.expiresAt,
-      invitationUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/invite?token=${invitation.token}`,
-    });
-  },
-
   async sendApplicationReceived(application, candidate, job, company) {
     return await sendTemplatedEmail('APPLICATION_RECEIVED', {
       email: candidate.email,
@@ -1394,6 +1556,74 @@ export const emailNotifications = {
       status: application.status,
       message,
       dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendApplicationOfferShared(application, candidate, job, company, offerUrl, options = {}) {
+    return await sendTemplatedEmail('APPLICATION_OFFER_SHARED', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job.title,
+      companyName: company.displayName || company.name,
+      offerTitle: application?.offer?.title || job.title,
+      compensation: formatOfferCompensation(application?.offer),
+      startDate: application?.offer?.startDate || null,
+      expiresAt: application?.offer?.expiresAt || null,
+      note: application?.offer?.note || '',
+      resent: options?.resent === true,
+      offerUrl,
+    });
+  },
+
+  async sendApplicationOfferAcceptedCandidate(application, candidate, job, company, offerUrl) {
+    return await sendTemplatedEmail('APPLICATION_OFFER_ACCEPTED_CANDIDATE', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job.title,
+      companyName: company.displayName || company.name,
+      offerUrl,
+    });
+  },
+
+  async sendApplicationOfferDeclinedCandidate(application, candidate, job, company, offerUrl) {
+    return await sendTemplatedEmail('APPLICATION_OFFER_DECLINED_CANDIDATE', {
+      email: candidate.email,
+      candidateName: candidate.fullName || 'there',
+      jobTitle: job.title,
+      companyName: company.displayName || company.name,
+      offerUrl,
+    });
+  },
+
+  async sendApplicationOfferAcceptedHiringTeam(application, recipient, candidate, job, company) {
+    return await sendTemplatedEmail('APPLICATION_OFFER_RESPONSE_TEAM', {
+      email: recipient.email,
+      recipientName: recipient.fullName || recipient.email || 'there',
+      candidateName: candidate.fullName || candidate.email || 'Candidate',
+      jobTitle: job.title,
+      companyName: company.displayName || company.name,
+      responseLabel: 'Accepted',
+      compensation: formatOfferCompensation(application?.offer),
+      startDate: application?.offer?.startDate || null,
+      respondedAt: application?.offer?.respondedAt || application?.offer?.acceptedAt || null,
+      declineReason: null,
+      offerUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/company-applications`,
+    });
+  },
+
+  async sendApplicationOfferDeclinedHiringTeam(application, recipient, candidate, job, company, declineReason = '') {
+    return await sendTemplatedEmail('APPLICATION_OFFER_RESPONSE_TEAM', {
+      email: recipient.email,
+      recipientName: recipient.fullName || recipient.email || 'there',
+      candidateName: candidate.fullName || candidate.email || 'Candidate',
+      jobTitle: job.title,
+      companyName: company.displayName || company.name,
+      responseLabel: 'Declined',
+      compensation: formatOfferCompensation(application?.offer),
+      startDate: application?.offer?.startDate || null,
+      respondedAt: application?.offer?.respondedAt || application?.offer?.declinedAt || null,
+      declineReason,
+      offerUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/company-applications`,
     });
   },
 
@@ -1449,6 +1679,50 @@ export const emailNotifications = {
       companyName,
       cancellationReason,
       dashboardUrl: `${process.env.FRONTEND_URL || 'http://localhost:5173'}/candidate-dashboard`,
+    });
+  },
+
+  async sendReviewRequestReminder({
+    interview,
+    reviewer,
+    candidate,
+    job,
+    company,
+    reviewRequest,
+    workflowState,
+    reviewUrl,
+    reminderSource = 'AUTOMATED',
+  }) {
+    const companyName = company?.displayName || company?.name || 'Company';
+    const normalizedWorkflowState = String(workflowState || '').toUpperCase();
+    const normalizedReminderSource = String(reminderSource || 'AUTOMATED').toUpperCase();
+    const workflowLabel = normalizedWorkflowState === 'OVERDUE'
+      ? 'Review overdue'
+      : normalizedWorkflowState === 'DUE_SOON'
+        ? 'Review due soon'
+        : normalizedReminderSource === 'MANUAL'
+          ? 'Review reminder'
+          : 'Review due soon';
+    const workflowMessage = normalizedWorkflowState === 'OVERDUE'
+      ? `Your feedback is overdue for ${candidate?.fullName || 'this candidate'}. Please complete it as soon as possible.`
+      : normalizedWorkflowState === 'DUE_SOON'
+        ? `Your feedback is due soon for ${candidate?.fullName || 'this candidate'}. Please complete it before the deadline.`
+        : normalizedReminderSource === 'MANUAL'
+          ? `A recruiter requested an update on your feedback for ${candidate?.fullName || 'this candidate'}. Please complete it when possible.`
+          : `Your feedback is due soon for ${candidate?.fullName || 'this candidate'}. Please complete it before the deadline.`;
+
+    return await sendTemplatedEmail('REVIEW_REQUEST_REMINDER', {
+      email: reviewer?.email,
+      reviewerName: reviewer?.fullName || reviewer?.email || 'there',
+      candidateName: candidate?.fullName || 'Candidate',
+      jobTitle: job?.title || interview?.jobRole || 'this position',
+      companyName,
+      completedAt: interview?.completedAt || interview?.endedAt || interview?.scheduledFor || null,
+      dueAt: reviewRequest?.dueAt || null,
+      timezone: interview?.timezone || 'UTC',
+      reviewUrl,
+      workflowLabel,
+      workflowMessage,
     });
   },
 

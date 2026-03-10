@@ -26,6 +26,7 @@ import apiClient from '../../services/apiClient';
 import { realtimeDb } from '../../config/firebase.js';
 import { InterviewDatasetCollector } from '../../services/interviewDatasetService';
 import { buildSuggestedTestAnswer } from './utils/testAnswerHelper.js';
+import { buildAnalyticsDatasetPayload } from './utils/analyticsDatasetPayload.js';
 
 const isBackendInterviewId = (id) => Boolean(id && !/^interview_\d+$/.test(id));
 const RECORDING_MIN_BYTES = Math.max(
@@ -33,6 +34,14 @@ const RECORDING_MIN_BYTES = Math.max(
   Number.parseInt(import.meta.env.VITE_RECORDING_MIN_BYTES || '51200', 10) || 51200,
 );
 const AUTO_COMPLETE_MAX_STEPS = 48;
+const MEETING_ACCESS_ERROR_CODES = new Set([
+  'MEETING_LINK_REQUIRED',
+  'TOO_EARLY',
+  'EXPIRED',
+  'INVALID_TOKEN',
+  'MISSING_TOKEN',
+  'NO_TOKEN',
+]);
 
 const DEFAULT_INTERVIEW_CONFIG = {
   jobRole: 'Software Engineer',
@@ -83,6 +92,7 @@ const LiveInterviewSession = () => {
     }
   };
   const [searchParams] = useSearchParams();
+  const meetingToken = searchParams.get('token') || '';
   // Support both ?interviewId= and ?id= (practice flow uses interviewId)
   const interviewId = useRef(
     searchParams.get('interviewId') || searchParams.get('id') || `interview_${Date.now()}`
@@ -102,6 +112,12 @@ const LiveInterviewSession = () => {
   const [screenShareStream, setScreenShareStream] = useState(null);
   const [emotionAnalysisStream, setEmotionAnalysisStream] = useState(null);
   const [viewportMode, setViewportMode] = useState(getViewportMode);
+  const sessionShellBottomPadding = viewportMode === 'mobile'
+    ? 'pb-24'
+    : 'pb-36 xl:pb-40';
+  const sessionShellViewportClasses = viewportMode === 'mobile'
+    ? ''
+    : 'md:min-h-[calc(100vh-11rem)] xl:min-h-[calc(100vh-12rem)] md:flex md:flex-col';
 
   useEffect(() => {
     if (!sessionNotice || isUploadingRecording) return undefined;
@@ -261,6 +277,10 @@ const LiveInterviewSession = () => {
   const questionsAskedRef = useRef(questionsAsked);
   const totalQuestionsRef = useRef(1);
   const interviewConfigRef = useRef(activeInterviewConfig);
+  const isAIProcessingRef = useRef(isAIProcessing);
+  const isAISpeakingRef = useRef(isAISpeaking);
+  const canCandidateSpeakRef = useRef(canCandidateSpeak);
+  const isTranscribingRef = useRef(isTranscribing);
   const autoCompleteCancelledRef = useRef(false);
 
   useEffect(() => {
@@ -281,6 +301,18 @@ const LiveInterviewSession = () => {
   useEffect(() => {
     interviewConfigRef.current = activeInterviewConfig;
   }, [activeInterviewConfig]);
+  useEffect(() => {
+    isAIProcessingRef.current = isAIProcessing;
+  }, [isAIProcessing]);
+  useEffect(() => {
+    isAISpeakingRef.current = isAISpeaking;
+  }, [isAISpeaking]);
+  useEffect(() => {
+    canCandidateSpeakRef.current = canCandidateSpeak;
+  }, [canCandidateSpeak]);
+  useEffect(() => {
+    isTranscribingRef.current = isTranscribing;
+  }, [isTranscribing]);
 
   const advancedSettings = activeInterviewConfig?.advancedSettings || DEFAULT_INTERVIEW_CONFIG.advancedSettings;
   const realTimeFeedbackEnabled = Boolean(advancedSettings?.realTimeFeedback);
@@ -367,12 +399,24 @@ const LiveInterviewSession = () => {
         const configStr = localStorage.getItem('interviewConfig');
         const parsedConfig = configStr ? JSON.parse(configStr) : {};
         const idFromUrl = interviewId.current;
+        const redirectToLobby = () => {
+          if (!idFromUrl) return;
+          navigate(
+            `/interview-lobby/${encodeURIComponent(idFromUrl)}${meetingToken ? `?token=${encodeURIComponent(meetingToken)}` : ''}`,
+            { replace: true },
+          );
+        };
         let backendInterview = null;
         if (isBackendInterviewId(idFromUrl)) {
           try {
             const interviewResponse = await apiClient.interviews.getById(idFromUrl);
             backendInterview = interviewResponse?.interview || null;
           } catch (fetchError) {
+            const accessCode = fetchError?.code || fetchError?.errorCode;
+            if (user?.accountType === 'CANDIDATE' && MEETING_ACCESS_ERROR_CODES.has(accessCode)) {
+              redirectToLobby();
+              return;
+            }
             console.warn('Unable to load backend interview config, falling back to local config.', fetchError);
           }
         }
@@ -488,7 +532,7 @@ const LiveInterviewSession = () => {
     };
 
     void loadInterviewConfig();
-  }, [recordingConsentGiven]);
+  }, [meetingToken, navigate, recordingConsentGiven, user?.accountType]);
 
   // Realtime interview lifecycle synchronization for backend interviews.
   useEffect(() => {
@@ -798,20 +842,15 @@ const LiveInterviewSession = () => {
       const analyticsPayload = analyticsDataRef.current;
       if (analyticsPayload?.collectedData?.length > 0) {
         try {
-          const avgPosture = analyticsPayload.collectedData.reduce((s, d) => s + (d.scores?.posture || 0), 0) / analyticsPayload.collectedData.length;
-          const avgOverall = analyticsPayload.collectedData.reduce((s, d) => s + (d.scores?.overall || 0), 0) / analyticsPayload.collectedData.length;
-          await apiClient.datasets.saveAnalytics({
-            sessionId: `session_${Date.now()}`,
+          const analyticsDataset = buildAnalyticsDatasetPayload({
+            collectedData: analyticsPayload.collectedData,
             interviewId: interviewId.current,
-            dataPoints: analyticsPayload.collectedData,
-            summary: {
-              totalFrames: analyticsPayload.collectedData.length,
-              averagePostureScore: Math.round(avgPosture),
-              averageOverallScore: Math.round(avgOverall),
-              sessionDuration: sessionState?.sessionDuration,
-            },
-            config: { enablePose: true, enableFace: true, detectionInterval: 100 },
+            sessionDuration: sessionState?.sessionDuration,
+            detectionInterval: 100,
           });
+          if (analyticsDataset) {
+            await apiClient.datasets.saveAnalytics(analyticsDataset);
+          }
         } catch (analyticsError) {
           console.error('Failed to save analytics dataset:', analyticsError);
         }
@@ -1008,6 +1047,34 @@ const LiveInterviewSession = () => {
     setTimeout(resolve, ms);
   }), []);
 
+  const waitForAutoCompleteReady = useCallback(async (timeoutMs = 30000) => {
+    const startedAt = Date.now();
+
+    while (!autoCompleteCancelledRef.current) {
+      const phase = String(interviewPhaseRef.current || '').toLowerCase();
+      if (phase === 'closing' || phase === 'completed' || phase === 'candidate_questions') {
+        return true;
+      }
+
+      if (
+        !isAIProcessingRef.current
+        && !isAISpeakingRef.current
+        && !isTranscribingRef.current
+        && canCandidateSpeakRef.current
+      ) {
+        return true;
+      }
+
+      if (Date.now() - startedAt >= timeoutMs) {
+        return false;
+      }
+
+      await waitForAutoCompleteStep(250);
+    }
+
+    return false;
+  }, [waitForAutoCompleteStep]);
+
   const handleAutoCompleteInterview = useCallback(async () => {
     if (isAutoCompleting) {
       autoCompleteCancelledRef.current = true;
@@ -1026,6 +1093,12 @@ const LiveInterviewSession = () => {
       for (let step = 0; step < AUTO_COMPLETE_MAX_STEPS; step += 1) {
         if (autoCompleteCancelledRef.current) break;
 
+        const ready = await waitForAutoCompleteReady();
+        if (!ready) {
+          setSessionNotice('Auto-complete timed out waiting for the next prompt. You can continue manually.');
+          break;
+        }
+
         const phase = String(interviewPhaseRef.current || '').toLowerCase();
         if (phase === 'closing' || phase === 'completed') break;
 
@@ -1033,7 +1106,7 @@ const LiveInterviewSession = () => {
         if (!generatedAnswer.trim()) break;
 
         await handleAnswerComplete(generatedAnswer);
-        await waitForAutoCompleteStep(250);
+        await waitForAutoCompleteStep(400);
 
         if (phase === 'candidate_questions') {
           break;
@@ -1065,6 +1138,7 @@ const LiveInterviewSession = () => {
     isAutoCompleting,
     isTranscribing,
     waitForAutoCompleteStep,
+    waitForAutoCompleteReady,
   ]);
 
   useEffect(() => () => {
@@ -1366,14 +1440,14 @@ const LiveInterviewSession = () => {
         initial="hidden"
         whileInView="visible"
         viewport={viewportConfig}
-        className="relative z-10 mx-auto max-w-[1800px] px-2 xs:px-3 sm:px-4 md:px-5 lg:px-6 py-3 xs:py-4 md:py-6 pb-24 lg:pb-6 lg:min-h-[calc(100vh-4rem)] lg:flex lg:flex-col"
+        className={`relative z-10 mx-auto max-w-[1800px] px-2 xs:px-3 sm:px-4 md:px-5 lg:px-6 py-3 xs:py-4 md:py-6 ${sessionShellBottomPadding} ${sessionShellViewportClasses}`}
       >
         
         {/* Desktop Layout (3 columns) */}
         {viewportMode === 'desktop' && (
         <motion.div
           variants={fadeUpChild}
-          className="grid lg:grid-cols-12 gap-3 xl:gap-4 lg:flex-1 lg:min-h-0 lg:items-stretch"
+          className="grid lg:grid-cols-12 gap-3 xl:gap-4 lg:flex-1 lg:min-h-0 lg:items-stretch lg:pb-24 xl:pb-28"
         >
           {/* Left Column - Body Language & Controls */}
           <div className="lg:col-span-4 xl:col-span-4 flex flex-col gap-3 xl:gap-4 lg:h-full">
@@ -1421,7 +1495,7 @@ const LiveInterviewSession = () => {
               interviewId={interviewId.current}
               analyticsDataRef={analyticsDataRef}
             />
-            <div className="min-h-[400px] lg:min-h-0 lg:flex-1">
+            <div className="min-h-[400px] lg:min-h-0 lg:flex-1 lg:mb-28 xl:mb-32">
               <TranscriptionPanel
                 isListening={isAIListening}
                 isAudioEnabled={videoState?.isAudioEnabled}
@@ -1500,7 +1574,7 @@ const LiveInterviewSession = () => {
         {viewportMode === 'tablet' && (
         <motion.div
           variants={fadeUpChild}
-          className="grid md:grid-cols-12 gap-2 xs:gap-3"
+          className="grid md:grid-cols-12 gap-2 xs:gap-3 md:pb-24"
         >
           {/* Left Column - 7 cols */}
           <div className="md:col-span-7 flex flex-col gap-2 xs:gap-3">
@@ -1519,7 +1593,7 @@ const LiveInterviewSession = () => {
                 }}
               />
             )}
-            <div className="min-h-[300px] xs:min-h-[350px]">
+            <div className="min-h-[300px] xs:min-h-[350px] md:mb-24">
               <TranscriptionPanel
                 isListening={isAIListening}
                 isAudioEnabled={videoState?.isAudioEnabled}

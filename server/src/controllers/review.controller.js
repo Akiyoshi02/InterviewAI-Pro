@@ -7,7 +7,17 @@ import {
   reviewStore,
   userStore,
 } from '../services/firebaseData.service.js';
+import {
+  isReviewerAssignedToInterview,
+  isReviewerRole,
+} from '../utils/reviewerAccess.util.js';
+import {
+  completeReviewRequest,
+  syncReviewRequests,
+} from '../utils/reviewRequest.util.js';
 import logger from '../utils/logger.js';
+
+const SCORE_OVERRIDE_ROLES = new Set(['ADMIN', 'RECRUITER']);
 
 const sanitizeReview = (review, reviewerSummary = null) => ({
   id: review.id,
@@ -62,6 +72,7 @@ export class ReviewController {
     try {
       const { interviewId } = req.params;
       const userId = req.user.id;
+      const reviewerOnly = isReviewerRole(req.user);
       const interview = await interviewStore.getById(interviewId);
       if (!interview) {
         return res.status(404).json({ error: 'Interview not found' });
@@ -71,6 +82,12 @@ export class ReviewController {
         return res.status(403).json({ error: 'Access denied' });
       }
       const review = await reviewStore.getByInterviewAndReviewer(interviewId, userId);
+      if (reviewerOnly && !isReviewerAssignedToInterview(interview, userId) && !review) {
+        return res.status(403).json({
+          error: 'You are not assigned to review this interview',
+          code: 'NOT_ASSIGNED_REVIEWER',
+        });
+      }
       if (!review) {
         return res.json({ success: true, review: null });
       }
@@ -88,6 +105,8 @@ export class ReviewController {
   static async listReviews(req, res, next) {
     try {
       const { interviewId } = req.params;
+      const userId = req.user.id;
+      const reviewerOnly = isReviewerRole(req.user);
       const interview = await interviewStore.getById(interviewId);
       if (!interview) {
         return res.status(404).json({ error: 'Interview not found' });
@@ -98,7 +117,19 @@ export class ReviewController {
         return res.status(403).json({ error: 'Access denied' });
       }
 
-      const reviews = await reviewStore.listByInterview(interviewId);
+      const ownReview = reviewerOnly
+        ? await reviewStore.getByInterviewAndReviewer(interviewId, userId)
+        : null;
+      if (reviewerOnly && !isReviewerAssignedToInterview(interview, userId) && !ownReview) {
+        return res.status(403).json({
+          error: 'You are not assigned to review this interview',
+          code: 'NOT_ASSIGNED_REVIEWER',
+        });
+      }
+
+      const reviews = reviewerOnly && !ownReview
+        ? []
+        : await reviewStore.listByInterview(interviewId);
       const reviewers = await userStore.getSummaries(reviews.map((review) => review.reviewerId));
 
       res.json({
@@ -114,6 +145,7 @@ export class ReviewController {
   static async submitReview(req, res, next) {
     try {
       const { interviewId } = req.params;
+      const reviewerOnly = isReviewerRole(req.user);
       const interview = await interviewStore.getById(interviewId);
       if (!interview) {
         return res.status(404).json({ error: 'Interview not found' });
@@ -133,23 +165,26 @@ export class ReviewController {
         });
       }
 
-      // GAP FIX: Validate reviewer assignment (if assignments exist)
-      if (interview.reviewerAssignments && interview.reviewerAssignments.length > 0) {
-        const isAssigned = interview.reviewerAssignments.includes(req.user.id);
-        const isAdmin = req.user.organizationContext?.membership?.role === 'ADMIN';
-        
-        if (!isAssigned && !isAdmin) {
-          return res.status(403).json({
-            error: 'You are not assigned to review this interview',
-            code: 'NOT_ASSIGNED_REVIEWER',
-          });
-        }
+      if (reviewerOnly && !isReviewerAssignedToInterview(interview, req.user.id)) {
+        return res.status(403).json({
+          error: 'You are not assigned to review this interview',
+          code: 'NOT_ASSIGNED_REVIEWER',
+        });
+      }
+
+      const organizationRole = String(req.user.organizationContext?.membership?.role || '').toUpperCase();
+      const requestedOverrideOverall = Boolean(req.body.overrideOverall);
+      if (requestedOverrideOverall && !SCORE_OVERRIDE_ROLES.has(organizationRole)) {
+        return res.status(403).json({
+          error: 'Only recruiters and organization admins can override the final interview score',
+          code: 'INSUFFICIENT_ORG_PERMISSIONS',
+        });
       }
 
       const aiOverallScoreAtReview =
         interview.overallScore != null ? Number(interview.overallScore) : null;
       const smeOverallScore = computeSmeOverallScore(req.body);
-      const overrideOverall = Boolean(req.body.overrideOverall);
+      const overrideOverall = requestedOverrideOverall;
 
       const review = await reviewStore.submit(interviewId, {
         reviewerId: req.user.id,
@@ -166,6 +201,23 @@ export class ReviewController {
           finalScoreSource: 'SME',
         });
       }
+
+      const synchronizedReviewRequests = syncReviewRequests({
+        existingReviewRequests: interview?.reviewRequests,
+        reviewerAssignments: interview?.reviewerAssignments,
+        assignedBy: interview?.scheduledBy || interview?.companyId || null,
+        interview,
+        nowValue: review?.createdAt || new Date().toISOString(),
+      });
+      const completedReviewRequests = completeReviewRequest({
+        reviewRequests: synchronizedReviewRequests,
+        reviewerId: req.user.id,
+        reviewId: review.id,
+        completedAt: review?.updatedAt || review?.createdAt || new Date().toISOString(),
+      });
+      await interviewStore.update(interviewId, {
+        reviewRequests: completedReviewRequests,
+      });
 
       const reviewerSummary = await userStore.getSummary(req.user.id);
 

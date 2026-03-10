@@ -36,7 +36,6 @@ const TITLE_RULES = [
   { pattern: /^\/live-interview-session$/, title: 'Live Interview Session - InterviewAI Pro' },
   { pattern: /^\/interview-lobby\/[^/]+$/, title: 'Interview Lobby - InterviewAI Pro' },
   { pattern: /^\/interview-results\/[^/]+$/, title: 'Interview Results - InterviewAI Pro' },
-  { pattern: /^\/invite$/, title: 'Interview Invitation - InterviewAI Pro' },
   { pattern: /^\/accept-team-invite\/[^/]+$/, title: 'Accept Team Invite - InterviewAI Pro' },
   { pattern: /^\/candidate-dashboard$/, title: 'Candidate Dashboard - InterviewAI Pro' },
   { pattern: /^\/candidate-settings$/, title: 'Settings - InterviewAI Pro' },

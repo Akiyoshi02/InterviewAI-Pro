@@ -22,12 +22,15 @@ const OverviewPanel = ({
   pendingReviews = 0,
   upcomingInterviews = 0,
   interviewsToday = 0,
+  completedReviews = 0,
+  roleVariant = 'company',
   onViewAllJobs,
   onViewPendingReviews,
   onViewUpcomingInterviews
 }) => {
   // Use backend dashboardMetrics if available, otherwise fall back to prop values
   const hasBackendMetrics = dashboardMetrics !== null;
+  const isReviewerVariant = roleVariant === 'reviewer';
 
   // Extract metrics from backend response or use fallbacks
   const jobMetrics = hasBackendMetrics ? dashboardMetrics.activeJobPostings : null;
@@ -35,38 +38,75 @@ const OverviewPanel = ({
   const interviewMetrics = hasBackendMetrics ? dashboardMetrics.upcomingInterviews : null;
 
   // Build stats array with real or fallback data
-  const overviewStats = [
-    {
-      id: 'active-jobs',
-      title: 'Active Job Postings',
-      value: jobMetrics?.value ?? activeJobPostings,
-      icon: 'Briefcase',
-      gradient: 'from-blue-600 to-purple-600',
-      change: jobMetrics?.changeText ?? (activeJobPostings > 0 ? `${activeJobPostings} open` : 'No active jobs'),
-      changeType: jobMetrics?.changeType ?? (activeJobPostings > 0 ? 'positive' : 'neutral'),
-      onClick: onViewAllJobs
-    },
-    {
-      id: 'pending-reviews',
-      title: 'Pending Reviews',
-      value: reviewMetrics?.value ?? pendingReviews,
-      icon: 'Clock',
-      gradient: 'from-amber-500 to-orange-500',
-      change: reviewMetrics?.changeText ?? (pendingReviews > 0 ? `${pendingReviews} pending` : 'All caught up'),
-      changeType: reviewMetrics?.changeType ?? (pendingReviews > 0 ? 'urgent' : 'positive'),
-      onClick: onViewPendingReviews
-    },
-    {
-      id: 'upcoming-interviews',
-      title: 'Upcoming Interviews',
-      value: interviewMetrics?.value ?? upcomingInterviews,
-      icon: 'Calendar',
-      gradient: 'from-emerald-500 to-teal-500',
-      change: interviewMetrics?.changeText ?? (interviewsToday > 0 ? `Today: ${interviewsToday}` : 'None scheduled'),
-      changeType: interviewMetrics?.changeType ?? (interviewsToday > 0 ? 'positive' : 'neutral'),
-      onClick: onViewUpcomingInterviews
-    }
-  ];
+  const overviewStats = isReviewerVariant
+    ? [
+        {
+          id: 'pending-reviews',
+          title: 'Pending Reviews',
+          value: pendingReviews,
+          icon: 'Clock',
+          gradient: 'from-amber-500 to-orange-500',
+          change: pendingReviews > 0 ? `${pendingReviews} awaiting feedback` : 'All caught up',
+          changeType: pendingReviews > 0 ? 'urgent' : 'positive',
+          onClick: onViewPendingReviews,
+        },
+        {
+          id: 'upcoming-interviews',
+          title: 'Upcoming Interviews',
+          value: upcomingInterviews,
+          icon: 'Calendar',
+          gradient: 'from-emerald-500 to-teal-500',
+          change: interviewsToday > 0 ? `Today: ${interviewsToday}` : 'No interviews today',
+          changeType: interviewsToday > 0 ? 'positive' : 'neutral',
+          onClick: onViewUpcomingInterviews,
+        },
+        {
+          id: 'completed-reviews',
+          title: 'Completed Reviews',
+          value: completedReviews,
+          icon: 'CheckCircle2',
+          gradient: 'from-blue-600 to-purple-600',
+          change: completedReviews > 0 ? 'Submitted feedback' : 'Nothing submitted yet',
+          changeType: completedReviews > 0 ? 'positive' : 'neutral',
+          onClick: null,
+        },
+      ]
+    : [
+        {
+          id: 'active-jobs',
+          title: 'Active Job Postings',
+          value: jobMetrics?.value ?? activeJobPostings,
+          icon: 'Briefcase',
+          gradient: 'from-blue-600 to-purple-600',
+          change: jobMetrics?.changeText ?? (
+            activeJobPostings > 0
+              ? `${activeJobPostings} open`
+              : 'No active jobs'
+          ),
+          changeType: jobMetrics?.changeType ?? (activeJobPostings > 0 ? 'positive' : 'neutral'),
+          onClick: onViewAllJobs
+        },
+        {
+          id: 'pending-reviews',
+          title: 'Pending Reviews',
+          value: reviewMetrics?.value ?? pendingReviews,
+          icon: 'Clock',
+          gradient: 'from-amber-500 to-orange-500',
+          change: reviewMetrics?.changeText ?? (pendingReviews > 0 ? `${pendingReviews} pending` : 'All caught up'),
+          changeType: reviewMetrics?.changeType ?? (pendingReviews > 0 ? 'urgent' : 'positive'),
+          onClick: onViewPendingReviews
+        },
+        {
+          id: 'upcoming-interviews',
+          title: 'Upcoming Interviews',
+          value: interviewMetrics?.value ?? upcomingInterviews,
+          icon: 'Calendar',
+          gradient: 'from-emerald-500 to-teal-500',
+          change: interviewMetrics?.changeText ?? (interviewsToday > 0 ? `Today: ${interviewsToday}` : 'None scheduled'),
+          changeType: interviewMetrics?.changeType ?? (interviewsToday > 0 ? 'positive' : 'neutral'),
+          onClick: onViewUpcomingInterviews
+        }
+      ];
 
   const getChangeColor = (type) => {
     switch (type) {
@@ -88,7 +128,11 @@ const OverviewPanel = ({
       {overviewStats?.map((stat) => (
         <div
           key={stat?.id}
-          className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200 cursor-pointer group backdrop-blur"
+          className={`rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 transition-all duration-200 group backdrop-blur ${
+            typeof stat?.onClick === 'function'
+              ? 'cursor-pointer hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)]'
+              : ''
+          }`}
           onClick={stat?.onClick}
         >
           <div className="flex items-start justify-between">
@@ -111,11 +155,13 @@ const OverviewPanel = ({
                 <span className={`text-xs sm:text-sm font-medium ${getChangeColor(stat?.changeType)}`}>
                   {stat?.change}
                 </span>
-                <Icon 
-                  name="ArrowRight" 
-                  size={16} 
-                  className="text-gray-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200" 
-                />
+                {typeof stat?.onClick === 'function' && (
+                  <Icon 
+                    name="ArrowRight" 
+                    size={16} 
+                    className="text-gray-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200" 
+                  />
+                )}
               </div>
             </div>
           </div>

@@ -1,11 +1,11 @@
 import express from 'express';
+import multer from 'multer';
 import authRoutes from './auth.routes.js';
 import interviewRoutes from './interview.routes.js';
 import videoRoutes from './video.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import organizationRoutes from './organization.routes.js';
 import jobRoutes from './job.routes.js';
-import invitationRoutes from './invitation.routes.js';
 import teamInvitationRoutes from './teamInvitation.routes.js';
 import publicRoutes from './public.routes.js';
 import pipelineRoutes from './pipeline.routes.js';
@@ -28,9 +28,17 @@ import webhookRoutes from './webhook.routes.js';
 import referralRoutes from './referral.routes.js';
 import companyProfileRoutes from './companyProfile.routes.js';
 import { addMaintenanceHeader } from '../middleware/maintenance.middleware.js';
+import { uploadLimiter } from '../middleware/rateLimiter.middleware.js';
 import { LLMService } from '../services/llm.service.js';
 
 const router = express.Router();
+const whisperProxyUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: Math.max(5 * 1024 * 1024, Number.parseInt(process.env.WHISPER_PROXY_MAX_BYTES || '26214400', 10) || 26214400),
+    files: 1,
+  },
+});
 
 export function setupRoutes(app) {
   // Routes (maintenance mode is checked within each route after authentication)
@@ -40,7 +48,6 @@ export function setupRoutes(app) {
   app.use('/api/analytics', analyticsRoutes);
   app.use('/api/organizations', organizationRoutes);
   app.use('/api/jobs', jobRoutes);
-  app.use('/api/invitations', invitationRoutes);
   app.use('/api/organizations/me/team-invitations', teamInvitationRoutes);
   app.use('/api/public', publicRoutes);
   app.use('/api/pipeline', pipelineRoutes);
@@ -98,6 +105,44 @@ export function setupRoutes(app) {
         timestamp: new Date().toISOString(),
         error: error?.message || 'AI health check failed',
         runtimeModel: LLMService.getRuntimeModelStatus(),
+      });
+    }
+  });
+
+  app.get('/api/ai/whisper/models', async (req, res) => {
+    try {
+      const models = await LLMService.getWhisperModels();
+      res.json(models);
+    } catch (error) {
+      res.status(error?.status || (error?.code === 'WHISPER_NOT_CONFIGURED' ? 503 : 500)).json({
+        success: false,
+        error: error?.message || 'Whisper models lookup failed',
+      });
+    }
+  });
+
+  app.post('/api/ai/whisper/transcribe', uploadLimiter, whisperProxyUpload.single('audio'), async (req, res) => {
+    try {
+      if (!req.file?.buffer?.length) {
+        return res.status(400).json({
+          success: false,
+          error: 'No audio file provided',
+        });
+      }
+
+      const payload = await LLMService.proxyWhisperTranscription({
+        audioBuffer: req.file.buffer,
+        fileName: req.file.originalname,
+        mimeType: req.file.mimetype,
+        language: req.body?.language,
+        task: req.body?.task,
+      });
+
+      return res.json(payload);
+    } catch (error) {
+      return res.status(error?.status || (error?.code === 'WHISPER_NOT_CONFIGURED' ? 503 : 500)).json({
+        success: false,
+        error: error?.message || 'Whisper transcription proxy failed',
       });
     }
   });

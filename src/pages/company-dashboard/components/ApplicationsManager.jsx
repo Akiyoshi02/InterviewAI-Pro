@@ -40,6 +40,27 @@ import {
   getDerivedApplicationStatus,
   groupCompanyApplicationsByJob,
 } from '../utils/companyApplicationFilters.js';
+import {
+  buildManualWindowBounds,
+  buildSuggestedManualSlots,
+  formatMinutesOfDay,
+  formatWorkingDays,
+  getAvailabilitySourceLabel,
+  toLocalDatetimeValue,
+  validateManualInterviewSelection,
+} from '../../../utils/interviewSchedulingGuidance.js';
+import { buildReviewerAssignmentOptions } from '../../../utils/reviewerAssignments.js';
+import {
+  formatOfferCompensation,
+  formatOfferHistoryEventLabel,
+} from '../../../utils/applicationOfferPresentation.js';
+import {
+  buildInitialOfferDraft,
+  buildOfferPayloadFromDraft,
+  OFFER_COMPENSATION_PERIOD_OPTIONS,
+  validateOfferDraft,
+} from '../../../utils/applicationOfferForm.js';
+import { getApplicationOfferStageEligibility } from '../../../utils/interviewRoundSummary.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -114,6 +135,11 @@ const getStatusConfig = (applicationOrStatus, withdrawnBy = null, dispositionCod
       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
       icon: 'Star',
     },
+    OFFER: {
+      label: 'Offer',
+      color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200',
+      icon: 'Briefcase',
+    },
     REJECTED: {
       label: 'Not Selected',
       color: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200',
@@ -166,17 +192,17 @@ const resolveLocalTimezone = () => {
   }
 };
 
-const toLocalDatetimeValue = (value) => {
-  const date = value instanceof Date ? value : new Date(value);
-  if (Number.isNaN(date.getTime())) return '';
-  const pad = (part) => String(part).padStart(2, '0');
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-};
-
 const getDefaultInterviewingDatetime = () => {
   const date = new Date();
   date.setMinutes(date.getMinutes() + 60 - (date.getMinutes() % 30));
   date.setSeconds(0, 0);
+  return toLocalDatetimeValue(date);
+};
+
+const getMinimumInterviewingDatetime = () => {
+  const date = new Date();
+  date.setSeconds(0, 0);
+  date.setMinutes(date.getMinutes() + 1);
   return toLocalDatetimeValue(date);
 };
 
@@ -186,11 +212,23 @@ const buildInitialInterviewingScheduleState = (applicationId = null) => ({
   mode: 'AUTO',
   scheduledFor: getDefaultInterviewingDatetime(),
   timezone: resolveLocalTimezone(),
-  meetingLink: '',
   duration: 30,
   notes: '',
   error: '',
+  schedulingConstraints: null,
+  constraintsLoading: false,
+  constraintsError: '',
+  reviewerAssignments: [],
+  reviewerOptions: [],
+  reviewerOptionsLoading: false,
+  reviewerOptionsError: '',
 });
+
+const OFFER_STATUS_LABELS = {
+  PENDING: 'Pending Candidate Response',
+  ACCEPTED: 'Accepted',
+  DECLINED: 'Declined',
+};
 
 const decodeHtmlEntities = (value) => {
   if (typeof value !== 'string') return value || '';
@@ -261,13 +299,13 @@ const buildApplicationResponses = (application) => {
   return rows;
 };
 
-const STATUS_SELECTION_OPTIONS = ['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'];
+const STATUS_SELECTION_OPTIONS = ['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'OFFER', 'REJECTED', 'HIRED'];
 
 const getPrimaryActionConfig = ({
   application,
   pendingStatus,
   canUpdateStatus,
-  canStartReview,
+  canOpenInterviewWorkspace,
 }) => {
   if (!application) {
     return {
@@ -294,8 +332,22 @@ const getPrimaryActionConfig = ({
       null,
       selectedStatus === 'REJECTED' ? 'NOT_SELECTED' : null,
     );
+    const offerEligibility = selectedStatus === 'OFFER'
+      ? getApplicationOfferStageEligibility(application)
+      : { allowed: true, reason: null };
+    if (selectedStatus === 'OFFER' && !offerEligibility.allowed) {
+      return {
+        label: `Confirm: ${selectedConfig.label}`,
+        icon: 'CheckCircle',
+        disabled: true,
+        action: 'confirm_status',
+        helperText: offerEligibility.reason || 'This application is not ready for the offer stage yet.',
+      };
+    }
     const helperText = selectedStatus === 'INTERVIEWING'
       ? 'This moves the candidate to Interviewing. You can auto-schedule or pick the interview date now.'
+      : selectedStatus === 'OFFER'
+        ? 'This confirms the interviews are complete and moves the candidate into the offer stage.'
       : `This will update the application status to ${selectedConfig.label}.`;
     return {
       label: `Confirm: ${selectedConfig.label}`,
@@ -327,13 +379,13 @@ const getPrimaryActionConfig = ({
   }
 
   if (derivedStatus === 'INTERVIEWING') {
-    if (hasInterview && canStartReview) {
+    if (hasInterview && canOpenInterviewWorkspace) {
       return {
         label: 'Open Interview',
         icon: 'Calendar',
         disabled: false,
         action: 'open_interview',
-        helperText: 'Interview record is ready. Open the interview workspace to review or reschedule.',
+        helperText: 'Interview record is ready. Open the interview workspace to inspect reviews and scheduling details.',
       };
     }
     return {
@@ -342,6 +394,16 @@ const getPrimaryActionConfig = ({
       disabled: true,
       action: 'none',
       helperText: 'Interview record is being prepared. Refresh in a moment.',
+    };
+  }
+
+  if (hasInterview && canOpenInterviewWorkspace) {
+    return {
+      label: 'Open Interview',
+      icon: 'Calendar',
+      disabled: false,
+      action: 'open_interview',
+      helperText: 'Open the linked interview workspace to inspect recordings, scorecards, and reviewer feedback.',
     };
   }
 
@@ -379,6 +441,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const { organization, user } = useAuth();
   const organizationRole = user?.organizationContext?.membership?.role;
   const canStartReview = hasPermission(organizationRole, 'START_CANDIDATE_REVIEW');
+  const canOpenInterviewWorkspace = hasPermission(organizationRole, 'VIEW_INTERVIEWS')
+    && hasPermission(organizationRole, 'SUBMIT_REVIEWS');
+  const isReviewerOnly = organizationRole === 'REVIEWER';
   const [applications, setApplications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [pageError, setPageError] = useState('');
@@ -391,12 +456,49 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [startingReview, setStartingReview] = useState(false);
   const [pendingStatus, setPendingStatus] = useState(null);
+  const [offerDraft, setOfferDraft] = useState(() => buildInitialOfferDraft(null));
+  const [savingOffer, setSavingOffer] = useState(false);
+  const [resendingOffer, setResendingOffer] = useState(false);
+  const [offerSuccess, setOfferSuccess] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
   const [rejectionModal, setRejectionModal] = useState({ open: false, applicationId: null, dispositionCode: 'PASSED_ON', notes: '' });
   const [interviewingScheduleModal, setInterviewingScheduleModal] = useState(() => buildInitialInterviewingScheduleState());
   const realtimeRefreshTimeoutRef = useRef(null);
   const loadApplicationsRef = useRef(null);
+
+  const manualInterviewingWindowBounds = useMemo(
+    () => buildManualWindowBounds(interviewingScheduleModal.schedulingConstraints),
+    [interviewingScheduleModal.schedulingConstraints],
+  );
+  const manualInterviewingValidationMessage = interviewingScheduleModal.mode === 'MANUAL'
+    ? validateManualInterviewSelection({
+      scheduledFor: interviewingScheduleModal.scheduledFor,
+      duration: interviewingScheduleModal.duration,
+      constraints: interviewingScheduleModal.schedulingConstraints,
+      requiresAvailabilityChecks: true,
+    })
+    : null;
+  const manualInterviewingSlots = useMemo(
+    () => (
+      interviewingScheduleModal.mode === 'MANUAL'
+        ? buildSuggestedManualSlots({
+          constraints: interviewingScheduleModal.schedulingConstraints,
+          duration: interviewingScheduleModal.duration,
+          requiresAvailabilityChecks: true,
+        })
+        : []
+    ),
+    [
+      interviewingScheduleModal.duration,
+      interviewingScheduleModal.mode,
+      interviewingScheduleModal.schedulingConstraints,
+    ],
+  );
+  const showInterviewingTimezoneTranslation = Boolean(
+    interviewingScheduleModal.schedulingConstraints?.timezone
+    && interviewingScheduleModal.schedulingConstraints.timezone !== resolveLocalTimezone(),
+  );
 
   useEffect(() => {
     loadApplications();
@@ -491,10 +593,91 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     });
   };
 
+  const toggleInterviewingReviewerAssignment = (reviewerId) => {
+    setInterviewingScheduleModal((previous) => ({
+      ...previous,
+      reviewerAssignments: previous.reviewerAssignments.includes(reviewerId)
+        ? previous.reviewerAssignments.filter((value) => value !== reviewerId)
+        : [...previous.reviewerAssignments, reviewerId],
+    }));
+  };
+
+  useEffect(() => {
+    if (!interviewingScheduleModal.open || !interviewingScheduleModal.applicationId) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setInterviewingScheduleModal((previous) => ({
+      ...previous,
+      constraintsLoading: true,
+      constraintsError: '',
+      schedulingConstraints: null,
+      reviewerOptionsLoading: true,
+      reviewerOptionsError: '',
+      reviewerOptions: [],
+    }));
+
+    const loadSchedulingPreview = async () => {
+      try {
+        const [applicationResult, memberResult] = await Promise.allSettled([
+          apiClient.applications.getApplication(interviewingScheduleModal.applicationId),
+          apiClient.organizations.listMembers(),
+        ]);
+        if (cancelled) return;
+
+        if (applicationResult.status !== 'fulfilled') {
+          throw applicationResult.reason;
+        }
+
+        const preview = applicationResult.value?.application?.interviewSchedulingPreview || null;
+        const previewError = applicationResult.value?.application?.interviewSchedulingPreviewError?.message || '';
+        const reviewerOptions = memberResult.status === 'fulfilled'
+          ? buildReviewerAssignmentOptions(memberResult.value?.members || [])
+          : [];
+        const reviewerOptionsError = memberResult.status === 'rejected'
+          ? (memberResult.reason?.message || 'Unable to load reviewer options right now.')
+          : '';
+        setInterviewingScheduleModal((previous) => ({
+          ...previous,
+          schedulingConstraints: preview,
+          constraintsError: previewError,
+          constraintsLoading: false,
+          reviewerOptions,
+          reviewerOptionsError,
+          reviewerOptionsLoading: false,
+          timezone: (
+            !previous.timezone
+            || previous.timezone === resolveLocalTimezone()
+          )
+            ? (preview?.timezone || previous.timezone || resolveLocalTimezone())
+            : previous.timezone,
+        }));
+      } catch (loadError) {
+        if (cancelled) return;
+        setInterviewingScheduleModal((previous) => ({
+          ...previous,
+          schedulingConstraints: null,
+          constraintsError: loadError?.message || 'Unable to load scheduling rules right now.',
+          constraintsLoading: false,
+          reviewerOptions: [],
+          reviewerOptionsError: loadError?.message || 'Unable to load reviewer options right now.',
+          reviewerOptionsLoading: false,
+        }));
+      }
+    };
+
+    loadSchedulingPreview();
+    return () => {
+      cancelled = true;
+    };
+  }, [interviewingScheduleModal.applicationId, interviewingScheduleModal.open]);
+
   const handleStatusChange = async (applicationId, newStatus, options = {}) => {
     const {
       interviewSchedulingMode = null,
       manualSchedule = null,
+      reviewerAssignments = undefined,
     } = options;
 
     if (newStatus === 'REJECTED') {
@@ -511,6 +694,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
       const payload = { status: newStatus };
       if (newStatus === 'INTERVIEWING' && interviewSchedulingMode) {
         payload.interviewSchedulingMode = interviewSchedulingMode;
+      }
+      if (Array.isArray(reviewerAssignments)) {
+        payload.reviewerAssignments = reviewerAssignments;
       }
 
       statusResult = await apiClient.applications.updateStatus(applicationId, payload);
@@ -537,13 +723,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
           if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
             throw new Error('Please select a valid interview date and time.');
           }
+          if (scheduledDate.getTime() <= Date.now()) {
+            throw new Error('Please select a future interview date and time.');
+          }
 
           const schedulePayload = {
             scheduledFor: scheduledDate.toISOString(),
             timezone: manualSchedule?.timezone?.trim() || resolveLocalTimezone(),
-            meetingLink: manualSchedule?.meetingLink?.trim() || null,
             duration: Number.isFinite(Number(manualSchedule?.duration)) ? Number(manualSchedule.duration) : 30,
             notes: manualSchedule?.notes?.trim() || '',
+            reviewerAssignments: Array.isArray(manualSchedule?.reviewerAssignments)
+              ? manualSchedule.reviewerAssignments
+              : [],
           };
 
           const scheduleResult = await apiClient.interviews.schedule(interviewId, schedulePayload);
@@ -578,15 +769,18 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     if (!modal?.applicationId) return;
 
     if (modal.mode === 'MANUAL') {
-      const scheduledDate = modal.scheduledFor ? new Date(modal.scheduledFor) : null;
-      if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
+      const blockingMessage = modal.constraintsLoading
+        ? 'Loading assigned scheduling availability...'
+        : (modal.constraintsError || manualInterviewingValidationMessage);
+      if (blockingMessage) {
         setInterviewingScheduleModal((previous) => ({
           ...previous,
-          error: 'Select a valid interview date and time.',
+          error: blockingMessage,
         }));
         return;
       }
 
+      const scheduledDate = modal.scheduledFor ? new Date(modal.scheduledFor) : null;
       if (scheduledDate.getTime() <= Date.now()) {
         setInterviewingScheduleModal((previous) => ({
           ...previous,
@@ -599,13 +793,14 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     setInterviewingScheduleModal((previous) => ({ ...previous, error: '' }));
     const wasUpdated = await handleStatusChange(modal.applicationId, 'INTERVIEWING', {
       interviewSchedulingMode: modal.mode,
+      reviewerAssignments: modal.reviewerAssignments,
       manualSchedule: modal.mode === 'MANUAL'
         ? {
           scheduledFor: modal.scheduledFor,
           timezone: modal.timezone,
-          meetingLink: modal.meetingLink,
           duration: modal.duration,
           notes: modal.notes,
+          reviewerAssignments: modal.reviewerAssignments,
         }
         : null,
     });
@@ -654,14 +849,84 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const handleViewDetails = (application) => {
     setSelectedApplication(application);
     setModalError('');
+    setOfferSuccess('');
+    setOfferDraft(buildInitialOfferDraft(application));
     const derivedStatus = getDerivedApplicationStatus(application);
     setPendingStatus(STATUS_SELECTION_OPTIONS.includes(derivedStatus) ? derivedStatus : null);
     setShowDetails(true);
   };
 
+  const handleOfferDraftFieldChange = (field, value) => {
+    setOfferDraft((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+    setOfferSuccess('');
+  };
+
+  const handleSaveOffer = async () => {
+    if (!selectedApplication) return;
+    const validationMessage = validateOfferDraft(offerDraft);
+    if (validationMessage) {
+      setModalError(validationMessage);
+      setTimeout(() => setModalError(''), 5000);
+      return;
+    }
+
+    try {
+      setSavingOffer(true);
+      setModalError('');
+      setOfferSuccess('');
+      const payload = buildOfferPayloadFromDraft(offerDraft);
+      const result = await apiClient.applications.upsertOffer(selectedApplication.id, payload);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to save offer details.');
+      }
+
+      await loadApplications();
+      setSelectedApplication((previous) => ({
+        ...(previous || {}),
+        ...(result.application || {}),
+      }));
+      setOfferDraft(buildInitialOfferDraft(result.application || selectedApplication));
+      setOfferSuccess(result.message || 'Offer details saved.');
+    } catch (error) {
+      setModalError(error.message || 'Failed to save offer details.');
+      setTimeout(() => setModalError(''), 5000);
+    } finally {
+      setSavingOffer(false);
+    }
+  };
+
+  const handleResendOffer = async () => {
+    if (!selectedApplication?.id || !canEditOffer) return;
+
+    setResendingOffer(true);
+    setOfferSuccess('');
+    setModalError('');
+    try {
+      const result = await apiClient.applications.resendOffer(selectedApplication.id);
+      if (!result?.success || !result?.application) {
+        throw new Error(result?.error || 'Failed to resend offer.');
+      }
+
+      setSelectedApplication((previous) => (
+        previous?.id === result.application.id
+          ? { ...previous, ...result.application }
+          : previous
+      ));
+      setOfferSuccess(result.message || 'Offer email resent successfully.');
+      await loadApplications();
+    } catch (error) {
+      setModalError(error.message || 'Failed to resend offer.');
+    } finally {
+      setResendingOffer(false);
+    }
+  };
+
   const handleStartReview = async () => {
-    if (!canStartReview) {
-      setModalError('You do not have permission to start candidate reviews.');
+    if (!canOpenInterviewWorkspace) {
+      setModalError('You do not have permission to access interview reviews.');
       setTimeout(() => setModalError(''), 5000);
       return;
     }
@@ -706,7 +971,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
       application: selectedApplication,
       pendingStatus,
       canUpdateStatus,
-      canStartReview,
+      canOpenInterviewWorkspace,
     });
 
     if (actionConfig.disabled) {
@@ -798,6 +1063,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     });
   }, [groupedApplications]);
 
+  useEffect(() => {
+    if (!selectedApplication) return;
+    setOfferDraft(buildInitialOfferDraft(selectedApplication));
+  }, [selectedApplication?.id, selectedApplication?.offer, selectedApplication?.status]);
+
   if (loading) {
     return (
       <LoadingState
@@ -849,12 +1119,16 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
   const endIndex = startIndex + itemsPerPage;
   const paginatedJobs = jobsArray.slice(startIndex, endIndex);
   const selectedPrimaryAction = selectedApplication ? getPrimaryActionConfig({
-    application: selectedApplication,
-    pendingStatus,
-    canUpdateStatus,
-    canStartReview,
-  }) : null;
+      application: selectedApplication,
+      pendingStatus,
+      canUpdateStatus,
+      canOpenInterviewWorkspace,
+    }) : null;
   const selectedApplicationResponses = buildApplicationResponses(selectedApplication);
+  const selectedApplicationStatus = selectedApplication ? getDerivedApplicationStatus(selectedApplication) : null;
+  const canEditOffer = canUpdateStatus && selectedApplicationStatus === 'OFFER';
+  const currentOfferStatus = selectedApplication?.offer?.status || null;
+  const selectedOfferHistory = Array.isArray(selectedApplication?.offerHistory) ? selectedApplication.offerHistory : [];
 
   return (
     <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 sm:p-6 shadow-lg">
@@ -862,7 +1136,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-              Job Applications
+              {isReviewerOnly ? 'Application Reviews' : 'Job Applications'}
             </h2>
             <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
               {totalApplicationsCount} {totalApplicationsCount === 1 ? 'application' : 'applications'} across {totalJobsCount} {totalJobsCount === 1 ? 'job' : 'jobs'}
@@ -882,7 +1156,9 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
         {/* Filters */}
         <UnifiedFilterPanel
           title="Application Filters"
-          description="Search candidates and refine applications by role, status, disposition, and hiring timeline."
+          description={isReviewerOnly
+            ? 'Search candidate submissions and refine them by role, status, disposition, and interview context.'
+            : 'Search candidates and refine applications by role, status, disposition, and hiring timeline.'}
           activeCount={activeFilterCount}
           onClear={clearFilters}
           headerActions={(
@@ -1384,20 +1660,32 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                               const isCurrent = currentStatus === status;
                               const isSelected = pendingStatus === status;
                               const isWithdrawnApp = isWithdrawn(selectedApplication);
+                              const offerEligibility = status === 'OFFER'
+                                ? getApplicationOfferStageEligibility(selectedApplication)
+                                : { allowed: true, reason: null };
+                              const isStatusDisabled = updating === selectedApplication.id
+                                || isWithdrawnApp
+                                || (status === 'OFFER' && !offerEligibility.allowed);
                               
                               return (
                                 <button
                                   key={status}
-                                  onClick={() => !isWithdrawnApp && setPendingStatus(status)}
-                                  disabled={updating === selectedApplication.id || isWithdrawnApp}
+                                  onClick={() => !isStatusDisabled && setPendingStatus(status)}
+                                  disabled={isStatusDisabled}
                                   className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
                                     isSelected
                                       ? `${config.color} border-white/80 dark:border-slate-100/70 shadow-sm ring-1 ring-black/5 dark:ring-white/10`
-                                      : isWithdrawnApp
+                                      : isStatusDisabled
                                       ? 'bg-gray-100 dark:bg-slate-800 text-gray-500 dark:text-slate-500 border-gray-300 dark:border-slate-700 cursor-not-allowed'
                                       : 'bg-white dark:bg-slate-800/80 text-gray-700 dark:text-slate-200 border-gray-300 dark:border-slate-600 hover:bg-gray-100 dark:hover:bg-slate-700'
                                   }`}
-                                  title={isWithdrawnApp ? 'Cannot change status of withdrawn applications' : ''}
+                                  title={
+                                    isWithdrawnApp
+                                      ? 'Cannot change status of withdrawn applications'
+                                      : status === 'OFFER' && !offerEligibility.allowed
+                                        ? offerEligibility.reason
+                                        : ''
+                                  }
                                 >
                                   <span className="inline-flex items-center gap-1.5">
                                     {config.label}
@@ -1450,6 +1738,220 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         </p>
                       )}
                     </div>
+
+                    {((selectedApplicationStatus === 'OFFER' && (canEditOffer || selectedApplication.offer !== undefined))
+                      || (selectedApplicationStatus === 'HIRED' && selectedApplication.offer)) && (
+                      <div className="space-y-4 rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/45 p-4">
+                        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                          <div>
+                            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                              Offer Details
+                            </h3>
+                            <p className="text-xs text-gray-600 dark:text-slate-400 mt-1">
+                              This is the structured offer the candidate can review and respond to in their dashboard.
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            {currentOfferStatus && (
+                              <span className="inline-flex items-center rounded-full bg-white/90 dark:bg-slate-900/70 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                                {OFFER_STATUS_LABELS[currentOfferStatus] || currentOfferStatus}
+                              </span>
+                            )}
+                            {selectedApplication.offer?.respondedAt && (
+                              <span className="text-xs text-gray-500 dark:text-slate-400">
+                                Responded {formatDate(selectedApplication.offer.respondedAt)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {offerSuccess && (
+                          <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
+                            {offerSuccess}
+                          </div>
+                        )}
+
+                        {selectedApplication.offer?.declineReason && (
+                          <div className="rounded-xl border border-rose-200/70 dark:border-rose-500/25 bg-white dark:bg-slate-950/60 px-3 py-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-rose-700 dark:text-rose-300">
+                              Candidate decline note
+                            </p>
+                            <p className="mt-1 text-sm text-gray-700 dark:text-slate-300">
+                              {selectedApplication.offer.declineReason}
+                            </p>
+                          </div>
+                        )}
+
+                        {selectedApplication.offer && (
+                          <div className="rounded-xl border border-gray-200/80 dark:border-slate-700/70 bg-white dark:bg-slate-950/60 px-3 py-3">
+                            <div className="grid gap-2 text-xs text-gray-600 dark:text-slate-400 sm:grid-cols-3">
+                              <div>
+                                <p className="font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-500">Compensation</p>
+                                <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                                  {formatOfferCompensation(selectedApplication.offer) || 'Not set'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-500">Last Sent</p>
+                                <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                                  {selectedApplication.offer.sentAt ? formatDate(selectedApplication.offer.sentAt) : 'Not sent'}
+                                </p>
+                              </div>
+                              <div>
+                                <p className="font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-500">Response</p>
+                                <p className="mt-1 text-sm text-gray-900 dark:text-slate-100">
+                                  {selectedApplication.offer.respondedAt ? formatDate(selectedApplication.offer.respondedAt) : 'Awaiting candidate response'}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+
+                        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                          <UnifiedFilterField label="Offer Title">
+                            <UnifiedTextInput
+                              value={offerDraft.title}
+                              onChange={(event) => handleOfferDraftFieldChange('title', event.target.value)}
+                              disabled={!canEditOffer || savingOffer}
+                              placeholder="Senior Data Analyst Offer"
+                            />
+                          </UnifiedFilterField>
+                          <UnifiedFilterField label="Compensation Amount">
+                            <UnifiedTextInput
+                              type="number"
+                              value={offerDraft.compensationAmount}
+                              onChange={(event) => handleOfferDraftFieldChange('compensationAmount', event.target.value)}
+                              disabled={!canEditOffer || savingOffer}
+                            />
+                          </UnifiedFilterField>
+                          <UnifiedFilterField label="Currency">
+                            <UnifiedTextInput
+                              value={offerDraft.compensationCurrency}
+                              onChange={(event) => handleOfferDraftFieldChange('compensationCurrency', event.target.value.toUpperCase())}
+                              disabled={!canEditOffer || savingOffer}
+                              placeholder="LKR"
+                            />
+                          </UnifiedFilterField>
+                          <UnifiedFilterSelect
+                            label="Compensation Period"
+                            value={offerDraft.compensationPeriod}
+                            onChange={(value) => handleOfferDraftFieldChange('compensationPeriod', value)}
+                            options={OFFER_COMPENSATION_PERIOD_OPTIONS}
+                            disabled={!canEditOffer || savingOffer}
+                            placeholder="Select period"
+                          />
+                          <UnifiedFilterField label="Start Date">
+                            <UnifiedTextInput
+                              type="date"
+                              value={offerDraft.startDate}
+                              onChange={(event) => handleOfferDraftFieldChange('startDate', event.target.value)}
+                              disabled={!canEditOffer || savingOffer}
+                            />
+                          </UnifiedFilterField>
+                          <UnifiedFilterField label="Offer Expiry">
+                            <UnifiedTextInput
+                              type="datetime-local"
+                              value={offerDraft.expiresAt}
+                              onChange={(event) => handleOfferDraftFieldChange('expiresAt', event.target.value)}
+                              disabled={!canEditOffer || savingOffer}
+                            />
+                          </UnifiedFilterField>
+                        </div>
+
+                        <UnifiedFilterField label="Offer Note">
+                          <textarea
+                            value={offerDraft.note}
+                            onChange={(event) => handleOfferDraftFieldChange('note', event.target.value)}
+                            disabled={!canEditOffer || savingOffer}
+                            placeholder="Summarize compensation context, joining expectations, or next steps."
+                            className="min-h-[110px] w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                          />
+                        </UnifiedFilterField>
+
+                        <div className="flex flex-wrap justify-end gap-3">
+                          {selectedApplication.status === 'HIRED' && selectedApplication.onboarding && (
+                            <Button
+                              variant="outline"
+                              onClick={() => navigate(`/company-applications/${selectedApplication.id}/onboarding`)}
+                              disabled={resendingOffer || savingOffer}
+                            >
+                              <Icon name="ClipboardCheck" className="w-4 h-4 mr-2" />
+                              Open Onboarding Workspace
+                            </Button>
+                          )}
+                          <Button
+                            variant="outline"
+                            onClick={() => navigate(`/company-applications/${selectedApplication.id}/offer`)}
+                            disabled={resendingOffer || savingOffer}
+                          >
+                            <Icon name="ExternalLink" className="w-4 h-4 mr-2" />
+                            Open Offer Workspace
+                          </Button>
+                          {canEditOffer && selectedApplication.offer?.status === 'PENDING' && (
+                            <Button
+                              variant="outline"
+                              onClick={handleResendOffer}
+                              loading={resendingOffer}
+                              disabled={resendingOffer || savingOffer}
+                            >
+                              {!resendingOffer && (
+                                <Icon name="Send" className="w-4 h-4 mr-2" />
+                              )}
+                              Resend Offer Email
+                            </Button>
+                          )}
+                          {canEditOffer && (
+                            <Button
+                              variant="default"
+                              onClick={handleSaveOffer}
+                              loading={savingOffer}
+                              disabled={savingOffer || resendingOffer}
+                              className="bg-amber-600 hover:bg-amber-700 text-white"
+                            >
+                              {!savingOffer && (
+                                <Icon name="Briefcase" className="w-4 h-4 mr-2" />
+                              )}
+                              Save Offer Details
+                            </Button>
+                          )}
+                        </div>
+
+                        {selectedOfferHistory.length > 0 && (
+                          <div className="space-y-3 rounded-xl border border-gray-200/80 dark:border-slate-700/70 bg-white dark:bg-slate-950/60 p-4">
+                            <div>
+                              <h4 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Offer History</h4>
+                              <p className="text-xs text-gray-500 dark:text-slate-400 mt-1">
+                                Track every offer update, resend, and candidate response.
+                              </p>
+                            </div>
+                            <div className="space-y-2">
+                              {selectedOfferHistory.map((entry) => (
+                                <div key={entry.id} className="rounded-lg border border-gray-200/80 dark:border-slate-700/70 bg-slate-50/90 dark:bg-slate-900/70 px-3 py-2">
+                                  <div className="flex flex-wrap items-center justify-between gap-2">
+                                    <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                      {formatOfferHistoryEventLabel(entry.eventType)}
+                                    </p>
+                                    <span className="text-xs text-gray-500 dark:text-slate-500">
+                                      {formatDate(entry.createdAt)}
+                                    </span>
+                                  </div>
+                                  {entry.offer && (
+                                    <p className="mt-1 text-xs text-gray-600 dark:text-slate-400">
+                                      {formatOfferCompensation(entry.offer) || 'Compensation unavailable'}
+                                    </p>
+                                  )}
+                                  {entry.note && (
+                                    <p className="mt-1 text-sm text-gray-700 dark:text-slate-300">
+                                      {entry.note}
+                                    </p>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
 
                     {/* Resume */}
                     {selectedApplication.resumeUrl && (
@@ -1520,7 +2022,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     >
                       Close
                     </Button>
-                    {(canStartReview || canUpdateStatus) && (
+                    {(canOpenInterviewWorkspace || canUpdateStatus) && (
                       <Button
                         variant="default"
                         onClick={handlePrimaryAction}
@@ -1688,13 +2190,115 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                   })}
                 </div>
 
+                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40 p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                        Reviewer coverage
+                      </p>
+                      <p className="text-sm text-gray-700 dark:text-slate-200 mt-1">
+                        Assign the reviewers who should evaluate this interview after it completes.
+                      </p>
+                    </div>
+                    <span className="rounded-full border border-gray-200 dark:border-slate-600 px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
+                      {interviewingScheduleModal.reviewerAssignments.length} assigned
+                    </span>
+                  </div>
+
+                  {interviewingScheduleModal.reviewerOptionsLoading ? (
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
+                      Loading review-capable team members...
+                    </p>
+                  ) : interviewingScheduleModal.reviewerOptionsError ? (
+                    <p className="text-xs text-rose-600 dark:text-rose-300">
+                      {interviewingScheduleModal.reviewerOptionsError}
+                    </p>
+                  ) : interviewingScheduleModal.reviewerOptions.length === 0 ? (
+                    <p className="text-xs text-gray-500 dark:text-slate-400">
+                      No active review-capable team members are available to assign yet.
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {interviewingScheduleModal.reviewerOptions.map((option) => {
+                        const isSelected = interviewingScheduleModal.reviewerAssignments.includes(option.value);
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => toggleInterviewingReviewerAssignment(option.value)}
+                            className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                              isSelected
+                                ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                : 'border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:border-emerald-300 dark:hover:border-emerald-500/60'
+                            }`}
+                          >
+                            <div className="flex items-start gap-3">
+                              <span className={`mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                                isSelected
+                                  ? 'border-emerald-500 bg-emerald-500 text-white dark:border-emerald-400 dark:bg-emerald-500'
+                                  : 'border-gray-300 text-transparent dark:border-slate-500'
+                              }`}>
+                                <Icon
+                                  name={isSelected ? 'Check' : 'Circle'}
+                                  className="w-3 h-3"
+                                />
+                              </span>
+                              <div className="min-w-0 space-y-1">
+                                <p className="text-sm font-semibold break-words">{option.label}</p>
+                                {option.roleLabel && (
+                                  <p className="text-[11px] opacity-80">{option.roleLabel}</p>
+                                )}
+                                {option.email && (
+                                  <p className="break-all text-[11px] opacity-80">{option.email}</p>
+                                )}
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+
                 {interviewingScheduleModal.mode === 'MANUAL' && (
                   <div className="space-y-4 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40 p-4">
+                    <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-900/40 p-3 space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                        Manual scheduling checks
+                      </p>
+                      {interviewingScheduleModal.schedulingConstraints ? (
+                        <>
+                          <p className="text-sm font-medium text-gray-800 dark:text-slate-100">
+                            {getAvailabilitySourceLabel(interviewingScheduleModal.schedulingConstraints)}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-slate-400">
+                            {formatWorkingDays(interviewingScheduleModal.schedulingConstraints.workingDays)} | {' '}
+                            {formatMinutesOfDay(interviewingScheduleModal.schedulingConstraints.businessHoursStartMinutes)}-
+                            {formatMinutesOfDay(interviewingScheduleModal.schedulingConstraints.businessHoursEndMinutes)} {' '}
+                            {interviewingScheduleModal.schedulingConstraints.timezone || 'UTC'}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-slate-500">
+                            Lead time: {interviewingScheduleModal.schedulingConstraints.leadHours}h | Window: {interviewingScheduleModal.schedulingConstraints.scheduleWindowDays} days
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-gray-600 dark:text-slate-400">
+                          {interviewingScheduleModal.constraintsLoading
+                            ? 'Loading assigned scheduling availability...'
+                            : (interviewingScheduleModal.constraintsError || 'Scheduling rules are unavailable right now.')}
+                        </p>
+                      )}
+                    </div>
+
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
+                      <label
+                        htmlFor="interviewing-schedule-datetime"
+                        className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5"
+                      >
                         Date & Time
                       </label>
                       <input
+                        id="interviewing-schedule-datetime"
                         type="datetime-local"
                         value={interviewingScheduleModal.scheduledFor}
                         onChange={(event) => setInterviewingScheduleModal((previous) => ({
@@ -1702,10 +2306,73 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                           scheduledFor: event.target.value,
                           error: '',
                         }))}
-                        min={toLocalDatetimeValue(new Date())}
+                        min={
+                          manualInterviewingWindowBounds?.minimumDate
+                            ? toLocalDatetimeValue(manualInterviewingWindowBounds.minimumDate)
+                            : getMinimumInterviewingDatetime()
+                        }
+                        max={
+                          manualInterviewingWindowBounds?.maximumDate
+                            ? toLocalDatetimeValue(manualInterviewingWindowBounds.maximumDate)
+                            : undefined
+                        }
+                        step={Math.max(1, Number(manualInterviewingWindowBounds?.slotMinutes) || 30) * 60}
                         className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                       />
+                      {interviewingScheduleModal.schedulingConstraints && (
+                        <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                          Lead time, scheduling window, working days, and business hours are applied here.
+                          Final conflict checks still run when you save.
+                        </p>
+                      )}
+                      {interviewingScheduleModal.schedulingConstraints && !interviewingScheduleModal.constraintsLoading && (
+                        <div className="mt-3 space-y-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                              Next valid slots
+                            </p>
+                            <p className="text-[11px] text-gray-400 dark:text-slate-500">
+                              Based on {getAvailabilitySourceLabel(interviewingScheduleModal.schedulingConstraints).toLowerCase()}
+                            </p>
+                          </div>
+                          {manualInterviewingSlots.length > 0 ? (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              {manualInterviewingSlots.map((slot) => {
+                                const isSelected = slot.value === interviewingScheduleModal.scheduledFor;
+                                return (
+                                  <button
+                                    key={slot.value}
+                                    type="button"
+                                    onClick={() => setInterviewingScheduleModal((previous) => ({
+                                      ...previous,
+                                      scheduledFor: slot.value,
+                                      error: '',
+                                    }))}
+                                    aria-label={`Use suggested slot ${slot.localLabel}`}
+                                    className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                                      isSelected
+                                        ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-200'
+                                        : 'border-gray-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 text-gray-700 dark:text-slate-200'
+                                    }`}
+                                  >
+                                    <p className="text-sm font-medium">{slot.localLabel}</p>
+                                    {showInterviewingTimezoneTranslation && (
+                                      <p className="mt-1 text-[11px] text-gray-500 dark:text-slate-400">
+                                        {slot.availabilityLabel} {interviewingScheduleModal.schedulingConstraints.timezone}
+                                      </p>
+                                    )}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="text-xs text-gray-500 dark:text-slate-400">
+                              No guided slots are available inside the current availability window.
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -1748,23 +2415,6 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
-                        Meeting link <span className="text-gray-400 font-normal">(optional)</span>
-                      </label>
-                      <input
-                        type="url"
-                        value={interviewingScheduleModal.meetingLink}
-                        onChange={(event) => setInterviewingScheduleModal((previous) => ({
-                          ...previous,
-                          meetingLink: event.target.value,
-                          error: '',
-                        }))}
-                        placeholder="https://meet.example.com/session"
-                        className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
                         Notes <span className="text-gray-400 font-normal">(optional)</span>
                       </label>
                       <textarea
@@ -1789,6 +2439,19 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     </p>
                   </div>
                 )}
+                {!interviewingScheduleModal.error && interviewingScheduleModal.mode === 'MANUAL' && (
+                  interviewingScheduleModal.constraintsLoading
+                  || interviewingScheduleModal.constraintsError
+                  || manualInterviewingValidationMessage
+                ) && (
+                  <div className="rounded-lg border border-amber-200 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2">
+                    <p className="text-sm text-amber-700 dark:text-amber-200">
+                      {interviewingScheduleModal.constraintsLoading
+                        ? 'Loading assigned scheduling availability...'
+                        : (interviewingScheduleModal.constraintsError || manualInterviewingValidationMessage)}
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex gap-3">
                   <Button
@@ -1803,7 +2466,17 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                     className="flex-1 bg-blue-600 hover:bg-blue-700 dark:bg-blue-500 dark:hover:bg-blue-400 text-white"
                     onClick={handleConfirmInterviewingTransition}
                     loading={updating === interviewingScheduleModal.applicationId}
-                    disabled={updating === interviewingScheduleModal.applicationId}
+                    disabled={
+                      updating === interviewingScheduleModal.applicationId
+                      || (
+                        interviewingScheduleModal.mode === 'MANUAL'
+                        && (
+                          interviewingScheduleModal.constraintsLoading
+                          || Boolean(interviewingScheduleModal.constraintsError)
+                          || Boolean(manualInterviewingValidationMessage)
+                        )
+                      )
+                    }
                   >
                     {interviewingScheduleModal.mode === 'MANUAL'
                       ? 'Set Status & Schedule'

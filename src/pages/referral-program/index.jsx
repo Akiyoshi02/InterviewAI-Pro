@@ -94,10 +94,17 @@ const ReferralProgramPage = () => {
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Referral Program</h1>
-              <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                Invite friends to InterviewAI Pro and earn reward points.
-              </p>
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                  <Icon name="Gift" size={24} color="white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Referral Program</h1>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                    Invite friends to InterviewAI Pro and earn reward points.
+                  </p>
+                </div>
+              </div>
             </motion.div>
 
             {/* Stats */}
@@ -124,7 +131,7 @@ const ReferralProgramPage = () => {
               </div>
               {nextTier && (
                 <div className="space-y-1">
-                  <div className="flex justify-between text-xs text-gray-500 dark:text-slate-400">
+                  <div className="flex flex-col gap-1 text-xs text-gray-500 dark:text-slate-400 xs:flex-row xs:items-center xs:justify-between">
                     <span>Progress to {nextTier.label}</span>
                     <span>{referral?.totalReferrals || 0} / {nextTier.min}</span>
                   </div>
@@ -138,15 +145,23 @@ const ReferralProgramPage = () => {
                   </div>
                 </div>
               )}
-              <div className="grid grid-cols-3 gap-2">
+              <div
+                className="grid grid-cols-1 gap-2 xs:grid-cols-2 sm:grid-cols-3"
+                role="list"
+                aria-label="Tier milestones"
+              >
                 {Object.entries(TIER_CONFIG).filter(([k]) => k !== 'none').map(([key, t]) => (
-                  <div key={key} className={`rounded-lg p-3 text-center space-y-1 border ${
+                  <div
+                    key={key}
+                    role="listitem"
+                    className={`rounded-xl border p-4 text-center space-y-1.5 ${
                     referral?.tier === key
                       ? 'border-blue-400 dark:border-blue-600'
                       : 'border-gray-100 dark:border-slate-700'
-                  }`}>
+                  }`}
+                  >
                     <Icon name={t.icon} size={20} className={t.color + ' mx-auto'} />
-                    <p className={`text-xs font-semibold ${t.color}`}>{t.label}</p>
+                    <p className={`text-sm font-semibold ${t.color}`}>{t.label}</p>
                     <p className="text-xs text-gray-400">{t.min}+ referrals</p>
                   </div>
                 ))}

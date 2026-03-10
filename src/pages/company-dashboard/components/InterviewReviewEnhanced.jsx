@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
@@ -10,6 +11,7 @@ import {
   INTERVIEW_FEED_EVENTS,
   combineRealtimeEventTypes,
 } from '../../../constants/realtimeFeedEvents.js';
+import { canMoveInterviewApplicationToOffer } from '../../../utils/interviewRoundSummary.js';
 
 /** Rubric criteria for AI evaluation (explainable output for recruiters/SMEs). */
 const EVALUATION_RUBRIC_CRITERIA = [
@@ -27,11 +29,103 @@ const STAR_COMPONENTS = [
   { key: 'result', label: 'Result', icon: 'Award' },
 ];
 
-const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
+const INTERVIEW_STAGE_OUTCOME_OPTIONS = [
+  { value: 'PASS', label: 'Pass' },
+  { value: 'HOLD', label: 'Hold' },
+  { value: 'FAIL', label: 'Fail' },
+];
+
+const INTERVIEW_STAGE_ADVANCE_RULE_LABELS = {
+  PASS_REQUIRED: 'Pass required to continue',
+  COMPLETE_TO_CONTINUE: 'Completion is enough to continue',
+};
+
+const getCurrentInterviewPlanStageDetail = (interview) => {
+  const stages = Array.isArray(interview?.applicationInterviewPlan?.stages)
+    ? interview.applicationInterviewPlan.stages
+    : [];
+  if (stages.length === 0) return null;
+  return stages.find((stage) => stage?.id === interview?.planStageId)
+    || stages.find((stage) => stage?.id === interview?.applicationInterviewPlan?.currentStageId)
+    || null;
+};
+
+const buildStageOutcomeEditorState = (interview) => {
+  const currentStage = getCurrentInterviewPlanStageDetail(interview);
+  const persistedOutcome = ['PASS', 'FAIL', 'HOLD'].includes(String(currentStage?.outcome || '').trim().toUpperCase())
+    ? String(currentStage.outcome).trim().toUpperCase()
+    : '';
+  return {
+    outcome: persistedOutcome || 'PASS',
+    persistedOutcome,
+    note: typeof currentStage?.outcomeNote === 'string' ? currentStage.outcomeNote : '',
+  };
+};
+
+const getStageOutcomeSummary = (interview) => {
+  const currentStage = getCurrentInterviewPlanStageDetail(interview);
+  if (!currentStage) return null;
+
+  const outcome = String(currentStage.outcome || 'PENDING').trim().toUpperCase();
+  const advanceRule = String(currentStage.advanceRule || 'PASS_REQUIRED').trim().toUpperCase();
+  const status = String(currentStage.status || '').trim().toUpperCase();
+
+  if (status !== 'COMPLETED') {
+    return {
+      label: 'Round decision unlocks after completion',
+      detail: 'Finish the current stage before recording a pass, hold, or fail outcome.',
+      tone: 'blue',
+      advanceRuleLabel: INTERVIEW_STAGE_ADVANCE_RULE_LABELS[advanceRule] || INTERVIEW_STAGE_ADVANCE_RULE_LABELS.PASS_REQUIRED,
+    };
+  }
+
+  if (advanceRule === 'COMPLETE_TO_CONTINUE') {
+    const canAdvance = outcome !== 'FAIL' && outcome !== 'HOLD';
+    return {
+      label: outcome === 'PENDING' ? 'Completion is enough to continue' : `${outcome.charAt(0)}${outcome.slice(1).toLowerCase()} outcome recorded`,
+      detail: currentStage.outcomeNote
+        || (canAdvance
+          ? 'This round can continue after completion unless you place it on hold or fail it.'
+          : outcome === 'FAIL'
+            ? 'This round is blocked from creating the next stage until the outcome changes.'
+            : 'This round is on hold and cannot continue yet.'),
+      tone: canAdvance ? (outcome === 'PASS' ? 'emerald' : 'blue') : (outcome === 'FAIL' ? 'rose' : 'amber'),
+      advanceRuleLabel: INTERVIEW_STAGE_ADVANCE_RULE_LABELS.COMPLETE_TO_CONTINUE,
+    };
+  }
+
+  return {
+    label: outcome === 'PASS'
+      ? 'Pass outcome recorded'
+      : outcome === 'FAIL'
+        ? 'Fail outcome recorded'
+        : outcome === 'HOLD'
+          ? 'Round is on hold'
+          : 'Pass outcome required to continue',
+    detail: currentStage.outcomeNote
+      || (outcome === 'PASS'
+        ? 'This round is cleared for the next interview stage.'
+        : outcome === 'FAIL'
+          ? 'This round is blocked from progressing until the outcome changes.'
+          : outcome === 'HOLD'
+            ? 'This round cannot progress while the hold is unresolved.'
+            : 'Record a Pass outcome when this round is approved to continue.'),
+    tone: outcome === 'PASS' ? 'emerald' : outcome === 'FAIL' ? 'rose' : outcome === 'HOLD' ? 'amber' : 'blue',
+    advanceRuleLabel: INTERVIEW_STAGE_ADVANCE_RULE_LABELS.PASS_REQUIRED,
+  };
+};
+
+const InterviewReviewEnhanced = ({
+  interviewId,
+  initialActiveTab = 'overview',
+  onClose,
+}) => {
+  const navigate = useNavigate();
   const { user } = useAuth();
+  const organizationRole = String(user?.organizationContext?.membership?.role || '').toUpperCase();
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('overview');
+  const [activeTab, setActiveTab] = useState(initialActiveTab);
   const [review, setReview] = useState({
     rating: 0,
     technicalScore: 0,
@@ -50,8 +144,42 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   const [recordingLoading, setRecordingLoading] = useState(false);
   const [recordingError, setRecordingError] = useState('');
   const [runningEvaluation, setRunningEvaluation] = useState(false);
+  const [stageOutcomeValue, setStageOutcomeValue] = useState('PASS');
+  const [stageOutcomeNote, setStageOutcomeNote] = useState('');
+  const [stageOutcomeInitialState, setStageOutcomeInitialState] = useState({
+    outcome: '',
+    note: '',
+  });
+  const [stageOutcomeSaving, setStageOutcomeSaving] = useState(false);
+  const [stageOutcomeError, setStageOutcomeError] = useState('');
+  const [stageOutcomeSuccess, setStageOutcomeSuccess] = useState('');
+  const [stageOutcomeNextInterview, setStageOutcomeNextInterview] = useState(null);
+  const [offerStageMoving, setOfferStageMoving] = useState(false);
   const loadInterviewRef = useRef(null);
   const realtimeRefreshTimeoutRef = useRef(null);
+  const interviewStatus = String(interview?.status || '').toUpperCase();
+  const canSubmitReview = interviewStatus === 'COMPLETED';
+  const canRunAiEvaluation = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
+  const canExportInterviewReport = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
+  const canOverrideOverallScore = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
+  const canManageStageOutcome = (organizationRole === 'ADMIN' || organizationRole === 'RECRUITER')
+    && String(interview?.mode || '').trim().toUpperCase() === 'HIRING';
+  const currentPlanStage = getCurrentInterviewPlanStageDetail(interview);
+  const stageOutcomeSummary = getStageOutcomeSummary(interview);
+  const canCreateNextStageFromOutcome = Boolean(
+    canManageStageOutcome
+    && interviewStatus === 'COMPLETED'
+    && interview?.hasNextPlanStage
+    && stageOutcomeValue === 'PASS',
+  );
+  const canMoveToOffer = Boolean(
+    canManageStageOutcome
+    && canMoveInterviewApplicationToOffer(interview),
+  );
+  const stageAutoAdvanceEnabled = Boolean(currentPlanStage?.autoAdvanceOnPass && canCreateNextStageFromOutcome);
+  const stageOutcomeDirty = stageOutcomeInitialState.outcome !== stageOutcomeValue
+    || stageOutcomeInitialState.note !== stageOutcomeNote;
+  const shouldAutoCloseAfterReview = organizationRole === 'REVIEWER' && typeof onClose === 'function';
 
   const loadInterview = useCallback(async () => {
     try {
@@ -72,6 +200,14 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   useEffect(() => {
     loadInterview();
   }, [loadInterview]);
+
+  useEffect(() => {
+    setActiveTab(initialActiveTab || 'overview');
+  }, [initialActiveTab, interviewId]);
+
+  useEffect(() => {
+    setStageOutcomeNextInterview(null);
+  }, [interviewId]);
 
   useEffect(() => {
     loadInterviewRef.current = loadInterview;
@@ -145,6 +281,27 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
     }
   }, []);
 
+  useEffect(() => {
+    if (!canSubmitReview && activeTab === 'review') {
+      setActiveTab('overview');
+    }
+  }, [activeTab, canSubmitReview]);
+
+  useEffect(() => {
+    const nextState = buildStageOutcomeEditorState(interview);
+    setStageOutcomeValue(nextState.outcome);
+    setStageOutcomeNote(nextState.note);
+    setStageOutcomeInitialState({
+      outcome: nextState.persistedOutcome,
+      note: nextState.note,
+    });
+  }, [interview]);
+
+  useEffect(() => {
+    setStageOutcomeError('');
+    setStageOutcomeSuccess('');
+  }, [interviewId]);
+
   const loadExistingReview = async () => {
     try {
       const result = await apiClient.reviews.getReviewForInterview(interviewId);
@@ -158,7 +315,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
           culturalFitScore: r.culturalFitScore ?? 0,
           notes: r.notes || '',
           recommendation: r.recommendation || r.decision || 'UNDECIDED',
-          overrideOverall: Boolean(r.overrideOverall),
+          overrideOverall: canOverrideOverallScore ? Boolean(r.overrideOverall) : false,
         });
       }
     } catch (err) {
@@ -169,6 +326,10 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   const handleSubmitReview = async () => {
     setReviewFormError('');
     setReviewFormSuccess('');
+    if (!canSubmitReview) {
+      setReviewFormError('Reviews can only be submitted after the interview is completed.');
+      return;
+    }
     if (!review.notes.trim()) {
       setReviewFormError('Please provide review notes before submitting.');
       return;
@@ -188,9 +349,11 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
         if (interviewResult.success && interviewResult.interview) {
           setInterview(interviewResult.interview);
         }
-        setTimeout(() => {
-          if (onClose) onClose();
-        }, 1200);
+        if (shouldAutoCloseAfterReview) {
+          setTimeout(() => {
+            onClose();
+          }, 1200);
+        }
       }
     } catch (err) {
       setReviewFormError('Failed to submit review: ' + (err.message || 'Please try again.'));
@@ -216,6 +379,72 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
       setEvaluationError(error?.message || 'Failed to run evaluation right now.');
     } finally {
       setRunningEvaluation(false);
+    }
+  };
+
+  const handleSaveStageOutcome = async (autoAdvance) => {
+    if (!interview?.id || stageOutcomeSaving || !canManageStageOutcome) return;
+
+    try {
+      setStageOutcomeSaving(true);
+      setStageOutcomeError('');
+      setStageOutcomeSuccess('');
+      const payload = {
+        outcome: stageOutcomeValue,
+        note: stageOutcomeNote,
+      };
+      if (typeof autoAdvance === 'boolean') {
+        payload.autoAdvance = autoAdvance;
+      }
+      const result = await apiClient.interviews.updateStageOutcome(interview.id, payload);
+      if (result?.interview) {
+        setInterview(result.interview);
+      }
+      if (result?.nextInterview) {
+        setStageOutcomeNextInterview(result.nextInterview);
+        setStageOutcomeSuccess(
+          result?.autoAdvance?.created === false
+            ? 'Round decision saved. The next interview stage is already active.'
+            : result?.autoAdvance?.scheduled
+              ? 'Round decision saved. The next interview stage was created and scheduled.'
+              : 'Round decision saved. The next interview stage was created.',
+        );
+      } else {
+        setStageOutcomeNextInterview(null);
+        setStageOutcomeSuccess(
+          result?.applicationStatusChange?.status === 'REJECTED'
+            ? 'Round decision saved. The application was closed based on this round result.'
+            : result?.autoAdvance?.warning
+            ? `Round decision saved. ${result.autoAdvance.warning}`
+            : result?.autoAdvance?.done
+              ? 'Round decision saved. No further interview stages are planned.'
+              : 'Round decision saved.',
+        );
+      }
+    } catch (error) {
+      setStageOutcomeError(error?.message || 'Unable to save the round decision right now.');
+    } finally {
+      setStageOutcomeSaving(false);
+    }
+  };
+
+  const handleMoveApplicationToOffer = async () => {
+    if (!interview?.applicationId || offerStageMoving || !canMoveToOffer) return;
+
+    try {
+      setOfferStageMoving(true);
+      setStageOutcomeError('');
+      setStageOutcomeSuccess('');
+      await apiClient.applications.updateStatus(interview.applicationId, 'OFFER');
+      const refreshed = await apiClient.interviews.getInterview(interviewId);
+      if (refreshed?.success && refreshed?.interview) {
+        setInterview(refreshed.interview);
+      }
+      setStageOutcomeSuccess('The candidate has been moved to the offer stage.');
+    } catch (error) {
+      setStageOutcomeError(error?.message || 'Unable to move this application to the offer stage right now.');
+    } finally {
+      setOfferStageMoving(false);
     }
   };
 
@@ -276,8 +505,8 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-start justify-between gap-4">
-        <div>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0 flex-1">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
             Interview Review
           </h2>
@@ -285,82 +514,87 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
             {interview.candidate?.fullName || 'Candidate'} • {interview.jobRole}
           </p>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const report = {
-                schemaVersion: '1.0',
-                exportDate: new Date().toISOString(),
-                interviewId: interview.id,
-                candidate: {
-                  id: interview.candidateId,
-                  fullName: interview.candidate?.fullName,
-                  email: interview.candidate?.email,
-                },
-                jobRole: interview.jobRole,
-                startedAt: interview.startedAt,
-                endedAt: interview.endedAt,
-                status: interview.status,
-                overallScore: interview.overallScore,
-                finalOverallScore: interview.finalOverallScore ?? interview.overallScore,
-                finalScoreSource: interview.finalScoreSource || 'AI',
-                readinessLevel: interview.readinessLevel,
-                evaluation: interview.evaluation
-                  ? (typeof interview.evaluation === 'object'
-                    ? {
-                        technicalSkills: interview.evaluation.technicalSkills,
-                        communicationSkills: interview.evaluation.communicationSkills,
-                        problemSolving: interview.evaluation.problemSolving,
-                        culturalFit: interview.evaluation.culturalFit,
-                        strengths: interview.evaluation.strengths,
-                        weaknesses: interview.evaluation.weaknesses,
-                        recommendations: interview.evaluation.recommendations,
-                        detailedFeedback: interview.evaluation.detailedFeedback,
-                      }
-                    : null)
-                  : null,
-                perQuestionEvaluation: Array.isArray(interview.questions)
-                  ? interview.questions
-                      .filter((q) => q?.feedback)
-                      .map((q) => ({
-                        questionId: q.id,
-                        question: q.question,
-                        answer: q.answer,
-                        score: q.feedback?.score,
-                        starAnalysis: q.feedback?.starAnalysis,
-                        strengths: q.feedback?.strengths,
-                        weaknesses: q.feedback?.weaknesses,
-                      }))
-                  : [],
-                reviewSummary: {
-                  rating: review.rating,
-                  technicalScore: review.technicalScore,
-                  communicationScore: review.communicationScore,
-                  problemSolvingScore: review.problemSolvingScore,
-                  culturalFitScore: review.culturalFitScore,
-                  recommendation: review.recommendation,
-                  overrideOverall: review.overrideOverall,
-                  notesExcerpt: review.notes ? review.notes.slice(0, 200) : null,
-                },
-              };
-              const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
-              const url = URL.createObjectURL(blob);
-              const a = document.createElement('a');
-              a.href = url;
-              a.download = `interview-evaluation-${interviewId}-${new Date().toISOString().slice(0, 10)}.json`;
-              a.click();
-              URL.revokeObjectURL(url);
-            }}
-          >
-            <Icon name="Download" className="w-4 h-4 mr-2" />
-            Export report
-          </Button>
+        <div className="flex w-full items-center gap-2 sm:w-auto sm:flex-shrink-0 sm:justify-end">
+          {canExportInterviewReport && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="flex-1 justify-center sm:flex-none"
+              onClick={() => {
+                const report = {
+                  schemaVersion: '1.0',
+                  exportDate: new Date().toISOString(),
+                  interviewId: interview.id,
+                  candidate: {
+                    id: interview.candidateId,
+                    fullName: interview.candidate?.fullName,
+                    email: interview.candidate?.email,
+                  },
+                  jobRole: interview.jobRole,
+                  startedAt: interview.startedAt,
+                  endedAt: interview.endedAt,
+                  status: interview.status,
+                  overallScore: interview.overallScore,
+                  finalOverallScore: interview.finalOverallScore ?? interview.overallScore,
+                  finalScoreSource: interview.finalScoreSource || 'AI',
+                  readinessLevel: interview.readinessLevel,
+                  evaluation: interview.evaluation
+                    ? (typeof interview.evaluation === 'object'
+                      ? {
+                          technicalSkills: interview.evaluation.technicalSkills,
+                          communicationSkills: interview.evaluation.communicationSkills,
+                          problemSolving: interview.evaluation.problemSolving,
+                          culturalFit: interview.evaluation.culturalFit,
+                          strengths: interview.evaluation.strengths,
+                          weaknesses: interview.evaluation.weaknesses,
+                          recommendations: interview.evaluation.recommendations,
+                          detailedFeedback: interview.evaluation.detailedFeedback,
+                        }
+                      : null)
+                    : null,
+                  perQuestionEvaluation: Array.isArray(interview.questions)
+                    ? interview.questions
+                        .filter((q) => q?.feedback)
+                        .map((q) => ({
+                          questionId: q.id,
+                          question: q.question,
+                          answer: q.answer,
+                          score: q.feedback?.score,
+                          starAnalysis: q.feedback?.starAnalysis,
+                          strengths: q.feedback?.strengths,
+                          weaknesses: q.feedback?.weaknesses,
+                        }))
+                    : [],
+                  reviewSummary: {
+                    rating: review.rating,
+                    technicalScore: review.technicalScore,
+                    communicationScore: review.communicationScore,
+                    problemSolvingScore: review.problemSolvingScore,
+                    culturalFitScore: review.culturalFitScore,
+                    recommendation: review.recommendation,
+                    overrideOverall: review.overrideOverall,
+                    notesExcerpt: review.notes ? review.notes.slice(0, 200) : null,
+                  },
+                };
+                const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `interview-evaluation-${interviewId}-${new Date().toISOString().slice(0, 10)}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+              }}
+            >
+              <Icon name="Download" className="w-4 h-4 mr-2" />
+              Export report
+            </Button>
+          )}
           {onClose && (
             <button
+              type="button"
+              aria-label="Close interview review"
               onClick={onClose}
-              className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg transition-colors"
+              className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
             >
               <Icon name="X" className="w-5 h-5" />
             </button>
@@ -411,28 +645,37 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
 
       {/* Tabs */}
       <div className="border-b border-gray-200 dark:border-slate-700">
-        <div className="flex gap-4">
-          {[
-            { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
-            { id: 'calibration', label: 'AI vs SME', icon: 'Scale' },
-            { id: 'transcript', label: 'Transcript', icon: 'FileText' },
-            { id: 'video', label: 'Recording', icon: 'Video' },
-            { id: 'evaluation', label: 'AI Evaluation', icon: 'Brain' },
-            { id: 'review', label: 'My Review', icon: 'Star' },
-          ].map((tab) => (
-            <button
-              key={tab.id}
-              onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 border-b-2 transition-colors ${
-                activeTab === tab.id
-                  ? 'border-purple-600 text-purple-600 dark:text-purple-400'
-                  : 'border-transparent text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'
-              }`}
-            >
-              <Icon name={tab.icon} className="w-4 h-4" />
-              <span className="text-sm font-medium">{tab.label}</span>
-            </button>
-          ))}
+        <div className="overflow-x-auto">
+          <div className="flex min-w-max gap-1 sm:gap-4">
+            {[
+              { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
+              { id: 'calibration', label: 'AI vs SME', icon: 'Scale' },
+              { id: 'transcript', label: 'Transcript', icon: 'FileText' },
+              { id: 'video', label: 'Recording', icon: 'Video' },
+              { id: 'evaluation', label: 'AI Evaluation', icon: 'Brain' },
+              { id: 'review', label: 'My Review', icon: 'Star', disabled: !canSubmitReview },
+            ].map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => {
+                  if (tab.disabled) return;
+                  setActiveTab(tab.id);
+                }}
+                disabled={tab.disabled}
+                className={`flex shrink-0 items-center gap-2 whitespace-nowrap border-b-2 px-3 py-3 text-sm transition-colors sm:px-4 ${
+                  activeTab === tab.id
+                    ? 'border-purple-600 text-purple-600 dark:text-purple-400'
+                    : tab.disabled
+                      ? 'border-transparent text-gray-400 dark:text-slate-500 cursor-not-allowed'
+                      : 'border-transparent text-gray-600 dark:text-slate-400 hover:text-gray-900 dark:hover:text-slate-200'
+                }`}
+              >
+                <Icon name={tab.icon} className="w-4 h-4" />
+                <span className="font-medium">{tab.label}</span>
+              </button>
+            ))}
+          </div>
         </div>
       </div>
 
@@ -552,10 +795,11 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 </Button>
                 <Button
                   onClick={() => setActiveTab('review')}
-                  className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  disabled={!canSubmitReview}
+                  className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Icon name="Star" className="w-4 h-4 mr-2" />
-                  Submit Review
+                  {canSubmitReview ? 'Submit Review' : 'Review Unlocks After Completion'}
                 </Button>
               </div>
             </div>
@@ -610,9 +854,9 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                   </h4>
                   <div className="space-y-3">
                     <div>
-                      <p className="text-xs text-gray-500 dark:text-slate-500">Overall (0–10 → 0–100)</p>
+                      <p className="text-xs text-gray-500 dark:text-slate-500">Overall (0-10 scaled to 0-100)</p>
                       <p className="text-2xl font-bold text-gray-900 dark:text-slate-100">
-                        {review.rating != null ? review.rating * 10 : '—'}
+                        {review.rating != null ? review.rating * 10 : 'N/A'}
                       </p>
                     </div>
                     <div>
@@ -638,7 +882,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
               {(interview.overallScore != null || review.rating > 0) && (
                 <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
                   <p className="text-sm font-medium text-gray-700 dark:text-slate-300">
-                    Agreement: AI overall {interview.overallScore != null ? interview.overallScore : 'N/A'} vs SME overall {review.rating != null ? review.rating * 10 : '—'}
+                    Agreement: AI overall {interview.overallScore != null ? interview.overallScore : 'N/A'} vs SME overall {review.rating != null ? review.rating * 10 : 'N/A'}
                     {interview.overallScore != null && review.rating != null && (
                       <span className="ml-2 text-gray-500 dark:text-slate-500">
                         (diff: {Math.abs(interview.overallScore - review.rating * 10).toFixed(0)} pts)
@@ -762,14 +1006,14 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
             </div>
           )}
 
-          {/* AI Evaluation Tab — rubric-tied explainability for recruiters/SMEs */}
+          {/* AI Evaluation Tab - rubric-tied explainability for recruiters/SMEs */}
           {activeTab === 'evaluation' && (
             <div className="space-y-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
                   AI-Generated Evaluation
                 </h3>
-                {(interview?.pendingEvaluation || interview?.llmUnavailable) && (
+                {canRunAiEvaluation && (interview?.pendingEvaluation || interview?.llmUnavailable) && (
                   <Button
                     variant="default"
                     size="sm"
@@ -1020,6 +1264,12 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 Submit Your Review
               </h3>
 
+              {!canSubmitReview && (
+                <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-200">
+                  Reviews can only be submitted after the interview is completed.
+                </div>
+              )}
+
               {/* Overall Rating */}
               <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
                 <h4 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-4">
@@ -1068,20 +1318,21 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 />
               </div>
 
-              {/* SME Override (calibration) */}
-              <div className="p-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
-                <label className="flex items-start gap-3 cursor-pointer group">
-                  <input
-                    type="checkbox"
-                    checked={review.overrideOverall}
-                    onChange={(e) => setReview({ ...review, overrideOverall: e.target.checked })}
-                    className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
-                  />
-                  <span className="text-sm text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-slate-100">
-                    <strong>Use my overall score as the final score (override AI).</strong> When checked, the interview&apos;s final score will be your overall rating (0–10 scaled to 0–100) instead of the AI score. This supports SME calibration and human oversight.
-                  </span>
-                </label>
-              </div>
+              {canOverrideOverallScore && (
+                <div className="p-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
+                  <label className="flex items-start gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={review.overrideOverall}
+                      onChange={(e) => setReview({ ...review, overrideOverall: e.target.checked })}
+                      className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
+                    />
+                    <span className="text-sm text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-slate-100">
+                      <strong>Use my overall score as the final score (override AI).</strong> When checked, the interview&apos;s final score will be your overall rating (0-10 scaled to 0-100) instead of the AI score. This supports SME calibration and human oversight.
+                    </span>
+                  </label>
+                </div>
+              )}
 
               {/* Recommendation */}
               <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
@@ -1140,6 +1391,148 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 </div>
               )}
 
+              {canManageStageOutcome && currentPlanStage && (
+                <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700 space-y-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                        Round Decision
+                      </h4>
+                      <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                        Record whether this completed round should pass, stay on hold, or stop progression.
+                      </p>
+                    </div>
+                    <span className="inline-flex items-center rounded-full border border-violet-200 dark:border-violet-500/30 bg-violet-50 dark:bg-violet-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200">
+                      {interview.planStageName || currentPlanStage.name || 'Current round'}
+                    </span>
+                  </div>
+
+                  <div className={`rounded-xl border px-4 py-3 text-sm ${
+                    stageOutcomeSummary?.tone === 'emerald'
+                      ? 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                      : stageOutcomeSummary?.tone === 'rose'
+                        ? 'border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-200'
+                        : stageOutcomeSummary?.tone === 'amber'
+                          ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-700 dark:text-amber-200'
+                          : 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-200'
+                  }`}>
+                    <p className="font-semibold">{stageOutcomeSummary?.label || 'Round decision pending'}</p>
+                    <p className="mt-1 opacity-90">{stageOutcomeSummary?.detail || 'Save a round decision to control progression.'}</p>
+                    <p className="mt-2 text-xs opacity-80">
+                      Advance rule: {stageOutcomeSummary?.advanceRuleLabel || INTERVIEW_STAGE_ADVANCE_RULE_LABELS.PASS_REQUIRED}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                    {INTERVIEW_STAGE_OUTCOME_OPTIONS.map((option) => {
+                      const selected = stageOutcomeValue === option.value;
+                      return (
+                        <button
+                          key={option.value}
+                          type="button"
+                          onClick={() => {
+                            setStageOutcomeValue(option.value);
+                            setStageOutcomeSuccess('');
+                            setStageOutcomeError('');
+                          }}
+                          className={`rounded-xl border px-4 py-3 text-left transition-all ${
+                            selected
+                              ? option.value === 'PASS'
+                                ? 'border-emerald-400 bg-emerald-50 dark:border-emerald-500/40 dark:bg-emerald-500/10'
+                                : option.value === 'FAIL'
+                                  ? 'border-rose-400 bg-rose-50 dark:border-rose-500/40 dark:bg-rose-500/10'
+                                  : 'border-amber-400 bg-amber-50 dark:border-amber-500/40 dark:bg-amber-500/10'
+                              : 'border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/40 hover:border-violet-300 dark:hover:border-violet-500/40'
+                          }`}
+                        >
+                          <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">{option.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div>
+                    <label className="mb-2 block text-sm font-medium text-gray-700 dark:text-slate-200">
+                      Outcome Note
+                    </label>
+                    <textarea
+                      value={stageOutcomeNote}
+                      onChange={(event) => {
+                        setStageOutcomeNote(event.target.value);
+                        setStageOutcomeSuccess('');
+                        setStageOutcomeError('');
+                      }}
+                      rows={3}
+                      placeholder="Explain why this round passed, is on hold, or failed."
+                      className="w-full rounded-xl border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-4 py-3 text-sm text-gray-900 dark:text-slate-100 focus:ring-2 focus:ring-violet-500 focus:border-transparent resize-none"
+                    />
+                  </div>
+
+                  {(stageOutcomeError || stageOutcomeSuccess) && (
+                    <div className={`rounded-xl border px-4 py-3 text-sm ${
+                      stageOutcomeError
+                        ? 'border-rose-200 dark:border-rose-500/30 bg-rose-50 dark:bg-rose-500/10 text-rose-700 dark:text-rose-300'
+                        : 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                    }`}>
+                      {stageOutcomeError || stageOutcomeSuccess}
+                      {stageOutcomeNextInterview?.id && (
+                        <div className="mt-3">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => navigate(`/company-interviews?interviewId=${stageOutcomeNextInterview.id}`)}
+                            className="border-emerald-300 text-emerald-700 hover:bg-emerald-100 dark:border-emerald-500/30 dark:text-emerald-200 dark:hover:bg-emerald-500/10"
+                          >
+                            Open Next Stage in Interviews
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap justify-end gap-2">
+                    {canMoveToOffer && (
+                      <Button
+                        variant="outline"
+                        onClick={handleMoveApplicationToOffer}
+                        disabled={offerStageMoving || stageOutcomeSaving || stageOutcomeDirty}
+                        className="border-amber-300 text-amber-700 hover:bg-amber-100 dark:border-amber-500/30 dark:text-amber-200 dark:hover:bg-amber-500/10"
+                      >
+                        {offerStageMoving ? 'Moving to Offer...' : 'Move to Offer'}
+                      </Button>
+                    )}
+                    {stageAutoAdvanceEnabled && (
+                      <Button
+                        variant="outline"
+                        onClick={() => handleSaveStageOutcome(false)}
+                        disabled={!stageOutcomeDirty || stageOutcomeSaving}
+                      >
+                        Save Outcome Only
+                      </Button>
+                    )}
+                    {!stageAutoAdvanceEnabled && canCreateNextStageFromOutcome && (
+                      <Button
+                        variant="outline"
+                        onClick={() => handleSaveStageOutcome(true)}
+                        disabled={!stageOutcomeDirty || stageOutcomeSaving}
+                      >
+                        {stageOutcomeSaving ? 'Saving pass...' : 'Save Pass & Create Next Stage'}
+                      </Button>
+                    )}
+                    <Button
+                      onClick={() => handleSaveStageOutcome()}
+                      loading={stageOutcomeSaving}
+                      disabled={!stageOutcomeDirty || stageOutcomeSaving}
+                      className="bg-violet-600 hover:bg-violet-700 text-white"
+                    >
+                      {stageOutcomeSaving
+                        ? (stageAutoAdvanceEnabled ? 'Saving pass...' : 'Saving outcome...')
+                        : (stageAutoAdvanceEnabled ? 'Save Pass & Create Next Stage' : 'Save Stage Outcome')}
+                    </Button>
+                  </div>
+                </div>
+              )}
+
               {/* Submit Button */}
               <div className="flex gap-3">
                 <Button
@@ -1152,7 +1545,7 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
                 <Button
                   onClick={handleSubmitReview}
                   loading={submitting}
-                  disabled={submitting || !review.notes.trim()}
+                  disabled={submitting || !review.notes.trim() || !canSubmitReview}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 text-white"
                 >
                   {!submitting && <Icon name="CheckCircle" className="w-4 h-4 mr-2" />}
@@ -1168,4 +1561,5 @@ const InterviewReviewEnhanced = ({ interviewId, onClose }) => {
 };
 
 export default InterviewReviewEnhanced;
+
 

@@ -364,6 +364,9 @@ export const evaluateSlotAgainstInterviewAutomation = ({
   });
 
   const reasonCodes = [];
+  if (scheduledMs <= now.getTime()) {
+    reasonCodes.push('PAST_DATE');
+  }
   if (scheduledMs < initialSlot.getTime()) {
     reasonCodes.push('TOO_SOON');
   }
@@ -534,10 +537,6 @@ export const resolveInterviewAutomationSettings = (organization, job, recruiter 
     ? parsedBusinessHoursEndMinutes
     : Math.min(24 * 60, organizationBusinessHoursStartMinutes + durationMinutes + 15);
   const conflictScope = parseConflictScope(automation.conflictScope);
-  const meetingLinkTemplate = typeof automation.meetingLinkTemplate === 'string' && automation.meetingLinkTemplate.trim()
-    ? automation.meetingLinkTemplate.trim()
-    : '';
-
   const recruiterAvailability = resolveRecruiterAvailabilityOverrides(recruiter, {
     timezone: organizationTimezone,
     workingDays: organizationWorkingDays,
@@ -582,7 +581,6 @@ export const resolveInterviewAutomationSettings = (organization, job, recruiter 
     durationMinutes: effectiveDurationMinutes,
     interviewTypes,
     skillFocus,
-    meetingLinkTemplate,
     availabilitySource: recruiterAvailability ? 'RECRUITER' : 'ORGANIZATION',
   };
 };

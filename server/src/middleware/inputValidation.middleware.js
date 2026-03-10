@@ -122,7 +122,7 @@ const ALLOWED_VALUES = {
     'INCOMPLETE_REGISTRATION',
     'OTHER',
   ],
-  APPLICATION_STATUS: ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED'],
+  APPLICATION_STATUS: ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'OFFER', 'REJECTED', 'HIRED'],
   JOB_STATUS: ['DRAFT', 'PUBLISHED', 'ARCHIVED'],
   INTERVIEW_MODE: ['PRACTICE', 'HIRING'],
   INTERVIEW_STATUS: ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PAUSED', 'CANCELLED'],
@@ -200,6 +200,19 @@ const sanitizeStringArray = (arr, maxItems = LENGTH_LIMITS.ARRAY_MAX_ITEMS) => {
 const normalizeEmail = (email) => {
   if (typeof email !== 'string') return '';
   return email.trim().toLowerCase();
+};
+
+const isFutureIsoDatetime = (value) => {
+  if (value === undefined || value === null || value === '') return true;
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > Date.now();
+};
+
+const futureDatetimeValidator = (fieldLabel = 'Date and time') => (value) => {
+  if (!isFutureIsoDatetime(value)) {
+    throw new Error(`${fieldLabel} must be in the future`);
+  }
+  return true;
 };
 
 // =============================================================================
@@ -766,7 +779,7 @@ export const validationSchemas = {
       allowedFields: [
         'mode', 'jobRole', 'experienceLevel', 'industry', 'interviewTypes',
         'duration', 'difficulty', 'personality', 'totalQuestions', 'skillFocus',
-        'candidateId', 'jobId', 'jobStage', 'invitationId', 'status',
+        'candidateId', 'jobId', 'jobStage', 'status',
         'pipelineStatus', 'reviewerAssignments', 'config',
         'scheduledFor', 'timezone', 'scheduleStatus',
       ],
@@ -792,11 +805,6 @@ export const validationSchemas = {
           .isLength({ min: 1, max: LENGTH_LIMITS.ID })
           .withMessage('jobId must be a valid identifier'),
         body('jobStage').optional().isString().isLength({ max: LENGTH_LIMITS.SHORT_TEXT }),
-        body('invitationId')
-          .optional()
-          .trim()
-          .isLength({ min: 1, max: LENGTH_LIMITS.ID })
-          .withMessage('invitationId must be a valid identifier'),
         commonValidators.enum('status', ALLOWED_VALUES.INTERVIEW_STATUS),
         commonValidators.enum('scheduleStatus', ALLOWED_VALUES.INTERVIEW_SCHEDULE_STATUS),
         commonValidators.enum('pipelineStatus', ALLOWED_VALUES.PIPELINE_STATUS),
@@ -811,7 +819,9 @@ export const validationSchemas = {
         body('scheduledFor')
           .optional()
           .isISO8601()
-          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime')
+          .bail()
+          .custom(futureDatetimeValidator('scheduledFor')),
         body('timezone')
           .optional()
           .trim()
@@ -821,13 +831,15 @@ export const validationSchemas = {
     },
 
     schedule: {
-      allowedFields: ['scheduledFor', 'strategy', 'timezone', 'duration', 'interviewTypes', 'notes'],
+      allowedFields: ['scheduledFor', 'strategy', 'timezone', 'duration', 'interviewTypes', 'notes', 'reviewerAssignments'],
       validators: [
         body('scheduledFor')
           .optional({ nullable: true, checkFalsy: true })
           .trim()
           .isISO8601()
-          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime')
+          .bail()
+          .custom(futureDatetimeValidator('scheduledFor')),
         body('strategy')
           .optional({ nullable: true })
           .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
@@ -840,6 +852,8 @@ export const validationSchemas = {
           .withMessage('timezone must be at most 64 characters'),
         commonValidators.integer('duration', { min: 15, max: 180 }),
         commonValidators.stringArray('interviewTypes'),
+        body('reviewerAssignments').optional().isArray({ max: 20 }),
+        body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
         body('notes')
           .optional()
           .trim()
@@ -856,6 +870,7 @@ export const validationSchemas = {
         'duration',
         'interviewTypes',
         'notes',
+        'reviewerAssignments',
         'rescheduleRequestId',
         'rescheduleDecisionNote',
       ],
@@ -864,7 +879,9 @@ export const validationSchemas = {
           .optional({ nullable: true, checkFalsy: true })
           .trim()
           .isISO8601()
-          .withMessage('scheduledFor must be a valid ISO 8601 datetime'),
+          .withMessage('scheduledFor must be a valid ISO 8601 datetime')
+          .bail()
+          .custom(futureDatetimeValidator('scheduledFor')),
         body('strategy')
           .optional({ nullable: true })
           .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
@@ -877,6 +894,8 @@ export const validationSchemas = {
           .withMessage('timezone must be at most 64 characters'),
         commonValidators.integer('duration', { min: 15, max: 180 }),
         commonValidators.stringArray('interviewTypes'),
+        body('reviewerAssignments').optional().isArray({ max: 20 }),
+        body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
         body('notes')
           .optional()
           .trim()
@@ -892,6 +911,54 @@ export const validationSchemas = {
           .trim()
           .isLength({ max: 500 })
           .withMessage('rescheduleDecisionNote must be at most 500 characters'),
+      ],
+    },
+
+    updateReviewRequests: {
+      allowedFields: ['reviewerAssignments', 'reviewRequestUpdates'],
+      validators: [
+        body('reviewerAssignments').optional().isArray({ max: 20 }),
+        body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
+        body('reviewRequestUpdates').optional().isArray({ max: 20 }),
+        body('reviewRequestUpdates.*.reviewerId')
+          .optional()
+          .isString()
+          .isLength({ max: LENGTH_LIMITS.ID })
+          .withMessage('reviewRequestUpdates reviewerId must be a valid identifier'),
+        body('reviewRequestUpdates.*.dueSource')
+          .optional()
+          .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+          .isIn(['AUTO', 'MANUAL'])
+          .withMessage('reviewRequestUpdates dueSource must be AUTO or MANUAL'),
+        body('reviewRequestUpdates.*.dueAt')
+          .optional({ nullable: true, checkFalsy: true })
+          .trim()
+          .isISO8601()
+          .withMessage('reviewRequestUpdates dueAt must be a valid ISO 8601 datetime')
+          .bail()
+          .custom(futureDatetimeValidator('reviewRequestUpdates dueAt')),
+      ],
+    },
+
+    updateStageOutcome: {
+      allowedFields: ['outcome', 'note', 'autoAdvance'],
+      validators: [
+        body('outcome')
+          .trim()
+          .notEmpty()
+          .withMessage('outcome is required')
+          .customSanitizer((value) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+          .isIn(['PASS', 'FAIL', 'HOLD'])
+          .withMessage('outcome must be PASS, FAIL, or HOLD'),
+        body('note')
+          .optional()
+          .trim()
+          .isLength({ max: 500 })
+          .withMessage('note must be at most 500 characters'),
+        body('autoAdvance')
+          .optional()
+          .isBoolean()
+          .withMessage('autoAdvance must be a boolean'),
       ],
     },
 
@@ -911,7 +978,9 @@ export const validationSchemas = {
         body('preferredSlots.*')
           .optional()
           .isISO8601()
-          .withMessage('Each preferred slot must be a valid ISO 8601 datetime'),
+          .withMessage('Each preferred slot must be a valid ISO 8601 datetime')
+          .bail()
+          .custom(futureDatetimeValidator('Each preferred slot')),
         body('timezone')
           .optional()
           .trim()

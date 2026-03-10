@@ -25,7 +25,7 @@ describe('buildSuggestedTestAnswer', () => {
     expect(answer).toContain('?');
   });
 
-  it('returns STAR-style answer for normal interview questions', () => {
+  it('returns STAR-style answer for behavioral interview questions', () => {
     const question = 'Tell me about a time you handled conflict in your team.';
     const answer = buildSuggestedTestAnswer({
       phase: 'questions',
@@ -37,5 +37,17 @@ describe('buildSuggestedTestAnswer', () => {
     expect(answer).toContain('Action:');
     expect(answer).toContain('Result:');
     expect(answer.toLowerCase()).not.toContain(question.toLowerCase());
+  });
+
+  it('returns a direct technical answer for technical questions', () => {
+    const answer = buildSuggestedTestAnswer({
+      phase: 'questions',
+      currentQuestion: 'Can you explain the difference between a shallow copy and a deep copy in Python?',
+    });
+
+    expect(answer.toLowerCase()).toContain('shallow copy');
+    expect(answer.toLowerCase()).toContain('deep copy');
+    expect(answer).toContain('copy.deepcopy');
+    expect(answer).not.toContain('Situation:');
   });
 });

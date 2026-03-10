@@ -84,7 +84,7 @@ const parseOptionalNumber = (value) => {
 const toDomain = (value) => {
   const text = toCleanString(value).toLowerCase();
   if (!text || !text.includes('@')) return null;
-  const domain = text.split('@')[1];
+  const domain = text.split('@').pop();
   return domain || null;
 };
 

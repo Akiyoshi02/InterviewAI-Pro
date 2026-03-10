@@ -158,7 +158,7 @@ const recordingStorage = multer.diskStorage({
   },
 });
 
-const recordingFileFilter = (req, file, cb) => {
+export const recordingFileFilter = (req, file, cb) => {
   const allowed = [
     'video/webm',
     'video/mp4',
@@ -170,8 +170,11 @@ const recordingFileFilter = (req, file, cb) => {
     'audio/mpeg',
     'audio/wav',
   ];
+  const allowedExtensions = ['.webm', '.mp4', '.mov', '.mkv', '.ogg', '.mp3', '.wav'];
+  const normalizedMimeType = String(file.mimetype || '').split(';')[0].trim().toLowerCase();
+  const extension = path.extname(file.originalname || '').toLowerCase();
 
-  if (!allowed.includes(file.mimetype)) {
+  if (!allowed.includes(normalizedMimeType) && !allowedExtensions.includes(extension)) {
     const error = new MulterError('LIMIT_UNEXPECTED_FILE', file.fieldname);
     error.message = 'Recording must be a supported audio/video format (WEBM, MP4, MOV, MKV, OGG, MP3, WAV).';
     return cb(error);

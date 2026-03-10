@@ -1210,17 +1210,17 @@ const CandidateProgressDashboard = () => {
   return (
     <div className="space-y-6">
       {/* Header & Filters */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
             Candidate Progress Analytics
           </h2>
           <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
             Track candidate journey and hiring metrics
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <div className="w-[160px] [&_button]:pr-2 [&_button>div]:gap-0.5">
+        <div className="flex w-full flex-col gap-3 xs:flex-row sm:w-auto sm:items-center">
+          <div className="w-full xs:w-[160px] [&_button]:pr-2 [&_button>div]:gap-0.5">
             <Select
               value={timeRange}
               onChange={(value) => setTimeRange(value)}
@@ -1238,6 +1238,7 @@ const CandidateProgressDashboard = () => {
             variant="ghost"
             size="sm"
             onClick={loadDashboardData}
+            className="w-full justify-center xs:w-auto sm:shrink-0"
           >
             <Icon name="RefreshCw" className="w-4 h-4 mr-2" />
             Refresh

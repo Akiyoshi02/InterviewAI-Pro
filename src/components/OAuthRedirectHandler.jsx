@@ -16,7 +16,6 @@ const OAuthRedirectHandler = () => {
     
     // If we have an access_token in the hash and we're not already on verify-email
     if (hash && hash.includes('access_token') && currentPath !== '/verify-email') {
-      console.log(`OAuth callback detected on ${currentPath}, redirecting to verify-email`);
       // Redirect to verify-email with the hash
       navigate(`/verify-email${hash}`, { replace: true });
     }

@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Brain, Menu, X } from 'lucide-react';
 import Icon from '../AppIcon';
 import Button from '../ui/Button';
+import { authHelpers } from '../../config/firebase.js';
+import apiClient from '../../services/apiClient.js';
 import {
   buildPendingApprovalRoute,
   isRestrictedCompanyUser,
@@ -100,8 +102,6 @@ const PublicHeader = () => {
 
   const handleInstantSignIn = async () => {
     try {
-      const { authHelpers } = await import('../../config/firebase.js');
-      const apiClient = (await import('../../services/apiClient.js')).default;
       const { data } = await authHelpers.getSession();
       const session = data?.session;
 

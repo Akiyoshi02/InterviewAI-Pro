@@ -62,17 +62,19 @@ const CandidateSettingsPage = () => {
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="Settings" size={22} color="white" />
-                </div>
-                <div>
-                  <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
-                    Settings
-                  </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    Manage your profile details, education, links, photo, resume, and preferences.
-                  </p>
+              <div className="mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="shrink-0 p-3 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 shadow-lg shadow-purple-500/30">
+                    <Icon name="Settings" size={24} color="white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
+                      Settings
+                    </h1>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                      Manage your profile details, education, links, photo, resume, and preferences.
+                    </p>
+                  </div>
                 </div>
               </div>
 

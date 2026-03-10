@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
+import { getInterviewRoundSummary } from '../../../utils/interviewRoundSummary.js';
 
 const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
   const navigate = useNavigate();
@@ -13,15 +14,18 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
     
     return interviews.map((interview, index) => {
       const status = interview?.status?.toUpperCase();
-      const companyName = interview?.company?.companyName || 
-                         interview?.company?.fullName || 
-                         interview?.company?.email ||
-                         (typeof interview?.company === 'string' ? interview.company : null) ||
-                         'Practice Session';
+      const companyName = interview?.organization?.displayName
+                         || interview?.organization?.name
+                         || interview?.company?.companyName
+                         || interview?.company?.fullName
+                         || interview?.company?.email
+                         || (typeof interview?.company === 'string' ? interview.company : null)
+                         || 'Practice Session';
       const jobRole = interview?.jobRole || interview?.position || 'Interview';
       const score = interview?.overallScore || interview?.score;
       const createdAt = interview?.createdAt || interview?.updatedAt;
       const timestamp = createdAt ? new Date(createdAt) : new Date();
+      const roundSummary = getInterviewRoundSummary(interview);
       
       // Determine activity type based on interview status and type
       let type = 'practice';
@@ -30,25 +34,25 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
       
       if (status === 'COMPLETED') {
         type = 'completed';
-        title = `Completed ${jobRole} Interview`;
+        title = `Completed ${jobRole} Interview${roundSummary ? ` - ${roundSummary.badge}` : ''}`;
         description = score ? `Score: ${Math.round(score)}%` : 'Interview completed';
         if (companyName && companyName !== 'Practice Session') {
           description = `${companyName} - ${description}`;
         }
       } else if (status === 'IN_PROGRESS') {
         type = 'live';
-        title = `${jobRole} - In Progress`;
+        title = `${jobRole}${roundSummary ? ` - ${roundSummary.badge}` : ''} - In Progress`;
         description = companyName !== 'Practice Session' ? `With ${companyName}` : 'Practice session in progress';
       } else if (status === 'SCHEDULED') {
         type = 'live';
         const scheduledDate = interview?.scheduledFor ? new Date(interview.scheduledFor) : null;
-        title = `Upcoming: ${companyName} - ${jobRole}`;
+        title = `Upcoming: ${companyName} - ${jobRole}${roundSummary ? ` (${roundSummary.badge})` : ''}`;
         description = scheduledDate 
-          ? scheduledDate.toLocaleDateString()
+          ? `${scheduledDate.toLocaleDateString()}${roundSummary ? ` - ${roundSummary.title}` : ''}`
           : 'Date pending';
       } else if (status === 'PENDING') {
         type = 'live';
-        title = `Interview Pending: ${jobRole}`;
+        title = `Interview Pending: ${jobRole}${roundSummary ? ` - ${roundSummary.badge}` : ''}`;
         description = companyName !== 'Practice Session'
           ? `${companyName} - waiting for schedule confirmation`
           : 'Waiting for schedule confirmation';
@@ -166,16 +170,16 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
         {visibleActivities?.length > 0 ? visibleActivities?.map((activity) => (
           <div
             key={activity?.id}
-            className="flex items-start space-x-3 p-3 sm:p-3.5 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200"
+            className="flex items-start gap-3 p-3 sm:p-3.5 rounded-xl border border-white/40 dark:border-slate-700/50 hover:bg-white/70 dark:hover:bg-slate-800/70 transition-colors duration-200"
           >
             <div className={`w-8 h-8 sm:w-9 sm:h-9 rounded-lg flex items-center justify-center flex-shrink-0 text-white ${getActivityColor(activity?.type)}`}>
               <Icon name={getActivityIcon(activity?.type)} size={16} color="currentColor" />
             </div>
 
             <div className="flex-1 min-w-0">
-              <div className="flex items-start justify-between">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                 <div className="flex-1">
-                  <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100 line-clamp-2 break-words">
+                  <h3 className="text-sm sm:text-base font-semibold text-gray-900 dark:text-slate-100 break-words leading-snug sm:line-clamp-2">
                     {activity?.title}
                   </h3>
                   <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 mt-1 leading-relaxed">
@@ -184,12 +188,12 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
 
                   {/* Activity-specific details */}
                   {activity?.score && (
-                    <div className="flex items-center space-x-4 mt-2 flex-wrap gap-y-1">
+                    <div className="mt-2 flex flex-col gap-1.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-x-4 sm:gap-y-1">
                       <span className={`text-sm font-medium ${getScoreColor(activity?.score)}`}>
                         Score: {activity?.score}%
                       </span>
                       {activity?.feedback && (
-                        <span className="text-xs text-gray-500 dark:text-slate-400">
+                        <span className="text-xs text-gray-500 dark:text-slate-400 break-words whitespace-normal leading-relaxed">
                           "{activity?.feedback}"
                         </span>
                       )}
@@ -197,7 +201,7 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
                         <button
                           type="button"
                           onClick={() => navigate(`/interview-results/${activity.id}`)}
-                          className="text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
+                          className="self-start text-xs font-medium text-blue-600 dark:text-blue-400 hover:underline"
                         >
                           View results
                         </button>
@@ -221,7 +225,7 @@ const RecentActivityFeed = ({ activities = [], onViewAll, onViewHistory }) => {
                   )}
                 </div>
 
-                <div className="text-xs text-gray-400 dark:text-slate-500 font-mono tabular-nums ml-4">
+                <div className="self-start text-[11px] text-gray-400 dark:text-slate-500 font-mono tabular-nums sm:ml-4 sm:self-auto sm:text-xs">
                   {getTimeAgo(activity?.timestamp)}
                 </div>
               </div>

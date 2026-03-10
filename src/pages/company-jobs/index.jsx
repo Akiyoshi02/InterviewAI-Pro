@@ -26,6 +26,17 @@ import { cn } from '../../utils/cn';
 import { buildJobShareCardUrl, buildJobSharePackage, prepareJobShareAttachments } from '../../utils/jobShare.js';
 import { ORGANIZATION_FEED_EVENTS } from '../../constants/realtimeFeedEvents.js';
 import ApplicationFormBuilder from '../../components/ui/ApplicationFormBuilder';
+import {
+  buildDefaultInterviewPlanStages,
+  createDefaultInterviewPlanStage,
+  formatInterviewPlanSkillFocus,
+  INTERVIEW_STAGE_ADVANCE_RULE_OPTIONS,
+  INTERVIEW_STAGE_CATEGORY_OPTIONS,
+  INTERVIEW_STAGE_FAIL_DISPOSITION_OPTIONS,
+  INTERVIEW_TYPE_OPTIONS,
+  normalizeJobTemplateConfig,
+  parseInterviewPlanSkillFocus,
+} from '../../utils/interviewPlanConfig.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const MAX_ADVERT_IMAGE_BYTES = 8 * 1024 * 1024;
@@ -47,6 +58,18 @@ const PRESET_JOB_SKILLS = [
   'Testing/QA',
   'Other',
 ];
+const buildDefaultJobTemplateConfig = () => normalizeJobTemplateConfig({
+  interviewTypes: ['BEHAVIORAL', 'TECHNICAL'],
+  skillFocus: [],
+  duration: 30,
+  interviewPlan: {
+    stages: buildDefaultInterviewPlanStages({
+      interviewTypes: ['BEHAVIORAL', 'TECHNICAL'],
+      skillFocus: [],
+      duration: 30,
+    }),
+  },
+});
 const REQUIREMENTS_BULLET = '• ';
 
 const COMPANY_JOB_DATE_PRESET_OPTIONS = [
@@ -279,6 +302,40 @@ const buildCustomFieldsFromApplicationQuestions = (questions = []) =>
       };
     })
     .filter((field) => field.label);
+
+const ensureJobTemplateConfig = (value = {}) => normalizeJobTemplateConfig(value);
+
+const createInterviewPlanStageForJob = (index = 0, templateConfig = {}) => createDefaultInterviewPlanStage(index, {
+  duration: templateConfig?.duration,
+  interviewTypes: templateConfig?.interviewTypes,
+  skillFocus: templateConfig?.skillFocus,
+});
+
+const DEFAULT_INTERVIEW_PLAN_TEMPLATE_OPTION = {
+  value: '',
+  label: 'Use best-fit template automatically',
+};
+
+const buildInterviewPlanTemplateOptions = (templates = []) => ([
+  DEFAULT_INTERVIEW_PLAN_TEMPLATE_OPTION,
+  ...(Array.isArray(templates) ? templates : [])
+    .filter((template) => template && typeof template === 'object' && template.id)
+    .map((template) => {
+      const source = String(template.source || '').trim().toUpperCase();
+      const sourceLabel = source === 'ORGANIZATION'
+        ? 'Organization'
+        : source === 'CATALOG'
+          ? 'Catalog'
+          : 'Template';
+      const name = String(template.name || template.id).trim() || template.id;
+      return {
+        value: template.id,
+        label: `${name} - ${sourceLabel}`,
+      };
+    }),
+]);
+
+const buildInterviewStageFieldId = (stageId, field) => `interview-stage-${stageId}-${field}`;
 
 const normalizeAdvertImageUrls = (job = {}) => {
   if (Array.isArray(job?.advertImageUrls)) {
@@ -703,6 +760,9 @@ const CompanyJobsPage = () => {
   };
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [jobs, setJobs] = useState([]);
+  const [interviewPlanTemplateOptions, setInterviewPlanTemplateOptions] = useState([
+    DEFAULT_INTERVIEW_PLAN_TEMPLATE_OPTION,
+  ]);
   const [loading, setLoading] = useState(true);
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [selectedJob, setSelectedJob] = useState(null);
@@ -886,11 +946,7 @@ const CompanyJobsPage = () => {
     advertVideoUrl: '',
     status: 'DRAFT',
     requiredSkills: [],
-    templateConfig: {
-      interviewTypes: [],
-      skillFocus: [],
-      duration: 30,
-    },
+    templateConfig: buildDefaultJobTemplateConfig(),
     customFormFields: [],
   });
   const [submitting, setSubmitting] = useState(false);
@@ -902,6 +958,7 @@ const CompanyJobsPage = () => {
   useEffect(() => {
     document.title = 'Jobs - InterviewAI Pro';
     loadJobs();
+    loadInterviewPlanTemplates();
   }, []);
 
   const loadJobs = async () => {
@@ -1032,6 +1089,135 @@ const CompanyJobsPage = () => {
     });
   };
 
+  const loadInterviewPlanTemplates = async () => {
+    try {
+      const response = await apiClient.templates.getStructuredCatalog();
+      const nextTemplates = Array.isArray(response?.catalog?.templates)
+        ? response.catalog.templates
+        : [];
+      setInterviewPlanTemplateOptions(buildInterviewPlanTemplateOptions(nextTemplates));
+    } catch {
+      setInterviewPlanTemplateOptions([DEFAULT_INTERVIEW_PLAN_TEMPLATE_OPTION]);
+    }
+  };
+
+  const updateTemplateConfig = (updater) => {
+    setFormData((previous) => {
+      const currentTemplateConfig = ensureJobTemplateConfig(previous.templateConfig);
+      const nextTemplateConfig = typeof updater === 'function'
+        ? updater(currentTemplateConfig)
+        : { ...currentTemplateConfig, ...updater };
+      return {
+        ...previous,
+        templateConfig: ensureJobTemplateConfig(nextTemplateConfig),
+      };
+    });
+  };
+
+  const toggleTemplateInterviewType = (interviewType) => {
+    updateTemplateConfig((current) => {
+      const exists = current.interviewTypes.includes(interviewType);
+      const nextTypes = exists
+        ? current.interviewTypes.filter((type) => type !== interviewType)
+        : [...current.interviewTypes, interviewType];
+      return {
+        ...current,
+        interviewTypes: nextTypes.length > 0 ? nextTypes : ['BEHAVIORAL'],
+      };
+    });
+  };
+
+  const updateInterviewStage = (stageId, updates) => {
+    updateTemplateConfig((current) => ({
+      ...current,
+      interviewPlan: {
+        ...(current.interviewPlan || {}),
+        stages: (current.interviewPlan?.stages || []).map((stage) => (
+          stage.id === stageId
+            ? { ...stage, ...updates }
+            : stage
+        )),
+      },
+    }));
+  };
+
+  const toggleInterviewStageType = (stageId, interviewType) => {
+    updateTemplateConfig((current) => ({
+      ...current,
+      interviewPlan: {
+        ...(current.interviewPlan || {}),
+        stages: (current.interviewPlan?.stages || []).map((stage) => {
+          if (stage.id !== stageId) return stage;
+          const exists = Array.isArray(stage.interviewTypes) && stage.interviewTypes.includes(interviewType);
+          const nextTypes = exists
+            ? stage.interviewTypes.filter((type) => type !== interviewType)
+            : [...(Array.isArray(stage.interviewTypes) ? stage.interviewTypes : []), interviewType];
+          return {
+            ...stage,
+            interviewTypes: nextTypes.length > 0 ? nextTypes : ['BEHAVIORAL'],
+          };
+        }),
+      },
+    }));
+  };
+
+  const addInterviewPlanStage = () => {
+    updateTemplateConfig((current) => ({
+      ...current,
+      interviewPlan: {
+        ...(current.interviewPlan || {}),
+        stages: [
+          ...(current.interviewPlan?.stages || []),
+          createInterviewPlanStageForJob((current.interviewPlan?.stages || []).length, current),
+        ],
+      },
+    }));
+  };
+
+  const removeInterviewPlanStage = (stageId) => {
+    updateTemplateConfig((current) => {
+      const nextStages = (current.interviewPlan?.stages || []).filter((stage) => stage.id !== stageId);
+      return {
+        ...current,
+        interviewPlan: {
+          ...(current.interviewPlan || {}),
+          stages: nextStages.length > 0
+            ? nextStages
+            : buildDefaultInterviewPlanStages(current),
+        },
+      };
+    });
+  };
+
+  const moveInterviewPlanStage = (stageId, direction) => {
+    updateTemplateConfig((current) => {
+      const stages = [...(current.interviewPlan?.stages || [])];
+      const index = stages.findIndex((stage) => stage.id === stageId);
+      if (index < 0) return current;
+      const targetIndex = direction === 'up' ? index - 1 : index + 1;
+      if (targetIndex < 0 || targetIndex >= stages.length) return current;
+      const [stage] = stages.splice(index, 1);
+      stages.splice(targetIndex, 0, stage);
+      return {
+        ...current,
+        interviewPlan: {
+          ...(current.interviewPlan || {}),
+          stages,
+        },
+      };
+    });
+  };
+
+  const resetInterviewPlanToDefault = () => {
+    updateTemplateConfig((current) => ({
+      ...current,
+      interviewPlan: {
+        ...(current.interviewPlan || {}),
+        stages: buildDefaultInterviewPlanStages(current),
+      },
+    }));
+  };
+
   const handleAdvertImageFileChange = (event) => {
     const files = Array.from(event?.target?.files || []);
     if (!files.length) return;
@@ -1121,11 +1307,7 @@ const CompanyJobsPage = () => {
       advertVideoUrl: '',
       status: 'DRAFT',
       requiredSkills: [],
-      templateConfig: {
-        interviewTypes: [],
-        skillFocus: [],
-        duration: 30,
-      },
+      templateConfig: buildDefaultJobTemplateConfig(),
       customFormFields: [],
     });
     setShowCreateModal(true);
@@ -1182,11 +1364,7 @@ const CompanyJobsPage = () => {
       advertVideoUrl: job.advertVideoUrl || '',
       status: job.status || 'DRAFT',
       requiredSkills: Array.isArray(job.skills) ? job.skills : (job.skills ? [job.skills] : []),
-      templateConfig: job.templateConfig || {
-        interviewTypes: [],
-        skillFocus: [],
-        duration: 30,
-      },
+      templateConfig: ensureJobTemplateConfig(job.templateConfig || buildDefaultJobTemplateConfig()),
       customFormFields,
     });
     setShowCreateModal(true);
@@ -1261,6 +1439,7 @@ const CompanyJobsPage = () => {
       const normalizedCustomFormFields = normalizeCustomFormFields(formData.customFormFields || []);
       const applicationQuestions = buildApplicationQuestionsFromCustomFields(normalizedCustomFormFields);
       const normalizedRequirements = parseRequirementsToList(formData.requirements);
+      const normalizedTemplateConfig = ensureJobTemplateConfig(formData.templateConfig);
 
       // Prepare payload to match backend validation
       const payload = {
@@ -1294,7 +1473,7 @@ const CompanyJobsPage = () => {
           ? formData.requiredSkills
           : undefined,
         // Include templateConfig if provided
-        templateConfig: formData.templateConfig || undefined,
+        templateConfig: normalizedTemplateConfig,
         // Store custom application fields in both schemas for compatibility.
         applicationQuestions: applicationQuestions.length > 0 ? applicationQuestions : undefined,
         customFormFields: normalizedCustomFormFields.length > 0 ? normalizedCustomFormFields : undefined,
@@ -1692,6 +1871,8 @@ const CompanyJobsPage = () => {
     .filter((item) => item.source);
   const advertImagePreviewItems = [...existingAdvertImagePreviewItems, ...pendingAdvertImagePreviewItems];
   const advertVideoSource = advertVideoPreview || toAbsoluteAssetUrl(formData.advertVideoUrl);
+  const normalizedTemplateConfig = ensureJobTemplateConfig(formData.templateConfig);
+  const interviewPlanStages = normalizedTemplateConfig?.interviewPlan?.stages || [];
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -1839,16 +2020,16 @@ const CompanyJobsPage = () => {
           }`}>
             <div className="container-responsive py-4 sm:py-6 space-y-4 sm:space-y-6">
               {/* Header */}
-              <div className="flex items-center justify-between gap-4 mb-6">
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                    <Icon name="Briefcase" size={22} color="white" />
+                  <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                    <Icon name="Briefcase" size={24} color="white" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
                       Job Postings
                     </h1>
-                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
                       Manage your job listings and track applications.
                     </p>
                   </div>
@@ -1856,7 +2037,7 @@ const CompanyJobsPage = () => {
                 {organizationContext?.organization?.status !== 'PENDING' && canCreateJobs && (
                   <Button
                     onClick={handleCreateJob}
-                    className="bg-gradient-to-r from-blue-600 to-purple-600 text-white shrink-0"
+                    className="w-full shrink-0 justify-center bg-gradient-to-r from-blue-600 to-purple-600 text-white sm:w-auto"
                   >
                     <Icon name="Plus" size={18} className="mr-1.5" />
                     Create Job
@@ -2246,7 +2427,7 @@ const CompanyJobsPage = () => {
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.95, opacity: 0 }}
               onClick={(e) => e.stopPropagation()}
-              className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto"
+              className="bg-white dark:bg-slate-800 rounded-2xl shadow-xl w-full max-w-[min(97vw,1560px)] max-h-[92vh] overflow-y-auto"
             >
               <div className="p-6 border-b border-gray-200 dark:border-slate-700">
                 <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">
@@ -2278,33 +2459,36 @@ const CompanyJobsPage = () => {
                   />
                   
                   {/* Location with detect button */}
-                  <div className="space-y-1.5 sm:space-y-2">
-                    <label className="text-sm font-medium leading-none text-foreground">
+                  <div className="min-w-0 space-y-1.5 sm:space-y-2">
+                    <label htmlFor="job-location" className="text-sm font-medium leading-none text-foreground">
                       Location
                     </label>
-                    <div className="relative">
+                    <div className="flex min-w-0 flex-col gap-2 sm:relative sm:block">
                       <input
+                        id="job-location"
                         type="text"
                         value={isDetectingLocation && locationFeedback?.message ? locationFeedback.message : formData.location}
                         onChange={(e) => setFormData({ ...formData, location: e.target.value })}
                         placeholder="e.g. San Francisco, CA"
                         disabled={isDetectingLocation}
-                        className="flex h-11 sm:h-12 w-full rounded-xl border border-input bg-background px-3 sm:px-4 pr-[90px] sm:pr-[100px] py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px]"
+                        className="flex h-11 sm:h-12 min-h-[44px] w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2.5 pr-3 text-base sm:px-4 sm:pr-[100px] sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200"
                       />
                       <button
                         type="button"
                         onClick={handleDetectLocation}
                         disabled={isDetectingLocation}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 sm:absolute sm:right-2 sm:top-1/2 sm:min-h-0 sm:w-auto sm:-translate-y-1/2 sm:rounded-lg sm:px-2.5 sm:py-1.5 sm:text-xs"
                       >
                         {isDetectingLocation ? (
                           <>
                             <LoadingIndicator size={14} tone="current" />
+                            <span className="sm:hidden">Detecting location</span>
                             <span className="hidden sm:inline">Detecting</span>
                           </>
                         ) : (
                           <>
                             <Icon name="MapPin" size={14} />
+                            <span className="sm:hidden">Detect location</span>
                             <span className="hidden sm:inline">Detect</span>
                           </>
                         )}
@@ -2777,6 +2961,376 @@ const CompanyJobsPage = () => {
                   placeholder="30"
                   description="Controls how long the job stays active before it expires."
                 />
+
+                <div className="space-y-4 rounded-2xl border border-gray-200 bg-white/80 p-4 shadow-sm dark:border-slate-700 dark:bg-slate-900/60">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/20">
+                          <Icon name="Workflow" size={18} />
+                        </span>
+                        <div>
+                          <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Interview Plan</h3>
+                          <p className="text-sm text-gray-500 dark:text-slate-400">
+                            Define the round sequence this job should use when a candidate moves into interviewing.
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button type="button" variant="outline" onClick={resetInterviewPlanToDefault}>
+                        Reset Default Plan
+                      </Button>
+                      <Button type="button" variant="outline" onClick={addInterviewPlanStage}>
+                        <Icon name="Plus" size={16} className="mr-2" />
+                        Add Stage
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4">
+                    <div className="space-y-4 rounded-2xl border border-gray-200/80 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-blue-600 dark:text-blue-300">
+                          Default Interview Settings
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                          These feed new stages and act as fallbacks if a stage leaves values empty.
+                        </p>
+                      </div>
+
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <Input
+                          label="Default Duration (minutes)"
+                          type="number"
+                          min="15"
+                          max="180"
+                          value={normalizedTemplateConfig.duration}
+                          onChange={(event) => updateTemplateConfig({ duration: event.target.value })}
+                          placeholder="30"
+                        />
+                        <div className="space-y-2">
+                          <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                            Default Skill Focus
+                          </label>
+                          <input
+                            type="text"
+                            value={formatInterviewPlanSkillFocus(normalizedTemplateConfig.skillFocus)}
+                            onChange={(event) => updateTemplateConfig({
+                              skillFocus: parseInterviewPlanSkillFocus(event.target.value),
+                            })}
+                            placeholder="Communication, APIs, Stakeholder management"
+                            className="flex h-11 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background transition-all duration-200 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                          />
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            Use comma-separated focus areas that should appear across interview rounds.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="space-y-2">
+                        <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                          Default Interview Types
+                        </label>
+                        <div className="flex flex-wrap gap-2">
+                          {INTERVIEW_TYPE_OPTIONS.map((option) => {
+                            const selected = normalizedTemplateConfig.interviewTypes.includes(option.value);
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => toggleTemplateInterviewType(option.value)}
+                                className={cn(
+                                  'rounded-full border px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                                  selected
+                                    ? 'border-blue-500 bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                                    : 'border-gray-200 bg-white text-gray-700 hover:border-blue-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-blue-500',
+                                )}
+                              >
+                                {option.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="space-y-3 rounded-2xl border border-gray-200/80 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-950/40">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-semibold uppercase tracking-[0.2em] text-purple-600 dark:text-purple-300">
+                          Stage Sequence
+                        </h4>
+                        <p className="text-sm text-gray-500 dark:text-slate-400">
+                          Each completed round can create the next one in this list. Schedule, reviewers, and scoring stay per stage interview.
+                        </p>
+                      </div>
+
+                      <div className="space-y-3">
+                        {interviewPlanStages.map((stage, index) => (
+                          <div
+                            key={stage.id}
+                            className="space-y-4 rounded-2xl border border-gray-200 bg-white p-4 dark:border-slate-700 dark:bg-slate-900/70"
+                          >
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2">
+                                  <span className="inline-flex rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold uppercase tracking-[0.14em] text-blue-700 dark:bg-blue-500/10 dark:text-blue-300">
+                                    Round {index + 1}
+                                  </span>
+                                  <span className="text-sm text-gray-500 dark:text-slate-400">
+                                    {stage.required ? 'Required stage' : 'Optional stage'}
+                                  </span>
+                                </div>
+                                <p className="text-sm text-gray-500 dark:text-slate-400">
+                                  {stage.category === 'SCREENING'
+                                    ? 'Use this for recruiter-led qualification and fit.'
+                                    : stage.category === 'FINAL'
+                                      ? 'Use this for final decision or leadership round.'
+                                      : 'Use this for technical, SME, or panel evaluation.'}
+                                </p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => moveInterviewPlanStage(stage.id, 'up')}
+                                  disabled={index === 0}
+                                >
+                                  <Icon name="ArrowUp" size={14} className="mr-2" />
+                                  Up
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => moveInterviewPlanStage(stage.id, 'down')}
+                                  disabled={index === interviewPlanStages.length - 1}
+                                >
+                                  <Icon name="ArrowDown" size={14} className="mr-2" />
+                                  Down
+                                </Button>
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  onClick={() => removeInterviewPlanStage(stage.id)}
+                                  disabled={interviewPlanStages.length <= 1}
+                                >
+                                  <Icon name="Trash2" size={14} className="mr-2" />
+                                  Remove
+                                </Button>
+                              </div>
+                            </div>
+
+                            <div className="space-y-4">
+                              <div className="space-y-3 rounded-xl border border-gray-200/80 bg-slate-50/70 p-3 dark:border-slate-700/80 dark:bg-slate-950/40">
+                                <div className="space-y-1">
+                                  <h5 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                                    Core Settings
+                                  </h5>
+                                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                                    Define the round identity, category, interview kit, and duration.
+                                  </p>
+                                </div>
+                                <div className="grid gap-4 2xl:grid-cols-2">
+                                  <Input
+                                    label="Stage Name"
+                                    id={buildInterviewStageFieldId(stage.id, 'name')}
+                                    value={stage.name}
+                                    onChange={(event) => updateInterviewStage(stage.id, { name: event.target.value })}
+                                    placeholder="Technical Round"
+                                  />
+                                  <Select
+                                    label="Category"
+                                    value={stage.category}
+                                    onChange={(value) => updateInterviewStage(stage.id, { category: value })}
+                                    options={INTERVIEW_STAGE_CATEGORY_OPTIONS}
+                                  />
+                                  <Select
+                                    label="Interview Kit"
+                                    value={stage.templateId || ''}
+                                    onChange={(value) => updateInterviewStage(stage.id, { templateId: value || null })}
+                                    options={interviewPlanTemplateOptions}
+                                    className="xl:col-span-2"
+                                  />
+                                  <Input
+                                    label="Duration (minutes)"
+                                    id={buildInterviewStageFieldId(stage.id, 'duration')}
+                                    type="number"
+                                    min="15"
+                                    max="180"
+                                    value={stage.durationMinutes}
+                                    onChange={(event) => updateInterviewStage(stage.id, { durationMinutes: event.target.value })}
+                                    placeholder="45"
+                                  />
+                                </div>
+                              </div>
+
+                              <div className="space-y-3 rounded-xl border border-gray-200/80 bg-slate-50/70 p-3 dark:border-slate-700/80 dark:bg-slate-950/40">
+                                <div className="space-y-1">
+                                  <h5 className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
+                                    Progression Rules
+                                  </h5>
+                                  <p className="text-xs text-gray-500 dark:text-slate-400">
+                                    Control whether the stage is required, how it advances, and what happens on fail.
+                                  </p>
+                                </div>
+                                <div className="grid gap-4 2xl:grid-cols-2">
+                                  <Select
+                                    label="Advance Rule"
+                                    value={stage.advanceRule || 'PASS_REQUIRED'}
+                                    onChange={(value) => updateInterviewStage(stage.id, {
+                                      advanceRule: value,
+                                      ...(value !== 'COMPLETE_TO_CONTINUE' ? { autoAdvanceOnComplete: false } : {}),
+                                    })}
+                                    options={INTERVIEW_STAGE_ADVANCE_RULE_OPTIONS}
+                                  />
+                                  <Select
+                                    label="Fail Handling"
+                                    value={stage.failDispositionCode || ''}
+                                    onChange={(value) => updateInterviewStage(stage.id, { failDispositionCode: value || null })}
+                                    options={INTERVIEW_STAGE_FAIL_DISPOSITION_OPTIONS}
+                                  />
+                                </div>
+                                <div className="grid gap-3 lg:grid-cols-2">
+                                  <div className="space-y-2 min-w-0">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                                      Stage Requirement
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateInterviewStage(stage.id, { required: !stage.required })}
+                                      className={cn(
+                                        'flex min-h-[56px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-3 text-sm font-medium text-left transition-all duration-200',
+                                        stage.required
+                                          ? 'border-blue-500 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-500/10 dark:text-blue-200'
+                                          : 'border-gray-200 bg-white text-gray-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+                                      )}
+                                    >
+                                      <span className="min-w-0 flex-1 leading-tight">
+                                        {stage.required ? 'Required before hire' : 'Optional / skip allowed'}
+                                      </span>
+                                      <Icon name={stage.required ? 'CheckCircle2' : 'Circle'} size={16} className="mt-0.5 shrink-0" />
+                                    </button>
+                                  </div>
+                                  <div className="space-y-2 min-w-0">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                                      Pass Automation
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => updateInterviewStage(stage.id, { autoAdvanceOnPass: !stage.autoAdvanceOnPass })}
+                                      className={cn(
+                                        'flex min-h-[56px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-3 text-sm font-medium text-left transition-all duration-200',
+                                        stage.autoAdvanceOnPass
+                                          ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-200'
+                                          : 'border-gray-200 bg-white text-gray-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+                                      )}
+                                    >
+                                      <span className="min-w-0 flex-1 leading-tight">
+                                        {stage.autoAdvanceOnPass ? 'Create next round on pass' : 'Manual progression only'}
+                                      </span>
+                                      <Icon name={stage.autoAdvanceOnPass ? 'Sparkles' : 'Circle'} size={16} className="mt-0.5 shrink-0" />
+                                    </button>
+                                  </div>
+                                  <div className="space-y-2 min-w-0">
+                                    <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                                      Completion Automation
+                                    </label>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        if (stage.advanceRule !== 'COMPLETE_TO_CONTINUE') return;
+                                        updateInterviewStage(stage.id, { autoAdvanceOnComplete: !stage.autoAdvanceOnComplete });
+                                      }}
+                                      disabled={stage.advanceRule !== 'COMPLETE_TO_CONTINUE'}
+                                      className={cn(
+                                        'flex min-h-[56px] w-full items-start justify-between gap-3 rounded-xl border px-3 py-3 text-sm font-medium text-left transition-all duration-200',
+                                        stage.advanceRule !== 'COMPLETE_TO_CONTINUE'
+                                          ? 'cursor-not-allowed border-gray-200 bg-gray-50 text-gray-400 dark:border-slate-700 dark:bg-slate-950/60 dark:text-slate-500'
+                                          : stage.autoAdvanceOnComplete
+                                            ? 'border-emerald-500 bg-emerald-50 text-emerald-700 dark:border-emerald-500 dark:bg-emerald-500/10 dark:text-emerald-200'
+                                            : 'border-gray-200 bg-white text-gray-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300',
+                                      )}
+                                    >
+                                      <span className="min-w-0 flex-1 leading-tight">
+                                        {stage.autoAdvanceOnComplete ? 'Create next round on completion' : 'Wait for manual progression'}
+                                      </span>
+                                      <Icon name={stage.autoAdvanceOnComplete ? 'Forward' : 'Circle'} size={16} className="mt-0.5 shrink-0" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                                Stage Skill Focus
+                              </label>
+                              <input
+                                type="text"
+                                value={formatInterviewPlanSkillFocus(stage.skillFocus)}
+                                onChange={(event) => updateInterviewStage(stage.id, {
+                                  skillFocus: parseInterviewPlanSkillFocus(event.target.value),
+                                })}
+                                placeholder="Domain knowledge, APIs, stakeholder management"
+                                className="flex h-11 w-full rounded-xl border border-input bg-background px-3 py-2.5 text-sm ring-offset-background transition-all duration-200 placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                              />
+                            </div>
+
+                            {stage.templateId && (
+                              <p className="text-xs text-gray-500 dark:text-slate-400">
+                                This stage will use the selected structured template and its scorecard blueprint when generating interview questions.
+                              </p>
+                            )}
+
+                            {stage.autoAdvanceOnPass && (
+                              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                                When this stage is marked as Pass, the next planned round can be created immediately from the round decision flow.
+                              </p>
+                            )}
+
+                            {stage.advanceRule === 'COMPLETE_TO_CONTINUE' && stage.autoAdvanceOnComplete && (
+                              <p className="text-xs text-emerald-700 dark:text-emerald-300">
+                                This stage will create the next planned round as soon as the interview is completed.
+                              </p>
+                            )}
+
+                            {stage.failDispositionCode && (
+                              <p className="text-xs text-rose-700 dark:text-rose-300">
+                                A failed outcome will automatically close the application using this disposition.
+                              </p>
+                            )}
+
+                            <div className="space-y-2">
+                              <label className="block text-sm font-medium text-gray-700 dark:text-slate-200">
+                                Stage Interview Types
+                              </label>
+                              <div className="flex flex-wrap gap-2">
+                                {INTERVIEW_TYPE_OPTIONS.map((option) => {
+                                  const selected = Array.isArray(stage.interviewTypes) && stage.interviewTypes.includes(option.value);
+                                  return (
+                                    <button
+                                      key={`${stage.id}-${option.value}`}
+                                      type="button"
+                                      onClick={() => toggleInterviewStageType(stage.id, option.value)}
+                                      className={cn(
+                                        'rounded-full border px-3 py-1.5 text-sm font-medium transition-all duration-200',
+                                        selected
+                                          ? 'border-purple-500 bg-purple-600 text-white shadow-md shadow-purple-500/20'
+                                          : 'border-gray-200 bg-white text-gray-700 hover:border-purple-300 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-purple-500',
+                                      )}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
 
                 {/* Custom Application Form Builder */}
                 <ApplicationFormBuilder

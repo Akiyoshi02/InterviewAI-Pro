@@ -5,6 +5,9 @@ import { cn } from '../../../utils/cn';
 import useInterviewAnalytics from '../../../hooks/useInterviewAnalytics';
 import LoadingIndicator from '../../../components/ui/LoadingIndicator';
 
+const isAutomationEnvironment = () =>
+  typeof navigator !== 'undefined' && navigator.webdriver === true;
+
 const CandidateVideoFeed = ({ 
   isVideoEnabled = true,
   isAudioEnabled = true,
@@ -22,12 +25,15 @@ const CandidateVideoFeed = ({
   const lastPoseUpdateRef = useRef(null);
   const [stream, setStream] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mediaStatus, setMediaStatus] = useState({ kind: 'loading', message: '' });
+  const hasVideoTrack = Boolean(stream?.getVideoTracks?.()?.length);
+  const analyticsEnabled = enablePoseDetection && isVideoEnabled && hasVideoTrack && !isAutomationEnvironment();
   const analyticsOptions = useMemo(() => ({
-    enablePose: enablePoseDetection && isVideoEnabled,
-    enableFace: enablePoseDetection && isVideoEnabled,
+    enablePose: analyticsEnabled,
+    enableFace: analyticsEnabled,
     collectData: true,
     interviewId,
-  }), [enablePoseDetection, isVideoEnabled, interviewId]);
+  }), [analyticsEnabled, interviewId]);
 
   // Initialize comprehensive interview analytics (pose + face-mesh)
   const { 
@@ -62,25 +68,63 @@ const CandidateVideoFeed = ({
 
   // Initialize camera once on mount
   useEffect(() => {
+    const requestMediaStream = async (constraints) => {
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error('MediaDevices API unavailable');
+      }
+      return navigator.mediaDevices.getUserMedia(constraints);
+    };
+
     const initializeCamera = async () => {
       try {
         setIsLoading(true);
-        const mediaStream = await navigator.mediaDevices?.getUserMedia({
-          video: true,
-          audio: true
-        });
+        setMediaStatus({ kind: 'loading', message: '' });
+
+        let mediaStream = null;
+        let nextStatus = { kind: 'ready', message: '' };
+
+        try {
+          mediaStream = await requestMediaStream({ video: true, audio: true });
+        } catch (primaryError) {
+          try {
+            mediaStream = await requestMediaStream({ video: true, audio: false });
+            nextStatus = {
+              kind: 'warning',
+              message: 'Microphone unavailable. Video remains active for interview visibility.',
+            };
+          } catch (videoOnlyError) {
+            try {
+              mediaStream = await requestMediaStream({ video: false, audio: true });
+              nextStatus = {
+                kind: 'warning',
+                message: 'Camera unavailable. Audio capture remains active for the interview.',
+              };
+            } catch (audioOnlyError) {
+              throw audioOnlyError || videoOnlyError || primaryError;
+            }
+          }
+        }
+
         streamRef.current = mediaStream;
         setStream(mediaStream);
+        setMediaStatus(nextStatus);
         onMediaStreamReady?.(mediaStream);
         
         // Wait for video ref to be available
-        if (videoRef?.current) {
+        if (videoRef?.current && mediaStream.getVideoTracks?.().length) {
           videoRef.current.srcObject = mediaStream;
           safePlay(videoRef.current);
         }
         setIsLoading(false);
       } catch (error) {
-        console.error('Error accessing camera:', error);
+        console.warn('Unable to access camera/microphone for live interview.', error);
+        streamRef.current = null;
+        setStream(null);
+        setMediaStatus({
+          kind: 'error',
+          message: 'Camera and microphone are unavailable in this environment. The session can continue, but live media analysis is disabled.',
+        });
+        onMediaStreamReady?.(null);
         setIsLoading(false);
       }
     };
@@ -98,11 +142,11 @@ const CandidateVideoFeed = ({
 
   // Update video ref when stream changes
   useEffect(() => {
-    if (stream && videoRef?.current && !videoRef.current.srcObject) {
+    if (stream && hasVideoTrack && videoRef?.current && !videoRef.current.srcObject) {
       videoRef.current.srcObject = stream;
       safePlay(videoRef.current);
     }
-  }, [stream, safePlay]);
+  }, [hasVideoTrack, stream, safePlay]);
 
   // Sync audio track with isAudioEnabled prop
   useEffect(() => {
@@ -179,7 +223,7 @@ const CandidateVideoFeed = ({
               <p className="text-xs sm:text-sm text-muted-foreground">Connecting camera...</p>
             </div>
           </div>
-        ) : isVideoEnabled ? (
+        ) : isVideoEnabled && hasVideoTrack ? (
           <video
             ref={videoRef}
             autoPlay
@@ -191,9 +235,15 @@ const CandidateVideoFeed = ({
           <div className="absolute inset-0 flex items-center justify-center bg-gray-900/80">
             <div className="text-center space-y-2">
               <div className="w-12 h-12 sm:w-16 sm:h-16 bg-white/10 border border-white/20 rounded-3xl flex items-center justify-center mx-auto">
-                <Icon name="VideoOff" size={20} className="text-white sm:w-6 sm:h-6" />
+                <Icon
+                  name={mediaStatus.kind === 'error' || !hasVideoTrack ? 'VideoOff' : 'Camera'}
+                  size={20}
+                  className="text-white sm:w-6 sm:h-6"
+                />
               </div>
-              <p className="text-xs sm:text-sm text-gray-300">Camera off</p>
+              <p className="text-xs sm:text-sm text-gray-300">
+                {mediaStatus.message || 'Camera off'}
+              </p>
             </div>
           </div>
         )}

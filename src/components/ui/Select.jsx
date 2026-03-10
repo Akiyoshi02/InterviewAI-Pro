@@ -287,7 +287,7 @@ const Select = React.forwardRef(({
     ) : null;
 
     return (
-        <div ref={selectRef} className={cn("space-y-1.5 sm:space-y-2", className)}>
+        <div ref={selectRef} className={cn("min-w-0 space-y-1.5 sm:space-y-2", className)}>
             {label && (
                 <label
                     htmlFor={selectId}
@@ -300,13 +300,13 @@ const Select = React.forwardRef(({
                     {required && <span className="text-destructive ml-1">*</span>}
                 </label>
             )}
-            <div className="relative">
+            <div className="relative min-w-0">
                 <button
                     ref={buttonRef}
                     id={selectId}
                     type="button"
                     className={cn(
-                        "flex h-11 sm:h-12 min-h-[44px] w-full items-center justify-between rounded-xl border border-input bg-background dark:bg-slate-900 text-foreground dark:text-slate-100 px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation transition-colors",
+                        "flex h-11 sm:h-12 min-h-[44px] w-full items-center justify-between gap-2 overflow-hidden rounded-xl border border-input bg-background dark:bg-slate-900 text-foreground dark:text-slate-100 px-3 sm:px-4 py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground dark:placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 touch-manipulation transition-colors",
                         error && "border-destructive focus:ring-destructive",
                         !hasValue && "text-muted-foreground dark:text-slate-400"
                     )}
@@ -316,9 +316,9 @@ const Select = React.forwardRef(({
                     aria-haspopup="listbox"
                     {...props}
                 >
-                    <span className="truncate">{getSelectedDisplay()}</span>
+                    <span className="min-w-0 flex-1 truncate text-left">{getSelectedDisplay()}</span>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex shrink-0 items-center gap-1.5">
                         {loading && (
                             <LoadingIndicator size={14} tone="current" />
                         )}

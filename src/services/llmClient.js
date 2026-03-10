@@ -9,6 +9,7 @@
 const OLLAMA_BASE_URL = import.meta.env.VITE_OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = import.meta.env.VITE_OLLAMA_MODEL || 'qwen3:8b';
 const DEFAULT_FALLBACK_MODEL = import.meta.env.VITE_OLLAMA_FALLBACK_MODEL || 'qwen2.5:7b-instruct';
+const OLLAMA_REQUEST_TIMEOUT_MS = Number(import.meta.env.VITE_OLLAMA_TIMEOUT_MS || 20000);
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
   top_p: 0.9,
@@ -39,6 +40,27 @@ const buildGenerationOptions = (options = {}) => ({
  */
 const stripThinkingTags = (text) => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
 
+const fetchWithTimeout = async (url, init = {}, timeoutMs = OLLAMA_REQUEST_TIMEOUT_MS) => {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: controller.signal,
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      const timeoutError = new Error(`Ollama request timed out after ${timeoutMs}ms`);
+      timeoutError.code = 'ETIMEDOUT';
+      throw timeoutError;
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+};
+
 /**
  * Call Ollama API.
  * Uses think:false to disable Qwen3 internal chain-of-thought.
@@ -58,7 +80,7 @@ async function callOllama(messages, options = {}) {
   for (let i = 0; i < modelAttempts.length; i += 1) {
     const modelName = modelAttempts[i];
     try {
-      const response = await fetch(`${OLLAMA_BASE_URL}/api/chat`, {
+      const response = await fetchWithTimeout(`${OLLAMA_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -71,7 +93,7 @@ async function callOllama(messages, options = {}) {
           ...(options.format ? { format: options.format } : {}),
           options: buildGenerationOptions(options),
         }),
-      });
+      }, options.timeoutMs || OLLAMA_REQUEST_TIMEOUT_MS);
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -117,7 +139,7 @@ function parseJSONResponse(text) {
  */
 export async function checkOllamaHealth() {
   try {
-    const response = await fetch(`${OLLAMA_BASE_URL}/api/tags`);
+    const response = await fetchWithTimeout(`${OLLAMA_BASE_URL}/api/tags`, {}, 3000);
     if (!response.ok) {
       return { 
         healthy: false, 

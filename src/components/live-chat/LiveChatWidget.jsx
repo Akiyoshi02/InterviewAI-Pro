@@ -23,6 +23,8 @@ import { useLLM } from '../../hooks/useLLM.js';
 import { FLOATING_BUTTON_MOTION } from '../../utils/floatingButtonMotion';
 import audioRecorderService from '../../services/audioRecorderService.js';
 import { transcribeWithFallback } from '../../services/localWhisperService.js';
+import LiveChatUnavailableState from './LiveChatUnavailableState.jsx';
+import { getSupportContactEmail } from '../../constants/support.js';
 
 const CHAT_ROOT = 'liveChats';
 const CHAT_SESSION_KEY = 'liveChatSessionId';
@@ -138,7 +140,7 @@ const formatTimestamp = (value) => {
   return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-const shouldHideOnRoute = (pathname) => {
+export const shouldHideOnRoute = (pathname) => {
   const hiddenPrefixes = [
     '/candidate-',
     '/company-',
@@ -147,6 +149,7 @@ const shouldHideOnRoute = (pathname) => {
     '/interview-lobby',
     '/login',
     '/register',
+    '/accept-team-invite',
     '/reset-password',
     '/verify-email',
     '/onboarding',
@@ -224,6 +227,7 @@ const LiveChatWidget = () => {
 
   const accountDisplayName = useMemo(() => getAccountDisplayName(user), [user]);
   const accountType = (user?.accountType || 'ANONYMOUS').toUpperCase();
+  const isRealtimeChatAvailable = Boolean(realtimeDb);
   const isLiveChatVisible = !shouldHideOnRoute(location.pathname) && accountType !== 'SYSTEM_ADMIN';
 
   useLayoutEffect(() => {
@@ -438,8 +442,8 @@ const LiveChatWidget = () => {
   }, []);
 
   const ensureChatSession = useCallback(async (overrideName = '') => {
-    if (!realtimeDb) {
-      throw new Error('Realtime database is not configured.');
+    if (!isRealtimeChatAvailable) {
+      throw new Error(`Live chat is unavailable right now. Please email ${getSupportContactEmail()}.`);
     }
     if (chatSessionId) return chatSessionId;
 
@@ -473,7 +477,7 @@ const LiveChatWidget = () => {
     setStorageValue(CHAT_SESSION_KEY, newChatId);
     setChatStatus('open');
     return newChatId;
-  }, [accountType, chatSessionId, displayName, ensureAuthUser, user]);
+  }, [accountType, chatSessionId, displayName, ensureAuthUser, isRealtimeChatAvailable, user]);
 
   const updateDisplayName = useCallback(async () => {
     const trimmedName = nameDraft.trim();
@@ -1273,13 +1277,15 @@ const LiveChatWidget = () => {
                 </div>
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-white/60 dark:bg-slate-900/60">
-                  {messages.length === 0 && (
+                  {!isRealtimeChatAvailable ? (
+                    <LiveChatUnavailableState compact />
+                  ) : messages.length === 0 && (
                     <div className={`text-center ${sizeSettings.bodyAssistant} text-gray-500 dark:text-slate-400`}>
                       {chatSessionId ? 'Say hello! We are here to help.' : 'Start a chat to connect with support.'}
                     </div>
                   )}
 
-                  {messages.map((message) => {
+                  {isRealtimeChatAvailable && messages.map((message) => {
                     const isUser = message?.sender?.role === 'user';
                     return (
                       <div
@@ -1307,6 +1313,7 @@ const LiveChatWidget = () => {
                   <div ref={messagesEndRef} />
                 </div>
 
+                {isRealtimeChatAvailable && (
                 <div className="p-4 border-t border-border dark:border-slate-700/60 bg-white/80 dark:bg-slate-900/80">
                   {chatStatus === 'closed' ? (
                     <div className="space-y-3 text-center">
@@ -1426,6 +1433,7 @@ const LiveChatWidget = () => {
                     </>
                   )}
                 </div>
+                )}
               </>
             )}
           </motion.div>

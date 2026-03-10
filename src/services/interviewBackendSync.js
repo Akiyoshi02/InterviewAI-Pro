@@ -17,6 +17,8 @@ export class InterviewBackendSync {
     this.initialized = false;
     this.realtimeUnsubscribe = null;
     this.lastRealtimeEventKey = '';
+    this.destroyed = false;
+    this.pendingControllers = new Set();
   }
 
   /**
@@ -148,8 +150,12 @@ export class InterviewBackendSync {
    * Mark a question as asked (update askedAt timestamp)
    */
   async markQuestionAsked(questionId) {
+    const controller = new AbortController();
+    this.pendingControllers.add(controller);
     try {
-      await apiClient.interviews.markQuestionAsked(this.interviewId, questionId);
+      await apiClient.interviews.markQuestionAsked(this.interviewId, questionId, {
+        signal: controller.signal,
+      });
       
       // Update local state
       const questionIndex = this.questions.findIndex(q => q.id === questionId);
@@ -160,8 +166,13 @@ export class InterviewBackendSync {
       
       return true;
     } catch (error) {
+      if (this.isBenignSyncError(error)) {
+        return false;
+      }
       console.error('Failed to mark question as asked:', error);
       return false;
+    } finally {
+      this.pendingControllers.delete(controller);
     }
   }
 
@@ -297,7 +308,24 @@ export class InterviewBackendSync {
    * Destroy service resources/subscriptions.
    */
   destroy() {
+    this.destroyed = true;
     this.destroyRealtimeSubscription();
+    this.pendingControllers.forEach((controller) => controller.abort());
+    this.pendingControllers.clear();
+  }
+
+  isBenignSyncError(error) {
+    if (!error) return false;
+    if (this.destroyed) return true;
+    if (error?.name === 'AbortError') return true;
+    const message = String(error?.message || error || '').toLowerCase();
+    if (message.includes('aborted')) return true;
+    if (message.includes('failed to fetch')
+      && typeof document !== 'undefined'
+      && document.visibilityState === 'hidden') {
+      return true;
+    }
+    return false;
   }
 }
 

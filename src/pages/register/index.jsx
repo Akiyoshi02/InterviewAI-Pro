@@ -566,7 +566,6 @@ const Register = () => {
             errorMessage.includes('404');
 
           if (isMissingBackendUser) {
-            console.log('Firebase session found without backend user. Allowing registration to continue.');
             localStorage.removeItem('user');
             localStorage.removeItem('isAuthenticated');
             localStorage.removeItem('socialAuthVerified');
@@ -1555,8 +1554,6 @@ const Register = () => {
       
       // If session exists immediately, email confirmation might be disabled
       if (session && session.access_token) {
-        console.log('Session available immediately, syncing with backend...');
-        
         // Sync user data with backend database
         const accountTypeUpper = (formData.accountType || 'candidate').toUpperCase();
         

@@ -8,7 +8,7 @@ import CandidatePipeline from './components/CandidatePipeline';
 import CandidateTable from './components/CandidateTable';
 import HiringMetrics from './components/HiringMetrics';
 import QuickActions from './components/QuickActions';
-import ReviewerPanel from './components/ReviewerPanel';
+import ReviewerDashboardPanel from './components/ReviewerDashboardPanel';
 import HiringInsightsBoard from './components/HiringInsightsBoard';
 import HiringFocusPanel from './components/HiringFocusPanel';
 import InterviewReviewEnhanced from './components/InterviewReviewEnhanced';
@@ -42,6 +42,7 @@ const CompanyDashboard = () => {
   const [dataLoading, setDataLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedReviewInterviewId, setSelectedReviewInterviewId] = useState(null);
+  const [selectedReviewTab, setSelectedReviewTab] = useState('overview');
   const [actionMessage, setActionMessage] = useState('');
   const [statusUpdateModal, setStatusUpdateModal] = useState({ open: false, interviewId: null, currentStatus: 'SCREENING' });
   const [statusUpdateLoading, setStatusUpdateLoading] = useState(false);
@@ -50,6 +51,14 @@ const CompanyDashboard = () => {
 
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
+  const canViewAnalytics = hasPermission(organizationRole, 'ACCESS_ANALYTICS_PAGE');
+  const canManageCandidates = hasPermission(organizationRole, 'MANAGE_CANDIDATES');
+  const canAccessJobsPage = hasPermission(organizationRole, 'ACCESS_JOBS_PAGE');
+  const canAccessCandidatesPage = hasPermission(organizationRole, 'ACCESS_CANDIDATES_PAGE');
+  const canAccessInterviewsPage = hasPermission(organizationRole, 'ACCESS_INTERVIEWS_PAGE');
+  const canUpdateApplicationStatus = hasPermission(organizationRole, 'UPDATE_APPLICATION_STATUS');
+  const canExportReports = hasPermission(organizationRole, 'EXPORT_REPORTS');
+  const isReviewerOnly = organizationRole === 'REVIEWER';
 
 
   const viewportConfig = { once: true, amount: 0.15 };
@@ -134,9 +143,15 @@ const CompanyDashboard = () => {
     try {
       const [interviewsResult, metricsResult, jobsResult, dashboardMetricsResult] = await Promise.allSettled([
         apiClient.interviews.getCompanyInterviews(),
-        apiClient.analytics.getCompanyMetrics(),
-        apiClient.jobs.getOrganizationJobs(),
-        apiClient.analytics.getDashboardMetrics(),
+        canViewAnalytics
+          ? apiClient.analytics.getCompanyMetrics()
+          : Promise.resolve({ success: false }),
+        canAccessJobsPage
+          ? apiClient.jobs.getOrganizationJobs()
+          : Promise.resolve({ success: false }),
+        canViewAnalytics
+          ? apiClient.analytics.getDashboardMetrics()
+          : Promise.resolve({ success: false }),
       ]);
 
       if (interviewsResult.status === 'fulfilled' && interviewsResult.value.success) {
@@ -167,7 +182,7 @@ const CompanyDashboard = () => {
     } finally {
       setDataLoading(false);
     }
-  }, [navigate, user]);
+  }, [canAccessJobsPage, canViewAnalytics, navigate, user]);
 
   useEffect(() => {
     fetchCompanyDataRef.current = fetchCompanyData;
@@ -222,19 +237,48 @@ const CompanyDashboard = () => {
   }, []);
 
   useEffect(() => {
+    if (!selectedReviewInterviewId) return undefined;
+
+    const { body } = document;
+    const previousOverflow = body.style.overflow;
+    body.style.overflow = 'hidden';
+
+    const handleEscape = (event) => {
+      if (event.key === 'Escape') {
+        setSelectedReviewInterviewId(null);
+        clearReviewSearchParams();
+      }
+    };
+
+    window.addEventListener('keydown', handleEscape);
+
+    return () => {
+      body.style.overflow = previousOverflow;
+      window.removeEventListener('keydown', handleEscape);
+    };
+  }, [clearReviewSearchParams, selectedReviewInterviewId]);
+
+  useEffect(() => {
     fetchCompanyData();
   }, [fetchCompanyData]);
 
   useEffect(() => {
     const params = new URLSearchParams(location.search);
     const interviewIdFromQuery = params.get('interviewId');
+    const tabFromQuery = params.get('tab') || 'overview';
     if (!interviewIdFromQuery) return;
+
+    if (isReviewerOnly) {
+      navigate(`/company-reviews?interviewId=${encodeURIComponent(interviewIdFromQuery)}&tab=${encodeURIComponent(tabFromQuery)}`, { replace: true });
+      return;
+    }
 
     setSelectedReviewInterviewId((previous) => (
       previous === interviewIdFromQuery ? previous : interviewIdFromQuery
     ));
+    setSelectedReviewTab(tabFromQuery);
     setActionMessage('');
-  }, [location.search]);
+  }, [isReviewerOnly, location.search, navigate]);
 
   // Handle hash routing for navigation to specific sections (e.g., candidates)
   useEffect(() => {
@@ -299,6 +343,8 @@ const CompanyDashboard = () => {
   
   const interviewsToday = safeInterviews.filter((interview) => {
     if (!interview?.scheduledFor) return false;
+    const statusCode = String(interview?.status || '').toUpperCase();
+    if (!['SCHEDULED', 'IN_PROGRESS'].includes(statusCode)) return false;
     const interviewDate = new Date(interview.scheduledFor);
     const today = new Date();
     return (
@@ -308,37 +354,79 @@ const CompanyDashboard = () => {
     );
   }).length;
 
-  const pendingReviews = safeInterviews?.filter(
-    (interview) => interview && interview.status === 'COMPLETED' && !interview.evaluation,
-  )?.length || 0;
+  const pendingReviews = safeInterviews?.filter((interview) => {
+    if (!interview || interview.status !== 'COMPLETED') return false;
+    if (isReviewerOnly) {
+      return String(interview.myReviewStatus || 'PENDING').toUpperCase() !== 'SUBMITTED';
+    }
+    return !interview.evaluation;
+  })?.length || 0;
+  const completedReviews = safeInterviews?.filter((interview) => (
+    interview && interview.status === 'COMPLETED' &&
+      String(interview.myReviewStatus || '').toUpperCase() === 'SUBMITTED'
+  ))?.length || 0;
   const upcomingInterviews = safeInterviews?.filter(
     (interview) => interview && interview.status === 'SCHEDULED',
   )?.length || 0;
 
-  const heroHighlights = [
-    {
-      label: 'Active roles',
-      value: dashboardMetrics?.activeJobPostings?.value ?? activeJobPostings,
-      detail: dashboardMetrics?.activeJobPostings?.changeText || 
-        (activeJobPostings === 1 ? 'Open requisition' : 'Open requisitions')
-    },
-    {
-      label: 'Avg time to hire',
-      value: metrics?.averageTimeToHire || '--',
-      detail: 'Last 30 days'
-    },
-    {
-      label: 'Interviews today',
-      value: interviewsToday,
-      detail: 'On the calendar'
-    }
-  ];
+  const heroHighlights = isReviewerOnly
+    ? [
+        {
+          label: 'Pending reviews',
+          value: pendingReviews,
+          detail: pendingReviews > 0 ? 'Needs reviewer input' : 'All caught up',
+        },
+        {
+          label: 'Upcoming interviews',
+          value: upcomingInterviews,
+          detail: interviewsToday > 0 ? `Today: ${interviewsToday}` : 'Scheduled sessions',
+        },
+        {
+          label: 'Completed reviews',
+          value: completedReviews,
+          detail: completedReviews > 0 ? 'Submitted feedback' : 'No completed reviews yet',
+        },
+      ]
+    : [
+        {
+          label: 'Active roles',
+          value: dashboardMetrics?.activeJobPostings?.value ?? activeJobPostings,
+          detail: dashboardMetrics?.activeJobPostings?.changeText ||
+            (activeJobPostings === 1 ? 'Open requisition' : 'Open requisitions'),
+        },
+        {
+          label: 'Avg time to hire',
+          value: metrics?.averageTimeToHire || '--',
+          detail: 'Last 30 days',
+        },
+        {
+          label: 'Interviews today',
+          value: interviewsToday,
+          detail: 'On the calendar',
+        },
+      ];
 
   const latestCompanyName =
     formatCompanyLabel(safeInterviews?.find((i) => i?.company)?.company) ||
     user?.companyName ||
     user?.organizationContext?.organization?.displayName ||
     'Live session';
+  const heroBadgeLabel = isReviewerOnly ? 'Structured review workspace' : 'AI-powered hiring control center';
+  const heroDescription = isReviewerOnly
+    ? 'Review assigned interviews, inspect candidate evidence, and submit structured feedback without changing hiring settings.'
+    : `${user?.companyName || 'Your organization'} is synced. Continue orchestrating interviews, review AI insights, and fast-forward decisions.`;
+  const heroEventLabel = isReviewerOnly ? 'Next review focus' : 'Next live event';
+  const heroEventDetail = isReviewerOnly
+    ? pendingReviews > 0
+      ? `${pendingReviews} review${pendingReviews === 1 ? '' : 's'} pending`
+      : upcomingInterviews > 0
+        ? `${upcomingInterviews} scheduled interview${upcomingInterviews === 1 ? '' : 's'}`
+        : completedReviews > 0
+          ? `${completedReviews} completed review${completedReviews === 1 ? '' : 's'}`
+          : 'Reviewer queue ready'
+    : interviewsToday > 0
+      ? `${interviewsToday} interviews today`
+      : 'Pipeline ready';
 
   if (error) {
     return (
@@ -383,13 +471,20 @@ const CompanyDashboard = () => {
       return;
     }
 
+    if (isReviewerOnly) {
+      navigate(`/company-reviews?interviewId=${encodeURIComponent(interview.id)}&tab=video`);
+      return;
+    }
+
     try {
       await apiClient.interviews.getRecordingUrl(interview.id);
       setSelectedReviewInterviewId(interview.id);
+      setSelectedReviewTab('video');
       setActionMessage('');
     } catch (error) {
       setActionMessage(error?.message || 'Recording is not available for this interview.');
       setSelectedReviewInterviewId(interview.id);
+      setSelectedReviewTab('video');
     }
   };
 
@@ -400,13 +495,20 @@ const CompanyDashboard = () => {
       return;
     }
 
+    if (isReviewerOnly) {
+      navigate(`/company-reviews?interviewId=${encodeURIComponent(interview.id)}&tab=evaluation`);
+      return;
+    }
+
     try {
       await apiClient.interviews.getEvaluation(interview.id);
       setSelectedReviewInterviewId(interview.id);
+      setSelectedReviewTab('evaluation');
       setActionMessage('');
     } catch (error) {
       setActionMessage(error?.message || 'Evaluation not available yet.');
       setSelectedReviewInterviewId(interview.id);
+      setSelectedReviewTab('evaluation');
     }
   };
 
@@ -433,6 +535,15 @@ const CompanyDashboard = () => {
 
   const handleExportReport = () => {
     navigate('/company-analytics');
+  };
+
+  const handleOpenAssignedReviews = () => {
+    navigate('/company-reviews');
+  };
+
+  const handleOpenAssignedReviewInterview = (interviewId) => {
+    if (!interviewId) return;
+    navigate(`/company-reviews?interviewId=${encodeURIComponent(interviewId)}&tab=review`);
   };
 
   const PIPELINE_STAGE_OPTIONS = [
@@ -516,23 +627,22 @@ const CompanyDashboard = () => {
                   <div className="space-y-1 sm:space-y-1.5">
                     <div className="inline-flex items-center gap-2 rounded-full bg-blue-600/10 dark:bg-blue-900/30 px-3 py-1 xs:px-4 xs:py-1.5 text-xs font-semibold text-blue-700 dark:text-blue-300">
                       <span className="h-1.5 w-1.5 xs:h-2 xs:w-2 rounded-full bg-blue-600 dark:bg-blue-400 animate-pulse" />
-                      <span>AI-powered hiring control center</span>
+                      <span>{heroBadgeLabel}</span>
                     </div>
                     <h1 className="text-xl xs:text-2xl sm:text-3xl lg:text-4xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
                       Welcome back, {user?.fullName?.split(' ')[0] || user?.email?.split('@')[0] || 'Team Lead'}
                     </h1>
                     <p className="text-xs xs:text-sm sm:text-base text-gray-600 dark:text-slate-300 max-w-2xl leading-relaxed">
-                      {user?.companyName || 'Your organization'} is synced. Continue orchestrating interviews,
-                      review AI insights, and fast-forward decisions.
+                      {heroDescription}
                     </p>
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
-                    <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Next live event</p>
+                    <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">{heroEventLabel}</p>
                     <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
                       {latestCompanyName}
                     </div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
-                      {interviewsToday > 0 ? `${interviewsToday} interviews today` : 'Pipeline ready'}
+                      {heroEventDetail}
                     </p>
                   </div>
                 </div>
@@ -556,68 +666,106 @@ const CompanyDashboard = () => {
                 </motion.div>
               )}
 
-              {/* Main Content Grid */}
-              <motion.div
-                variants={staggeredChildren}
-                className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 items-start"
-              >
-                <motion.div variants={fadeUpChild} className="xl:col-span-8 space-y-3 sm:space-y-4">
-                  <OverviewPanel
-                    dashboardMetrics={dashboardMetrics}
-                    activeJobPostings={activeJobPostings}
-                    pendingReviews={pendingReviews}
-                    upcomingInterviews={upcomingInterviews}
-                    interviewsToday={interviewsToday}
-                    onViewAllJobs={() => navigate('/company-jobs')}
-                    onViewPendingReviews={() => navigate('/company-candidates')}
-                    onViewUpcomingInterviews={() => navigate('/company-interviews')}
-                  />
-
-                  {/* Show metrics for ADMIN and RECRUITER only */}
-                  {hasPermission(organizationRole, 'MANAGE_CANDIDATES') && (
-                    <HiringMetrics 
-                      metrics={metrics}
-                      interviews={safeInterviews}
-                      onExportReport={handleExportReport} 
+              {isReviewerOnly ? (
+                <motion.div
+                  variants={staggeredChildren}
+                  className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 items-start"
+                >
+                  <motion.div variants={fadeUpChild} className="xl:col-span-8 space-y-3 sm:space-y-4">
+                    <OverviewPanel
+                      dashboardMetrics={dashboardMetrics}
+                      activeJobPostings={activeJobPostings}
+                      pendingReviews={pendingReviews}
+                      upcomingInterviews={upcomingInterviews}
+                      interviewsToday={interviewsToday}
+                      completedReviews={completedReviews}
+                      roleVariant="reviewer"
+                      onViewAllJobs={null}
+                      onViewPendingReviews={() => navigate('/company-reviews')}
+                      onViewUpcomingInterviews={canAccessInterviewsPage ? () => navigate('/company-interviews') : null}
                     />
+                    <ReviewerDashboardPanel
+                      interviews={safeInterviews}
+                      onOpenWorkspace={handleOpenAssignedReviews}
+                      onOpenInterview={handleOpenAssignedReviewInterview}
+                    />
+                  </motion.div>
+                  <motion.div variants={fadeUpChild} className="xl:col-span-4 space-y-3 sm:space-y-4">
+                    <QuickActions
+                      onScheduleInterview={handleScheduleInterview}
+                      onCreateTemplate={handleCreateTemplate}
+                      onGenerateReport={handleGenerateReport}
+                      organizationRole={organizationRole}
+                    />
+                  </motion.div>
+                </motion.div>
+              ) : (
+                <>
+                  {/* Main Content Grid */}
+                  <motion.div
+                    variants={staggeredChildren}
+                    className="grid grid-cols-1 xl:grid-cols-12 gap-3 sm:gap-4 items-start"
+                  >
+                    <motion.div variants={fadeUpChild} className="xl:col-span-8 space-y-3 sm:space-y-4">
+                      <OverviewPanel
+                        dashboardMetrics={dashboardMetrics}
+                        activeJobPostings={activeJobPostings}
+                        pendingReviews={pendingReviews}
+                        upcomingInterviews={upcomingInterviews}
+                        interviewsToday={interviewsToday}
+                        completedReviews={completedReviews}
+                        roleVariant="company"
+                        onViewAllJobs={canAccessJobsPage ? () => navigate('/company-jobs') : null}
+                        onViewPendingReviews={canAccessInterviewsPage ? () => navigate('/company-interviews') : null}
+                        onViewUpcomingInterviews={canAccessInterviewsPage ? () => navigate('/company-interviews') : null}
+                      />
+
+                      {/* Show metrics for ADMIN and RECRUITER only */}
+                      {canManageCandidates && canViewAnalytics && (
+                        <HiringMetrics 
+                          metrics={metrics}
+                          interviews={safeInterviews}
+                          onExportReport={handleExportReport} 
+                        />
+                      )}
+
+                      {canManageCandidates && (
+                        <HiringInsightsBoard
+                          interviews={safeInterviews}
+                          jobs={safeJobs}
+                          onCreateJob={() => navigate('/company-jobs')}
+                          onScheduleInterview={handleScheduleInterview}
+                          onOpenCandidates={() => navigate('/company-candidates')}
+                        />
+                      )}
+                    </motion.div>
+                    <motion.div variants={fadeUpChild} className="xl:col-span-4 space-y-3 sm:space-y-4">
+                      <QuickActions
+                        onScheduleInterview={handleScheduleInterview}
+                        onCreateTemplate={handleCreateTemplate}
+                        onGenerateReport={handleGenerateReport}
+                        organizationRole={organizationRole}
+                      />
+                      {canManageCandidates && (
+                        <HiringFocusPanel
+                          interviews={safeInterviews}
+                          jobs={safeJobs}
+                          pendingReviews={pendingReviews}
+                          onOpenInterviews={handleScheduleInterview}
+                          onOpenCandidates={() => navigate('/company-candidates')}
+                          onOpenJobs={() => navigate('/company-jobs')}
+                        />
+                      )}
+                    </motion.div>
+                  </motion.div>
+
+                  {/* Recruiter Pipeline - Full Width */}
+                  {canManageCandidates && (
+                    <motion.div variants={fadeUpChild} className="mt-3 sm:mt-4">
+                      <CandidatePipeline />
+                    </motion.div>
                   )}
-
-                  <HiringInsightsBoard
-                    interviews={safeInterviews}
-                    jobs={safeJobs}
-                    onCreateJob={() => navigate('/company-jobs')}
-                    onScheduleInterview={handleScheduleInterview}
-                    onOpenCandidates={() => navigate('/company-candidates')}
-                  />
-                </motion.div>
-                <motion.div variants={fadeUpChild} className="xl:col-span-4 space-y-3 sm:space-y-4">
-                  <QuickActions
-                    onScheduleInterview={handleScheduleInterview}
-                    onCreateTemplate={handleCreateTemplate}
-                    onGenerateReport={handleGenerateReport}
-                    organizationRole={organizationRole}
-                  />
-                  <HiringFocusPanel
-                    interviews={safeInterviews}
-                    jobs={safeJobs}
-                    pendingReviews={pendingReviews}
-                    onOpenInterviews={handleScheduleInterview}
-                    onOpenCandidates={() => navigate('/company-candidates')}
-                    onOpenJobs={() => navigate('/company-jobs')}
-                  />
-                </motion.div>
-              </motion.div>
-
-              {/* Reviewer Portal - Full Width */}
-              <motion.div variants={fadeUpChild} className="mt-3 sm:mt-4">
-                <ReviewerPanel interviews={safeInterviews} />
-              </motion.div>
-
-              {/* Recruiter Pipeline - Full Width */}
-              {hasPermission(organizationRole, 'MANAGE_CANDIDATES') && (
-                <motion.div variants={fadeUpChild} className="mt-3 sm:mt-4">
-                  <CandidatePipeline />
-                </motion.div>
+                </>
               )}
 
               {/* Recent Interviews - Full Width */}
@@ -627,20 +775,44 @@ const CompanyDashboard = () => {
                   onViewRecording={handleViewRecording}
                   onViewAnalysis={handleViewAnalysis}
                   onUpdateStatus={handleUpdateStatus}
+                  canExport={canExportReports}
+                  canUpdateStatus={canUpdateApplicationStatus}
+                  roleVariant={isReviewerOnly ? 'reviewer' : 'company'}
                 />
               </motion.div>
             </motion.section>
           </main>
         </div>
 
-        {selectedReviewInterviewId && (
-          <InterviewReviewEnhanced
-            interviewId={selectedReviewInterviewId}
-            onClose={() => {
+        {selectedReviewInterviewId && !isReviewerOnly && (
+          <div
+            className="fixed inset-0 z-[70] bg-slate-950/70 backdrop-blur-sm overflow-y-auto"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Interview review details"
+            onClick={() => {
               setSelectedReviewInterviewId(null);
+              setSelectedReviewTab('overview');
               clearReviewSearchParams();
             }}
-          />
+          >
+            <div className="min-h-screen px-4 py-20 sm:px-6 lg:px-8">
+              <div
+                className="mx-auto w-full max-w-7xl rounded-[28px] border border-white/10 bg-white/95 dark:bg-slate-900/95 p-4 sm:p-6 shadow-[0_30px_120px_rgba(15,23,42,0.45)]"
+                onClick={(event) => event.stopPropagation()}
+              >
+                <InterviewReviewEnhanced
+                  interviewId={selectedReviewInterviewId}
+                  initialActiveTab={selectedReviewTab}
+                  onClose={() => {
+                    setSelectedReviewInterviewId(null);
+                    setSelectedReviewTab('overview');
+                    clearReviewSearchParams();
+                  }}
+                />
+              </div>
+            </div>
+          </div>
         )}
 
         {statusUpdateModal.open && (

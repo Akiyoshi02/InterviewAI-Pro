@@ -724,7 +724,7 @@ const OrganizationSettings = ({
               <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-2">
                 Working days
               </p>
-              <div className="grid grid-cols-7 gap-2 w-full">
+              <div className="grid w-full grid-cols-7 gap-1.5 sm:gap-2">
                 {workingDayOptions.map((day) => {
                   const isActive = interviewAutomation.workingDays.includes(day.value);
                   return (
@@ -733,7 +733,7 @@ const OrganizationSettings = ({
                       type="button"
                       onClick={() => toggleWorkingDay(day.value)}
                       disabled={!isOrgAdmin}
-                      className={`w-full py-2 rounded-lg text-xs font-medium border transition-colors ${
+                      className={`min-h-[44px] min-w-0 w-full rounded-lg border px-0 py-2 text-sm font-medium leading-none whitespace-nowrap transition-colors sm:min-h-0 sm:text-xs ${
                         isActive
                           ? 'bg-purple-100 border-purple-300 text-purple-700 dark:bg-purple-600/20 dark:border-purple-500/40 dark:text-purple-200'
                           : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300'

@@ -10,6 +10,7 @@ import LoadingState from '../../components/ui/LoadingState';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import apiClient from '../../services/apiClient.js';
+import { authHelpers } from '../../config/firebase.js';
 import CompanyDirectoryProfilePreview from '../../components/company/CompanyDirectoryProfilePreview';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
@@ -80,7 +81,6 @@ const buildAssetSources = (value) => {
 
 const getAuthToken = async () => {
   try {
-    const { authHelpers } = await import('../../config/firebase.js');
     return await authHelpers.getAccessToken();
   } catch {
     return null;
@@ -872,17 +872,17 @@ const CompanyPublicProfileEditorPage = () => {
             <motion.div
               initial={{ opacity: 0, y: -10 }}
               animate={{ opacity: 1, y: 0 }}
-              className="flex items-center justify-between flex-wrap gap-3 mb-1"
+              className="mb-1 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"
             >
               <div className="flex items-center gap-4">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="Building2" size={22} color="white" />
+                <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                  <Icon name="Building2" size={24} color="white" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
                     Public Company Profile
                   </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
                     Design how your company appears to candidates in the directory.
                   </p>
                 </div>
@@ -893,6 +893,7 @@ const CompanyPublicProfileEditorPage = () => {
                 size="sm"
                 iconName={showInlinePreview ? 'EyeOff' : 'Eye'}
                 onClick={() => setShowInlinePreview((previous) => !previous)}
+                className="w-full justify-center sm:w-auto"
               >
                 {showInlinePreview ? 'Edit' : 'Preview'}
               </Button>
@@ -1148,8 +1149,8 @@ const CompanyPublicProfileEditorPage = () => {
                   </label>
 
                   <div className="rounded-xl border border-blue-200/70 dark:border-blue-700/40 bg-blue-50/70 dark:bg-blue-900/10 p-4 space-y-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                      <div className="min-w-0 flex-1">
                         <p className="text-sm font-semibold text-blue-800 dark:text-blue-200">
                           Company basics (managed in Settings)
                         </p>
@@ -1163,33 +1164,41 @@ const CompanyPublicProfileEditorPage = () => {
                         variant="outline"
                         iconName="Settings"
                         onClick={() => navigate('/company-settings')}
+                        className="w-full justify-center sm:w-auto"
                       >
                         Open Settings
                       </Button>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs text-blue-900 dark:text-blue-100">
-                      <p><span className="font-semibold">Name:</span> {previewCompany.displayName || previewCompany.name || 'Not set'}</p>
-                      <p><span className="font-semibold">Industry:</span> {previewCompany.industry || 'Not set'}</p>
-                      <p><span className="font-semibold">Tagline:</span> {form.tagline || 'Not set'}</p>
-                      <p><span className="font-semibold">Website:</span> {form.website || 'Not set'}</p>
-                      <p className="sm:col-span-2"><span className="font-semibold">Location:</span> {form.location || 'Not set'}</p>
+                    <div className="grid grid-cols-1 gap-2 text-xs text-blue-900 dark:text-blue-100 sm:grid-cols-2">
+                      <p className="break-words"><span className="font-semibold">Name:</span> {previewCompany.displayName || previewCompany.name || 'Not set'}</p>
+                      <p className="break-words"><span className="font-semibold">Industry:</span> {previewCompany.industry || 'Not set'}</p>
+                      <p className="break-words"><span className="font-semibold">Tagline:</span> {form.tagline || 'Not set'}</p>
+                      <p className="break-all"><span className="font-semibold">Website:</span> {form.website || 'Not set'}</p>
+                      <p className="break-words sm:col-span-2"><span className="font-semibold">Location:</span> {form.location || 'Not set'}</p>
                     </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-gray-700 dark:text-slate-300">Work Model</label>
-                      <select
-                        value={form.workModel}
-                        onChange={(e) => setForm((p) => ({ ...p, workModel: e.target.value }))}
-                        className="w-full text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-900 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                      >
-                        {WORK_MODEL_OPTIONS.map((option) => (
-                          <option key={option.value || 'empty'} value={option.value}>
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
+                      <div className="relative">
+                        <select
+                          value={form.workModel}
+                          onChange={(e) => setForm((p) => ({ ...p, workModel: e.target.value }))}
+                          className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-900"
+                        >
+                          {WORK_MODEL_OPTIONS.map((option) => (
+                            <option key={option.value || 'empty'} value={option.value}>
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <Icon
+                          name="ChevronDown"
+                          size={16}
+                          className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-slate-500"
+                        />
+                      </div>
                     </div>
                     <div className="space-y-1">
                       <label className="text-xs font-medium text-gray-700 dark:text-slate-300">Response Time</label>

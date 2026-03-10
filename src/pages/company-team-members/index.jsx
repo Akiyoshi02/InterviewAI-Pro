@@ -441,12 +441,12 @@ const CompanyTeamMembersPage = () => {
               className="space-y-4 sm:space-y-6"
             >
               {/* Page Header */}
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-4">
-                  <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                    <Icon name="Users2" size={22} color="white" />
+                  <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                    <Icon name="Users2" size={24} color="white" />
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">
                       Team Members
                     </h1>
@@ -464,7 +464,7 @@ const CompanyTeamMembersPage = () => {
                     loadInvitations();
                   }}
                   disabled={loadingMembers || loadingInvitations}
-                  className="rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
+                  className="self-start rounded-full text-gray-500 dark:text-slate-400 hover:text-blue-600 dark:hover:text-blue-400"
                 >
                   Refresh
                 </Button>
@@ -597,17 +597,17 @@ const CompanyTeamMembersPage = () => {
                         {filteredPendingInvitations.map((inv) => (
                           <div
                             key={inv.id}
-                            className="flex items-center justify-between p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-white/50 dark:bg-slate-900/50"
+                            className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-white/50 p-3 dark:border-slate-700 dark:bg-slate-900/50 sm:flex-row sm:items-center sm:justify-between"
                           >
-                            <div className="flex flex-col">
-                              <span className="text-sm font-medium text-gray-800 dark:text-slate-100">
+                            <div className="min-w-0 flex-1">
+                              <span className="block text-sm font-medium text-gray-800 dark:text-slate-100 break-all leading-snug">
                                 {inv.email}
                               </span>
-                              <span className="text-xs text-gray-500 dark:text-slate-400">
+                              <span className="mt-1 block text-xs text-gray-500 dark:text-slate-400 break-words leading-snug">
                                 Role: {inv.role} - Status: {inv.status}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-end gap-2 self-end sm:self-auto sm:flex-shrink-0">
                               <Button
                                 variant="ghost"
                                 size="icon"
@@ -707,9 +707,9 @@ const CompanyTeamMembersPage = () => {
                   {filteredMembers.map((member) => (
                     <div
                       key={member.userId}
-                      className="flex items-center justify-between p-4 rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] transition-all duration-200"
+                      className="flex flex-col gap-3 rounded-xl border border-white/40 bg-white/80 p-4 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:border-slate-700/50 dark:bg-slate-800/70 dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] sm:flex-row sm:items-center sm:justify-between"
                     >
-                      <div className="flex items-center space-x-4">
+                      <div className="flex min-w-0 items-center gap-4">
                         <img
                           src={
                             member.user?.photoURL ||
@@ -730,10 +730,10 @@ const CompanyTeamMembersPage = () => {
                             }
                             return 'Member';
                           })()}
-                          className="w-12 h-12 rounded-full object-cover"
+                          className="h-12 w-12 flex-shrink-0 rounded-full object-cover"
                         />
-                        <div>
-                          <p className="font-medium text-gray-900 dark:text-slate-100">
+                        <div className="min-w-0 flex-1">
+                          <p className="break-words font-medium text-gray-900 dark:text-slate-100">
                             {(() => {
                               const user = member.user;
                               if (typeof user === 'object' && user !== null) {
@@ -742,7 +742,7 @@ const CompanyTeamMembersPage = () => {
                               return 'Member';
                             })()}
                           </p>
-                          <p className="text-sm text-gray-500 dark:text-slate-400">
+                          <p className="break-all text-sm text-gray-500 dark:text-slate-400">
                             {(() => {
                               const user = member.user;
                               if (typeof user === 'object' && user !== null) {
@@ -754,7 +754,7 @@ const CompanyTeamMembersPage = () => {
                         </div>
                       </div>
 
-                      <div className="flex items-center space-x-3">
+                      <div className="flex w-full items-center gap-3 sm:w-auto sm:justify-end">
                         {isOrgAdmin ? (
                           <>
                             <Select
@@ -762,14 +762,14 @@ const CompanyTeamMembersPage = () => {
                               value={member.role}
                               onChange={(value) => handleUpdateMemberRole(member.userId, value)}
                               loading={updatingRoleId === member.userId}
-                              className="w-32"
+                              className="w-full sm:w-32"
                             />
                             <Button
                               variant="ghost"
                               size="sm"
                               iconName="Trash2"
                               onClick={() => handleRemoveMember(member.userId)}
-                              className="rounded-full text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-500/10"
+                              className="shrink-0 rounded-full text-rose-500 hover:bg-rose-50 hover:text-rose-600 dark:hover:bg-rose-500/10"
                             />
                           </>
                         ) : (

@@ -217,6 +217,7 @@ const OLLAMA_EMPTY_CONTENT_RETRIES = Math.max(
   Number.parseInt(process.env.OLLAMA_EMPTY_CONTENT_RETRIES || '1', 10) || 1,
 );
 const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
+const getWhisperBaseUrl = () => WHISPER_BASE_URL?.replace(/\/$/, '') || null;
 const THINKING_UNSUPPORTED_ERROR_PATTERN = /does not support thinking/i;
 const DEFAULT_NON_THINKING_MODELS = ['qwen2.5:7b-instruct'];
 const OLLAMA_NON_THINKING_MODELS = (process.env.OLLAMA_NON_THINKING_MODELS || DEFAULT_NON_THINKING_MODELS.join(','))
@@ -1339,7 +1340,8 @@ Confidence must be between 0 and 1.`;
   }
 
   static async getWhisperHealth() {
-    if (!WHISPER_BASE_URL) {
+    const whisperBaseUrl = getWhisperBaseUrl();
+    if (!whisperBaseUrl) {
       return {
         configured: false,
         reachable: null,
@@ -1348,7 +1350,7 @@ Confidence must be between 0 and 1.`;
 
     try {
       const response = await fetchWithTimeout(
-        `${WHISPER_BASE_URL.replace(/\/$/, '')}/health`,
+        `${whisperBaseUrl}/health`,
         {},
         OLLAMA_HEALTH_TIMEOUT_MS,
       );
@@ -1362,6 +1364,86 @@ Confidence must be between 0 and 1.`;
         reachable: false,
       };
     }
+  }
+
+  static async getWhisperModels() {
+    const whisperBaseUrl = getWhisperBaseUrl();
+    if (!whisperBaseUrl) {
+      const error = new Error('Whisper service is not configured');
+      error.code = 'WHISPER_NOT_CONFIGURED';
+      throw error;
+    }
+
+    const response = await fetchWithTimeout(
+      `${whisperBaseUrl}/models`,
+      {},
+      OLLAMA_HEALTH_TIMEOUT_MS,
+    );
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      const error = new Error(errorText || `Whisper models request failed with status ${response.status}`);
+      error.code = 'WHISPER_MODELS_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+
+    return response.json();
+  }
+
+  static async proxyWhisperTranscription({
+    audioBuffer,
+    fileName = 'recording.webm',
+    mimeType = 'audio/webm',
+    language = 'en',
+    task = 'transcribe',
+  } = {}) {
+    const whisperBaseUrl = getWhisperBaseUrl();
+    if (!whisperBaseUrl) {
+      const error = new Error('Whisper service is not configured');
+      error.code = 'WHISPER_NOT_CONFIGURED';
+      throw error;
+    }
+
+    if (!audioBuffer || !audioBuffer.length) {
+      const error = new Error('No audio data provided for transcription');
+      error.code = 'WHISPER_AUDIO_REQUIRED';
+      throw error;
+    }
+
+    const formData = new FormData();
+    const audioFile = new File([audioBuffer], String(fileName || 'recording.webm'), {
+      type: String(mimeType || 'audio/webm'),
+    });
+
+    formData.append('audio', audioFile);
+    formData.append('language', String(language || 'en').trim() || 'en');
+    formData.append('task', task === 'translate' ? 'translate' : 'transcribe');
+
+    const response = await fetchWithTimeout(
+      `${whisperBaseUrl}/transcribe`,
+      {
+        method: 'POST',
+        body: formData,
+      },
+      OLLAMA_THINKING_TIMEOUT_MS,
+    );
+
+    let payload = null;
+    try {
+      payload = await response.json();
+    } catch {
+      payload = null;
+    }
+
+    if (!response.ok) {
+      const error = new Error(payload?.error || `Whisper transcription failed with status ${response.status}`);
+      error.code = 'WHISPER_TRANSCRIPTION_FAILED';
+      error.status = response.status;
+      throw error;
+    }
+
+    return payload;
   }
 
   /**

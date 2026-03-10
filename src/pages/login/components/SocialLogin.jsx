@@ -71,22 +71,6 @@ const SocialLogin = ({ onSocialLogin, isLoading }) => {
             {provider?.name}
           </Button>
         ))}
-        <Button
-          type="button"
-          variant="outline"
-          fullWidth
-          disabled
-          iconName="Linkedin"
-          iconPosition="left"
-          className="h-9 lg:h-10 rounded-full border border-white/40 dark:border-slate-700/50 text-gray-500 dark:text-slate-400 text-xs lg:text-sm cursor-not-allowed"
-        >
-          <span className="flex items-center gap-2">
-            <span>Continue with LinkedIn</span>
-            <span className="rounded-full border border-amber-300/70 bg-amber-100/80 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:border-amber-600/60 dark:bg-amber-900/40 dark:text-amber-300">
-              Coming soon
-            </span>
-          </span>
-        </Button>
       </div>
     </div>
   );

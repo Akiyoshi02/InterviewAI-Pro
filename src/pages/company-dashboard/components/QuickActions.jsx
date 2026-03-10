@@ -6,16 +6,46 @@ import { hasPermission } from '../../../utils/rolePermissions';
 
 const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole }) => {
   const navigate = useNavigate();
+  const isReviewerOnly = organizationRole === 'REVIEWER';
   const quickActions = useMemo(() => {
+    if (isReviewerOnly) {
+      return [
+        {
+          id: 'open-assigned-reviews',
+          title: 'Open Review Queue',
+          description: 'Continue assigned reviews and submit structured feedback.',
+          icon: 'ClipboardCheck',
+          color: 'from-blue-600 to-purple-600',
+          onClick: () => navigate('/company-reviews'),
+        },
+        {
+          id: 'review-interview-evidence',
+          title: 'Review Interview Evidence',
+          description: 'Inspect recordings, transcripts, and AI analysis for assigned interviews.',
+          icon: 'PlayCircle',
+          color: 'from-cyan-500 to-blue-500',
+          onClick: () => navigate('/company-interviews'),
+        },
+        {
+          id: 'privacy-data',
+          title: 'Privacy & Data',
+          description: 'Manage reviewer privacy, consent, export, and deletion settings.',
+          icon: 'Shield',
+          color: 'from-emerald-500 to-teal-500',
+          onClick: () => navigate('/privacy-settings'),
+        },
+      ];
+    }
+
     const actions = [
       {
-        id: 'schedule-interview',
-        title: 'Schedule Interview',
-        description: 'Set up a new candidate interview session',
-        icon: 'Calendar',
+        id: 'advance-to-interviewing',
+        title: 'Review Applications',
+        description: 'Move qualified candidates into the interviewing stage and launch scheduling.',
+        icon: 'FileText',
         color: 'from-blue-600 to-purple-600',
-        onClick: onScheduleInterview || (() => navigate('/company-interviews')),
-        requiredPermission: 'SEND_INVITATIONS'
+        onClick: () => navigate('/company-applications'),
+        requiredPermission: 'UPDATE_APPLICATION_STATUS'
       },
       {
         id: 'create-template',
@@ -41,20 +71,20 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
     return actions.filter(action => 
       !action.requiredPermission || hasPermission(organizationRole, action.requiredPermission)
     );
-  }, [onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole]);
+  }, [isReviewerOnly, navigate, onScheduleInterview, onCreateTemplate, onGenerateReport, organizationRole]);
 
   const shortcuts = useMemo(() => {
     const items = [
       {
         id: 'live-session',
-        title: 'View Interviews',
+        title: isReviewerOnly ? 'Assigned Reviews' : 'View Interviews',
         icon: 'Calendar',
-        path: '/company-interviews',
-        requiredPermission: 'SEND_INVITATIONS'
+        path: isReviewerOnly ? '/company-reviews' : '/company-interviews',
+        requiredPermission: 'ACCESS_INTERVIEWS_PAGE'
       },
       {
         id: 'candidate-search',
-        title: 'Search Candidates',
+        title: isReviewerOnly ? 'Assigned Candidates' : 'Search Candidates',
         icon: 'Search',
         path: '/company-candidates'
       },
@@ -69,8 +99,8 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
         id: 'analytics',
         title: 'View Analytics',
         icon: 'TrendingUp',
-        path: '/company-dashboard',
-        requiredPermission: 'VIEW_ANALYTICS'
+        path: '/company-analytics',
+        requiredPermission: 'ACCESS_ANALYTICS_PAGE'
       }
     ];
 
@@ -78,7 +108,13 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
     return items.filter(item => 
       !item.requiredPermission || hasPermission(organizationRole, item.requiredPermission)
     );
-  }, [organizationRole]);
+  }, [isReviewerOnly, organizationRole]);
+
+  const primaryTitle = isReviewerOnly ? 'Reviewer Actions' : 'Quick Actions';
+  const primaryDescription = isReviewerOnly
+    ? 'Open the reviewer tools you use most often without leaving the dashboard.'
+    : 'Manage your hiring workflow';
+  const shortcutsTitle = isReviewerOnly ? 'Review Shortcuts' : 'Quick Shortcuts';
 
   return (
     <div className="space-y-2">
@@ -89,48 +125,55 @@ const QuickActions = ({ onScheduleInterview, onCreateTemplate, onGenerateReport,
             <Icon name="Zap" size={16} color="white" />
           </div>
           <div>
-            <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Quick Actions</h2>
-            <p className="text-xs text-gray-500 dark:text-slate-400">Manage your hiring workflow</p>
+            <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">{primaryTitle}</h2>
+            <p className="text-xs text-gray-500 dark:text-slate-400">{primaryDescription}</p>
           </div>
         </div>
         
         <div className="space-y-2">
-          {quickActions?.map((action) => (
-            <div
-              key={action?.id}
-              className="group cursor-pointer"
-              onClick={action?.onClick}
-            >
-              <div className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] p-3 transition-all duration-200">
-                <div className="flex items-center space-x-3">
-                  <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${action?.color} flex items-center justify-center text-white group-hover:scale-105 transition-transform duration-200 shadow-lg shadow-blue-500/25`}>
-                    <Icon name={action?.icon} size={20} color="currentColor" />
+          {quickActions.length > 0 ? (
+            quickActions?.map((action) => (
+              <button
+                key={action?.id}
+                type="button"
+                className="group w-full text-left"
+                onClick={action?.onClick}
+              >
+                <div className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 hover:-translate-y-0.5 hover:shadow-[0_10px_30px_rgba(15,23,42,0.1)] dark:hover:shadow-[0_10px_30px_rgba(0,0,0,0.3)] p-3 transition-all duration-200">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-10 h-10 rounded-xl bg-gradient-to-br ${action?.color} flex items-center justify-center text-white group-hover:scale-105 transition-transform duration-200 shadow-lg shadow-blue-500/25`}>
+                      <Icon name={action?.icon} size={20} color="currentColor" />
+                    </div>
+                    
+                    <div className="flex-1">
+                      <h4 className="font-medium text-gray-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">
+                        {action?.title}
+                      </h4>
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        {action?.description}
+                      </p>
+                    </div>
+                    
+                    <Icon 
+                      name="ChevronRight" 
+                      size={16} 
+                      className="text-gray-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200" 
+                    />
                   </div>
-                  
-                  <div className="flex-1">
-                    <h4 className="font-medium text-gray-900 dark:text-slate-100 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200">
-                      {action?.title}
-                    </h4>
-                    <p className="text-xs text-gray-500 dark:text-slate-400">
-                      {action?.description}
-                    </p>
-                  </div>
-                  
-                  <Icon 
-                    name="ChevronRight" 
-                    size={16} 
-                    className="text-gray-400 dark:text-slate-500 group-hover:text-blue-600 dark:group-hover:text-blue-400 transition-colors duration-200" 
-                  />
                 </div>
-              </div>
+              </button>
+            ))
+          ) : (
+            <div className="rounded-xl border border-dashed border-white/40 dark:border-slate-700/50 bg-white/60 dark:bg-slate-800/60 p-3 text-sm text-gray-600 dark:text-slate-300">
+              Scheduling, templates, and exports stay with recruiters. Use the review queue, interviews, and candidate shortcuts below to inspect submissions and leave feedback.
             </div>
-          ))}
+          )}
         </div>
       </div>
 
       {/* Quick Shortcuts */}
       <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
-        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">Quick Shortcuts</h3>
+        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-2">{shortcutsTitle}</h3>
         
         <div className="grid grid-cols-2 gap-2">
           {shortcuts?.map((shortcut) => (

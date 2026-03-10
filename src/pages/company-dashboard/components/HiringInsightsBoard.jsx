@@ -204,7 +204,7 @@ const HiringInsightsBoard = ({
               <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Build a complete dashboard signal</h3>
               <ul className="space-y-1 text-xs sm:text-sm text-gray-600 dark:text-slate-300">
                 <li>1. Publish an open role to attract qualified candidates.</li>
-                <li>2. Send the first interview invitation and monitor progression.</li>
+                <li>2. Move the first strong applicant into interviewing and monitor progression.</li>
                 <li>3. Review completed sessions to unlock AI trend analytics.</li>
               </ul>
               <div className="flex flex-wrap gap-2 pt-1">

@@ -27,6 +27,10 @@ const DISPOSITION_LIBRARY = {
     category: 'CANDIDATE_ACTION',
     reason: 'Application withdrawn by candidate.',
   },
+  OFFER_DECLINED: {
+    category: 'CANDIDATE_ACTION',
+    reason: 'Offer declined by candidate.',
+  },
   HIRED: {
     category: 'FINAL_DECISION',
     reason: 'Candidate selected for hire.',
@@ -46,6 +50,7 @@ export const APPLICATION_STATUSES = Object.freeze([
   'SCREENING',
   'INTERVIEWING',
   'SHORTLISTED',
+  'OFFER',
   'REJECTED',
   'HIRED',
 ]);
@@ -57,8 +62,9 @@ const TERMINAL_APPLICATION_STATUSES = new Set(['REJECTED', 'HIRED']);
 const APPLICATION_STATUS_TRANSITIONS = Object.freeze({
   SUBMITTED: new Set(['SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED']),
   SCREENING: new Set(['INTERVIEWING', 'SHORTLISTED', 'REJECTED', 'HIRED']),
-  INTERVIEWING: new Set(['SHORTLISTED', 'REJECTED', 'HIRED']),
-  SHORTLISTED: new Set(['INTERVIEWING', 'REJECTED', 'HIRED']),
+  INTERVIEWING: new Set(['SHORTLISTED', 'OFFER', 'REJECTED', 'HIRED']),
+  SHORTLISTED: new Set(['INTERVIEWING', 'OFFER', 'REJECTED', 'HIRED']),
+  OFFER: new Set(['INTERVIEWING', 'REJECTED', 'HIRED']),
   REJECTED: new Set(),
   HIRED: new Set(),
 });

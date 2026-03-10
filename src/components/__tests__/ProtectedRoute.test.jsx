@@ -47,6 +47,15 @@ const renderWithRoutes = (initialPath) =>
           )}
         />
         <Route
+          path="/company-templates"
+          element={(
+            <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_TEMPLATES_PAGE']}>
+              <div>Company Templates</div>
+              <LocationEcho />
+            </ProtectedRoute>
+          )}
+        />
+        <Route
           path="/company-analytics"
           element={(
             <ProtectedRoute roles={['COMPANY']} requiredOrgPermissions={['ACCESS_ANALYTICS_PAGE']}>
@@ -255,6 +264,52 @@ describe('ProtectedRoute organization lock behavior', () => {
 
     expect(screen.queryByText('Company Jobs')).not.toBeNull();
     expect(screen.getByTestId('location').textContent).toBe('/company-jobs');
+  });
+
+  it('blocks reviewer role from company templates direct URL access', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_templates',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'REVIEWER',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/company-templates');
+
+    expect(screen.queryByText('Company Dashboard')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-dashboard');
+  });
+
+  it('allows recruiter role to access company templates direct URL', () => {
+    mockUseAuth.mockReturnValue({
+      status: 'authenticated',
+      user: {
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: {
+            id: 'org_test_templates_allowed',
+            status: 'APPROVED',
+          },
+          membership: {
+            role: 'RECRUITER',
+          },
+        },
+      },
+    });
+
+    renderWithRoutes('/company-templates');
+
+    expect(screen.queryByText('Company Templates')).not.toBeNull();
+    expect(screen.getByTestId('location').textContent).toBe('/company-templates');
   });
 
   it('blocks reviewer role from company analytics direct URL access', () => {

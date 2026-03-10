@@ -8,10 +8,13 @@ jest.unstable_mockModule('../../utils/logger.js', () => ({
 const {
   generateMeetingToken,
   buildMeetingJoinUrl,
+  validateMeetingToken,
   validateMeetingAccess,
   shouldSendMeetingLinkEmail,
   MEETING_LINK_ACCESS_WINDOW_MINUTES,
   MEETING_LINK_EMAIL_MINUTES_BEFORE,
+  MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES,
+  MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES,
 } = await import('../meetingLink.service.js');
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -70,6 +73,26 @@ describe('buildMeetingJoinUrl', () => {
   it('returns null when meetingToken is missing', () => {
     expect(buildMeetingJoinUrl('int-1', null)).toBeNull();
     expect(buildMeetingJoinUrl('int-1', '')).toBeNull();
+  });
+});
+
+describe('validateMeetingToken', () => {
+  const validToken = 'a'.repeat(64);
+  const buildInterview = (overrides = {}) => ({
+    id: 'int-1',
+    meetingToken: validToken,
+    ...overrides,
+  });
+
+  it('accepts a matching token without checking the schedule window', () => {
+    expect(validateMeetingToken(buildInterview(), validToken)).toEqual({ valid: true });
+  });
+
+  it('rejects a mismatched token', () => {
+    expect(validateMeetingToken(buildInterview(), 'wrong-token')).toEqual(expect.objectContaining({
+      valid: false,
+      code: 'INVALID_TOKEN',
+    }));
   });
 });
 
@@ -265,6 +288,36 @@ describe('shouldSendMeetingLinkEmail', () => {
     )).toBe(false);
   });
 
+  it('returns false while a reminder is already pending dispatch', () => {
+    expect(shouldSendMeetingLinkEmail(
+      buildInterview({ meetingLinkEmailPendingAt: futureIso(-1) }),
+    )).toBe(false);
+  });
+
+  it('returns true again once a pending reminder has gone stale', () => {
+    const stalePendingAt = new Date(
+      Date.now() - ((MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES + 1) * 60 * 1000),
+    ).toISOString();
+    expect(shouldSendMeetingLinkEmail(
+      buildInterview({ meetingLinkEmailPendingAt: stalePendingAt }),
+    )).toBe(true);
+  });
+
+  it('returns false immediately after a permanent reminder failure', () => {
+    expect(shouldSendMeetingLinkEmail(
+      buildInterview({ meetingLinkEmailFailureAt: futureIso(-1) }),
+    )).toBe(false);
+  });
+
+  it('allows a retry after the reminder-failure cooldown elapses', () => {
+    const retryEligibleFailureAt = new Date(
+      Date.now() - ((MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES + 1) * 60 * 1000),
+    ).toISOString();
+    expect(shouldSendMeetingLinkEmail(
+      buildInterview({ meetingLinkEmailFailureAt: retryEligibleFailureAt }),
+    )).toBe(true);
+  });
+
   it('returns true at exactly the email send threshold', () => {
     // scheduledFor exactly MEETING_LINK_EMAIL_MINUTES_BEFORE from now
     expect(shouldSendMeetingLinkEmail(
@@ -287,5 +340,13 @@ describe('exported constants', () => {
 
   it('MEETING_LINK_EMAIL_MINUTES_BEFORE is 30', () => {
     expect(MEETING_LINK_EMAIL_MINUTES_BEFORE).toBe(30);
+  });
+
+  it('MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES is positive', () => {
+    expect(MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES).toBeGreaterThan(0);
+  });
+
+  it('MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES is positive', () => {
+    expect(MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES).toBeGreaterThan(0);
   });
 });

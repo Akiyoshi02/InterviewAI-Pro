@@ -85,6 +85,13 @@ router.get(
   InterviewController.getCompanyInterviews
 );
 
+router.get(
+  '/leaderboards/scores',
+  authenticate,
+  requireCandidate,
+  InterviewController.getScoreLeaderboard,
+);
+
 /**
  * GET /api/interviews/:id
  * Get interview by ID
@@ -203,6 +210,99 @@ router.patch(
   validationSchemas.interview.reschedule.validators,
   validateRequest,
   InterviewController.rescheduleInterview,
+);
+
+/**
+ * PATCH /api/interviews/:id/review-requests
+ * Update reviewer assignments and review due-date overrides.
+ */
+router.patch(
+  '/:id/review-requests',
+  authenticate,
+  requireCompany,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.updateReviewRequests.allowedFields),
+  validationSchemas.interview.updateReviewRequests.validators,
+  validateRequest,
+  InterviewController.updateInterviewReviewRequests,
+);
+
+/**
+ * POST /api/interviews/:id/review-requests/:reviewerId/remind
+ * Send a manual review reminder to an assigned reviewer.
+ */
+router.post(
+  '/:id/review-requests/:reviewerId/remind',
+  authenticate,
+  requireCompany,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+    param('reviewerId')
+      .trim()
+      .notEmpty()
+      .withMessage('Reviewer ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.sendInterviewReviewReminder,
+);
+
+/**
+ * PATCH /api/interviews/:id/stage-outcome
+ * Record the recruiter/admin outcome for a completed interview stage.
+ */
+router.patch(
+  '/:id/stage-outcome',
+  authenticate,
+  requireCompany,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  stripUnexpectedFields(validationSchemas.interview.updateStageOutcome.allowedFields),
+  validationSchemas.interview.updateStageOutcome.validators,
+  validateRequest,
+  InterviewController.updateInterviewStageOutcome,
+);
+
+/**
+ * POST /api/interviews/:id/next-stage
+ * Create the next planned interview stage for a completed hiring interview.
+ */
+router.post(
+  '/:id/next-stage',
+  authenticate,
+  requireCompany,
+  requireApprovedOrganization,
+  requireOrgRole(['ADMIN', 'RECRUITER']),
+  [
+    param('id')
+      .trim()
+      .notEmpty()
+      .withMessage('Interview ID is required')
+      .isLength({ max: LENGTH_LIMITS.ID }),
+  ],
+  validateRequest,
+  InterviewController.createNextInterviewStage,
 );
 
 /**

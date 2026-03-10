@@ -48,7 +48,12 @@ async function sendMeetingLinkEmailForInterview(interview) {
       return;
     }
 
-    queueEmailJob({
+    await interviewStore.update(interview.id, {
+      meetingLinkEmailPendingAt: new Date().toISOString(),
+      meetingLinkEmailFailureAt: null,
+    });
+
+    const jobId = queueEmailJob({
       type: 'MEETING_LINK_REMINDER',
       payload: {
         interviewId: interview.id,
@@ -59,17 +64,38 @@ async function sendMeetingLinkEmailForInterview(interview) {
         await emailNotifications.sendMeetingLinkReminder(interview, candidate, job, organization, joinUrl);
         logger.info(`meetingLinkScheduler: meeting link email sent to ${candidate.email} for interview ${interview.id}`);
       },
+      onSuccess: async () => {
+        await interviewStore.update(interview.id, {
+          meetingLinkEmailSent: true,
+          meetingLinkEmailSentAt: new Date().toISOString(),
+          meetingLinkEmailPendingAt: null,
+          meetingLinkEmailFailureAt: null,
+        });
+      },
+      onPermanentFailure: async () => {
+        await interviewStore.update(interview.id, {
+          meetingLinkEmailPendingAt: null,
+          meetingLinkEmailFailureAt: new Date().toISOString(),
+        });
+      },
     });
+
+    if (!jobId) {
+      await interviewStore.update(interview.id, {
+        meetingLinkEmailPendingAt: null,
+        meetingLinkEmailFailureAt: new Date().toISOString(),
+      });
+    }
   } catch (err) {
     logger.error(`meetingLinkScheduler: error preparing email for interview ${interview.id}:`, err);
-    return;
-  }
-
-  // Mark as sent so we don't resend
-  try {
-    await interviewStore.update(interview.id, { meetingLinkEmailSent: true });
-  } catch (err) {
-    logger.error(`meetingLinkScheduler: failed to mark meetingLinkEmailSent for interview ${interview.id}:`, err);
+    try {
+      await interviewStore.update(interview.id, {
+        meetingLinkEmailPendingAt: null,
+        meetingLinkEmailFailureAt: new Date().toISOString(),
+      });
+    } catch (updateError) {
+      logger.error(`meetingLinkScheduler: failed to record reminder failure for interview ${interview.id}:`, updateError);
+    }
   }
 }
 

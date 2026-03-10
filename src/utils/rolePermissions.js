@@ -19,7 +19,7 @@ export const ROLE_PERMISSIONS = {
   CREATE_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   EDIT_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   DELETE_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
-  VIEW_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
+  VIEW_JOBS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   
   // Application Management
   VIEW_APPLICATIONS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
@@ -30,9 +30,8 @@ export const ROLE_PERMISSIONS = {
   MANAGE_CANDIDATES: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   START_CANDIDATE_REVIEW: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   
-  // Interview & Invitation Management
+  // Interview Management
   SEND_INVITATIONS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
-  VIEW_INVITATIONS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   VIEW_INTERVIEWS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
   
   // Template Management
@@ -55,8 +54,8 @@ export const ROLE_PERMISSIONS = {
   
   // Navigation Access
   ACCESS_JOBS_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
+  ACCESS_TEMPLATES_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   ACCESS_APPLICATIONS_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
-  ACCESS_INVITATIONS_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
   ACCESS_INTERVIEWS_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
   ACCESS_CANDIDATES_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
   ACCESS_ANALYTICS_PAGE: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
@@ -123,7 +122,7 @@ export const getRoleDisplayName = (role) => {
 export const getRoleDescription = (role) => {
   const descriptions = {
     ADMIN: 'Full access to all features including organization management',
-    RECRUITER: 'Manage jobs, applications, candidates, and send interview invitations',
+    RECRUITER: 'Manage jobs, applications, candidates, interviews, and scheduling',
     REVIEWER: 'Review interviews and view candidate information (read-only access)',
   };
   return descriptions[role?.toUpperCase()] || '';
@@ -151,20 +150,22 @@ export const getRoleBadgeColor = (role) => {
  * @returns {Array}
  */
 export const filterNavByRole = (navItems, role) => {
-  if (!role || !Array.isArray(navItems)) return navItems;
+  if (!Array.isArray(navItems)) return [];
+
+  const normalizedRole = typeof role === 'string' ? role.toUpperCase() : '';
   
   return navItems
     .map(item => {
       // If item has nested items (submenu), filter those too
       if (item.items && Array.isArray(item.items)) {
-        const filteredSubItems = filterNavByRole(item.items, role);
+        const filteredSubItems = filterNavByRole(item.items, normalizedRole);
         // If group has no requiredPermission, check if any subitem is visible
         if (!item.requiredPermission) {
           // Only include group if it has visible subitems
           return filteredSubItems.length > 0 ? { ...item, items: filteredSubItems } : null;
         }
         // If group has requiredPermission, check it first
-        if (hasPermission(role, item.requiredPermission)) {
+        if (hasPermission(normalizedRole, item.requiredPermission)) {
           return { ...item, items: filteredSubItems };
         }
         return null;
@@ -172,7 +173,7 @@ export const filterNavByRole = (navItems, role) => {
       
       // Regular item (no submenu)
       if (item.requiredPermission) {
-        return hasPermission(role, item.requiredPermission) ? item : null;
+        return hasPermission(normalizedRole, item.requiredPermission) ? item : null;
       }
       // If no permission specified, show by default
       return item;

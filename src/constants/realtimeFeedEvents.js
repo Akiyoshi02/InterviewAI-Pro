@@ -10,10 +10,6 @@ export const ORGANIZATION_FEED_EVENTS = Object.freeze({
     'application-status-updated',
     'application-withdrawn',
   ]),
-  invitations: Object.freeze([
-    'invitation-created',
-    'invitation-accepted',
-  ]),
   team: Object.freeze([
     'team-invitation-created',
     'team-invitation-revoked',
@@ -51,9 +47,6 @@ export const CANDIDATE_FEED_EVENTS = Object.freeze({
   ]),
   pipeline: Object.freeze([
     'pipeline-updated',
-  ]),
-  invitations: Object.freeze([
-    'invitation-accepted',
   ]),
   membership: Object.freeze([
     'organization-membership-updated',

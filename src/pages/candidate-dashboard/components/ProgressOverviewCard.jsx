@@ -1,11 +1,12 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
+import { getInterviewRoundSummary } from '../../../utils/interviewRoundSummary.js';
 
 const formatCompanyLabel = (company) => {
   if (!company) return '';
   if (typeof company === 'string') return company;
   if (typeof company === 'object') {
-    return company.companyName || company.fullName || company.email || '';
+    return company.displayName || company.name || company.companyName || company.fullName || company.email || '';
   }
   return '';
 };
@@ -88,8 +89,9 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
   };
 
   const progressPercentage = Math.min((completedSessions / 20) * 100, 100);
-  const nextInterviewCompany = formatCompanyLabel(nextScheduledInterview?.company);
+  const nextInterviewCompany = formatCompanyLabel(nextScheduledInterview?.organization || nextScheduledInterview?.company);
   const nextInterviewDate = formatInterviewDate(nextScheduledInterview?.scheduledFor);
+  const nextInterviewRound = getInterviewRoundSummary(nextScheduledInterview);
   const nextInterviewSummary = [nextInterviewCompany, nextInterviewDate]
     .filter(Boolean)
     .join(' - ') || 'Upcoming interview';
@@ -210,6 +212,16 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
               <div className="text-sm text-gray-600 dark:text-slate-300">
                 {nextInterviewSummary}
               </div>
+              {nextInterviewRound && (
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center rounded-full border border-violet-200/80 dark:border-violet-500/30 bg-violet-50/80 dark:bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200">
+                    {nextInterviewRound.badge}
+                  </span>
+                  <span className="text-xs text-gray-500 dark:text-slate-400">
+                    {nextInterviewRound.title}
+                  </span>
+                </div>
+              )}
             </div>
             {timeLeftText && (
               <div className="text-sm font-semibold text-blue-600 dark:text-blue-400">

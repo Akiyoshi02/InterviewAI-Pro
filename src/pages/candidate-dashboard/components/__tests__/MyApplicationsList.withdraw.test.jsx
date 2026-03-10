@@ -130,6 +130,18 @@ const baseApplication = {
   },
 };
 
+const buildApplication = (index) => ({
+  ...baseApplication,
+  id: `application-${index}`,
+  submittedAt: `2026-03-0${Math.min(index, 9)}T10:00:00.000Z`,
+  createdAt: `2026-03-0${Math.min(index, 9)}T10:00:00.000Z`,
+  job: {
+    ...baseApplication.job,
+    id: `job-${index}`,
+    title: `Backend Engineer ${index}`,
+  },
+});
+
 describe('MyApplicationsList withdraw flow', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
@@ -220,5 +232,37 @@ describe('MyApplicationsList withdraw flow', () => {
       expect(apiClient.applications.withdraw).toHaveBeenCalledWith('application-1');
       expect(screen.queryByText('Cannot withdraw right now')).not.toBeNull();
     });
+  });
+
+  it('stacks pagination controls cleanly for mobile layouts when applications span multiple pages', async () => {
+    apiClient.applications.getMyApplications.mockResolvedValue({
+      success: true,
+      applications: [1, 2, 3, 4].map((index) => buildApplication(index)),
+    });
+
+    renderList();
+
+    const summary = await screen.findByText('Showing 1 to 3 of 4 positions');
+    const pagination = summary.parentElement;
+    expect(pagination).not.toBeNull();
+    expect(pagination.className).toContain('flex-col');
+    expect(pagination.className).toContain('sm:flex-row');
+    expect(summary.className).toContain('text-center');
+    expect(summary.className).toContain('sm:text-left');
+
+    const previousButton = screen.getByRole('button', { name: /Previous page/i });
+    const nextButton = screen.getByRole('button', { name: /Next page/i });
+    const controlsRow = previousButton.parentElement;
+    expect(controlsRow).not.toBeNull();
+    expect(controlsRow.className).toContain('flex-wrap');
+    expect(controlsRow.className).toContain('justify-center');
+
+    const pageButtonsRow = screen.getByRole('button', { name: '1' }).parentElement;
+    expect(pageButtonsRow).not.toBeNull();
+    expect(pageButtonsRow.className).toContain('order-first');
+    expect(pageButtonsRow.className).toContain('w-full');
+
+    expect(previousButton.className).toContain('min-w-[88px]');
+    expect(nextButton.className).toContain('min-w-[88px]');
   });
 });

@@ -118,6 +118,24 @@ const APPLICATION_FIXTURES = [
     },
     organization: { name: 'Gamma Tech' },
   },
+  {
+    id: 'app-7',
+    status: 'OFFER',
+    submittedAt: '2026-02-06T09:30:00.000Z',
+    createdAt: '2026-02-06T09:30:00.000Z',
+    reviewedAt: '2026-02-10T12:00:00.000Z',
+    candidate: {
+      fullName: 'Grace Perera',
+      email: 'grace@example.com',
+    },
+    job: {
+      id: 'job-f',
+      title: 'Platform Engineer',
+      location: 'Colombo',
+      employmentType: 'FULL_TIME',
+    },
+    organization: { name: 'Cynectex' },
+  },
 ];
 
 describe('companyApplicationFilters', () => {
@@ -133,7 +151,7 @@ describe('companyApplicationFilters', () => {
       { ...DEFAULT_COMPANY_APPLICATION_FILTERS, statusFilter: 'ACTIVE' },
       { now: NOW },
     );
-    expect(active.map((item) => item.id)).toEqual(['app-1', 'app-6']);
+    expect(active.map((item) => item.id)).toEqual(['app-1', 'app-7', 'app-6']);
 
     const withdrew = filterCompanyApplications(
       APPLICATION_FIXTURES,
@@ -158,7 +176,7 @@ describe('companyApplicationFilters', () => {
       { ...DEFAULT_COMPANY_APPLICATION_FILTERS, datePreset: 'last30' },
       { now: NOW },
     );
-    expect(lastThirtyDays.map((item) => item.id)).toEqual(['app-1', 'app-6', 'app-4']);
+    expect(lastThirtyDays.map((item) => item.id)).toEqual(['app-1', 'app-7', 'app-6', 'app-4']);
 
     const customRange = filterCompanyApplications(
       APPLICATION_FIXTURES,
@@ -170,7 +188,7 @@ describe('companyApplicationFilters', () => {
       },
       { now: NOW },
     );
-    expect(customRange.map((item) => item.id)).toEqual(['app-1', 'app-6', 'app-4']);
+    expect(customRange.map((item) => item.id)).toEqual(['app-1', 'app-7', 'app-6', 'app-4']);
   });
 
   it('supports review state, job state, and role filters', () => {
@@ -179,7 +197,7 @@ describe('companyApplicationFilters', () => {
       { ...DEFAULT_COMPANY_APPLICATION_FILTERS, reviewStateFilter: 'REVIEWED' },
       { now: NOW },
     );
-    expect(reviewed.map((item) => item.id)).toEqual(['app-4', 'app-5']);
+    expect(reviewed.map((item) => item.id)).toEqual(['app-7', 'app-4', 'app-5']);
 
     const closedJobs = filterCompanyApplications(
       APPLICATION_FIXTURES,

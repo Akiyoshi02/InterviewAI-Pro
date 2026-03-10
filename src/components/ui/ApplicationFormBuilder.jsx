@@ -78,11 +78,11 @@ const ApplicationFormBuilder = ({ fields = [], onChange }) => {
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="w-full px-4 py-3 flex items-center justify-between text-left"
+        className="flex w-full items-start justify-between gap-3 px-4 py-3 text-left sm:items-center"
       >
-        <div className="flex items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           <Icon name="FormInput" size={16} className="text-indigo-500" />
-          <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+          <span className="min-w-0 text-sm font-semibold text-gray-900 dark:text-slate-100">
             Custom Application Form
           </span>
           {fields.length > 0 && (
@@ -91,7 +91,7 @@ const ApplicationFormBuilder = ({ fields = [], onChange }) => {
             </span>
           )}
         </div>
-        <Icon name={expanded ? 'ChevronUp' : 'ChevronDown'} size={16} className="text-gray-400" />
+        <Icon name={expanded ? 'ChevronUp' : 'ChevronDown'} size={16} className="flex-shrink-0 text-gray-400" />
       </button>
 
       <AnimatePresence>
@@ -114,14 +114,14 @@ const ApplicationFormBuilder = ({ fields = [], onChange }) => {
                   {fields.map((field, idx) => (
                     <div
                       key={field.id}
-                      className="flex items-center gap-2 p-2.5 rounded-xl border border-gray-100 dark:border-slate-700 bg-gray-50/50 dark:bg-slate-700/30"
+                      className="flex items-start gap-3 rounded-xl border border-gray-100 bg-gray-50/50 p-3 dark:border-slate-700 dark:bg-slate-700/30 sm:items-center sm:gap-2 sm:p-2.5"
                     >
-                      <div className="flex flex-col gap-0.5">
+                      <div className="flex flex-col gap-0.5 pt-0.5 sm:pt-0">
                         <button
                           type="button"
                           onClick={() => moveField(idx, -1)}
                           disabled={idx === 0}
-                          className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          className="rounded-md p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 sm:p-1"
                         >
                           <Icon name="ChevronUp" size={12} />
                         </button>
@@ -129,35 +129,39 @@ const ApplicationFormBuilder = ({ fields = [], onChange }) => {
                           type="button"
                           onClick={() => moveField(idx, 1)}
                           disabled={idx === fields.length - 1}
-                          className="text-gray-400 hover:text-gray-600 disabled:opacity-30"
+                          className="rounded-md p-1.5 text-gray-400 hover:text-gray-600 disabled:opacity-30 sm:p-1"
                         >
                           <Icon name="ChevronDown" size={12} />
                         </button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
-                          {field.label}
-                          {field.required && <span className="text-red-500 ml-0.5">*</span>}
-                        </p>
-                        <p className="text-xs text-gray-500 dark:text-slate-400 capitalize">
-                          {FIELD_TYPES.find((t) => t.value === field.type)?.label || field.type}
-                        </p>
-                      </div>
-                      <div className="flex gap-1 shrink-0">
-                        <button
-                          type="button"
-                          onClick={() => handleEdit(field)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/20"
-                        >
-                          <Icon name="Pencil" size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleDelete(field.id)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        >
-                          <Icon name="Trash2" size={13} />
-                        </button>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-center sm:gap-2">
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 dark:text-slate-100 break-words leading-snug sm:truncate">
+                              {field.label}
+                              {field.required && <span className="ml-0.5 text-red-500">*</span>}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-slate-400 capitalize">
+                              {FIELD_TYPES.find((t) => t.value === field.type)?.label || field.type}
+                            </p>
+                          </div>
+                          <div className="flex shrink-0 justify-end gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleEdit(field)}
+                              className="rounded-lg p-2 text-gray-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 sm:p-1.5"
+                            >
+                              <Icon name="Pencil" size={13} />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDelete(field.id)}
+                              className="rounded-lg p-2 text-gray-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 sm:p-1.5"
+                            >
+                              <Icon name="Trash2" size={13} />
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   ))}

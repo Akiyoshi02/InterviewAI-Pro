@@ -45,12 +45,12 @@ const DashboardQuickActions = ({
 
   const companyActions = [
     {
-      id: 'setup-interview',
-      title: 'Send Interview Invitation',
-      description: 'Invite a candidate to an interview session',
-      icon: 'Send',
+      id: 'review-applications',
+      title: 'Review Applications',
+      description: 'Advance strong candidates into the interviewing stage',
+      icon: 'FileText',
       variant: 'default',
-      path: '/company-invitations',
+      path: '/company-applications',
       color: 'bg-gradient-to-br from-blue-600 to-purple-600 text-white shadow-lg shadow-blue-500/40'
     },
     {

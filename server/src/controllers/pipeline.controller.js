@@ -27,8 +27,16 @@ export class PipelineController {
   static async getPipeline(req, res, next) {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
+      const organizationRole = String(req.user.organizationContext?.membership?.role || '').toUpperCase();
       if (!organizationId) {
         return res.status(404).json({ error: 'Organization not found' });
+      }
+
+      if (organizationRole === 'REVIEWER') {
+        return res.status(403).json({
+          error: 'Insufficient organization permissions',
+          code: 'INSUFFICIENT_ORG_PERMISSIONS',
+        });
       }
 
       const [interviews, jobs, invitations] = await Promise.all([

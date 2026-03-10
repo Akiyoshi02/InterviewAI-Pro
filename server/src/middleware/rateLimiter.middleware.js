@@ -26,7 +26,7 @@ const RATE_LIMIT_CONFIG = {
   // General API endpoints - moderate limits
   API_GENERAL: {
     windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 100, // 100 requests per window
+    max: 500, // 500 requests per window for normal SPA hydration and dashboard use
     message: 'Too many requests. Please try again in a few minutes.',
   },
 
@@ -236,7 +236,12 @@ const createRateLimiter = (config, options = {}) => {
  * Applied to all /api/* routes as a baseline
  */
 export const apiLimiter = createRateLimiter(RATE_LIMIT_CONFIG.API_GENERAL, {
-  skip: (req) => shouldSkip(req, ['/api/health']),
+  skip: (req) => {
+    if (req.originalUrl?.startsWith('/api/auth/me')) {
+      return true;
+    }
+    return shouldSkip(req, ['/api/health']);
+  },
 });
 
 /**

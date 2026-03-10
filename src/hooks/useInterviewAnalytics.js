@@ -29,9 +29,42 @@ import {
   getScoreLevel,
   getFeedbackMessage,
 } from '../config/mediapipeReferenceData';
+import { installMediapipeConsoleFilter } from '../utils/mediapipeConsoleFilter';
 
 const DETECTION_INTERVAL = 100; // 10 FPS
 const CALIBRATION_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
+const MAX_RUNTIME_DETECTION_ERRORS = 3;
+
+const isVideoReadyForDetection = (videoElement) => {
+  if (!videoElement) return false;
+  const readyState = Number(videoElement.readyState || 0);
+  const hasDimensions = Number(videoElement.videoWidth || 0) > 0 && Number(videoElement.videoHeight || 0) > 0;
+  return readyState >= 2 && hasDimensions && !videoElement.paused && !videoElement.ended;
+};
+
+const createLandmarkerWithDelegateFallback = async (landmarkerFactory, vision, baseOptions, config) => {
+  const delegatesToTry = ['GPU', 'CPU'];
+  let lastError = null;
+
+  for (const delegate of delegatesToTry) {
+    try {
+      return await landmarkerFactory(vision, {
+        ...config,
+        baseOptions: {
+          ...baseOptions,
+          delegate,
+        },
+      });
+    } catch (error) {
+      lastError = error;
+      if (delegate === 'GPU' && import.meta.env.DEV) {
+        console.warn(`MediaPipe ${landmarkerFactory.name || 'landmarker'} GPU delegate unavailable, retrying on CPU.`, error);
+      }
+    }
+  }
+
+  throw lastError;
+};
 
 /**
  * Main Interview Analytics Hook
@@ -121,6 +154,8 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
 
   // Detection refs
   const detectionIntervalRef = useRef(null);
+  const poseLandmarkerRef = useRef(null);
+  const faceLandmarkerRef = useRef(null);
   const metricsRef = useRef(metrics);
   const previousPoseLandmarksRef = useRef(null);
   const movementHistoryRef = useRef([]);
@@ -129,6 +164,8 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
   const blinkFrameCountRef = useRef(0);
   const speakingFramesRef = useRef(0);
   const frameCountRef = useRef(0);
+  const poseDetectionErrorCountRef = useRef(0);
+  const faceDetectionErrorCountRef = useRef(0);
   const referencesRef = useRef({
     posture: getEffectivePostureReference(),
     face: getEffectiveFaceReference(),
@@ -138,6 +175,14 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
   useEffect(() => {
     metricsRef.current = metrics;
   }, [metrics]);
+
+  useEffect(() => {
+    poseLandmarkerRef.current = poseLandmarker;
+  }, [poseLandmarker]);
+
+  useEffect(() => {
+    faceLandmarkerRef.current = faceLandmarker;
+  }, [faceLandmarker]);
 
   const resolveVideoElement = useCallback(() => {
     if (!videoTarget) return null;
@@ -181,6 +226,14 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
    * Initialize MediaPipe models
    */
   useEffect(() => {
+    if (!enablePose && !enableFace) {
+      return undefined;
+    }
+
+    return installMediapipeConsoleFilter();
+  }, [enableFace, enablePose]);
+
+  useEffect(() => {
     const initializeModels = async () => {
       try {
         // Load MediaPipe Vision tasks
@@ -191,22 +244,24 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
         // Initialize PoseLandmarker
         if (enablePose) {
           try {
-            const poseModel = await PoseLandmarker.createFromOptions(vision, {
-              baseOptions: {
+            const poseModel = await createLandmarkerWithDelegateFallback(
+              PoseLandmarker.createFromOptions,
+              vision,
+              {
                 modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_lite/float16/1/pose_landmarker_lite.task',
-                delegate: 'GPU',
               },
+              {
               runningMode: 'VIDEO',
               numPoses: 1,
               minPoseDetectionConfidence: 0.5,
               minPosePresenceConfidence: 0.5,
               minTrackingConfidence: 0.5,
-            });
+              },
+            );
             setPoseLandmarker(poseModel);
             setInitializationStatus(prev => ({ ...prev, pose: 'ready' }));
-            console.log('PoseLandmarker initialized successfully');
           } catch (poseErr) {
-            console.error('PoseLandmarker initialization failed:', poseErr);
+            console.warn('PoseLandmarker initialization failed; continuing without pose analytics.', poseErr);
             setInitializationStatus(prev => ({ ...prev, pose: 'error' }));
           }
         } else {
@@ -216,23 +271,25 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
         // Initialize FaceLandmarker
         if (enableFace) {
           try {
-            const faceModel = await FaceLandmarker.createFromOptions(vision, {
-              baseOptions: {
+            const faceModel = await createLandmarkerWithDelegateFallback(
+              FaceLandmarker.createFromOptions,
+              vision,
+              {
                 modelAssetPath: 'https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task',
-                delegate: 'GPU',
               },
+              {
               runningMode: 'VIDEO',
               numFaces: 1,
               minFaceDetectionConfidence: 0.5,
               minFacePresenceConfidence: 0.5,
               minTrackingConfidence: 0.5,
               outputFaceBlendshapes: true,
-            });
+              },
+            );
             setFaceLandmarker(faceModel);
             setInitializationStatus(prev => ({ ...prev, face: 'ready' }));
-            console.log('FaceLandmarker initialized successfully');
           } catch (faceErr) {
-            console.error('FaceLandmarker initialization failed:', faceErr);
+            console.warn('FaceLandmarker initialization failed; continuing without face analytics.', faceErr);
             setInitializationStatus(prev => ({ ...prev, face: 'error' }));
           }
         } else {
@@ -242,7 +299,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
         setIsInitialized(true);
         setError(null);
       } catch (err) {
-        console.error('Failed to initialize MediaPipe:', err);
+        console.warn('Failed to initialize MediaPipe analytics; continuing without body language analysis.', err);
         setError('Failed to initialize analytics. Interview will continue without body language analysis.');
         setIsInitialized(false);
       }
@@ -250,11 +307,12 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
 
     initializeModels();
 
-    return () => {
-      if (poseLandmarker) poseLandmarker.close();
-      if (faceLandmarker) faceLandmarker.close();
-    };
   }, [enablePose, enableFace]);
+
+  useEffect(() => () => {
+    poseLandmarkerRef.current?.close?.();
+    faceLandmarkerRef.current?.close?.();
+  }, []);
 
   /**
    * Analyze pose landmarks
@@ -572,6 +630,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
   const runDetection = useCallback(async () => {
     const videoElement = resolveVideoElement();
     if (!videoElement) return;
+    if (!isVideoReadyForDetection(videoElement)) return;
 
     const startTimeMs = performance.now();
     frameCountRef.current += 1;
@@ -585,13 +644,20 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     if (poseLandmarker) {
       try {
         const poseResults = poseLandmarker.detectForVideo(videoElement, startTimeMs);
+        poseDetectionErrorCountRef.current = 0;
         if (poseResults?.landmarks?.length > 0) {
           const analysis = analyzePose(poseResults.landmarks[0]);
           poseData = analysis.pose;
           bodyLanguageData = analysis.bodyLanguage;
         }
       } catch (err) {
-        console.error('Pose detection error:', err);
+        poseDetectionErrorCountRef.current += 1;
+        if (poseDetectionErrorCountRef.current >= MAX_RUNTIME_DETECTION_ERRORS) {
+          poseLandmarker.close?.();
+          setPoseLandmarker(null);
+          setInitializationStatus(prev => ({ ...prev, pose: 'error' }));
+          console.warn('Pose detection disabled after repeated runtime failures.', err);
+        }
       }
     }
 
@@ -599,6 +665,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     if (faceLandmarker) {
       try {
         const faceResults = faceLandmarker.detectForVideo(videoElement, startTimeMs);
+        faceDetectionErrorCountRef.current = 0;
         if (faceResults?.faceLandmarks?.length > 0) {
           faceData = analyzeFace(
             faceResults.faceLandmarks[0],
@@ -606,7 +673,13 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
           );
         }
       } catch (err) {
-        console.error('Face detection error:', err);
+        faceDetectionErrorCountRef.current += 1;
+        if (faceDetectionErrorCountRef.current >= MAX_RUNTIME_DETECTION_ERRORS) {
+          faceLandmarker.close?.();
+          setFaceLandmarker(null);
+          setInitializationStatus(prev => ({ ...prev, face: 'error' }));
+          console.warn('Face detection disabled after repeated runtime failures.', err);
+        }
       }
     }
 

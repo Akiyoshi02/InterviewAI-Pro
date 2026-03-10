@@ -21,7 +21,8 @@ const CompanyCandidatesPage = () => {
   
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
-  const canStartReview = hasPermission(organizationRole, 'START_CANDIDATE_REVIEW');
+  const canSendInvitations = hasPermission(organizationRole, 'SEND_INVITATIONS');
+  const isReviewerOnly = organizationRole === 'REVIEWER';
 
   const handleLogout = async () => {
     await logout();
@@ -85,22 +86,24 @@ const CompanyCandidatesPage = () => {
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="Users" size={22} color="white" />
+              <div className="mb-6 flex items-center gap-4">
+                <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                  <Icon name="Users" size={24} color="white" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
-                    Candidate Management
+                    {isReviewerOnly ? 'Candidate Profiles' : 'Candidate Management'}
                   </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    View and manage all candidates who have applied to your job postings.
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                    {isReviewerOnly
+                      ? 'Review candidate profiles, resumes, and application context for interviews assigned to you without changing the hiring pipeline.'
+                      : 'View and manage all candidates who have applied to your job postings.'}
                   </p>
                 </div>
               </div>
               
-              <CandidateManager canStartReview={canStartReview} />
-              <EmailTemplatesManager />
+              <CandidateManager />
+              {canSendInvitations && <EmailTemplatesManager />}
             </motion.section>
           </main>
         </div>

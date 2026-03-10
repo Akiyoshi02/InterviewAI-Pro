@@ -5,6 +5,8 @@ import AppImage from '../../../components/AppImage';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient';
+import { getCandidateMeetingLinkEmailNotice } from '../../../constants/interviewMeetingLink.js';
+import { getInterviewRoundSummary } from '../../../utils/interviewRoundSummary.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -17,6 +19,24 @@ const decodeHtmlEntities = (value) => {
   return decoder.value;
 };
 
+const resolveInterviewOrganizationName = (interview) => (
+  interview?.organization?.displayName
+  || interview?.organization?.name
+  || interview?.company?.companyName
+  || interview?.company?.fullName
+  || interview?.company?.displayName
+  || (typeof interview?.company === 'string' ? interview.company : null)
+  || 'Interview Session'
+);
+
+const resolveInterviewOrganizationLogo = (interview) => (
+  interview?.organization?.logo
+  || interview?.company?.logo
+  || interview?.company?.logoUrl
+  || interview?.company?.companyLogoUrl
+  || null
+);
+
 const formatDuration = (value) => {
   const parsed = Number.parseInt(value, 10);
   if (Number.isInteger(parsed) && parsed > 0) return `${parsed} min`;
@@ -26,6 +46,7 @@ const formatDuration = (value) => {
 
 const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   const navigate = useNavigate();
+  const [currentTimestamp, setCurrentTimestamp] = useState(() => Date.now());
   const [showScheduleForm, setShowScheduleForm] = useState(false);
   const [formMode, setFormMode] = useState('manage');
   const [selectedInterviewId, setSelectedInterviewId] = useState('');
@@ -72,6 +93,16 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     return true;
   };
 
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      setCurrentTimestamp(Date.now());
+    }, 30_000);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, []);
+
   // Transform real interview data into the display format
   const transformInterviews = (interviews) => {
     if (!Array.isArray(interviews)) return [];
@@ -80,16 +111,12 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     return interviews
       .filter(interview => {
         const status = interview?.status?.toUpperCase();
-        return status === 'SCHEDULED';
+        return status === 'SCHEDULED' || status === 'IN_PROGRESS' || status === 'PAUSED';
       })
       .map(interview => {
-        const companyNameRaw = interview?.company?.companyName ||
-                           interview?.company?.fullName ||
-                           interview?.company?.displayName ||
-                           (typeof interview?.company === 'string' ? interview.company : null) ||
-                           'Interview Session';
+        const companyNameRaw = resolveInterviewOrganizationName(interview);
         const companyName = decodeHtmlEntities(companyNameRaw);
-        const companyLogoRaw = interview?.company?.logo || interview?.company?.logoUrl || interview?.company?.companyLogoUrl || null;
+        const companyLogoRaw = resolveInterviewOrganizationLogo(interview);
         const companyLogo = companyLogoRaw
           ? (companyLogoRaw.startsWith('http') ? companyLogoRaw : `${API_BASE}${companyLogoRaw.startsWith('/') ? '' : '/'}${companyLogoRaw}`)
           : null;
@@ -102,6 +129,13 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
         const canRequestReschedule = canCandidateRequestReschedule(interview);
         const rescheduleExhausted = !canRequestReschedule && !pendingRescheduleRequest && hasExhaustedRescheduleRequests(interview);
         const hasScheduledDate = Boolean(scheduledDate && !Number.isNaN(scheduledDate.getTime()));
+        const rawStatus = String(interview?.status || '').toUpperCase();
+        const canDirectJoinHiringInterview = (
+          String(interview?.mode || interview?.interviewMode || '').toUpperCase() === 'HIRING'
+          && hasScheduledDate
+          && scheduledTimestamp <= currentTimestamp
+          && (rawStatus === 'SCHEDULED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'PAUSED')
+        );
 
         // Calculate time left
         let timeLeft = '';
@@ -120,6 +154,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
         
         return {
           id: interview?.id,
+          mode: String(interview?.mode || interview?.interviewMode || '').toUpperCase(),
           company: companyName,
           companyLogo: companyLogo,
           companyLogoAlt: `${companyName} logo`,
@@ -130,15 +165,17 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
           type: decodeHtmlEntities(interview?.interviewType || interview?.type || 'Interview'),
           interviewer: interview?.interviewer?.name || interview?.interviewerName || null,
           interviewerAvatar: interview?.interviewer?.avatar || null,
-          status: interview?.status?.toLowerCase() === 'scheduled' ? 'confirmed' : 'pending',
+          status: ['SCHEDULED', 'IN_PROGRESS', 'PAUSED'].includes(rawStatus) ? 'confirmed' : 'pending',
           timeLeft,
           hasScheduledDate,
           scheduledForRaw: interview?.scheduledFor || null,
           scheduledTimestamp,
+          canDirectJoinHiringInterview,
           canManageSchedule,
           canRequestReschedule,
           pendingRescheduleRequest,
           rescheduleExhausted,
+          roundSummary: getInterviewRoundSummary(interview),
         };
       })
       .sort((a, b) => {
@@ -152,7 +189,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
   // Use transformed real data - no mock fallback
   const interviewData = useMemo(
     () => transformInterviews(upcomingInterviews),
-    [upcomingInterviews],
+    [currentTimestamp, upcomingInterviews],
   );
   const manageableInterviews = interviewData.filter((interview) => interview?.canManageSchedule);
   const requestableInterviews = interviewData.filter((interview) => interview?.canRequestReschedule);
@@ -186,6 +223,13 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     if (Number.isNaN(date.getTime())) return '';
     const pad = (num) => String(num).padStart(2, '0');
     return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  };
+
+  const getMinimumDateTimeLocal = () => {
+    const date = new Date();
+    date.setSeconds(0, 0);
+    date.setMinutes(date.getMinutes() + 1);
+    return toDateTimeLocal(date);
   };
 
   const resetScheduleForm = () => {
@@ -291,10 +335,22 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
           setScheduleError('Please provide at least 20 characters for the reschedule reason.');
           return;
         }
+        const preferredDate = preferredRescheduleSlot ? new Date(preferredRescheduleSlot) : null;
+        if (
+          preferredRescheduleSlot
+          && (
+            !preferredDate
+            || Number.isNaN(preferredDate.getTime())
+            || preferredDate.getTime() <= Date.now()
+          )
+        ) {
+          setScheduleError('Preferred reschedule slot must be in the future.');
+          return;
+        }
         const payload = {
           reason: rescheduleReason.trim(),
           preferredSlots: preferredRescheduleSlot
-            ? [new Date(preferredRescheduleSlot).toISOString()]
+            ? [preferredDate.toISOString()]
             : [],
           timezone,
         };
@@ -304,8 +360,17 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
           setScheduleError('Only practice interviews can be directly rescheduled from this dashboard.');
           return;
         }
+        const scheduledDate = scheduledFor ? new Date(scheduledFor) : null;
+        if (!scheduledDate || Number.isNaN(scheduledDate.getTime())) {
+          setScheduleError('Select a valid date and time.');
+          return;
+        }
+        if (scheduledDate.getTime() <= Date.now()) {
+          setScheduleError('Interview date and time must be in the future.');
+          return;
+        }
         const payload = {
-          scheduledFor: new Date(scheduledFor).toISOString(),
+          scheduledFor: scheduledDate.toISOString(),
           timezone,
         };
         if (current?.scheduledForRaw) {
@@ -419,6 +484,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                   type="datetime-local"
                   value={preferredRescheduleSlot}
                   onChange={(event) => setPreferredRescheduleSlot(event.target.value)}
+                  min={getMinimumDateTimeLocal()}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                   placeholder="Preferred new slot (optional)"
                 />
@@ -427,6 +493,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                   type="datetime-local"
                   value={scheduledFor}
                   onChange={(event) => setScheduledFor(event.target.value)}
+                  min={getMinimumDateTimeLocal()}
                   className="w-full rounded-lg border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm"
                 />
               )}
@@ -498,7 +565,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     <>
       <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur overflow-hidden">
         {/* Header */}
-        <div className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 sm:pb-4 flex flex-col xs:flex-row xs:items-center justify-between gap-3">
+        <div className="px-4 sm:px-5 pt-4 sm:pt-5 pb-3 sm:pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5">
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/25 flex-shrink-0">
               <Icon name="CalendarCheck" size={17} color="white" />
@@ -522,7 +589,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
               iconName="Settings2"
               iconPosition="left"
               onClick={() => openScheduleFormFor()}
-              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full xs:w-auto"
+              className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 w-full sm:w-auto"
             >
               Manage Schedule
             </Button>
@@ -535,6 +602,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
             {interviewData?.map((interview, index) => {
               const isToday = interview?.timeLeft === 'Today';
               const isUrgent = isToday || (parseInt(interview?.timeLeft, 10) === 1);
+              const showLiveNowState = Boolean(interview?.canDirectJoinHiringInterview);
               return (
           <div
             key={interview?.id}
@@ -569,11 +637,29 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                     <div className="flex-1 min-w-0">
                       <h3 className="font-semibold text-gray-900 dark:text-slate-100 text-sm sm:text-[15px] truncate leading-snug">{interview?.company}</h3>
                       <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400 truncate leading-relaxed mt-0.5">{interview?.position}</p>
+                      {interview?.roundSummary && (
+                        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                          <span className="inline-flex items-center rounded-full border border-violet-200/80 dark:border-violet-500/30 bg-violet-50/80 dark:bg-violet-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200">
+                            {interview.roundSummary.badge}
+                          </span>
+                          <span className="text-[11px] text-gray-500 dark:text-slate-400 truncate">
+                            {interview.roundSummary.title}
+                          </span>
+                        </div>
+                      )}
                     </div>
 
-                    <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap flex-shrink-0 ${getStatusColor(interview?.status)}`}>
-                      {interview?.status ? `${interview.status.charAt(0).toUpperCase()}${interview.status.slice(1)}` : 'Pending'}
-                    </span>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      {showLiveNowState && (
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-200/80 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-emerald-700 dark:text-emerald-300">
+                          <span className="h-1.5 w-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                          Live Now
+                        </span>
+                      )}
+                      <span className={`text-[11px] font-semibold px-2.5 py-1 rounded-full border whitespace-nowrap ${getStatusColor(interview?.status)}`}>
+                        {interview?.status ? `${interview.status.charAt(0).toUpperCase()}${interview.status.slice(1)}` : 'Pending'}
+                      </span>
+                    </div>
                   </div>
 
                   {/* Metadata chips row */}
@@ -611,10 +697,10 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                   </div>
 
                   {/* Actions row */}
-                  <div className="flex flex-col xs:flex-row xs:items-center xs:justify-between gap-2.5">
+                  <div className="flex flex-col gap-2.5 sm:flex-row sm:items-center sm:justify-between">
                     {/* Countdown */}
                     {interview?.hasScheduledDate ? (
-                      <div className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg ${
+                      <div className={`inline-flex self-start items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg sm:self-auto ${
                         isToday
                           ? 'bg-rose-50 dark:bg-rose-500/10 text-rose-600 dark:text-rose-400 ring-1 ring-rose-200/60 dark:ring-rose-500/20'
                           : isUrgent
@@ -625,13 +711,13 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                         {isToday ? 'Today — Get ready!' : `${interview?.timeLeft} remaining`}
                       </div>
                     ) : (
-                      <div className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-300 ring-1 ring-amber-200/60 dark:ring-amber-500/20">
+                      <div className="inline-flex self-start items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-lg bg-amber-50 dark:bg-amber-500/10 text-amber-600 dark:text-amber-300 ring-1 ring-amber-200/60 dark:ring-amber-500/20 sm:self-auto">
                         <Icon name="Clock3" size={13} />
                         Scheduling details will be shared soon
                       </div>
                     )}
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
 	                      {interview?.canManageSchedule ? (
 	                        <Button
 	                          variant="outline"
@@ -639,7 +725,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
 	                          iconName="Calendar"
 	                          iconPosition="left"
 	                          onClick={() => openScheduleFormFor(interview)}
-                            className="rounded-full border border-gray-200/80 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-500/5 text-xs flex-1 xs:flex-none transition-colors"
+                            className="w-full rounded-full border border-gray-200/80 dark:border-slate-700 text-gray-600 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400 hover:bg-blue-50/50 dark:hover:bg-blue-500/5 text-xs transition-colors sm:w-auto sm:flex-none"
 	                        >
 	                          Reschedule
 	                        </Button>
@@ -650,7 +736,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
 	                          iconName="MessageSquare"
 	                          iconPosition="left"
 	                          onClick={() => openScheduleFormFor(interview)}
-                            className="rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs flex-1 xs:flex-none transition-colors"
+                            className="w-full rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs transition-colors sm:w-auto sm:flex-none"
 	                        >
 	                          Request Reschedule
 	                        </Button>
@@ -661,26 +747,45 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
                           iconName="Mail"
                           iconPosition="left"
                           onClick={() => openScheduleFormFor(interview)}
-                          className="rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs flex-1 xs:flex-none transition-colors"
+                          className="w-full rounded-full border border-amber-200/80 dark:border-amber-500/30 text-amber-700 dark:text-amber-200 hover:border-amber-300 dark:hover:border-amber-400 hover:bg-amber-50/50 dark:hover:bg-amber-500/5 text-xs transition-colors sm:w-auto sm:flex-none"
                         >
                           Contact Company
                         </Button>
 	                      ) : (
-	                        <span className="inline-flex items-center rounded-full border border-gray-200 dark:border-slate-700 px-2.5 py-1 text-[11px] text-gray-500 dark:text-slate-400 bg-white/60 dark:bg-slate-800/60">
+	                        <span className="inline-flex w-full items-center justify-center rounded-full border border-gray-200 dark:border-slate-700 px-2.5 py-1 text-[11px] text-center text-gray-500 dark:text-slate-400 bg-white/60 dark:bg-slate-800/60 whitespace-normal leading-relaxed sm:w-auto sm:justify-start sm:text-left">
 	                          {interview?.pendingRescheduleRequest ? 'Request Pending' : 'Managed by hiring team'}
 	                        </span>
 	                      )}
                       {interview?.status === 'confirmed' && interview?.hasScheduledDate && (
+                        String(interview?.mode || '').toUpperCase() === 'HIRING' ? (
+                          interview?.canDirectJoinHiringInterview ? (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              iconName="Video"
+                              iconPosition="left"
+                              onClick={() => navigate(`/live-interview-session?interviewId=${encodeURIComponent(interview.id)}`)}
+                              className="w-full rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/40 text-xs transition-all sm:w-auto sm:flex-none"
+                            >
+                              Join Interview Now
+                            </Button>
+                          ) : (
+                            <span className="inline-flex w-full items-center justify-center rounded-full border border-blue-200/80 dark:border-blue-500/30 px-3 py-1.5 text-[11px] text-center text-blue-700 dark:text-blue-200 bg-blue-50/70 dark:bg-blue-500/10 whitespace-normal leading-relaxed sm:w-auto sm:justify-start sm:text-left">
+                              {getCandidateMeetingLinkEmailNotice()}
+                            </span>
+                          )
+                        ) : (
 	                  <Button
 	                    variant="default"
                     size="sm"
                     iconName="Video"
                     iconPosition="left"
                     onClick={() => navigate(`/live-interview-session?interviewId=${encodeURIComponent(interview.id)}`)}
-                          className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/40 text-xs flex-1 xs:flex-none transition-all"
+                          className="w-full rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700 hover:shadow-lg hover:shadow-blue-500/40 text-xs transition-all sm:w-auto sm:flex-none"
                   >
                           Join
                         </Button>
+                        )
                       )}
                     </div>
                   </div>
@@ -699,7 +804,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
             <p className="text-sm text-gray-500 dark:text-slate-400 mb-5 max-w-xs mx-auto leading-relaxed">
               You don&apos;t have any scheduled interviews yet. Stay sharp with practice sessions while your applications progress.
             </p>
-            <div className="flex flex-col xs:flex-row justify-center gap-2">
+            <div className="flex flex-col sm:flex-row justify-center gap-2">
               <Button
                 variant="outline"
                 size="sm"

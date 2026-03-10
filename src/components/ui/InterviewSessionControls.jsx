@@ -37,7 +37,7 @@ const InterviewSessionControls = ({
   if (!isActive) return null;
 
   return (
-    <div className={`fixed bottom-4 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-300 transition-all duration-300 w-[calc(100%-1rem)] sm:w-auto max-w-[600px] ${className}`}>
+    <div className={`fixed bottom-4 sm:bottom-6 left-1/2 transform -translate-x-1/2 z-[100] transition-all duration-300 w-[calc(100%-1rem)] sm:w-auto max-w-[600px] ${className}`}>
       {/* Main Controls */}
       <div className={`bg-card border border-border rounded-xl sm:rounded-2xl shadow-elevated transition-all duration-300 ${
         isMinimized ? 'w-14 h-14 sm:w-16 sm:h-16' : 'px-3 py-3 sm:px-6 sm:py-4'

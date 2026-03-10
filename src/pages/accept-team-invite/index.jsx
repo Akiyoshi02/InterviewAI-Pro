@@ -1,5 +1,8 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Helmet } from 'react-helmet';
 import { useNavigate, useParams } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import BrandMark from '../../components/BrandMark';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
@@ -9,20 +12,72 @@ import PasswordStrengthIndicator from '../register/components/PasswordStrengthIn
 import PasswordMatchIndicator from '../register/components/PasswordMatchIndicator';
 import apiClient from '../../services/apiClient';
 import { authHelpers } from '../../config/firebase';
-import { useAuth } from '../../contexts/AuthContext';
-import {
-  passwordMeetsAllRequirements,
-  PASSWORD_REQUIREMENT_MESSAGE,
-} from '../../utils/passwordValidation';
+import { getRoleBadgeColor, getRoleDisplayName, getRoleDescription } from '../../utils/rolePermissions';
+import { passwordMeetsAllRequirements, PASSWORD_REQUIREMENT_MESSAGE } from '../../utils/passwordValidation';
+
+const departments = [
+  { value: 'hr', label: 'Human Resources' },
+  { value: 'engineering', label: 'Engineering & Development' },
+  { value: 'sales', label: 'Sales & Marketing' },
+  { value: 'operations', label: 'Operations' },
+  { value: 'finance', label: 'Finance & Accounting' },
+  { value: 'executive', label: 'Executive Leadership' },
+  { value: 'other', label: 'Other' },
+];
+
+const roleMetaMap = {
+  ADMIN: {
+    icon: 'Shield',
+    tone: 'border-purple-200 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20',
+    gradient: 'from-purple-600 to-pink-600',
+    jobTitlePlaceholder: 'e.g., Head of Talent, Hiring Manager',
+    highlights: ['Full organization access', 'Team and permission management', 'Jobs, interviews, and analytics'],
+  },
+  RECRUITER: {
+    icon: 'Briefcase',
+    tone: 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20',
+    gradient: 'from-blue-600 to-purple-600',
+    jobTitlePlaceholder: 'e.g., Talent Recruiter, HR Manager',
+    highlights: ['Manage hiring workflows', 'Coordinate candidates and interviews', 'Collaborate with reviewers'],
+  },
+  REVIEWER: {
+    icon: 'Eye',
+    tone: 'border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/20',
+    gradient: 'from-emerald-500 to-teal-500',
+    jobTitlePlaceholder: 'e.g., Interview Reviewer, Hiring Panelist',
+    highlights: ['Review interview submissions', 'Leave structured feedback', 'Read-only team visibility'],
+  },
+};
+
+const normalizeValue = (value) => (value ?? '').toString().trim().toLowerCase();
+const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+const otherDepartmentValue = 'other';
+
+const sectionReveal = {
+  hidden: { opacity: 0, y: 48 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.6, ease: 'easeOut' },
+  },
+};
+
+const fadeUpChild = {
+  hidden: { opacity: 0, y: 24 },
+  visible: {
+    opacity: 1,
+    y: 0,
+    transition: { duration: 0.45, ease: 'easeOut' },
+  },
+};
 
 const AcceptTeamInvitePage = () => {
   const { token } = useParams();
   const navigate = useNavigate();
-  const { setAuthenticatedUser } = useAuth();
-
   const [loading, setLoading] = useState(true);
   const [invitation, setInvitation] = useState(null);
-  const [error, setError] = useState('');
+  const [pageError, setPageError] = useState('');
+  const [formError, setFormError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [fullName, setFullName] = useState('');
   const [password, setPassword] = useState('');
@@ -32,119 +87,160 @@ const AcceptTeamInvitePage = () => {
   const [phoneNumber, setPhoneNumber] = useState('');
   const [passwordError, setPasswordError] = useState('');
   const [confirmPasswordError, setConfirmPasswordError] = useState('');
+  const [profilePhoto, setProfilePhoto] = useState(null);
+  const [profilePhotoUpload, setProfilePhotoUpload] = useState({ status: 'idle', error: '' });
+  const [profilePhotoPreview, setProfilePhotoPreview] = useState('');
+  const profilePhotoInputRef = useRef(null);
 
-  // Email verification state (8-digit code, same as main registration)
-  const [emailVerification, setEmailVerification] = useState({
-    status: 'idle', // idle | sending | sent | verified | error
-    message: '',
-    email: '',
-  });
-  const [verificationCode, setVerificationCode] = useState('');
-  const [verificationCodeError, setVerificationCodeError] = useState('');
-  const [isSendingVerification, setIsSendingVerification] = useState(false);
-  const [isVerifyingCode, setIsVerifyingCode] = useState(false);
-  const [resendAvailableAt, setResendAvailableAt] = useState(null);
-  const [resendSeconds, setResendSeconds] = useState(0);
-
-  const departments = [
-    { value: 'hr', label: 'Human Resources' },
-    { value: 'engineering', label: 'Engineering & Development' },
-    { value: 'sales', label: 'Sales & Marketing' },
-    { value: 'operations', label: 'Operations' },
-    { value: 'finance', label: 'Finance & Accounting' },
-    { value: 'executive', label: 'Executive Leadership' },
-    { value: 'other', label: 'Other' }
-  ];
-  const otherDepartmentValue = 'other';
-  const normalizeValue = (value) => (value ?? '').toString().trim().toLowerCase();
+  const invitationRole = useMemo(() => (invitation?.role || '').toString().trim().toUpperCase(), [invitation?.role]);
+  const roleMeta = roleMetaMap[invitationRole] || roleMetaMap.RECRUITER;
+  const roleDisplayName = getRoleDisplayName(invitationRole || 'RECRUITER');
+  const roleDescription = getRoleDescription(invitationRole) || 'Join your hiring team with company-managed access.';
+  const roleBadgeClasses = getRoleBadgeColor(invitationRole);
+  const organizationName = invitation?.organization?.name || 'your organization';
   const hasCustomDepartment = Boolean(
-    department
-    && !departments.some((option) => normalizeValue(option.value) === normalizeValue(department)),
+    department && !departments.some((option) => normalizeValue(option.value) === normalizeValue(department)),
   );
   const selectedDepartmentValue = hasCustomDepartment ? otherDepartmentValue : department;
   const customDepartmentValue = hasCustomDepartment ? department : '';
+  const normalizedDepartment = selectedDepartmentValue === otherDepartmentValue
+    ? customDepartmentValue.trim()
+    : department;
+  const profileComplete = Boolean(
+    fullName.trim()
+      && jobTitle.trim()
+      && (selectedDepartmentValue !== otherDepartmentValue || customDepartmentValue.trim())
+      && profilePhoto
+      && profilePhotoUpload.status === 'approved',
+  );
+  const securityComplete = Boolean(
+    confirmPassword
+      && password === confirmPassword
+      && passwordMeetsAllRequirements(password),
+  );
+  const registrationProgress = useMemo(() => ([
+    {
+      step: 1,
+      title: 'Invitation & role',
+      description: loading ? 'Checking your invite.' : 'Your team invite is ready.',
+      icon: 'MailCheck',
+      done: !loading && Boolean(invitation) && !pageError,
+      current: loading,
+    },
+    {
+      step: 2,
+      title: 'Profile details',
+      description: 'Add the basics your team will see.',
+      icon: 'UserRound',
+      done: profileComplete,
+      current: !loading && !pageError && Boolean(invitation) && !profileComplete,
+    },
+    {
+      step: 3,
+      title: 'Secure account',
+      description: 'Create a password and activate access.',
+      icon: 'ShieldCheck',
+      done: securityComplete,
+      current: !loading && !pageError && Boolean(invitation) && profileComplete && !securityComplete,
+    },
+  ]), [invitation, loading, pageError, profileComplete, securityComplete]);
 
   useEffect(() => {
     const fetchInvitation = async () => {
       setLoading(true);
-      setError('');
+      setPageError('');
       try {
         const result = await apiClient.teamInvitations.getByToken(token);
-        if (result.success) {
+        if (result.success && result.invitation) {
           setInvitation(result.invitation);
         } else {
-          setError(result.error || 'Invitation is invalid or has expired.');
+          setInvitation(null);
+          setPageError(result.error || 'Invitation is invalid or has expired.');
         }
       } catch (err) {
-        setError(err?.message || 'Failed to load invitation.');
+        setInvitation(null);
+        setPageError(err?.message || 'Failed to load invitation.');
       } finally {
         setLoading(false);
       }
     };
-
-    if (token) {
-      fetchInvitation();
-    } else {
-      setError('Invitation token is missing.');
+    if (token) fetchInvitation();
+    else {
+      setPageError('Invitation token is missing.');
       setLoading(false);
     }
   }, [token]);
 
-  // Keep resend countdown in sync with backend cooldown
   useEffect(() => {
-    if (!resendAvailableAt) {
-      setResendSeconds(0);
-      return;
+    if (!profilePhoto) {
+      setProfilePhotoPreview('');
+      return undefined;
     }
 
-    const updateCountdown = () => {
-      const remaining = Math.max(0, Math.ceil((resendAvailableAt - Date.now()) / 1000));
-      setResendSeconds(remaining);
-      if (remaining <= 0) {
-        setResendAvailableAt(null);
-      }
+    const objectUrl = URL.createObjectURL(profilePhoto);
+    setProfilePhotoPreview(objectUrl);
+
+    return () => {
+      URL.revokeObjectURL(objectUrl);
     };
+  }, [profilePhoto]);
 
-    updateCountdown();
-    const interval = setInterval(updateCountdown, 1000);
-    return () => clearInterval(interval);
-  }, [resendAvailableAt]);
+  const clearInlineErrors = () => {
+    if (formError) setFormError('');
+    if (passwordError) setPasswordError('');
+    if (confirmPasswordError) setConfirmPasswordError('');
+  };
 
-  const normalizeEmail = (value) => (value || '').trim().toLowerCase();
+  const handleSignInClick = () => {
+    navigate('/login', invitation?.email ? { state: { email: invitation.email } } : {});
+  };
 
-  // Ensure we have a Firebase session for the invited email so that
-  // the backend email verification endpoints can attach to the correct user.
-  const ensureFirebaseSessionForVerification = async () => {
-    const targetEmail = normalizeEmail(invitation?.email);
-    if (!targetEmail) {
-      throw new Error('Invitation email is missing. Please reload the page or request a new invitation.');
+  const resetProfilePhoto = () => {
+    if (profilePhotoInputRef.current) {
+      profilePhotoInputRef.current.value = '';
     }
+    setProfilePhoto(null);
+    setProfilePhotoUpload({ status: 'idle', error: '' });
+  };
 
+  const handleProfilePhotoChange = async (event) => {
+    const file = event?.target?.files?.[0];
+    if (!file) return;
+
+    clearInlineErrors();
+    setProfilePhoto(file);
+    setProfilePhotoUpload({ status: 'checking', error: '' });
+
+    try {
+      await apiClient.uploads.moderateProfilePhoto(file);
+      setProfilePhotoUpload({ status: 'approved', error: '' });
+    } catch (error) {
+      setProfilePhoto(null);
+      setProfilePhotoUpload({
+        status: 'error',
+        error: error?.message || 'Profile photo failed moderation. Please choose a different image.',
+      });
+    } finally {
+      if (event?.target) {
+        event.target.value = '';
+      }
+    }
+  };
+
+  const ensureFirebaseSessionForRegistration = async () => {
+    const targetEmail = normalizeEmail(invitation?.email);
+    if (!targetEmail) throw new Error('Invitation email is missing. Please reload the page or request a new invitation.');
     const { data: sessionSnapshot } = await authHelpers.getSession();
     const existingSession = sessionSnapshot?.session;
     const existingEmail = normalizeEmail(existingSession?.user?.email);
-
-    if (existingSession?.access_token && existingEmail === targetEmail) {
-      return existingSession.user;
-    }
-
-    if (existingSession?.access_token && existingEmail && existingEmail !== targetEmail) {
-      await authHelpers.signOut();
-    }
-
-    // Create Firebase Auth user using the password the invitee entered
-    const { data: authData, error: authError } = await authHelpers.signUp(
-      invitation.email,
-      password,
-      {
-        fullName: fullName.trim(),
-        accountType: 'COMPANY',
-      }
-    );
-
+    if (existingSession?.access_token && existingEmail === targetEmail) return existingSession.user;
+    if (existingSession?.access_token && existingEmail && existingEmail !== targetEmail) await authHelpers.signOut();
+    const { data: authData, error: authError } = await authHelpers.signUp(invitation.email, password, {
+      fullName: fullName.trim(),
+      accountType: 'COMPANY',
+    });
     if (authError) {
-      const errorCode = authError?.code;
-      if (errorCode === 'auth/email-already-in-use') {
+      if (authError?.code === 'auth/email-already-in-use') {
         const { data: signInData, error: signInError } = await authHelpers.signIn(invitation.email, password);
         if (signInError || !signInData?.user) {
           throw new Error(signInError?.message || 'An account with this email already exists. Please sign in instead.');
@@ -153,340 +249,400 @@ const AcceptTeamInvitePage = () => {
       }
       throw new Error(authError.message || 'Failed to create account for email verification.');
     }
-
-    if (!authData?.user) {
-      throw new Error('Failed to create your account for email verification.');
-    }
-
+    if (!authData?.user) throw new Error('Failed to create your account for email verification.');
     return authData.user;
   };
 
-  const sendVerificationEmail = async () => {
-    const targetEmail = normalizeEmail(invitation?.email);
-
-    setIsSendingVerification(true);
-    setVerificationCodeError('');
-    setEmailVerification({ status: 'sending', message: '', email: targetEmail });
-
-    try {
-      if (!password) {
-        throw new Error('Please enter a password before requesting a verification code.');
-      }
-
-      await ensureFirebaseSessionForVerification();
-      const result = await apiClient.auth.startEmailVerification({
-        email: targetEmail,
-        fullName: fullName.trim() || undefined,
-      });
-
-      if (result?.verified) {
-        await authHelpers.reloadUser();
-        await authHelpers.refreshAccessToken();
-        setEmailVerification({
-          status: 'verified',
-          email: targetEmail,
-          message: 'Email verified. You can now complete your registration.',
-        });
-        setVerificationCode('');
-        setVerificationCodeError('');
-        setResendAvailableAt(null);
-        setResendSeconds(0);
-        return true;
-      }
-
-      setEmailVerification({
-        status: 'sent',
-        email: targetEmail,
-        message: `We sent an 8-digit verification code to ${targetEmail}. Enter it below to continue.`,
-      });
-      setResendAvailableAt(Date.now() + 60 * 1000);
-      return true;
-    } catch (err) {
-      setEmailVerification({
-        status: 'error',
-        email: targetEmail,
-        message: err?.message || 'Unable to send a verification code. Please try again.',
-      });
-      return false;
-    } finally {
-      setIsSendingVerification(false);
-    }
-  };
-
-  const handleVerifyCode = async () => {
-    const cleanedCode = (verificationCode || '').replace(/\D/g, '');
-    if (cleanedCode.length !== 8) {
-      setVerificationCodeError('Enter the 8-digit code from your email.');
-      return;
-    }
-
-    setIsVerifyingCode(true);
-    setVerificationCodeError('');
-
-    try {
-      await ensureFirebaseSessionForVerification();
-      await apiClient.auth.verifyEmailCode(cleanedCode);
-      const { data, error } = await authHelpers.reloadUser();
-
-      if (error || !data?.user?.email_confirmed_at) {
-        throw new Error(error?.message || 'Unable to confirm your email verification. Please try again.');
-      }
-
-      await authHelpers.refreshAccessToken();
-      setEmailVerification({
-        status: 'verified',
-        email: normalizeEmail(data?.user?.email || invitation?.email),
-        message: 'Email verified. You can now complete your registration.',
-      });
-      setVerificationCode('');
-      setVerificationCodeError('');
-      setResendAvailableAt(null);
-      setResendSeconds(0);
-    } catch (err) {
-      setVerificationCodeError(err?.message || 'Unable to verify the code. Please try again.');
-    } finally {
-      setIsVerifyingCode(false);
-    }
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSubmit = async (event) => {
+    event.preventDefault();
     if (!invitation) return;
-
-    // Reset errors
-    setError('');
+    setFormError('');
     setPasswordError('');
     setConfirmPasswordError('');
-
-    // Validate required fields
     if (!fullName.trim() || !jobTitle.trim() || !password || !confirmPassword) {
-      setError('Please fill in all required fields.');
+      setFormError('Please fill in all required fields.');
       return;
     }
-
+    if (!profilePhoto) {
+      setFormError('Please upload a profile photo before creating your account.');
+      return;
+    }
+    if (profilePhotoUpload.status !== 'approved') {
+      setFormError(profilePhotoUpload.error || 'Profile photo must pass moderation before continuing.');
+      return;
+    }
     if (selectedDepartmentValue === otherDepartmentValue && !customDepartmentValue.trim()) {
-      setError('Please specify your department when selecting "Other".');
+      setFormError('Please specify your department when selecting "Other".');
       return;
     }
-
-    // Validate password meets requirements
     if (!passwordMeetsAllRequirements(password)) {
       setPasswordError(PASSWORD_REQUIREMENT_MESSAGE);
       return;
     }
-
-    // Validate passwords match
     if (password !== confirmPassword) {
       setConfirmPasswordError('Passwords do not match');
       return;
     }
-
     setSubmitting(true);
-    setError('');
-
     try {
-      // Require email verification before completing registration
-      if (emailVerification.status !== 'verified') {
-        const sent = await sendVerificationEmail();
-        if (sent) {
-          setError('We sent you an 8-digit verification code. Please verify your email before completing registration.');
-        }
-        return;
+      await ensureFirebaseSessionForRegistration();
+      await authHelpers.refreshAccessToken();
+      const registerPayload = new FormData();
+      registerPayload.append('fullName', fullName.trim());
+      registerPayload.append('email', invitation.email);
+      registerPayload.append('accountType', 'COMPANY');
+      registerPayload.append('teamInvitationToken', token);
+      registerPayload.append('jobTitle', jobTitle.trim());
+      registerPayload.append('profilePhoto', profilePhoto);
+      if (normalizedDepartment) {
+        registerPayload.append('department', normalizedDepartment);
+      }
+      if (phoneNumber.trim()) {
+        registerPayload.append('phoneNumber', phoneNumber.trim());
       }
 
-      // By this point, Firebase Auth user exists and email is verified.
-      // Proceed to register with backend using the Firebase Auth token.
-      const registerData = await apiClient.auth.register({
-        fullName: fullName.trim(),
-        email: invitation.email,
-        accountType: 'COMPANY',
-        teamInvitationToken: token,
-        jobTitle: jobTitle.trim() || undefined,
-        department: department && normalizeValue(department) !== otherDepartmentValue ? department : undefined,
-        phoneNumber: phoneNumber.trim() || undefined,
-      });
-
-      if (!registerData.success || !registerData.user) {
-        throw new Error(registerData.error || 'Registration failed.');
-      }
-
-      // Sign out the user since we created the account but want them to log in
-      try {
-        await authHelpers.signOut();
-      } catch (signOutError) {
-        console.error('Failed to sign out after registration:', signOutError);
-        // Continue anyway - user can still log in
-      }
-
-      // Don't store user data or set as authenticated - user should log in
-      // Redirect to login page with email prefilled
+      const registerData = await apiClient.auth.register(registerPayload);
+      if (!registerData.success || !registerData.user) throw new Error(registerData.error || 'Registration failed.');
+      try { await authHelpers.signOut(); } catch (signOutError) { console.error('Failed to sign out after registration:', signOutError); }
       navigate('/login', { state: { email: invitation.email } });
     } catch (err) {
-      setError(err?.message || 'Failed to complete registration.');
+      setFormError(err?.message || 'Failed to complete registration.');
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 px-4">
-      <div className="w-full max-w-md rounded-2xl border border-white/60 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 shadow-xl shadow-blue-500/10 dark:shadow-black/40 backdrop-blur p-6 sm:p-8">
-        <div className="flex items-center gap-3 mb-4">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/40">
-            <Icon name="Users" size={20} color="white" />
+    <>
+      <Helmet>
+        <title>{invitation ? `Join ${organizationName} - InterviewAI Pro` : 'Accept Team Invitation - InterviewAI Pro'}</title>
+        <meta
+          name="description"
+          content="Accept your InterviewAI Pro team invitation and finish account setup with the same guided onboarding used across the platform."
+        />
+      </Helmet>
+      <div className="relative min-h-screen lg:h-screen lg:overflow-hidden bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950 transition-colors duration-300">
+      <div aria-hidden="true" className="pointer-events-none absolute inset-0 overflow-hidden">
+        <div className="absolute -top-32 right-0 h-[420px] w-[420px] bg-gradient-to-br from-blue-500/35 via-purple-500/20 to-transparent blur-[150px]" />
+        <div className="absolute bottom-0 -left-24 h-[520px] w-[520px] bg-gradient-to-tr from-indigo-300/25 via-cyan-200/20 to-transparent blur-[140px]" />
+        <div className="absolute inset-0 opacity-60 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.12),transparent_45%),radial-gradient(circle_at_80%_0%,rgba(147,51,234,0.12),transparent_40%)]" />
+      </div>
+
+      <div className="relative z-10 flex min-h-screen lg:h-screen flex-col">
+        <header className="flex-shrink-0">
+          <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-4 lg:py-3">
+            <div className="flex items-center justify-between rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 px-4 py-3 shadow-[0_10px_40px_rgba(15,23,42,0.08)] dark:shadow-[0_10px_40px_rgba(0,0,0,0.3)] backdrop-blur">
+              <BrandMark
+                showTagline
+                className="items-start"
+                iconWrapperClassName="w-10 h-10 rounded-2xl"
+                textClassName="text-sm md:text-base font-semibold"
+                taglineClassName="text-xs md:text-sm text-gray-500 dark:text-slate-400"
+              />
+              <div className="flex items-center space-x-3">
+                <span className="hidden sm:block text-sm md:text-base text-gray-500 dark:text-slate-400">Already have an account?</span>
+                <Button
+                  variant="ghost"
+                  onClick={handleSignInClick}
+                  className="rounded-full border border-white/40 dark:border-slate-700/50 text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400"
+                >
+                  Sign In
+                </Button>
+              </div>
+            </div>
           </div>
-          <div>
-            <h1 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-slate-100">
-              Accept Team Invitation
-            </h1>
-            <p className="text-xs sm:text-sm text-gray-500 dark:text-slate-400">
-              Join your team on InterviewAI Pro
+        </header>
+
+        <main className="flex-1 min-h-0 w-full px-3 sm:px-4 lg:px-6 pb-3 lg:pb-2 overflow-hidden">
+          <motion.div
+            variants={sectionReveal}
+            initial="hidden"
+            animate="visible"
+            className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-3 max-w-6xl mx-auto lg:h-full"
+          >
+            <motion.aside variants={fadeUpChild} className="lg:col-span-4 flex flex-col min-h-0">
+              <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-5 lg:p-4 h-full flex flex-col shadow-[0_20px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_70px_rgba(0,0,0,0.4)] backdrop-blur">
+                <h2 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4 lg:mb-3">Registration Progress</h2>
+                <div className="space-y-3">
+                  {registrationProgress.map((item) => (
+                    <div
+                      key={item.step}
+                      className={`rounded-2xl border p-3 transition-colors duration-200 ${
+                        item.current
+                          ? 'border-blue-500/40 dark:border-blue-500/60 bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 shadow-[0_10px_30px_rgba(59,130,246,0.2)]'
+                          : item.done
+                            ? 'border-emerald-400/40 dark:border-emerald-500/60 bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300'
+                            : 'border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-800/70 text-gray-500 dark:text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-start gap-3">
+                        <div className="mt-0.5 flex h-8 w-8 items-center justify-center rounded-full bg-white/80 dark:bg-slate-700/80 shadow-inner">
+                          <Icon
+                            name={item.done ? 'Check' : item.current ? 'Loader2' : item.icon}
+                            size={16}
+                            className={item.current && !item.done ? 'animate-spin' : 'text-current'}
+                          />
+                        </div>
+                        <div className="min-w-0">
+                          <p className="text-sm md:text-base font-semibold">Step {item.step}</p>
+                          <p className="text-xs md:text-sm text-gray-500 dark:text-slate-400">{item.title}</p>
+                          <p className="mt-1 text-[11px] md:text-xs text-gray-500/90 dark:text-slate-400/90">{item.description}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className={`mt-4 lg:mt-3 rounded-2xl border p-4 lg:p-3.5 ${roleMeta.tone}`}>
+                  <div className="flex items-start gap-3">
+                    <div className={`flex h-10 w-10 items-center justify-center rounded-2xl bg-gradient-to-br ${roleMeta.gradient} text-white shadow-lg`}>
+                      <Icon name={roleMeta.icon} size={18} />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-xs uppercase tracking-[0.24em] text-gray-500 dark:text-slate-400">Team invitation</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2">
+                        <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${roleBadgeClasses}`}>{roleDisplayName}</span>
+                        {invitation?.organization?.name && <span className="text-sm font-semibold text-gray-900 dark:text-slate-100">{invitation.organization.name}</span>}
+                      </div>
+                      <div className="mt-3 rounded-xl border border-white/45 dark:border-slate-700/60 bg-white/65 dark:bg-slate-900/35 px-3 py-2">
+                        <p className="text-[10px] uppercase tracking-[0.2em] text-gray-500 dark:text-slate-400">Reserved email</p>
+                        <p className="mt-1 text-xs leading-5 font-medium text-gray-700 dark:text-slate-200 [overflow-wrap:anywhere]">
+                          {invitation?.email || 'Loading...'}
+                        </p>
+                      </div>
+                      <p className="mt-3 text-sm text-gray-700 dark:text-slate-300">{roleDescription}</p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-4 lg:mt-3 pt-3 border-t border-white/30 dark:border-slate-700/50">
+                  <h4 className="text-sm md:text-base font-semibold text-gray-900 dark:text-slate-100 mb-2 lg:mb-1.5">What you'll unlock</h4>
+                  <ul className="space-y-2 text-xs md:text-sm text-gray-500 dark:text-slate-400">
+                    {roleMeta.highlights.map((item) => (
+                      <li key={item} className="flex items-start gap-2">
+                        <Icon name="CheckCircle" size={14} className="mt-0.5 flex-shrink-0 text-blue-600 dark:text-blue-400" />
+                        <span>{item}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              </div>
+            </motion.aside>
+
+            <motion.section variants={fadeUpChild} className="lg:col-span-8 flex flex-col min-h-0">
+              <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/85 dark:bg-slate-800/85 shadow-[0_25px_80px_rgba(15,23,42,0.15)] dark:shadow-[0_25px_80px_rgba(0,0,0,0.5)] p-5 md:p-6 lg:p-5 h-full flex flex-col backdrop-blur overflow-hidden">
+                <div className="text-center mb-4 lg:mb-3 flex-shrink-0">
+                  <h1 className="text-xl md:text-2xl lg:text-3xl font-semibold text-gray-900 dark:text-slate-100 mb-1">
+                    {invitation ? `Create your ${roleDisplayName.toLowerCase()} account` : 'Accept Team Invitation'}
+                  </h1>
+                  <p className="mt-1 text-sm md:text-base text-gray-500 dark:text-slate-400">
+                    Finish your details to join {organizationName} with the same account-creation experience used across InterviewAI Pro.
+                  </p>
+                </div>
+
+                {loading && (
+                  <div className="flex-1 flex items-center justify-center rounded-2xl border border-blue-200/70 dark:border-blue-900/50 bg-blue-50/80 dark:bg-blue-900/20 p-6 text-center">
+                    <div>
+                      <Icon name="Loader2" size={24} className="mx-auto animate-spin text-blue-600 dark:text-blue-300" />
+                      <p className="mt-3 text-sm text-gray-600 dark:text-slate-400">Loading invitation...</p>
+                    </div>
+                  </div>
+                )}
+
+                {!loading && pageError && (
+                  <div className="flex-1 flex items-center justify-center rounded-2xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/20 p-6 text-center">
+                    <div>
+                      <Icon name="AlertCircle" size={24} className="mx-auto text-rose-600 dark:text-rose-300" />
+                      <p className="mt-3 text-sm text-rose-700 dark:text-rose-200">{pageError}</p>
+                      <Button type="button" variant="default" onClick={handleSignInClick} className="mt-4 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6">
+                        Go to Sign In
+                      </Button>
+                    </div>
+                  </div>
+                )}
+
+                {!loading && !pageError && invitation && (
+                  <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
+                    <div className="flex-1 min-h-0 px-1 lg:px-0 space-y-4 lg:space-y-3">
+                      <div className={`rounded-2xl border p-4 lg:p-3.5 ${roleMeta.tone}`}>
+                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">You&apos;ve been invited to join {organizationName}</p>
+                            <p className="mt-1 text-xs md:text-sm text-gray-600 dark:text-slate-400">
+                              Invitation sent to <span className="font-mono break-all">{invitation.email}</span>
+                            </p>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold ${roleBadgeClasses}`}>{roleDisplayName}</span>
+                            <span className="inline-flex items-center rounded-full border border-blue-200 dark:border-blue-800 bg-white/80 dark:bg-slate-900/50 px-3 py-1 text-xs font-medium text-blue-700 dark:text-blue-300">
+                              Secure team access
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {formError && (
+                        <div className="rounded-2xl border border-rose-200 dark:border-rose-800 bg-rose-50 dark:bg-rose-900/30 px-4 py-3 text-sm text-rose-700 dark:text-rose-300">
+                          {formError}
+                        </div>
+                      )}
+
+                      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/30 p-4 lg:p-3.5">
+                        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_240px] gap-4 items-start">
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            <Input label="Full Name" placeholder="Enter your full name" value={fullName} onChange={(event) => { clearInlineErrors(); setFullName(event.target.value); }} required />
+                            <Input label="Email Address" value={invitation.email} disabled />
+                          </div>
+                          <div className={`rounded-2xl border p-4 transition-colors ${
+                            profilePhotoUpload.status === 'error'
+                              ? 'border-rose-300 bg-rose-50/80 dark:border-rose-500/50 dark:bg-rose-900/20'
+                              : profilePhotoUpload.status === 'approved'
+                                ? 'border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/50 dark:bg-emerald-900/20'
+                                : 'border-white/40 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/35'
+                          }`}>
+                            <div className="flex items-start gap-3">
+                              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/50 dark:border-slate-700/70 bg-white/90 dark:bg-slate-950/60">
+                                {profilePhotoPreview ? (
+                                  <img src={profilePhotoPreview} alt="Profile preview" className="h-full w-full object-cover" />
+                                ) : (
+                                  <Icon name="UserRound" size={24} className="text-blue-600 dark:text-blue-300" />
+                                )}
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">Profile Photo</p>
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                  Add a recognizable photo for reviewer assignments, workspace identity, and team collaboration.
+                                </p>
+                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                                  <Button
+                                    type="button"
+                                    variant="ghost"
+                                    onClick={() => profilePhotoInputRef.current?.click()}
+                                    className="rounded-full border border-white/50 dark:border-slate-700/60 text-xs text-gray-700 dark:text-slate-200"
+                                  >
+                                    {profilePhoto ? 'Change Photo' : 'Upload Photo'}
+                                  </Button>
+                                  {profilePhoto ? (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      onClick={resetProfilePhoto}
+                                      className="rounded-full border border-white/40 dark:border-slate-700/60 text-xs text-gray-500 dark:text-slate-400"
+                                    >
+                                      Remove
+                                    </Button>
+                                  ) : null}
+                                </div>
+                                <input
+                                  ref={profilePhotoInputRef}
+                                  type="file"
+                                  accept="image/*"
+                                  aria-label="Profile Photo"
+                                  className="hidden"
+                                  onChange={handleProfilePhotoChange}
+                                />
+                                <div className="mt-3 space-y-1 text-xs">
+                                  <p className="text-gray-500 dark:text-slate-400">
+                                    JPG, PNG, or WEBP. Max 5 MB.
+                                  </p>
+                                  {profilePhoto ? (
+                                    <p className="truncate text-gray-700 dark:text-slate-200">{profilePhoto.name}</p>
+                                  ) : null}
+                                  {profilePhotoUpload.status === 'checking' ? (
+                                    <p className="flex items-center gap-1.5 text-blue-600 dark:text-blue-300">
+                                      <Icon name="Loader2" size={12} className="animate-spin" />
+                                      Checking photo...
+                                    </p>
+                                  ) : null}
+                                  {profilePhotoUpload.status === 'approved' ? (
+                                    <p className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-300">
+                                      <Icon name="CheckCircle" size={12} />
+                                      Photo approved
+                                    </p>
+                                  ) : null}
+                                  {profilePhotoUpload.status === 'error' ? (
+                                    <p className="flex items-center gap-1.5 text-rose-600 dark:text-rose-300">
+                                      <Icon name="AlertCircle" size={12} />
+                                      {profilePhotoUpload.error}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/30 p-4 lg:p-3.5 space-y-4 lg:space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <Input label="Job Title" type="text" placeholder={roleMeta.jobTitlePlaceholder} value={jobTitle} onChange={(event) => { clearInlineErrors(); setJobTitle(event.target.value); }} required />
+                          <Select label="Department" placeholder="Select your department" options={departments} value={selectedDepartmentValue} onChange={(value) => { clearInlineErrors(); setDepartment(value || ''); }} />
+                        </div>
+                        {selectedDepartmentValue === otherDepartmentValue && (
+                          <Input label="Specify Department" type="text" placeholder="Type your department" value={customDepartmentValue} onChange={(event) => { clearInlineErrors(); const nextValue = event?.target?.value || ''; setDepartment(nextValue.trim() ? nextValue : otherDepartmentValue); }} />
+                        )}
+                        <PhoneInput label="Phone Number" value={phoneNumber} onChange={(value) => { clearInlineErrors(); setPhoneNumber(value); }} description="Optional. Add a number if your team uses phone-based coordination." />
+                      </div>
+
+                      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/30 p-4 lg:p-3.5">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <div className="space-y-2">
+                            <Input label="Password" type="password" placeholder="Create a strong password" value={password} onChange={(event) => { setPassword(event.target.value); if (passwordError) setPasswordError(''); if (formError) setFormError(''); }} error={passwordError} required />
+                            <PasswordStrengthIndicator password={password} />
+                          </div>
+                          <div className="space-y-2">
+                            <Input label="Confirm Password" type="password" placeholder="Confirm your password" value={confirmPassword} onChange={(event) => { setConfirmPassword(event.target.value); if (confirmPasswordError) setConfirmPasswordError(''); if (formError) setFormError(''); }} error={confirmPasswordError} required />
+                            <PasswordMatchIndicator password={password} confirmPassword={confirmPassword} />
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="pt-4 lg:pt-3 mt-4 lg:mt-3 border-t border-white/30 dark:border-slate-700/50">
+                      <div className="flex flex-col gap-3 sm:grid sm:grid-cols-[auto_1fr_auto] sm:items-center sm:gap-4">
+                      <Button type="button" variant="ghost" onClick={handleSignInClick} className="rounded-full border border-white/40 dark:border-slate-700/50 text-sm text-gray-600 dark:text-slate-300 hover:text-blue-600 dark:hover:text-blue-400">
+                        Sign In Instead
+                      </Button>
+                      <div className="flex items-center justify-center gap-2">
+                        {registrationProgress.map((item) => (
+                          <div
+                            key={item.step}
+                            className={`h-2 w-2 rounded-full transition-colors duration-200 ${
+                              item.done || item.current ? 'bg-blue-600' : 'bg-gray-200 dark:bg-slate-700'
+                            }`}
+                          />
+                        ))}
+                      </div>
+                      <Button type="submit" variant="default" loading={submitting} className="w-full sm:w-auto rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 shadow-[0_14px_40px_rgba(59,130,246,0.28)]">
+                        {submitting ? 'Creating Account...' : 'Create Account & Join Team'}
+                      </Button>
+                      </div>
+                    </div>
+                  </form>
+                )}
+              </div>
+            </motion.section>
+          </motion.div>
+        </main>
+
+        <footer className="flex-shrink-0">
+          <div className="max-w-6xl mx-auto w-full px-3 sm:px-4 lg:px-6 py-2 lg:py-1.5 text-center text-xs md:text-sm text-gray-500 dark:text-slate-400">
+            <p>
+              &copy; {new Date().getFullYear()} InterviewAI Pro
+              <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
+              <a href="/privacy" className="text-blue-600 hover:underline mx-1">Privacy</a>
+              <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
+              <a href="/terms" className="text-blue-600 hover:underline mx-1">Terms</a>
+              <span aria-hidden="true" className="mx-1.5 inline-block text-sm md:text-base leading-none font-medium text-gray-400 dark:text-slate-500">&middot;</span>
+              <a href="/help-center" className="text-blue-600 hover:underline mx-1">Help Center</a>
             </p>
           </div>
-        </div>
-
-        {loading && (
-          <p className="text-sm text-gray-500 dark:text-slate-400">Loading invitation...</p>
-        )}
-
-        {!loading && error && (
-          <div className="mb-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs sm:text-sm text-rose-700 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-200">
-            {error}
-          </div>
-        )}
-
-        {!loading && !error && invitation && (
-          <>
-            <div className="mb-4 rounded-xl border border-gray-200/70 dark:border-slate-700/70 bg-gray-50/80 dark:bg-slate-900/60 px-3 py-3 text-xs sm:text-sm text-gray-700 dark:text-slate-300">
-              <p className="mb-1">
-                You&apos;ve been invited to join{' '}
-                <span className="font-semibold">
-                  {invitation.organization?.name || 'this organization'}
-                </span>
-                {' '}as a{' '}
-                <span className="font-semibold">
-                  {invitation.role}
-                </span>
-                .
-              </p>
-              <p className="text-[11px] sm:text-xs text-gray-500 dark:text-slate-400 mt-1">
-                Invitation sent to: <span className="font-mono">{invitation.email}</span>
-              </p>
-            </div>
-
-            <form onSubmit={handleSubmit} className="space-y-3">
-              <Input
-                label="Full Name"
-                value={fullName}
-                onChange={(e) => setFullName(e.target.value)}
-                required
-              />
-              <Input
-                label="Email"
-                value={invitation.email}
-                disabled
-              />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <Input
-                  label="Job Title"
-                  type="text"
-                  placeholder="e.g., HR Manager, Talent Acquisition Lead"
-                  value={jobTitle}
-                  onChange={(e) => setJobTitle(e.target.value)}
-                  required
-                />
-                <Select
-                  label="Department"
-                  placeholder="Select your department"
-                  options={departments}
-                  value={selectedDepartmentValue}
-                  onChange={(value) => setDepartment(value || '')}
-                />
-              </div>
-              {selectedDepartmentValue === otherDepartmentValue && (
-                <div className="space-y-2">
-                  <Input
-                    label="Specify Department"
-                    type="text"
-                    placeholder="Type your department"
-                    value={customDepartmentValue}
-                    onChange={(event) => {
-                      const nextValue = event?.target?.value || '';
-                      setDepartment(nextValue.trim() ? nextValue : otherDepartmentValue);
-                    }}
-                  />
-                  {hasCustomDepartment && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="xs"
-                      onClick={() => setDepartment(otherDepartmentValue)}
-                      iconName="X"
-                      className="rounded-full text-rose-500 hover:text-rose-600"
-                    >
-                      Remove custom department
-                    </Button>
-                  )}
-                </div>
-              )}
-              <PhoneInput
-                label="Phone Number"
-                value={phoneNumber}
-                onChange={(value) => setPhoneNumber(value)}
-              />
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <div className="space-y-2">
-                  <Input
-                    label="Password"
-                    type="password"
-                    placeholder="Create a strong password"
-                    value={password}
-                    onChange={(e) => {
-                      setPassword(e.target.value);
-                      setPasswordError('');
-                      setError('');
-                    }}
-                    error={passwordError}
-                    required
-                  />
-                  <PasswordStrengthIndicator password={password} />
-                </div>
-                <div className="space-y-2">
-                  <Input
-                    label="Confirm Password"
-                    type="password"
-                    placeholder="Confirm your password"
-                    value={confirmPassword}
-                    onChange={(e) => {
-                      setConfirmPassword(e.target.value);
-                      setConfirmPasswordError('');
-                      setError('');
-                    }}
-                    error={confirmPasswordError}
-                    required
-                  />
-                  <PasswordMatchIndicator 
-                    password={password} 
-                    confirmPassword={confirmPassword} 
-                  />
-                </div>
-              </div>
-
-              <Button
-                type="submit"
-                disabled={submitting}
-                className="w-full mt-2 rounded-full bg-gradient-to-r from-blue-600 to-purple-600 border-none text-white shadow-md shadow-blue-500/30 hover:from-blue-700 hover:to-purple-700"
-              >
-                {submitting ? 'Creating Account...' : 'Create Account & Join Team'}
-              </Button>
-            </form>
-          </>
-        )}
+        </footer>
       </div>
     </div>
+    </>
   );
 };
 
 export default AcceptTeamInvitePage;
-
 

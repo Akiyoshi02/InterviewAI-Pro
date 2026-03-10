@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import CookieConsentBanner from '../CookieConsentBanner.jsx';
 
 const mockSaveConsent = vi.fn();
@@ -67,9 +67,9 @@ describe('CookieConsentBanner', () => {
 
     expect(screen.queryByText('We use cookies')).toBeNull();
 
-    vi.advanceTimersByTime(1100);
+    await vi.advanceTimersByTimeAsync(1100);
 
-    expect(await screen.findByText('We use cookies')).toBeTruthy();
+    expect(screen.getByText('We use cookies')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Customize' })).toBeTruthy();
   });
 
@@ -92,9 +92,9 @@ describe('CookieConsentBanner', () => {
 
   it('saves custom preferences and hides the banner', async () => {
     render(<CookieConsentBanner />);
-    vi.advanceTimersByTime(1100);
+    await vi.advanceTimersByTimeAsync(1100);
 
-    expect(await screen.findByText('We use cookies')).toBeTruthy();
+    expect(screen.getByText('We use cookies')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Customize' }));
     fireEvent.click(screen.getByLabelText(/Analytics/i));
@@ -110,9 +110,6 @@ describe('CookieConsentBanner', () => {
       analytics: true,
       marketing: false,
     });
-
-    await waitFor(() => {
-      expect(screen.queryByText('We use cookies')).toBeNull();
-    });
+    expect(screen.queryByText('We use cookies')).toBeNull();
   });
 });

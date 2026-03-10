@@ -17,6 +17,7 @@ const CompanyApplicationsPage = () => {
   // Get organization role for permission checks
   const organizationRole = user?.organizationContext?.membership?.role;
   const canUpdateApplications = hasPermission(organizationRole, 'UPDATE_APPLICATION_STATUS');
+  const isReviewerOnly = organizationRole === 'REVIEWER';
 
   const cachedIsAuthenticated = typeof window !== 'undefined' && window.localStorage.getItem('isAuthenticated') === 'true';
   const showSidebar = isAuthenticated || (status === 'loading' && cachedIsAuthenticated);
@@ -85,16 +86,18 @@ const CompanyApplicationsPage = () => {
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="FileText" size={22} color="white" />
+              <div className="mb-6 flex items-center gap-4">
+                <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                  <Icon name="FileText" size={24} color="white" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
-                    Job Applications
+                    {isReviewerOnly ? 'Application Reviews' : 'Job Applications'}
                   </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    Review and manage candidate applications for your job postings.
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                    {isReviewerOnly
+                      ? 'Inspect candidate submissions and interview context for assigned reviews without changing hiring decisions.'
+                      : 'Review and manage candidate applications for your job postings.'}
                   </p>
                 </div>
               </div>

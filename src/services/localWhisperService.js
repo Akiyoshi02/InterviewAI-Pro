@@ -1,20 +1,54 @@
 /**
  * Local Whisper Service
- * 
- * Interfaces with the local faster-whisper Flask server for speech-to-text transcription.
- * This bypasses OpenAI API calls and runs Whisper inference on the local GPU.
- * 
- * @module localWhisperService
+ *
+ * The browser no longer talks to the optional local faster-whisper process
+ * directly. Availability and transcription both flow through backend AI
+ * endpoints so local services stay behind the app's API boundary.
  */
 
-const rawUrl = import.meta.env.VITE_LOCAL_WHISPER_URL?.trim();
-const LOCAL_WHISPER_URL = rawUrl ? rawUrl.replace(/\/$/, '') : null;
-const IS_WHISPER_ENABLED = Boolean(LOCAL_WHISPER_URL);
 const HEALTH_CACHE_WINDOW_MS = 300_000;
+const API_BASE_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
 
 let lastHealthCheckAt = 0;
 let lastHealthResult = false;
 let loggedUnavailableOnce = false;
+
+const isAutomationEnvironment = () =>
+  typeof navigator !== 'undefined' && navigator.webdriver === true;
+
+const buildApiUrl = (path) => {
+  const normalizedPath = String(path || '').startsWith('/') ? path : `/${path}`;
+
+  if (API_BASE_URL) {
+    return `${API_BASE_URL}${normalizedPath}`;
+  }
+
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin.replace(/\/$/, '')}${normalizedPath}`;
+  }
+
+  return null;
+};
+
+const getMeetingTokenFromLocation = () => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const searchParams = new URLSearchParams(window.location.search || '');
+    const token = searchParams.get('token');
+    return token && token.trim() ? token.trim() : null;
+  } catch {
+    return null;
+  }
+};
+
+const getProxyHeaders = () => {
+  const headers = {};
+  const meetingToken = getMeetingTokenFromLocation();
+  if (meetingToken) {
+    headers['X-Meeting-Token'] = meetingToken;
+  }
+  return headers;
+};
 
 const getAudioExtension = (mimeType = '') => {
   const normalized = mimeType.toLowerCase();
@@ -27,60 +61,67 @@ const getAudioExtension = (mimeType = '') => {
   return 'webm';
 };
 
-const logWhisperDisabled = () => {
-  if (import.meta.env?.DEV) {
-    console.info(
-      'Local Whisper server disabled. Set VITE_LOCAL_WHISPER_URL to enable on-device transcription.',
-    );
-  }
-};
-
 /**
- * Check if the local Whisper server is running and ready
- * @returns {Promise<boolean>} - True if server is healthy
+ * Check whether local Whisper is reachable through the backend AI health
+ * endpoint. This remains intentionally quiet because the local service is
+ * optional and should not pollute runtime logs.
+ *
+ * @returns {Promise<boolean>}
  */
-export async function checkLocalWhisperHealth() {
-  if (!IS_WHISPER_ENABLED) {
-    logWhisperDisabled();
+export async function checkLocalWhisperHealth({ silent = true, force = false } = {}) {
+  if (isAutomationEnvironment()) {
     return false;
   }
 
   const now = Date.now();
-  if (lastHealthCheckAt && now - lastHealthCheckAt < HEALTH_CACHE_WINDOW_MS) {
+  if (!force && lastHealthCheckAt && now - lastHealthCheckAt < HEALTH_CACHE_WINDOW_MS) {
     return lastHealthResult;
+  }
+
+  const aiHealthUrl = buildApiUrl('/api/ai/health');
+  if (!aiHealthUrl) {
+    lastHealthCheckAt = now;
+    lastHealthResult = false;
+    return false;
   }
 
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 10000);
 
-    const response = await fetch(`${LOCAL_WHISPER_URL}/health`, {
+    const response = await fetch(aiHealthUrl, {
       method: 'GET',
+      headers: getProxyHeaders(),
       signal: controller.signal,
     });
 
     clearTimeout(timeoutId);
 
     if (!response.ok) {
-      console.warn('Health check failed:', response.status);
+      if (!silent && import.meta.env?.DEV && !loggedUnavailableOnce) {
+        console.warn('Unable to verify Whisper availability via backend AI health.', response.status);
+        loggedUnavailableOnce = true;
+      }
       lastHealthCheckAt = now;
       lastHealthResult = false;
       return false;
     }
 
     const data = await response.json();
-    console.log('Whisper server healthy:', data);
     lastHealthCheckAt = now;
-    lastHealthResult = data.status === 'healthy' || data.status === 'ok';
+    lastHealthResult = Boolean(data?.success && data?.whisperConfigured && data?.whisperReachable);
+
     if (lastHealthResult) {
       loggedUnavailableOnce = false;
     }
+
     return lastHealthResult;
   } catch (error) {
-    if (!loggedUnavailableOnce) {
-      console.warn('Local Whisper server not available:', error.message);
+    if (!silent && !loggedUnavailableOnce) {
+      console.warn('Whisper availability check failed through backend AI health:', error.message);
       loggedUnavailableOnce = true;
     }
+
     lastHealthCheckAt = now;
     lastHealthResult = false;
     return false;
@@ -88,143 +129,129 @@ export async function checkLocalWhisperHealth() {
 }
 
 /**
- * Get available models on the local Whisper server
- * @returns {Promise<Object>} - Model information
+ * Get available models from the backend Whisper proxy.
+ *
+ * @returns {Promise<Object>}
  */
 export async function getLocalWhisperModels() {
-  if (!IS_WHISPER_ENABLED) {
-    throw new Error('Local Whisper server is not configured.');
+  const modelsUrl = buildApiUrl('/api/ai/whisper/models');
+  if (!modelsUrl) {
+    throw new Error('Backend AI API base URL is not available.');
   }
 
-  try {
-    const response = await fetch(`${LOCAL_WHISPER_URL}/models`);
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    return await response.json();
-  } catch (error) {
-    console.error('Failed to fetch local Whisper models:', error);
-    throw error;
+  const response = await fetch(modelsUrl, {
+    method: 'GET',
+    headers: getProxyHeaders(),
+  });
+
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Server returned ${response.status}`);
   }
+
+  return response.json();
 }
 
 /**
- * Transcribe audio using the local Whisper server
- * @param {Blob} audioBlob - Audio data to transcribe (webm/wav/mp3)
- * @param {Object} options - Transcription options
- * @param {string} options.language - Language code (e.g., 'en', 'es') or 'auto'
- * @param {boolean} options.translateToEnglish - Translate to English if true
- * @returns {Promise<Object>} - Transcription result
+ * Transcribe audio using the backend Whisper proxy.
+ *
+ * @param {Blob} audioBlob
+ * @param {Object} options
+ * @returns {Promise<Object>}
  */
 export async function transcribeWithLocalWhisper(audioBlob, options = {}) {
-  if (!IS_WHISPER_ENABLED) {
-    throw new Error('Local Whisper server is not configured.');
+  const transcribeUrl = buildApiUrl('/api/ai/whisper/transcribe');
+  if (!transcribeUrl) {
+    throw new Error('Backend AI API base URL is not available.');
   }
 
   const {
     language = 'en',
-    translateToEnglish = false
+    translateToEnglish = false,
   } = options;
 
-  try {
-    // Create FormData with audio file
-    const formData = new FormData();
-    const extension = getAudioExtension(audioBlob?.type || '');
-    formData.append('audio', audioBlob, `recording.${extension}`);
-    formData.append('language', language);
-    formData.append('task', translateToEnglish ? 'translate' : 'transcribe');
+  const formData = new FormData();
+  const extension = getAudioExtension(audioBlob?.type || '');
+  formData.append('audio', audioBlob, `recording.${extension}`);
+  formData.append('language', language);
+  formData.append('task', translateToEnglish ? 'translate' : 'transcribe');
 
-    // Send to local server
-    const response = await fetch(`${LOCAL_WHISPER_URL}/transcribe`, {
-      method: 'POST',
-      body: formData,
-      // Don't set Content-Type - browser sets it automatically with boundary
-    });
+  const response = await fetch(transcribeUrl, {
+    method: 'POST',
+    headers: getProxyHeaders(),
+    body: formData,
+  });
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      throw new Error(errorData.error || `Server returned ${response.status}`);
-    }
-
-    const result = await response.json();
-    
-    return {
-      text: result.text,
-      language: result.language,
-      confidence: result.confidence || null,
-      segments: result.segments || [],
-      duration: result.duration || null,
-      source: 'local-whisper'
-    };
-  } catch (error) {
-    console.error('Local Whisper transcription error:', error);
-    throw error;
+  if (!response.ok) {
+    const errorData = await response.json().catch(() => ({}));
+    throw new Error(errorData.error || `Server returned ${response.status}`);
   }
+
+  const result = await response.json();
+
+  return {
+    text: result.text,
+    language: result.language,
+    confidence: result.confidence || null,
+    segments: result.segments || [],
+    duration: result.duration || null,
+    source: 'local-whisper',
+  };
 }
 
 /**
- * Transcribe audio using local Whisper (no fallback to OpenAI)
- * @param {Blob} audioBlob - Audio data to transcribe
- * @param {Object} options - Transcription options
- * @returns {Promise<Object>} - Transcription result with source indicator
+ * Transcribe audio using backend-routed Whisper.
+ *
+ * @param {Blob} audioBlob
+ * @param {Object} options
+ * @returns {Promise<Object>}
  */
 export async function transcribeWithFallback(audioBlob, options = {}) {
-  if (!IS_WHISPER_ENABLED) {
-    throw new Error(
-      'Local Whisper transcription is disabled. Start the Whisper server and set VITE_LOCAL_WHISPER_URL to enable voice transcription.',
-    );
-  }
-
-  console.log(`Attempting local Whisper transcription (${(audioBlob.size / 1024).toFixed(2)} KB audio)`);
-  console.log(`Whisper server URL: ${LOCAL_WHISPER_URL}`);
-  
   try {
-    // Check if server is healthy
-    console.log('Checking Whisper server health...');
-    const isHealthy = await checkLocalWhisperHealth();
-    
+    const isHealthy = await checkLocalWhisperHealth({ silent: false, force: true });
+
     if (!isHealthy) {
-      throw new Error(`Local Whisper server at ${LOCAL_WHISPER_URL} is not responding. Make sure the server is running: python whisper_server.py`);
+      throw new Error(
+        'Whisper transcription is currently unavailable through the backend proxy. If you are using the local Whisper server, start it with: cd server && python whisper_server.py',
+      );
     }
-    
-    console.log('✓ Server healthy, transcribing audio...');
-    const result = await transcribeWithLocalWhisper(audioBlob, options);
-    console.log('✓ Transcription complete:', result);
-    return result;
-    
+
+    return await transcribeWithLocalWhisper(audioBlob, options);
   } catch (error) {
-    console.error('❌ Local Whisper transcription failed:', error);
     throw new Error(
-      `Local Whisper transcription failed: ${error.message}\n\n` +
-      `Troubleshooting:\n` +
-      `1. Ensure Whisper server is running: cd server && python whisper_server.py\n` +
-      `2. Check server logs for errors\n` +
-      `3. Verify server is accessible at: ${LOCAL_WHISPER_URL}/health`
+      `Whisper transcription failed: ${error.message}\n\n` +
+      'Troubleshooting:\n' +
+      '1. Ensure the backend API is running\n' +
+      '2. If you use local Whisper, run: cd server && python whisper_server.py\n' +
+      '3. Check /api/ai/health for Whisper readiness\n',
     );
   }
 }
 
 /**
- * Get server statistics (for monitoring/debugging)
- * @returns {Promise<Object>} - Server stats
+ * Get server statistics for monitoring/debugging.
+ *
+ * @returns {Promise<Object>}
  */
 export async function getLocalWhisperStats() {
   try {
     const [health, models] = await Promise.all([
       checkLocalWhisperHealth(),
-      getLocalWhisperModels().catch(() => null)
+      getLocalWhisperModels().catch(() => null),
     ]);
-    
+
     return {
       available: health,
-      url: LOCAL_WHISPER_URL,
-      models: models,
-      timestamp: new Date().toISOString()
+      url: buildApiUrl('/api/ai/whisper/transcribe'),
+      models,
+      timestamp: new Date().toISOString(),
     };
   } catch (error) {
     return {
       available: false,
-      url: LOCAL_WHISPER_URL,
+      url: buildApiUrl('/api/ai/whisper/transcribe'),
       error: error.message,
-      timestamp: new Date().toISOString()
+      timestamp: new Date().toISOString(),
     };
   }
 }
@@ -234,5 +261,5 @@ export default {
   getLocalWhisperModels,
   transcribeWithLocalWhisper,
   transcribeWithFallback,
-  getLocalWhisperStats
+  getLocalWhisperStats,
 };
