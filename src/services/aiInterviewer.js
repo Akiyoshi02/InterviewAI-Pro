@@ -306,6 +306,68 @@ export class AIInterviewer {
     return `${feedback} ${this.buildQuestionPrompt(nextQuestion, nextIndex)}`.trim();
   }
 
+  buildFallbackInterviewerResponse({ message, phase, questionNumber, questionType, actionType, nextAction, score = 5 }) {
+    const fallbackMessage = String(message || '').trim() || 'Thanks. Let us continue.';
+    this.currentPhase = phase;
+    this.conversationHistory.push({
+      role: 'interviewer',
+      content: fallbackMessage,
+      timestamp: new Date().toISOString(),
+      phase,
+      questionNumber,
+      actionType,
+      questionType,
+      evaluation: { score, fallback: true },
+    });
+
+    return {
+      message: fallbackMessage,
+      phase,
+      questionNumber,
+      totalQuestions: this.config.totalQuestions,
+      actionType,
+      questionType,
+      evaluation: { score, fallback: true },
+      nextAction,
+      fallback: true,
+    };
+  }
+
+  buildFallbackQuestionAdvance({ feedbackMessage = 'Thanks for your answer.' } = {}) {
+    this.resetQuestionAttemptState();
+    if (this.questionBank.length > 0) {
+      const nextIndex = this.currentQuestionIndex + 1;
+      const nextQuestion = this.getQuestionFromBank(nextIndex);
+
+      if (nextQuestion) {
+        this.currentQuestionIndex = nextIndex;
+        this.questionsAsked = nextIndex + 1;
+        return this.buildFallbackInterviewerResponse({
+          message: this.composeBankTransitionMessage({
+            feedbackMessage,
+            nextQuestion,
+            nextIndex,
+          }),
+          phase: 'questions',
+          questionNumber: this.questionsAsked,
+          questionType: nextQuestion.questionType || this.config.interviewTypes[0] || 'behavioral',
+          actionType: 'next_question',
+          nextAction: 'wait_for_answer',
+        });
+      }
+    }
+
+    this.questionsAsked = this.config.totalQuestions;
+    return this.buildFallbackInterviewerResponse({
+      message: `${feedbackMessage} That covers the planned questions. Do you have any questions for me about the role or company before we wrap up?`,
+      phase: 'candidate_questions',
+      questionNumber: this.questionsAsked,
+      questionType: this.config.interviewTypes[0] || 'behavioral',
+      actionType: 'next_question',
+      nextAction: 'ask_candidate_questions',
+    });
+  }
+
   /**
    * Initialize the interview with a personalized introduction
    */
@@ -444,6 +506,22 @@ Acknowledge and ask first question.`;
       };
     } catch (error) {
       console.error('Error processing introduction:', error);
+      if (this.questionBank.length > 0) {
+        const firstQuestion = this.getQuestionFromBank(0);
+        if (firstQuestion) {
+          this.currentQuestionIndex = 0;
+          this.questionsAsked = 1;
+          this.resetQuestionAttemptState();
+          return this.buildFallbackInterviewerResponse({
+            message: `Thanks for the introduction. ${this.buildQuestionPrompt(firstQuestion, 0)}`,
+            phase: 'questions',
+            questionNumber: 1,
+            questionType: firstQuestion.questionType || this.config.interviewTypes[0] || 'behavioral',
+            actionType: 'next_question',
+            nextAction: 'wait_for_answer',
+          });
+        }
+      }
       throw new Error('Failed to process introduction');
     }
   }
@@ -602,7 +680,9 @@ JSON format:
       };
     } catch (error) {
       console.error('Error processing answer:', error);
-      throw new Error('Failed to process answer');
+      return this.buildFallbackQuestionAdvance({
+        feedbackMessage: 'I did not get a complete model response, so I am moving us to the next planned question.',
+      });
     }
   }
 
@@ -663,7 +743,14 @@ Provide a thorough, professional answer.`;
       };
     } catch (error) {
       console.error('Error answering candidate question:', error);
-      throw new Error('Failed to answer candidate question');
+      return this.buildFallbackInterviewerResponse({
+        message: 'Thanks for the question. I do not have a richer generated answer right now, but the recruiter can clarify the remaining details after this interview. If you are ready, we can conclude the session.',
+        phase: 'candidate_questions',
+        questionNumber: this.questionsAsked,
+        questionType: this.config.interviewTypes[0] || 'behavioral',
+        actionType: 'fallback_answer',
+        nextAction: 'wait_for_next_question_or_end',
+      });
     }
   }
 
@@ -723,7 +810,13 @@ Keep it warm, professional, and encouraging (2-3 sentences).`;
       };
     } catch (error) {
       console.error('Error concluding interview:', error);
-      throw new Error('Failed to conclude interview');
+      this.currentPhase = 'completed';
+      return {
+        message: 'Thank you for your time today. The interview session has ended successfully.',
+        phase: 'completed',
+        nextAction: 'show_results',
+        fallback: true,
+      };
     }
   }
 

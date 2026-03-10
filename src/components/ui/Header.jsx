@@ -6,6 +6,7 @@ import Button from './Button';
 import RoleBadge from './RoleBadge';
 import NavigationMenu from './NavigationMenu';
 import NotificationCenter from './NotificationCenter';
+import { ADMIN_NAV_ITEMS } from '../../config/adminNavigation.js';
 import { filterNavByRole } from '../../utils/rolePermissions';
 
 const Header = ({ userType = null, isAuthenticated = false, onLogout, organizationRole = null }) => {
@@ -96,7 +97,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       fullLabel: 'Hiring',
       items: [
         { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', requiredPermission: 'ACCESS_JOBS_PAGE' },
-        { label: 'Templates', path: '/company-templates', icon: 'ListChecks', fullLabel: 'Structured Templates', requiredPermission: 'ACCESS_JOBS_PAGE' },
+        { label: 'Templates', path: '/company-templates', icon: 'ListChecks', fullLabel: 'Structured Templates', requiredPermission: 'ACCESS_TEMPLATES_PAGE' },
         { label: 'Applications', path: '/company-applications', icon: 'FileText', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
         { label: 'Candidates', path: '/company-candidates', icon: 'Users', fullLabel: 'Candidates', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
         { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', fullLabel: 'Interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
@@ -125,8 +126,8 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       fullLabel: 'Settings',
       items: [
         { label: 'General Settings', path: '/company-settings', icon: 'Settings', fullLabel: 'Company Settings' },
-        { label: 'Public Profile', path: '/company-profile-editor', icon: 'Globe', fullLabel: 'Company Public Profile' },
-        { label: 'Webhooks', path: '/company-webhooks', icon: 'Webhook', fullLabel: 'Webhook Integrations' },
+        { label: 'Public Profile', path: '/company-profile-editor', icon: 'Globe', fullLabel: 'Company Public Profile', requiredPermission: 'MANAGE_ORGANIZATION' },
+        { label: 'Webhooks', path: '/company-webhooks', icon: 'Webhook', fullLabel: 'Webhook Integrations', requiredPermission: 'MANAGE_ORGANIZATION' },
         { label: 'Privacy & Data', path: '/privacy-settings', icon: 'Shield', fullLabel: 'Privacy & Data' },
       ],
     }, 
@@ -135,54 +136,15 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       label: 'Billing', 
       path: '/company-billing', 
       icon: 'CreditCard', 
-      fullLabel: 'Billing' 
+      fullLabel: 'Billing',
+      requiredPermission: 'MANAGE_ORGANIZATION',
     },
-  ];
-
-  const adminNavItems = [
-    { key: 'dashboard', label: 'Overview', path: '/system-admin-dashboard', exact: true, icon: 'LayoutDashboard', fullLabel: 'Admin Overview' },
-    {
-      key: 'organizations',
-      label: 'Organizations',
-      icon: 'Building2',
-      items: [
-        { label: 'Approvals', path: '/system-admin-dashboard/approvals', icon: 'CheckCircle', fullLabel: 'Pending Approvals' },
-        { label: 'All Organizations', path: '/system-admin-dashboard/organizations', icon: 'Building', fullLabel: 'All Organizations' },
-      ],
-    },
-    { key: 'users', label: 'Users', path: '/system-admin-dashboard/users', icon: 'Users', fullLabel: 'User Management' },
-    { key: 'operations', label: 'Operations', path: '/system-admin-dashboard/operations', icon: 'Wallet', fullLabel: 'Platform Operations' },
-    {
-      key: 'governance',
-      label: 'Governance',
-      icon: 'Scale',
-      items: [
-        { label: 'Fairness', path: '/system-admin-dashboard/fairness', icon: 'Scale' },
-        { label: 'Templates', path: '/system-admin-dashboard/templates', icon: 'ListChecks', fullLabel: 'Structured Templates' },
-        { label: 'Settings', path: '/system-admin-dashboard/settings', icon: 'Settings', fullLabel: 'System Settings' },
-        { label: 'Audit Logs', path: '/system-admin-dashboard/audit', icon: 'FileText' },
-      ],
-    },
-    {
-      key: 'research',
-      label: 'Data & AI',
-      icon: 'Database',
-      fullLabel: 'Data & AI',
-      items: [
-        { label: 'Training Data', path: '/system-admin-dashboard/training-data', icon: 'Database' },
-        { label: 'Classification Metrics', path: '/system-admin-dashboard/classification', icon: 'Grid3X3' },
-        { label: 'Model Fine-Tuning', path: '/system-admin-dashboard/fine-tuning', icon: 'Cpu' },
-        { label: 'MediaPipe Calibration', path: '/system-admin-dashboard/mediapipe-calibration', icon: 'ScanFace' },
-        { label: 'Research Tools', path: '/system-admin-dashboard/research-tools', icon: 'FlaskConical' },
-      ],
-    },
-    { key: 'support', label: 'Live Chat', path: '/system-admin-dashboard/live-chat', icon: 'MessageSquare' },
   ];
 
   const getNavigationItems = () => {
     if (!isAuthenticated) return [];
     if (userType === 'candidate') return candidateNavItems;
-    if (userType === 'admin') return adminNavItems;
+    if (userType === 'admin') return ADMIN_NAV_ITEMS;
     
     // For company users, filter navigation based on organization role
     if (userType === 'company') {
@@ -207,6 +169,15 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
       onLogout();
     }
     setIsMenuOpen(false);
+  };
+
+  const handleQuickPrivacyNavigation = () => {
+    if (isAuthenticated) {
+      handleNavClick('/privacy-settings');
+      return;
+    }
+
+    handleNavClick('/privacy');
   };
 
   return (
@@ -364,7 +335,7 @@ const Header = ({ userType = null, isAuthenticated = false, onLogout, organizati
                   <span>Help</span>
                 </button>
                 <button
-                  onClick={() => handleNavClick('/privacy')}
+                  onClick={handleQuickPrivacyNavigation}
                   className="flex items-center gap-2 px-3 py-2.5 rounded-lg text-sm text-gray-600 dark:text-slate-400 hover:bg-gray-100 dark:hover:bg-slate-800 transition-colors"
                 >
                   <Icon name="Shield" size={16} />

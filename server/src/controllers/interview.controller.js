@@ -16,6 +16,7 @@ import {
   publishCandidateRealtimeUpdate,
   publishOrganizationRealtimeUpdate,
   recordRealtimeEvent,
+  reviewStore,
   systemSettingsStore,
   userStore,
 } from '../services/firebaseData.service.js';
@@ -28,7 +29,11 @@ import {
   resolveInterviewAutomationSettings,
   selectSlotFromPreferredOrAuto,
 } from '../services/interviewScheduling.service.js';
-import { generateMeetingToken, validateMeetingAccess } from '../services/meetingLink.service.js';
+import {
+  completeLinkedInterviewPlanStage,
+  createNextInterviewPlanStage,
+} from '../services/hiringInterviewPlan.service.js';
+import { generateMeetingToken, validateMeetingAccess, validateMeetingToken } from '../services/meetingLink.service.js';
 import {
   applyQuestionStrategyDefaults,
   buildStructuredInterviewQuestionPlanAsync,
@@ -41,8 +46,28 @@ import { uploadsPaths } from '../middleware/upload.middleware.js';
 import {
   appendStatusHistory,
   buildStatusHistoryEntry,
+  normalizeDisposition,
   normalizeApplicationStatus,
 } from '../utils/applicationLifecycle.util.js';
+import {
+  isReviewerAssignedToInterview,
+  isReviewerRole,
+} from '../utils/reviewerAccess.util.js';
+import { validateReviewerAssignmentsForOrganization } from '../utils/reviewerAssignment.util.js';
+import {
+  applyReviewRequestUpdates,
+  enrichInterviewReviewRequests,
+  markReviewRequestReminder,
+  syncReviewRequests,
+} from '../utils/reviewRequest.util.js';
+import {
+  canAdvanceFromInterviewPlanStage,
+  getInterviewPlanStage,
+  getNextInterviewPlanStage,
+  normalizeInterviewPlanSnapshot,
+  updateInterviewPlanStageOutcome,
+  sanitizeInterviewPlanForClient,
+} from '../utils/interviewPlan.util.js';
 import { ReferralController } from './referral.controller.js';
 import logger from '../utils/logger.js';
 
@@ -69,8 +94,18 @@ const ensureAccess = (interview, user, { allowOrganizationMembers = true } = {})
     return { allowed: false, status: 403, message: 'Access denied' };
   }
 
+  if (isReviewerRole(user) && !isReviewerAssignedToInterview(interview, normalizedUserId)) {
+    return { allowed: false, status: 403, message: 'Access denied' };
+  }
+
   return { allowed: true };
 };
+
+const filterInterviewsForReviewer = (interviews = [], reviewerId = null) => (
+  Array.isArray(interviews)
+    ? interviews.filter((interview) => isReviewerAssignedToInterview(interview, reviewerId))
+    : []
+);
 
 const canCreateHiringInterview = (role) => {
   const normalizedRole = String(role || '').toUpperCase();
@@ -79,7 +114,9 @@ const canCreateHiringInterview = (role) => {
 
 const SCHEDULING_ROLES = new Set(['ADMIN', 'RECRUITER']);
 const RECORDING_VIEW_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+const RECORDING_UPLOAD_ROLES = new Set(['ADMIN', 'RECRUITER']);
 const DEFAULT_TIMEZONE = process.env.DEFAULT_INTERVIEW_TIMEZONE || 'UTC';
+const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const MAX_RESCHEDULE_REQUESTS_PER_INTERVIEW = Math.max(
   1,
   Number.parseInt(process.env.MAX_RESCHEDULE_REQUESTS_PER_INTERVIEW || '1', 10) || 1,
@@ -97,6 +134,14 @@ const RESCHEDULE_REASON_MIN_LENGTH = Math.max(
   Number.parseInt(process.env.RESCHEDULE_REASON_MIN_LENGTH || '20', 10) || 20,
 );
 const RESCHEDULE_REASON_MAX_LENGTH = 500;
+const MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS = Math.max(
+  1,
+  Number.parseInt(process.env.MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS || '6', 10) || 6,
+);
+const COMPLETED_RECORDING_UPLOAD_GRACE_MS = Math.max(
+  60 * 1000,
+  Number.parseInt(process.env.COMPLETED_RECORDING_UPLOAD_GRACE_MS || `${15 * 60 * 1000}`, 10) || (15 * 60 * 1000),
+);
 const MAX_PREFERRED_RESCHEDULE_SLOTS = 3;
 const INTERVIEW_SCHEDULING_STRATEGIES = new Set(['MANUAL', 'AUTO', 'PREFERRED_FIRST']);
 
@@ -105,6 +150,11 @@ const normalizeIsoDate = (value) => {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return date.toISOString();
+};
+
+const isFutureDateTime = (value) => {
+  const timestamp = Date.parse(value);
+  return Number.isFinite(timestamp) && timestamp > Date.now();
 };
 
 const normalizeRescheduleRequests = (value) => {
@@ -279,18 +329,578 @@ const canViewRecording = (interview, user) => {
 
 const attachSingleInterviewParticipants = async (interview) => {
   if (!interview) return null;
-  const participantMap = await userStore.getSummaries([interview.candidateId, interview.companyId].filter(Boolean));
+  const participantIds = new Set([interview.candidateId, interview.companyId].filter(Boolean));
+  const reviewerAssignments = Array.isArray(interview?.reviewerAssignments)
+    ? interview.reviewerAssignments
+    : [];
+  reviewerAssignments.forEach((reviewerId) => {
+    if (reviewerId) {
+      participantIds.add(reviewerId);
+    }
+  });
+  const [participantMap, organization] = await Promise.all([
+    userStore.getSummaries(Array.from(participantIds)),
+    interview.organizationId
+      ? Promise.resolve(organizationStore.getById(interview.organizationId)).catch(() => null)
+      : Promise.resolve(null),
+  ]);
 
-  return enrichInterviewSchedulingMeta({
+  const interviewWithParticipants = {
     ...interview,
     candidate: interview.candidateId ? participantMap.get(interview.candidateId) || null : null,
     company: interview.companyId ? participantMap.get(interview.companyId) || null : null,
+    organization: organization ? {
+      id: organization.id || interview.organizationId,
+      name: organization.name || organization.displayName || 'Company',
+      displayName: organization.displayName || organization.name || 'Company',
+      logo: organization.logo || null,
+    } : null,
+    reviewerAssignees: reviewerAssignments
+      .map((reviewerId) => participantMap.get(reviewerId) || null)
+      .filter(Boolean),
+  };
+
+  return enrichInterviewSchedulingMeta({
+    ...interviewWithParticipants,
+    ...enrichInterviewReviewRequests(interviewWithParticipants),
   });
 };
 
 const isTerminalInterviewStatus = (status) => {
   const normalized = String(status || '').toUpperCase();
   return normalized === 'COMPLETED' || normalized === 'CANCELLED';
+};
+
+const SENSITIVE_INTERVIEW_RESPONSE_FIELDS = [
+  'meetingToken',
+  'meetingTokenGeneratedAt',
+  'meetingLinkEmailSent',
+  'meetingLinkEmailSentAt',
+  'meetingLinkEmailPendingAt',
+  'meetingLinkEmailFailureAt',
+];
+
+const sanitizeInterviewForClient = (interview) => {
+  if (!interview || typeof interview !== 'object') return interview;
+  const sanitized = { ...interview };
+  SENSITIVE_INTERVIEW_RESPONSE_FIELDS.forEach((field) => {
+    if (field in sanitized) {
+      delete sanitized[field];
+    }
+  });
+  return sanitized;
+};
+
+const sanitizeInterviewCollectionForClient = (interviews = []) => (
+  Array.isArray(interviews) ? interviews.map((interview) => sanitizeInterviewForClient(interview)) : []
+);
+
+const buildCandidateLeaderboardDisplayName = (summary, rank) => {
+  const fullName = String(summary?.fullName || '').trim();
+  if (fullName) {
+    const parts = fullName.split(/\s+/).filter(Boolean);
+    if (parts.length === 1) return parts[0];
+    return `${parts[0]} ${parts[parts.length - 1].charAt(0).toUpperCase()}.`;
+  }
+
+  const email = String(summary?.email || '').trim();
+  if (email.includes('@')) {
+    return email.split('@')[0];
+  }
+
+  return `Candidate #${rank}`;
+};
+
+const attachReviewerQueueState = async (interviews = [], user) => {
+  if (!Array.isArray(interviews) || interviews.length === 0 || !isReviewerRole(user)) {
+    return interviews;
+  }
+
+  const reviewStatuses = await Promise.all(
+    interviews.map(async (interview) => {
+      const review = await reviewStore.getByInterviewAndReviewer(interview.id, user.id).catch(() => null);
+      return [interview.id, review];
+    }),
+  );
+
+  const reviewStatusMap = new Map(reviewStatuses);
+  return interviews.map((interview) => {
+    const review = reviewStatusMap.get(interview.id) || null;
+    return {
+      ...interview,
+      myReviewStatus: review ? 'SUBMITTED' : 'PENDING',
+      myReviewId: review?.id || null,
+      myReviewSubmittedAt: review?.updatedAt || review?.createdAt || null,
+    };
+  });
+};
+
+const attachInterviewPlanContext = async (interviews = []) => {
+  if (!Array.isArray(interviews) || interviews.length === 0) {
+    return interviews;
+  }
+
+  const applicationEntries = await Promise.all(
+    interviews.map(async (interview) => {
+      if (!interview?.mode || String(interview.mode).toUpperCase() !== 'HIRING') {
+        return [interview?.id, null];
+      }
+
+      if (interview.applicationId) {
+        const application = await jobApplicationStore.getById(interview.applicationId).catch(() => null);
+        if (application) {
+          return [interview.id, application];
+        }
+      }
+
+      if (interview.jobId && interview.candidateId) {
+        const fallbackApplication = await jobApplicationStore
+          .checkDuplicate(interview.jobId, interview.candidateId)
+          .catch(() => null);
+        return [interview.id, fallbackApplication];
+      }
+
+      return [interview?.id, null];
+    }),
+  );
+
+  const applicationMap = new Map(applicationEntries);
+  return interviews.map((interview) => {
+    const application = applicationMap.get(interview.id) || null;
+    const sanitizedPlan = sanitizeInterviewPlanForClient(application?.interviewPlan);
+    const nextStage = sanitizedPlan
+      ? getNextInterviewPlanStage(sanitizedPlan, interview?.planStageId || sanitizedPlan.currentStageId)
+      : null;
+
+    return {
+      ...interview,
+      applicationId: interview?.applicationId || application?.id || null,
+      applicationStatus: application?.status || null,
+      applicationDispositionCode: application?.dispositionCode || null,
+      applicationInterviewPlan: sanitizedPlan,
+      hasNextPlanStage: Boolean(nextStage),
+      nextPlanStage: nextStage
+        ? {
+          id: nextStage.id,
+          name: nextStage.name,
+          category: nextStage.category,
+          required: nextStage.required !== false,
+          advanceRule: nextStage.advanceRule || 'PASS_REQUIRED',
+          sequence: nextStage.sequence,
+          total: Array.isArray(sanitizedPlan?.stages) ? sanitizedPlan.stages.length : null,
+        }
+        : null,
+    };
+  });
+};
+
+const finalizeNextInterviewStageCreation = async ({
+  nextInterview,
+  stageResult,
+  actor,
+  operation = 'CREATE_NEXT_STAGE_INTERVIEW',
+} = {}) => {
+  if (!nextInterview || !actor) {
+    return {
+      interview: nextInterview || null,
+    };
+  }
+
+  const stageMeta = {
+    planStageId: nextInterview.planStageId || stageResult?.currentStage?.id || null,
+    planStageName: nextInterview.planStageName || stageResult?.currentStage?.name || null,
+  };
+
+  await recordRealtimeEvent(nextInterview.id, 'interview-created', {
+    actor: actor.id,
+    status: nextInterview.status || 'PENDING',
+    mode: nextInterview.mode || null,
+    ...stageMeta,
+  }).catch((eventError) => {
+    logger.warn('Failed to record next-stage interview-created realtime event:', eventError);
+  });
+
+  if (nextInterview.organizationId) {
+    await publishOrganizationRealtimeUpdate(nextInterview.organizationId, 'interview-created', {
+      interviewId: nextInterview.id,
+      status: nextInterview.status || 'PENDING',
+      candidateId: nextInterview.candidateId || null,
+      jobId: nextInterview.jobId || null,
+      ...stageMeta,
+    }).catch((eventError) => {
+      logger.warn('Failed to publish next-stage interview-created organization event:', eventError);
+    });
+  }
+
+  if (nextInterview.candidateId) {
+    await publishCandidateRealtimeUpdate(nextInterview.candidateId, 'interview-created', {
+      interviewId: nextInterview.id,
+      status: nextInterview.status || 'PENDING',
+      organizationId: nextInterview.organizationId || null,
+      jobId: nextInterview.jobId || null,
+      ...stageMeta,
+    }).catch((eventError) => {
+      logger.warn('Failed to publish next-stage interview-created candidate event:', eventError);
+    });
+  }
+
+  if (stageResult?.scheduled && nextInterview.scheduledFor) {
+    await activityLogStore.record({
+      organizationId: nextInterview.organizationId,
+      actorId: actor.id,
+      actorRole: actor.organizationContext?.membership?.role || actor.accountType || null,
+      action: 'INTERVIEW_NEXT_STAGE_CREATED',
+      targetType: 'INTERVIEW',
+      targetId: nextInterview.id,
+      metadata: {
+        scheduledFor: nextInterview.scheduledFor,
+        timezone: nextInterview.timezone || null,
+        strategy: 'CONSTRAINT_BASED_V1',
+        ...stageMeta,
+        ...(stageResult.scheduleDecision || {}),
+        operation,
+      },
+    });
+    await publishOrganizationRealtimeUpdate(nextInterview.organizationId, 'interview-scheduled', {
+      interviewId: nextInterview.id,
+      status: nextInterview.status || 'SCHEDULED',
+      scheduledFor: nextInterview.scheduledFor || null,
+      candidateId: nextInterview.candidateId || null,
+      jobId: nextInterview.jobId || null,
+      autoScheduled: true,
+      strategy: 'CONSTRAINT_BASED_V1',
+      ...stageMeta,
+    }).catch((eventError) => {
+      logger.warn('Failed to publish next-stage interview-scheduled organization event:', eventError);
+    });
+    await publishCandidateRealtimeUpdate(nextInterview.candidateId, 'interview-scheduled', {
+      interviewId: nextInterview.id,
+      status: nextInterview.status || 'SCHEDULED',
+      scheduledFor: nextInterview.scheduledFor || null,
+      organizationId: nextInterview.organizationId || null,
+      jobId: nextInterview.jobId || null,
+      autoScheduled: true,
+      strategy: 'CONSTRAINT_BASED_V1',
+      ...stageMeta,
+    }).catch((eventError) => {
+      logger.warn('Failed to publish next-stage interview-scheduled candidate event:', eventError);
+    });
+
+    await queueHiringInterviewEmail({
+      type: 'INTERVIEW_SCHEDULED',
+      interview: nextInterview,
+      payload: {
+        operation,
+        ...stageMeta,
+      },
+      send: async ({ candidate, job, organization }) =>
+        emailNotifications.sendInterviewScheduled(nextInterview, candidate, job, organization),
+      logLabel: 'Next-stage interview scheduled',
+    });
+  }
+
+  const hydrated = await attachSingleInterviewParticipants(nextInterview);
+  const interviewWithPlan = (await attachInterviewPlanContext([hydrated]))[0] || hydrated;
+  return {
+    interview: interviewWithPlan,
+  };
+};
+
+const resolveLinkedApplicationForHiringInterview = async (interview) => {
+  if (!isHiringInterview(interview)) return null;
+
+  if (interview?.applicationId) {
+    const application = await jobApplicationStore.getById(interview.applicationId).catch(() => null);
+    if (application) return application;
+  }
+
+  if (interview?.jobId && interview?.candidateId) {
+    return jobApplicationStore
+      .checkDuplicate(interview.jobId, interview.candidateId)
+      .catch(() => null);
+  }
+
+  return null;
+};
+
+const getMeetingTokenFromRequest = (req) => {
+  const headerToken = typeof req?.get === 'function'
+    ? req.get('x-meeting-token')
+    : (req?.headers?.['x-meeting-token'] || req?.headers?.['X-Meeting-Token']);
+  const queryToken = typeof req?.query?.token === 'string' ? req.query.token : null;
+  const bodyToken = typeof req?.body?.meetingToken === 'string' ? req.body.meetingToken : null;
+
+  return [headerToken, queryToken, bodyToken]
+    .map((value) => (typeof value === 'string' ? value.trim() : ''))
+    .find(Boolean) || null;
+};
+
+const requiresCandidateMeetingToken = (interview, user) => (
+  user?.accountType === 'CANDIDATE'
+  && interview?.candidateId === user?.id
+  && String(interview?.mode || 'HIRING').toUpperCase() === 'HIRING'
+);
+
+const canAuthenticatedCandidateJoinAfterScheduledStart = (interview, user) => {
+  if (!requiresCandidateMeetingToken(interview, user)) {
+    return false;
+  }
+
+  if (isTerminalInterviewStatus(interview?.status)) {
+    return false;
+  }
+
+  const scheduledMs = Date.parse(interview?.scheduledFor || '');
+  if (!Number.isFinite(scheduledMs)) {
+    return false;
+  }
+
+  return Date.now() >= scheduledMs;
+};
+
+const canAuthenticatedCandidateUploadCompletedRecording = (interview, user) => {
+  if (!requiresCandidateMeetingToken(interview, user)) {
+    return false;
+  }
+
+  if (String(interview?.status || '').toUpperCase() !== 'COMPLETED') {
+    return false;
+  }
+
+  const completedMs = Date.parse(interview?.completedAt || interview?.endedAt || '');
+  if (!Number.isFinite(completedMs)) {
+    return false;
+  }
+
+  return Date.now() >= completedMs && (Date.now() - completedMs) <= COMPLETED_RECORDING_UPLOAD_GRACE_MS;
+};
+
+const enforceCandidateMeetingTokenAccess = (
+  interview,
+  req,
+  { requireActiveWindow = false, allowCompletedRecordingUpload = false } = {},
+) => {
+  if (!requiresCandidateMeetingToken(interview, req?.user)) {
+    return { allowed: true };
+  }
+
+  const meetingToken = getMeetingTokenFromRequest(req);
+  if (!meetingToken) {
+    if (canAuthenticatedCandidateJoinAfterScheduledStart(interview, req?.user)) {
+      return { allowed: true };
+    }
+
+    if (allowCompletedRecordingUpload && canAuthenticatedCandidateUploadCompletedRecording(interview, req?.user)) {
+      return { allowed: true };
+    }
+
+    return {
+      allowed: false,
+      status: 403,
+      code: 'MEETING_LINK_REQUIRED',
+      message: 'Use the latest meeting link sent to your email to access this interview.',
+    };
+  }
+
+  const validation = requireActiveWindow
+    ? validateMeetingAccess(interview, meetingToken)
+    : validateMeetingToken(interview, meetingToken);
+
+  if (!validation.valid) {
+    return {
+      allowed: false,
+      status: 403,
+      code: validation.code,
+      message: validation.message,
+    };
+  }
+
+  return { allowed: true };
+};
+
+const canUploadRecording = (interview, user) => {
+  const access = ensureAccess(interview, user, { allowOrganizationMembers: false });
+  if (!access.allowed) return access;
+
+  if (user?.accountType === 'COMPANY') {
+    const organizationRole = String(user?.organizationContext?.membership?.role || '').toUpperCase();
+    if (!RECORDING_UPLOAD_ROLES.has(organizationRole)) {
+      return { allowed: false, status: 403, message: 'Insufficient organization role for recording upload' };
+    }
+  }
+
+  return { allowed: true };
+};
+
+const buildAssignedReviewsUrl = (interviewId) => {
+  const baseUrl = FRONTEND_URL.replace(/\/$/, '');
+  const params = new URLSearchParams();
+  if (interviewId) {
+    params.set('interviewId', interviewId);
+  }
+  const query = params.toString();
+  return `${baseUrl}/company-reviews${query ? `?${query}` : ''}`;
+};
+
+const APPLICATION_STATUS_EMAIL_MESSAGES = Object.freeze({
+  REJECTED: 'Thank you for your interest. We have moved forward with other candidates for this role.',
+});
+
+const buildApplicationStatusEmailMessage = ({
+  status = null,
+  dispositionReason = null,
+} = {}) => {
+  const normalizedStatus = normalizeApplicationStatus(status);
+  if (normalizedStatus !== 'REJECTED') return '';
+  const normalizedReason = typeof dispositionReason === 'string' ? dispositionReason.trim() : '';
+  return normalizedReason
+    ? `Thank you for your interest. ${normalizedReason}`
+    : APPLICATION_STATUS_EMAIL_MESSAGES.REJECTED;
+};
+
+const autoRejectApplicationForFailedInterviewStage = async ({
+  application,
+  interview,
+  plan,
+  stage,
+  actor,
+  note = null,
+} = {}) => {
+  if (!application?.id || !stage?.failDispositionCode) {
+    return {
+      updated: false,
+      application,
+      status: normalizeApplicationStatus(application?.status),
+    };
+  }
+
+  const previousStatus = normalizeApplicationStatus(application.status);
+  if (!previousStatus || previousStatus === 'REJECTED' || previousStatus === 'HIRED') {
+    return {
+      updated: false,
+      application,
+      status: previousStatus,
+    };
+  }
+
+  const statusChangedAt = new Date().toISOString();
+  const stageLabel = String(stage?.name || interview?.planStageName || 'Interview stage').trim();
+  const disposition = normalizeDisposition(
+    {
+      code: stage.failDispositionCode,
+      notes: typeof note === 'string' && note.trim() ? note.trim() : null,
+    },
+    {
+      status: 'REJECTED',
+      fallbackCode: stage.failDispositionCode,
+      fallbackReason: `${stageLabel} was marked as failed.`,
+    },
+  );
+
+  const statusHistoryEntry = buildStatusHistoryEntry({
+    previousStatus,
+    status: 'REJECTED',
+    changedAt: statusChangedAt,
+    changedBy: actor?.id || null,
+    source: 'INTERVIEW_STAGE_FAIL',
+    note: disposition.notes || disposition.reason || null,
+    dispositionCode: disposition.code,
+    dispositionCategory: disposition.category,
+  });
+
+  const updatedApplication = await jobApplicationStore.update(application.id, {
+    interviewPlan: plan,
+    status: 'REJECTED',
+    reviewedAt: statusChangedAt,
+    reviewedBy: actor?.id || null,
+    statusSource: 'INTERVIEW_STAGE_FAIL',
+    statusChangedAt,
+    dispositionCode: disposition.code,
+    dispositionCategory: disposition.category,
+    dispositionReason: disposition.reason,
+    dispositionNotes: disposition.notes,
+    dispositionTags: disposition.tags,
+    dispositionAt: statusChangedAt,
+    dispositionBy: actor?.id || null,
+    statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
+  });
+
+  if (updatedApplication.organizationId) {
+    await activityLogStore.record({
+      organizationId: updatedApplication.organizationId,
+      actorId: actor?.id || null,
+      actorRole: actor?.organizationContext?.membership?.role || actor?.accountType || null,
+      action: 'APPLICATION_STATUS_UPDATED',
+      targetType: 'APPLICATION',
+      targetId: updatedApplication.id,
+      metadata: {
+        status: 'REJECTED',
+        jobId: updatedApplication.jobId || null,
+        dispositionCode: disposition.code || null,
+        dispositionCategory: disposition.category || null,
+        source: 'INTERVIEW_STAGE_FAIL',
+        planStageId: stage.id || interview?.planStageId || null,
+        planStageName: stageLabel,
+      },
+    });
+  }
+
+  await publishOrganizationRealtimeUpdate(updatedApplication.organizationId, 'application-status-updated', {
+    applicationId: updatedApplication.id,
+    jobId: updatedApplication.jobId || null,
+    candidateId: updatedApplication.candidateId || null,
+    status: updatedApplication.status || 'REJECTED',
+  }).catch((eventError) => {
+    logger.warn('Failed to publish application-status-updated organization event after stage fail:', eventError);
+  });
+
+  await publishCandidateRealtimeUpdate(updatedApplication.candidateId, 'application-status-updated', {
+    applicationId: updatedApplication.id,
+    jobId: updatedApplication.jobId || null,
+    organizationId: updatedApplication.organizationId || null,
+    status: updatedApplication.status || 'REJECTED',
+  }).catch((eventError) => {
+    logger.warn('Failed to publish application-status-updated candidate event after stage fail:', eventError);
+  });
+
+  const [candidate, job, organization] = await Promise.all([
+    updatedApplication.candidateId ? userStore.getSummary(updatedApplication.candidateId).catch(() => null) : Promise.resolve(null),
+    updatedApplication.jobId ? jobStore.getById(updatedApplication.jobId).catch(() => null) : Promise.resolve(null),
+    updatedApplication.organizationId ? organizationStore.getById(updatedApplication.organizationId).catch(() => null) : Promise.resolve(null),
+  ]);
+
+  if (candidate?.email && job && organization) {
+    const statusMessage = buildApplicationStatusEmailMessage({
+      status: 'REJECTED',
+      dispositionReason: disposition.reason,
+    });
+    queueEmailJob({
+      type: 'APPLICATION_STATUS_UPDATED',
+      payload: {
+        applicationId: updatedApplication.id,
+        candidateId: updatedApplication.candidateId,
+        recipient: candidate.email || null,
+        status: 'REJECTED',
+      },
+      handler: async () => {
+        await emailNotifications.sendApplicationStatusUpdated(
+          updatedApplication,
+          candidate,
+          job,
+          organization,
+          statusMessage,
+        );
+        logger.info(`Stage-fail rejection email sent to ${candidate.email}`);
+      },
+    });
+  }
+
+  return {
+    updated: true,
+    application: updatedApplication,
+    status: 'REJECTED',
+    disposition,
+  };
 };
 
 const DEFAULT_SYSTEM_AI_CONFIG = Object.freeze({
@@ -384,7 +994,7 @@ const resolveInterviewLlmOptions = (interviewConfig) => {
   );
 };
 
-const EVALUATION_RUN_ROLES = new Set(['ADMIN', 'RECRUITER', 'REVIEWER']);
+const EVALUATION_RUN_ROLES = new Set(['ADMIN', 'RECRUITER']);
 const getInterviewTemplatesCollection = () => admin.firestore().collection('interviewTemplates');
 
 const resolveOrganizationTemplateOverride = async (interview) => {
@@ -609,6 +1219,7 @@ const getSlotValidationErrorCode = (reasonCodes = []) => {
   if (!Array.isArray(reasonCodes) || reasonCodes.length === 0) {
     return 'INVALID_SCHEDULE_SLOT';
   }
+  if (reasonCodes.includes('PAST_DATE')) return 'SLOT_IN_PAST';
   if (reasonCodes.includes('CONFLICT')) return 'SLOT_CONFLICT';
   if (reasonCodes.includes('TOO_SOON')) return 'SLOT_TOO_SOON';
   if (reasonCodes.includes('OUTSIDE_WINDOW')) return 'SLOT_OUTSIDE_WINDOW';
@@ -625,6 +1236,8 @@ const getSlotValidationErrorCode = (reasonCodes = []) => {
 const getSlotValidationErrorMessage = (reasonCodes = []) => {
   const code = getSlotValidationErrorCode(reasonCodes);
   switch (code) {
+    case 'SLOT_IN_PAST':
+      return 'Selected interview time must be in the future.';
     case 'SLOT_CONFLICT':
       return 'Selected interview time conflicts with another scheduled interview.';
     case 'SLOT_TOO_SOON':
@@ -638,55 +1251,253 @@ const getSlotValidationErrorMessage = (reasonCodes = []) => {
   }
 };
 
+const buildSchedulingContextError = ({
+  status = 503,
+  error = 'Scheduling context is unavailable right now.',
+  code = 'SCHEDULING_CONTEXT_UNAVAILABLE',
+  details = null,
+} = {}) => ({
+  ok: false,
+  status,
+  error,
+  code,
+  ...(details ? { details } : {}),
+});
+
+const buildSchedulingConstraints = (schedulingContext) => {
+  const settings = schedulingContext?.settings;
+  if (!settings) return null;
+  return {
+    timezone: settings.timezone,
+    leadHours: settings.leadHours,
+    slotMinutes: settings.slotMinutes,
+    scheduleWindowDays: settings.scheduleWindowDays,
+    durationMinutes: settings.durationMinutes,
+    workingDays: Array.isArray(settings.workingDays) ? [...settings.workingDays] : [],
+    businessHoursStartMinutes: settings.businessHoursStartMinutes,
+    businessHoursEndMinutes: settings.businessHoursEndMinutes,
+    maxInterviewsPerDay: settings.maxInterviewsPerDay,
+    conflictScope: settings.conflictScope || null,
+    availabilitySource: settings.availabilitySource || null,
+    assignedRecruiterId: schedulingContext?.assignedRecruiterId || null,
+    assignedRecruiterName: schedulingContext?.assignedRecruiter?.fullName
+      || schedulingContext?.assignedRecruiter?.displayName
+      || schedulingContext?.assignedRecruiter?.companyName
+      || null,
+  };
+};
+
+const loadSchedulingContextEntity = async ({
+  loader,
+  label,
+  status = 503,
+  error,
+  code = 'SCHEDULING_CONTEXT_UNAVAILABLE',
+  details = null,
+} = {}) => {
+  try {
+    return {
+      ok: true,
+      value: await loader(),
+    };
+  } catch (loadError) {
+    logger.warn(`Failed to load ${label} for interview scheduling:`, loadError);
+    return buildSchedulingContextError({
+      status,
+      error,
+      code,
+      details,
+    });
+  }
+};
+
 const resolveSchedulingCandidates = async ({
   interview,
   settings,
   recruiterId,
   interviewIdToExclude = null,
 } = {}) => {
-  if (!interview || !settings) return [];
-
-  let interviews = [];
-  if (settings.conflictScope === 'ORGANIZATION' || !recruiterId) {
-    interviews = await interviewStore.listByOrganization(interview.organizationId, { limit: 250 }).catch(() => []);
-  } else {
-    interviews = await interviewStore.listByCompany(recruiterId, { limit: 250 }).catch(() => []);
+  if (!interview || !settings) {
+    return { ok: true, interviews: [] };
   }
 
-  return interviews.filter((entry) => (
-    entry
-    && entry.id
-    && entry.id !== interviewIdToExclude
-    && isNonTerminalScheduledInterview(entry)
-  ));
-};
-
-const resolveHiringSchedulingContext = async ({ interview, user }) => {
-  if (!isHiringInterview(interview)) return null;
-  if (String(user?.accountType || '').toUpperCase() !== 'COMPANY') return null;
-
-  const [organization, job, recruiter] = await Promise.all([
-    interview?.organizationId ? organizationStore.getById(interview.organizationId).catch(() => null) : null,
-    interview?.jobId ? jobStore.getById(interview.jobId).catch(() => null) : null,
-    user?.id ? userStore.getById(user.id).catch(() => null) : null,
-  ]);
-
-  if (!organization) return null;
-
-  const recruiterContext = recruiter || user;
-  const settings = resolveInterviewAutomationSettings(organization, job, recruiterContext, { forceAutoSchedule: true });
-  const recruiterId = recruiterContext?.id || user?.id || interview?.companyId || null;
-  const existingInterviews = await resolveSchedulingCandidates({
-    interview,
-    settings,
-    recruiterId,
-    interviewIdToExclude: interview.id,
-  });
+  let interviews = [];
+  try {
+    if (settings.conflictScope === 'ORGANIZATION' || !recruiterId) {
+      interviews = await interviewStore.listByOrganization(interview.organizationId, { limit: 250 });
+    } else {
+      interviews = await interviewStore.listByCompany(recruiterId, { limit: 250 });
+    }
+  } catch (error) {
+    logger.warn('Failed to load scheduling candidates for interview availability checks:', error);
+    return buildSchedulingContextError({
+      status: 503,
+      error: 'Unable to load current interview availability right now. Please try again.',
+      code: 'SCHEDULING_CONTEXT_UNAVAILABLE',
+      details: {
+        step: 'LOAD_EXISTING_INTERVIEWS',
+      },
+    });
+  }
 
   return {
+    ok: true,
+    interviews: interviews.filter((entry) => (
+      entry
+      && entry.id
+      && entry.id !== interviewIdToExclude
+      && isNonTerminalScheduledInterview(entry)
+    )),
+  };
+};
+
+const resolveHiringSchedulingContext = async ({
+  interview,
+  user,
+  includeExistingInterviews = true,
+} = {}) => {
+  if (!isHiringInterview(interview) || String(user?.accountType || '').toUpperCase() !== 'COMPANY') {
+    return {
+      ok: true,
+      settings: null,
+      recruiterId: null,
+      existingInterviews: [],
+      assignedRecruiterId: null,
+      assignedRecruiter: null,
+    };
+  }
+
+  const assignedRecruiterId = typeof interview?.companyId === 'string' && interview.companyId.trim()
+    ? interview.companyId.trim()
+    : null;
+
+  const organizationResult = interview?.organizationId
+    ? await loadSchedulingContextEntity({
+      loader: () => organizationStore.getById(interview.organizationId),
+      label: 'organization scheduling settings',
+      error: 'Unable to load organization scheduling settings for this interview right now.',
+      details: {
+        step: 'LOAD_ORGANIZATION',
+      },
+    })
+    : { ok: true, value: null };
+  if (!organizationResult.ok) {
+    return organizationResult;
+  }
+  const organization = organizationResult.value;
+
+  if (!organization) {
+    return buildSchedulingContextError({
+      status: 503,
+      error: 'Unable to load organization scheduling settings for this interview right now.',
+      code: 'SCHEDULING_CONTEXT_UNAVAILABLE',
+      details: {
+        step: 'LOAD_ORGANIZATION',
+      },
+    });
+  }
+
+  const jobResult = interview?.jobId
+    ? await loadSchedulingContextEntity({
+      loader: () => jobStore.getById(interview.jobId),
+      label: 'job interview settings',
+      error: 'Unable to load interview configuration for this job right now.',
+      details: {
+        step: 'LOAD_JOB',
+      },
+    })
+    : { ok: true, value: null };
+  if (!jobResult.ok) {
+    return jobResult;
+  }
+  const job = jobResult.value;
+
+  const assignedRecruiterResult = assignedRecruiterId
+    ? await loadSchedulingContextEntity({
+      loader: () => userStore.getById(assignedRecruiterId),
+      label: 'assigned recruiter availability',
+      error: 'Unable to load recruiter availability for this interview right now.',
+      details: {
+        step: 'LOAD_ASSIGNED_RECRUITER',
+        assignedRecruiterId,
+      },
+    })
+    : { ok: true, value: null };
+  if (!assignedRecruiterResult.ok) {
+    return assignedRecruiterResult;
+  }
+  const assignedRecruiter = assignedRecruiterResult.value;
+  if (assignedRecruiterId && !assignedRecruiter) {
+    return buildSchedulingContextError({
+      status: 409,
+      error: 'Assign a valid recruiter before scheduling this interview.',
+      code: 'ASSIGNED_RECRUITER_REQUIRED',
+      details: {
+        step: 'LOAD_ASSIGNED_RECRUITER',
+        assignedRecruiterId,
+      },
+    });
+  }
+
+  const settings = resolveInterviewAutomationSettings(organization, job, assignedRecruiter, {
+    forceAutoSchedule: true,
+  });
+  const recruiterId = assignedRecruiterId || null;
+  if (settings.conflictScope === 'RECRUITER' && !recruiterId) {
+    return buildSchedulingContextError({
+      status: 409,
+      error: 'Assign a recruiter before scheduling this interview.',
+      code: 'ASSIGNED_RECRUITER_REQUIRED',
+      details: {
+        conflictScope: settings.conflictScope,
+      },
+    });
+  }
+
+  let existingInterviews = [];
+  if (includeExistingInterviews) {
+    const schedulingCandidates = await resolveSchedulingCandidates({
+      interview,
+      settings,
+      recruiterId,
+      interviewIdToExclude: interview.id,
+    });
+    if (!schedulingCandidates.ok) {
+      return schedulingCandidates;
+    }
+    existingInterviews = schedulingCandidates.interviews;
+  }
+
+  return {
+    ok: true,
     settings,
     recruiterId,
     existingInterviews,
+    assignedRecruiterId: recruiterId,
+    assignedRecruiter,
+  };
+};
+
+const attachSchedulingConstraints = async (interview, user) => {
+  if (!interview || String(user?.accountType || '').toUpperCase() !== 'COMPANY') {
+    return interview;
+  }
+  const schedulingContext = await resolveHiringSchedulingContext({
+    interview,
+    user,
+    includeExistingInterviews: false,
+  });
+  return {
+    ...interview,
+    schedulingConstraints: schedulingContext.ok
+      ? buildSchedulingConstraints(schedulingContext)
+      : null,
+    schedulingConstraintsError: schedulingContext.ok
+      ? null
+      : {
+        code: schedulingContext.code || 'SCHEDULING_CONTEXT_UNAVAILABLE',
+        message: schedulingContext.error,
+      },
   };
 };
 
@@ -705,6 +1516,14 @@ const resolveScheduledForFromStrategy = ({
         status: 400,
         error: 'scheduledFor is required and must be a valid datetime',
         code: 'INVALID_SCHEDULE_SLOT',
+      };
+    }
+    if (normalizedManual.getTime() <= Date.now()) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'Selected interview time must be in the future.',
+        code: 'SLOT_IN_PAST',
       };
     }
     return {
@@ -800,7 +1619,6 @@ export class InterviewController {
         duration,
         jobId,
         jobStage,
-        invitationId,
         config,
         candidateId,
         status,
@@ -810,6 +1628,10 @@ export class InterviewController {
         timezone,
         scheduleStatus,
       } = req.body;
+      const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'reviewerAssignments',
+      );
       const userId = req.user.id;
       const accountType = req.user.accountType;
       const organizationContext = req.user.organizationContext || null;
@@ -819,6 +1641,12 @@ export class InterviewController {
       const normalizedMode = String(mode || '').toUpperCase();
       const normalizedCandidateId = typeof candidateId === 'string' ? candidateId.trim() : null;
       const normalizedScheduledFor = scheduledFor || null;
+      if (normalizedScheduledFor && !isFutureDateTime(normalizedScheduledFor)) {
+        return res.status(400).json({
+          error: 'scheduledFor must be in the future',
+          code: 'SLOT_IN_PAST',
+        });
+      }
       const defaultInterviewStatus = normalizedMode === 'HIRING' && !normalizedScheduledFor
         ? 'PENDING'
         : 'SCHEDULED';
@@ -858,6 +1686,7 @@ export class InterviewController {
       }
 
       let mergedInterviewConfig = null;
+      let validatedReviewerAssignments = [];
       if (config || normalizedMode === 'PRACTICE' || normalizedMode === 'HIRING') {
         try {
           systemSettings = await systemSettingsStore.get();
@@ -880,17 +1709,32 @@ export class InterviewController {
 
       if (normalizedMode === 'HIRING') {
         const featureFlags = systemSettings?.featureFlags || {};
-        if (featureFlags.enableInvitations === false || featureFlags.enableJobPosting === false) {
+        if (featureFlags.enableJobPosting === false) {
           return res.status(503).json({
             error: 'Hiring interview creation is currently disabled by system administration.',
             code: 'FEATURE_DISABLED',
-            feature: featureFlags.enableInvitations === false ? 'enableInvitations' : 'enableJobPosting',
+            feature: 'enableJobPosting',
           });
         }
       }
 
       let linkedApplication = null;
       if (normalizedMode === 'HIRING') {
+        const reviewerAssignmentValidation = await validateReviewerAssignmentsForOrganization({
+          organizationId,
+          reviewerAssignments: Array.isArray(reviewerAssignments) ? reviewerAssignments : [],
+        });
+        if (!reviewerAssignmentValidation.ok) {
+          return res.status(reviewerAssignmentValidation.status || 400).json({
+            error: reviewerAssignmentValidation.error,
+            code: reviewerAssignmentValidation.code || 'INVALID_REVIEWER_ASSIGNMENTS',
+            ...(reviewerAssignmentValidation.details
+              ? { details: reviewerAssignmentValidation.details }
+              : {}),
+          });
+        }
+        validatedReviewerAssignments = reviewerAssignmentValidation.reviewerAssignments;
+
         const candidateProfile = await userStore.getById(normalizedCandidateId);
         if (!candidateProfile) {
           return res.status(404).json({
@@ -921,17 +1765,16 @@ export class InterviewController {
           }
 
           linkedApplication = await jobApplicationStore.checkDuplicate(jobId, normalizedCandidateId);
-          if (!linkedApplication && !invitationId) {
+          if (!linkedApplication) {
             return res.status(409).json({
-              error: 'Candidate must have an application or invitation before creating a hiring interview',
-              code: 'APPLICATION_OR_INVITATION_REQUIRED',
+              error: 'Candidate must have an application before creating a hiring interview',
+              code: 'APPLICATION_REQUIRED',
             });
           }
 
           if (linkedApplication) {
             const linkedStatus = normalizeApplicationStatus(linkedApplication.status);
-            const allowPromotionViaInvitation = Boolean(invitationId);
-            if (linkedStatus !== 'INTERVIEWING' && !allowPromotionViaInvitation) {
+            if (linkedStatus !== 'INTERVIEWING') {
               return res.status(409).json({
                 error: `Application must be in INTERVIEWING before creating an interview. Current status: ${linkedStatus || 'UNKNOWN'}.`,
                 code: 'APPLICATION_NOT_READY_FOR_INTERVIEW',
@@ -958,7 +1801,7 @@ export class InterviewController {
             const hydratedExisting = await attachSingleInterviewParticipants(existingActiveInterview);
             return res.json({
               success: true,
-              interview: hydratedExisting,
+              interview: sanitizeInterviewForClient(hydratedExisting),
               message: 'Existing active interview found',
               reusedExistingInterview: true,
             });
@@ -969,6 +1812,20 @@ export class InterviewController {
       // For HIRING mode, use provided candidateId.
       // For PRACTICE mode, use the current user's ID.
       const finalCandidateId = normalizedMode === 'PRACTICE' ? userId : normalizedCandidateId;
+      const initialReviewRequests = normalizedMode === 'HIRING'
+        ? syncReviewRequests({
+          existingReviewRequests: [],
+          reviewerAssignments: hasReviewerAssignmentsOverride || normalizedMode === 'HIRING'
+            ? validatedReviewerAssignments
+            : [],
+          assignedBy: userId,
+          interview: {
+            scheduledFor: normalizedScheduledFor,
+            completedAt: null,
+            duration,
+          },
+        })
+        : [];
 
       const interview = await interviewStore.create({
         mode: normalizedMode,
@@ -977,7 +1834,7 @@ export class InterviewController {
         organizationId: normalizedMode === 'HIRING' ? organizationId : null,
         jobId: jobId || null,
         jobStage: jobStage || null,
-        invitationId: invitationId || null,
+        invitationId: null,
         status: status || defaultInterviewStatus,
         scheduledFor: normalizedScheduledFor,
         timezone: timezone || DEFAULT_TIMEZONE,
@@ -986,7 +1843,10 @@ export class InterviewController {
         scheduledBy: normalizedScheduledFor ? userId : null,
         scheduledAt: normalizedScheduledFor ? new Date().toISOString() : null,
         pipelineStatus: pipelineStatus || null,
-        reviewerAssignments: Array.isArray(reviewerAssignments) ? reviewerAssignments : [],
+        reviewerAssignments: hasReviewerAssignmentsOverride || normalizedMode === 'HIRING'
+          ? validatedReviewerAssignments
+          : [],
+        reviewRequests: initialReviewRequests,
         jobRole,
         experienceLevel,
         industry,
@@ -1075,7 +1935,7 @@ export class InterviewController {
 
       res.status(201).json({
         success: true,
-        interview: hydrated,
+        interview: sanitizeInterviewForClient(hydrated),
       });
     } catch (error) {
       logger.error('Create interview error:', error);
@@ -1092,9 +1952,21 @@ export class InterviewController {
         return res.status(access.status).json({ error: access.message });
       }
 
-      const hydrated = await attachSingleInterviewParticipants(interview);
+      if (!isTerminalInterviewStatus(interview?.status)) {
+        const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req, {
+          requireActiveWindow: true,
+        });
+        if (!tokenAccess.allowed) {
+          return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
+        }
+      }
 
-      res.json({ success: true, interview: hydrated });
+      const hydrated = await attachSingleInterviewParticipants(interview);
+      const interviewWithReviewState = (await attachReviewerQueueState([hydrated], req.user))[0] || hydrated;
+      const interviewWithPlan = (await attachInterviewPlanContext([interviewWithReviewState]))[0] || interviewWithReviewState;
+      const interviewWithConstraints = await attachSchedulingConstraints(interviewWithPlan, req.user);
+
+      res.json({ success: true, interview: sanitizeInterviewForClient(interviewWithConstraints) });
     } catch (error) {
       logger.error('Get interview error:', error);
       next(error);
@@ -1122,7 +1994,7 @@ export class InterviewController {
       }
 
       const hydrated = await attachSingleInterviewParticipants(interview);
-      return res.json({ success: true, interview: hydrated });
+      return res.json({ success: true, interview: sanitizeInterviewForClient(hydrated) });
     } catch (error) {
       logger.error('Validate meeting link error:', error);
       return next(error);
@@ -1141,6 +2013,11 @@ export class InterviewController {
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req, { requireActiveWindow: true });
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       await interviewStore.update(id, {
@@ -1168,7 +2045,12 @@ export class InterviewController {
         interviewTypes,
         notes,
         strategy,
+        reviewerAssignments,
       } = req.body;
+      const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'reviewerAssignments',
+      );
       const interview = await interviewStore.getById(id);
       const access = canManageSchedule(interview, req.user);
       if (!access.allowed) {
@@ -1192,6 +2074,34 @@ export class InterviewController {
           code: 'SCHEDULED_FOR_REQUIRED',
         });
       }
+      if (!schedulingContext.ok) {
+        return res.status(schedulingContext.status || 503).json({
+          error: schedulingContext.error,
+          code: schedulingContext.code || 'SCHEDULING_CONTEXT_UNAVAILABLE',
+          ...(schedulingContext.details ? { details: schedulingContext.details } : {}),
+        });
+      }
+
+      let validatedReviewerAssignments = null;
+      if (hasReviewerAssignmentsOverride) {
+        const reviewerAssignmentValidation = await validateReviewerAssignmentsForOrganization({
+          organizationId: interview.organizationId,
+          reviewerAssignments,
+        });
+        if (!reviewerAssignmentValidation.ok) {
+          return res.status(reviewerAssignmentValidation.status || 400).json({
+            error: reviewerAssignmentValidation.error,
+            code: reviewerAssignmentValidation.code || 'INVALID_REVIEWER_ASSIGNMENTS',
+            ...(reviewerAssignmentValidation.details
+              ? { details: reviewerAssignmentValidation.details }
+              : {}),
+          });
+        }
+        validatedReviewerAssignments = reviewerAssignmentValidation.reviewerAssignments;
+      }
+      const nextReviewerAssignments = hasReviewerAssignmentsOverride
+        ? validatedReviewerAssignments
+        : (Array.isArray(interview?.reviewerAssignments) ? interview.reviewerAssignments : []);
 
       const slotResolution = resolveScheduledForFromStrategy({
         strategy: schedulingStrategy,
@@ -1210,6 +2120,17 @@ export class InterviewController {
 
       const scheduledAt = new Date().toISOString();
       const meetingTokenData = generateMeetingToken();
+      const nextReviewRequests = syncReviewRequests({
+        existingReviewRequests: interview?.reviewRequests,
+        reviewerAssignments: nextReviewerAssignments,
+        assignedBy: req.user.id,
+        interview: {
+          ...interview,
+          scheduledFor: slotResolution.scheduledFor,
+          duration: Number.isFinite(Number(duration)) ? Number(duration) : interview?.duration,
+        },
+        nowValue: scheduledAt,
+      });
       const updatedInterview = await interviewStore.update(id, {
         status: 'SCHEDULED',
         scheduledFor: slotResolution.scheduledFor,
@@ -1225,6 +2146,8 @@ export class InterviewController {
         schedulingStrategy,
         availabilitySource: schedulingContext?.settings?.availabilitySource || null,
         conflictScope: schedulingContext?.settings?.conflictScope || null,
+        reviewerAssignments: nextReviewerAssignments,
+        reviewRequests: nextReviewRequests,
       });
 
       if (updatedInterview.organizationId) {
@@ -1285,7 +2208,7 @@ export class InterviewController {
       });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
-      return res.json({ success: true, interview: hydrated });
+      return res.json({ success: true, interview: sanitizeInterviewForClient(hydrated) });
     } catch (error) {
       logger.error('Schedule interview error:', error);
       return next(error);
@@ -1304,7 +2227,12 @@ export class InterviewController {
         rescheduleRequestId,
         rescheduleDecisionNote,
         strategy,
+        reviewerAssignments,
       } = req.body;
+      const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'reviewerAssignments',
+      );
       const interview = await interviewStore.getById(id);
       const access = canManageSchedule(interview, req.user);
       if (!access.allowed) {
@@ -1337,6 +2265,34 @@ export class InterviewController {
           code: 'SCHEDULED_FOR_REQUIRED',
         });
       }
+      if (!schedulingContext.ok) {
+        return res.status(schedulingContext.status || 503).json({
+          error: schedulingContext.error,
+          code: schedulingContext.code || 'SCHEDULING_CONTEXT_UNAVAILABLE',
+          ...(schedulingContext.details ? { details: schedulingContext.details } : {}),
+        });
+      }
+
+      let validatedReviewerAssignments = null;
+      if (hasReviewerAssignmentsOverride) {
+        const reviewerAssignmentValidation = await validateReviewerAssignmentsForOrganization({
+          organizationId: interview.organizationId,
+          reviewerAssignments,
+        });
+        if (!reviewerAssignmentValidation.ok) {
+          return res.status(reviewerAssignmentValidation.status || 400).json({
+            error: reviewerAssignmentValidation.error,
+            code: reviewerAssignmentValidation.code || 'INVALID_REVIEWER_ASSIGNMENTS',
+            ...(reviewerAssignmentValidation.details
+              ? { details: reviewerAssignmentValidation.details }
+              : {}),
+          });
+        }
+        validatedReviewerAssignments = reviewerAssignmentValidation.reviewerAssignments;
+      }
+      const nextReviewerAssignments = hasReviewerAssignmentsOverride
+        ? validatedReviewerAssignments
+        : (Array.isArray(interview?.reviewerAssignments) ? interview.reviewerAssignments : []);
 
       const preferredSlots = schedulingStrategy === 'PREFERRED_FIRST'
         ? (pendingRequest?.preferredSlots || [])
@@ -1397,6 +2353,17 @@ export class InterviewController {
       }
 
       const rescheduleTokenData = generateMeetingToken();
+      const nextReviewRequests = syncReviewRequests({
+        existingReviewRequests: interview?.reviewRequests,
+        reviewerAssignments: nextReviewerAssignments,
+        assignedBy: req.user.id,
+        interview: {
+          ...interview,
+          scheduledFor: slotResolution.scheduledFor,
+          duration: Number.isFinite(Number(duration)) ? Number(duration) : interview?.duration,
+        },
+        nowValue: scheduledAt,
+      });
       const updatedInterview = await interviewStore.update(id, {
         status: 'SCHEDULED',
         scheduledFor: slotResolution.scheduledFor,
@@ -1420,6 +2387,8 @@ export class InterviewController {
             lastResolvedRescheduleRequestAt: scheduledAt,
           }
           : {}),
+        reviewerAssignments: nextReviewerAssignments,
+        reviewRequests: nextReviewRequests,
       });
 
       if (updatedInterview.organizationId) {
@@ -1487,9 +2456,617 @@ export class InterviewController {
       });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
-      return res.json({ success: true, interview: hydrated });
+      return res.json({ success: true, interview: sanitizeInterviewForClient(hydrated) });
     } catch (error) {
       logger.error('Reschedule interview error:', error);
+      return next(error);
+    }
+  }
+
+  static async updateInterviewReviewRequests(req, res, next) {
+    try {
+      const { id } = req.params;
+      const {
+        reviewerAssignments,
+        reviewRequestUpdates,
+      } = req.body;
+      const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'reviewerAssignments',
+      );
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (String(interview?.mode || '').toUpperCase() !== 'HIRING') {
+        return res.status(409).json({
+          error: 'Review request administration is only supported for hiring interviews.',
+          code: 'REVIEW_REQUESTS_NOT_SUPPORTED',
+        });
+      }
+
+      let validatedReviewerAssignments = null;
+      if (hasReviewerAssignmentsOverride) {
+        const reviewerAssignmentValidation = await validateReviewerAssignmentsForOrganization({
+          organizationId: interview.organizationId,
+          reviewerAssignments,
+        });
+        if (!reviewerAssignmentValidation.ok) {
+          return res.status(reviewerAssignmentValidation.status || 400).json({
+            error: reviewerAssignmentValidation.error,
+            code: reviewerAssignmentValidation.code || 'INVALID_REVIEWER_ASSIGNMENTS',
+            ...(reviewerAssignmentValidation.details
+              ? { details: reviewerAssignmentValidation.details }
+              : {}),
+          });
+        }
+        validatedReviewerAssignments = reviewerAssignmentValidation.reviewerAssignments;
+      }
+
+      const nextReviewerAssignments = hasReviewerAssignmentsOverride
+        ? validatedReviewerAssignments
+        : (Array.isArray(interview?.reviewerAssignments) ? interview.reviewerAssignments : []);
+
+      const normalizedReviewRequestUpdates = Array.isArray(reviewRequestUpdates)
+        ? reviewRequestUpdates
+          .map((update) => ({
+            reviewerId: typeof update?.reviewerId === 'string' ? update.reviewerId.trim() : '',
+            dueSource: String(update?.dueSource || 'AUTO').trim().toUpperCase() === 'MANUAL' ? 'MANUAL' : 'AUTO',
+            dueAt: update?.dueAt || null,
+          }))
+          .filter((update) => update.reviewerId)
+        : [];
+
+      const invalidUpdateReviewerIds = normalizedReviewRequestUpdates
+        .map((update) => update.reviewerId)
+        .filter((reviewerId) => !nextReviewerAssignments.includes(reviewerId));
+      if (invalidUpdateReviewerIds.length > 0) {
+        return res.status(400).json({
+          error: 'Review request updates must target currently assigned reviewers.',
+          code: 'INVALID_REVIEW_REQUEST_UPDATES',
+          details: {
+            invalidReviewerIds: invalidUpdateReviewerIds,
+          },
+        });
+      }
+
+      const missingManualDueAt = normalizedReviewRequestUpdates.find(
+        (update) => update.dueSource === 'MANUAL' && !update.dueAt,
+      );
+      if (missingManualDueAt) {
+        return res.status(400).json({
+          error: 'Manual review due dates require a valid dueAt value.',
+          code: 'REVIEW_DUE_AT_REQUIRED',
+          details: {
+            reviewerId: missingManualDueAt.reviewerId,
+          },
+        });
+      }
+
+      const updatedAt = new Date().toISOString();
+      const synchronizedReviewRequests = syncReviewRequests({
+        existingReviewRequests: interview?.reviewRequests,
+        reviewerAssignments: nextReviewerAssignments,
+        assignedBy: req.user.id,
+        interview,
+        nowValue: updatedAt,
+      });
+      const nextReviewRequests = applyReviewRequestUpdates({
+        reviewRequests: synchronizedReviewRequests,
+        reviewRequestUpdates: normalizedReviewRequestUpdates,
+        interview,
+      });
+
+      const updatedInterview = await interviewStore.update(id, {
+        reviewerAssignments: nextReviewerAssignments,
+        reviewRequests: nextReviewRequests,
+      });
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_REVIEW_REQUESTS_UPDATED',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            reviewerAssignments: nextReviewerAssignments,
+            manualDueOverrides: normalizedReviewRequestUpdates.filter((update) => update.dueSource === 'MANUAL').map((update) => ({
+              reviewerId: update.reviewerId,
+              dueAt: update.dueAt || null,
+            })),
+          },
+        });
+      }
+
+      try {
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-review-requests-updated', {
+            interviewId: updatedInterview.id,
+            reviewerAssignments: nextReviewerAssignments,
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-review-requests-updated realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({ success: true, interview: sanitizeInterviewForClient(hydrated) });
+    } catch (error) {
+      logger.error('Update interview review requests error:', error);
+      return next(error);
+    }
+  }
+
+  static async sendInterviewReviewReminder(req, res, next) {
+    try {
+      const { id, reviewerId } = req.params;
+      const normalizedReviewerId = typeof reviewerId === 'string' ? reviewerId.trim() : '';
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (String(interview?.mode || '').toUpperCase() !== 'HIRING') {
+        return res.status(409).json({
+          error: 'Review reminders are only supported for hiring interviews.',
+          code: 'REVIEW_REMINDERS_NOT_SUPPORTED',
+        });
+      }
+
+      if (!normalizedReviewerId) {
+        return res.status(400).json({
+          error: 'Reviewer ID is required.',
+          code: 'REVIEWER_ID_REQUIRED',
+        });
+      }
+
+      const effectiveReviewRequests = Array.isArray(interview?.reviewRequests) && interview.reviewRequests.length > 0
+        ? interview.reviewRequests
+        : syncReviewRequests({
+          existingReviewRequests: [],
+          reviewerAssignments: interview?.reviewerAssignments,
+          assignedBy: interview?.scheduledBy || interview?.companyId || null,
+          interview,
+          nowValue: new Date().toISOString(),
+        });
+      const enrichedReviewRequests = enrichInterviewReviewRequests({
+        ...interview,
+        reviewRequests: effectiveReviewRequests,
+      });
+      const reviewRequest = (Array.isArray(enrichedReviewRequests.reviewRequestsDetailed)
+        ? enrichedReviewRequests.reviewRequestsDetailed
+        : []
+      ).find((request) => request?.reviewerId === normalizedReviewerId) || null;
+
+      if (!reviewRequest) {
+        return res.status(404).json({
+          error: 'Assigned review request not found for this reviewer.',
+          code: 'REVIEW_REQUEST_NOT_FOUND',
+        });
+      }
+
+      if (reviewRequest.isCompleted) {
+        return res.status(409).json({
+          error: 'This reviewer has already completed their feedback.',
+          code: 'REVIEW_REQUEST_ALREADY_COMPLETED',
+        });
+      }
+
+      if (reviewRequest.workflowState === 'WAITING_FOR_INTERVIEW') {
+        return res.status(409).json({
+          error: 'Manual reminders are only available after the interview is completed.',
+          code: 'REVIEW_REMINDER_NOT_READY',
+        });
+      }
+
+      const lastReminderMs = reviewRequest?.lastReminderAt
+        ? Date.parse(reviewRequest.lastReminderAt)
+        : Number.NaN;
+      if (Number.isFinite(lastReminderMs)) {
+        const cooldownMs = MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS * 60 * 60 * 1000;
+        const nextAvailableAt = new Date(lastReminderMs + cooldownMs).toISOString();
+        if (Date.now() < Date.parse(nextAvailableAt)) {
+          return res.status(409).json({
+            error: `A reminder was already sent recently. Manual reminders reopen after ${MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS} hours.`,
+            code: 'REVIEW_REMINDER_COOLDOWN',
+            details: {
+              reviewerId: normalizedReviewerId,
+              nextAvailableAt,
+            },
+          });
+        }
+      }
+
+      const [reviewer, candidate, job, organization] = await Promise.all([
+        userStore.getSummary(normalizedReviewerId),
+        interview?.candidateId ? userStore.getSummary(interview.candidateId) : Promise.resolve(null),
+        interview?.jobId ? jobStore.getById(interview.jobId) : Promise.resolve(null),
+        interview?.organizationId ? organizationStore.getById(interview.organizationId) : Promise.resolve(null),
+      ]);
+
+      if (!reviewer?.email || !organization) {
+        return res.status(409).json({
+          error: 'Unable to send a reminder because reviewer or organization contact context is unavailable.',
+          code: 'REVIEW_REMINDER_CONTEXT_UNAVAILABLE',
+        });
+      }
+
+      const workflowState = String(reviewRequest.workflowState || '').toUpperCase() || 'PENDING';
+      const reviewUrl = buildAssignedReviewsUrl(interview.id);
+
+      await emailNotifications.sendReviewRequestReminder({
+        interview,
+        reviewer,
+        candidate,
+        job,
+        company: organization,
+        reviewRequest,
+        workflowState,
+        reviewUrl,
+        reminderSource: 'MANUAL',
+      });
+
+      const updatedReviewRequests = markReviewRequestReminder({
+        reviewRequests: effectiveReviewRequests,
+        reviewerId: normalizedReviewerId,
+        remindedAt: new Date().toISOString(),
+        workflowState,
+        channel: 'EMAIL',
+        source: 'MANUAL',
+      });
+
+      const updatedInterview = await interviewStore.update(id, {
+        reviewRequests: updatedReviewRequests,
+      });
+
+      try {
+        await notificationStore.create({
+          userId: normalizedReviewerId,
+          type: 'review_reminder',
+          title: 'Review reminder',
+          message: `A recruiter requested an update on your feedback for ${candidate?.fullName || 'this candidate'}.`,
+          link: `/company-reviews?interviewId=${encodeURIComponent(interview.id)}`,
+          metadata: {
+            interviewId: interview.id,
+            reviewerId: normalizedReviewerId,
+            workflowState,
+            dueAt: reviewRequest?.dueAt || null,
+            source: 'MANUAL',
+          },
+        });
+      } catch (notificationError) {
+        logger.warn(
+          `Manual review reminder email sent but notification creation failed for interview ${interview.id} reviewer ${normalizedReviewerId}`,
+          notificationError,
+        );
+      }
+
+      if (updatedInterview.organizationId) {
+        await activityLogStore.record({
+          organizationId: updatedInterview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_REVIEW_REMINDER_SENT',
+          targetType: 'INTERVIEW',
+          targetId: updatedInterview.id,
+          metadata: {
+            reviewerId: normalizedReviewerId,
+            workflowState,
+            source: 'MANUAL',
+          },
+        });
+      }
+
+      try {
+        if (updatedInterview.organizationId) {
+          await publishOrganizationRealtimeUpdate(updatedInterview.organizationId, 'interview-review-reminder-sent', {
+            interviewId: updatedInterview.id,
+            reviewerId: normalizedReviewerId,
+            workflowState,
+            source: 'MANUAL',
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-review-reminder-sent realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(updatedInterview);
+      return res.json({
+        success: true,
+        interview: sanitizeInterviewForClient(hydrated),
+      });
+    } catch (error) {
+      logger.error('Send interview review reminder error:', error);
+      return next(error);
+    }
+  }
+
+  static async updateInterviewStageOutcome(req, res, next) {
+    try {
+      const { id } = req.params;
+      const {
+        outcome,
+        note,
+        autoAdvance,
+      } = req.body || {};
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (!isHiringInterview(interview)) {
+        return res.status(409).json({
+          error: 'Stage outcomes are only supported for hiring interviews.',
+          code: 'INTERVIEW_STAGE_OUTCOME_NOT_SUPPORTED',
+        });
+      }
+
+      if (String(interview?.status || '').toUpperCase() !== 'COMPLETED') {
+        return res.status(409).json({
+          error: 'Only completed interview stages can receive an outcome.',
+          code: 'INTERVIEW_STAGE_NOT_COMPLETED',
+        });
+      }
+
+      const application = await resolveLinkedApplicationForHiringInterview(interview);
+      if (!application?.id || !application?.interviewPlan || !interview?.planStageId) {
+        return res.status(409).json({
+          error: 'A linked interview plan could not be resolved for this interview stage.',
+          code: 'INTERVIEW_PLAN_CONTEXT_UNAVAILABLE',
+        });
+      }
+
+      const normalizedPlan = normalizeInterviewPlanSnapshot(application.interviewPlan);
+      const currentStage = getInterviewPlanStage(normalizedPlan, interview.planStageId);
+      if (!currentStage) {
+        return res.status(409).json({
+          error: 'The interview stage could not be found in the linked interview plan.',
+          code: 'INTERVIEW_STAGE_NOT_FOUND',
+        });
+      }
+
+      const downstreamStagesExist = normalizedPlan.stages.some((stage) => (
+        Number(stage?.sequence || 0) > Number(currentStage.sequence || 0)
+        && (
+          Boolean(stage?.interviewId)
+          || String(stage?.status || '').toUpperCase() !== 'PENDING'
+        )
+      ));
+
+      if (downstreamStagesExist) {
+        return res.status(409).json({
+          error: 'This stage outcome is locked because a later interview stage already exists.',
+          code: 'INTERVIEW_STAGE_OUTCOME_LOCKED',
+        });
+      }
+
+      const normalizedOutcome = String(outcome || '').trim().toUpperCase() || 'PENDING';
+      const recordedAt = new Date().toISOString();
+      const nextPlan = updateInterviewPlanStageOutcome(application.interviewPlan, interview.planStageId, {
+        outcome: normalizedOutcome,
+        note,
+        recordedAt,
+        recordedBy: req.user.id,
+      });
+      let updatedApplication = await jobApplicationStore.update(application.id, {
+        interviewPlan: nextPlan,
+      });
+      let applicationStatusChange = null;
+      if (normalizedOutcome === 'FAIL' && currentStage.failDispositionCode) {
+        const rejectionResult = await autoRejectApplicationForFailedInterviewStage({
+          application: {
+            ...application,
+            ...(updatedApplication && typeof updatedApplication === 'object' ? updatedApplication : {}),
+          },
+          interview,
+          plan: nextPlan,
+          stage: currentStage,
+          actor: req.user,
+          note,
+        });
+        if (rejectionResult.updated) {
+          updatedApplication = rejectionResult.application;
+          applicationStatusChange = {
+            status: rejectionResult.status,
+            dispositionCode: rejectionResult.disposition?.code || currentStage.failDispositionCode || null,
+            dispositionCategory: rejectionResult.disposition?.category || null,
+            dispositionReason: rejectionResult.disposition?.reason || null,
+          };
+        }
+      }
+      const shouldAutoAdvance = normalizedOutcome === 'PASS'
+        && (
+          autoAdvance === true
+          || (autoAdvance !== false && currentStage.autoAdvanceOnPass === true)
+        );
+      let nextInterviewPayload = null;
+      let autoAdvanceResult = null;
+      let responsePlan = nextPlan;
+
+      if (shouldAutoAdvance) {
+        try {
+          const stageResult = await createNextInterviewPlanStage({
+            interview,
+            recruiter: req.user,
+            application: {
+              ...application,
+              ...(updatedApplication && typeof updatedApplication === 'object' ? updatedApplication : {}),
+              interviewPlan: nextPlan,
+            },
+          });
+
+          responsePlan = stageResult?.plan || nextPlan;
+          if (stageResult?.interview) {
+            const finalizedNextStage = await finalizeNextInterviewStageCreation({
+              nextInterview: stageResult.interview,
+              stageResult,
+              actor: req.user,
+              operation: 'AUTO_ADVANCE_STAGE_ON_PASS',
+            });
+            nextInterviewPayload = sanitizeInterviewForClient(finalizedNextStage.interview);
+            autoAdvanceResult = {
+              attempted: true,
+              created: Boolean(stageResult.created),
+              scheduled: Boolean(stageResult.scheduled),
+              slotFound: Boolean(stageResult.slotFound),
+              done: false,
+              warning: stageResult.warning || null,
+            };
+          } else if (stageResult?.done) {
+            autoAdvanceResult = {
+              attempted: true,
+              created: false,
+              scheduled: false,
+              done: true,
+              warning: 'No further interview stages are planned for this application.',
+            };
+          } else if (stageResult?.blocked) {
+            autoAdvanceResult = {
+              attempted: true,
+              created: false,
+              scheduled: false,
+              blocked: true,
+              code: stageResult.code || 'INTERVIEW_STAGE_ADVANCE_BLOCKED',
+              warning: stageResult.error || 'This interview stage is not ready to advance.',
+            };
+          } else {
+            autoAdvanceResult = {
+              attempted: true,
+              created: false,
+              scheduled: false,
+              warning: null,
+            };
+          }
+        } catch (autoAdvanceError) {
+          logger.warn('Auto-advance interview stage creation failed after saving outcome:', autoAdvanceError);
+          autoAdvanceResult = {
+            attempted: true,
+            created: false,
+            scheduled: false,
+            warning: 'Round decision was saved, but the next interview stage could not be created automatically.',
+          };
+        }
+      }
+
+      if (interview.organizationId) {
+        await activityLogStore.record({
+          organizationId: interview.organizationId,
+          actorId: req.user.id,
+          actorRole: req.user.organizationContext?.membership?.role || req.user.accountType || null,
+          action: 'INTERVIEW_STAGE_OUTCOME_UPDATED',
+          targetType: 'INTERVIEW',
+          targetId: interview.id,
+          metadata: {
+            planStageId: interview.planStageId || null,
+            planStageName: interview.planStageName || null,
+            outcome: normalizedOutcome,
+            note: typeof note === 'string' && note.trim() ? note.trim() : null,
+            autoAdvanceRequested: Boolean(shouldAutoAdvance),
+          },
+        });
+      }
+
+      try {
+        if (interview.organizationId) {
+          await publishOrganizationRealtimeUpdate(interview.organizationId, 'interview-stage-outcome-updated', {
+            interviewId: interview.id,
+            planStageId: interview.planStageId || null,
+            planStageName: interview.planStageName || null,
+            outcome: normalizedOutcome,
+            autoAdvanceRequested: Boolean(shouldAutoAdvance),
+          });
+        }
+      } catch (eventError) {
+        logger.warn('Failed to publish interview-stage-outcome-updated realtime event:', eventError);
+      }
+
+      const hydrated = await attachSingleInterviewParticipants(interview);
+      const interviewWithPlan = (await attachInterviewPlanContext([hydrated]))[0] || hydrated;
+      return res.json({
+        success: true,
+        interview: sanitizeInterviewForClient(interviewWithPlan),
+        plan: sanitizeInterviewPlanForClient(responsePlan),
+        nextInterview: nextInterviewPayload,
+        autoAdvance: autoAdvanceResult,
+        applicationStatusChange,
+      });
+    } catch (error) {
+      logger.error('Update interview stage outcome error:', error);
+      return next(error);
+    }
+  }
+
+  static async createNextInterviewStage(req, res, next) {
+    try {
+      const { id } = req.params;
+      const interview = await interviewStore.getById(id);
+      const access = canManageSchedule(interview, req.user);
+      if (!access.allowed) {
+        return res.status(access.status).json({ error: access.message });
+      }
+
+      if (!isHiringInterview(interview)) {
+        return res.status(409).json({
+          error: 'Next interview stages are only supported for hiring interviews.',
+          code: 'NEXT_STAGE_NOT_SUPPORTED',
+        });
+      }
+
+      if (String(interview?.status || '').toUpperCase() !== 'COMPLETED') {
+        return res.status(409).json({
+          error: 'Complete the current interview before creating the next interview stage.',
+          code: 'INTERVIEW_STAGE_NOT_COMPLETED',
+        });
+      }
+
+      const stageResult = await createNextInterviewPlanStage({
+        interview,
+        recruiter: req.user,
+      });
+
+      if (stageResult?.blocked) {
+        return res.status(409).json({
+          error: stageResult.error || 'This interview stage is not ready to advance.',
+          code: stageResult.code || 'INTERVIEW_STAGE_ADVANCE_BLOCKED',
+          plan: sanitizeInterviewPlanForClient(stageResult?.plan),
+          currentStage: stageResult.currentStage || null,
+        });
+      }
+
+      if (stageResult?.done || !stageResult?.interview) {
+        return res.status(409).json({
+          error: 'No further interview stages are planned for this application.',
+          code: 'NO_NEXT_INTERVIEW_STAGE',
+          plan: sanitizeInterviewPlanForClient(stageResult?.plan),
+        });
+      }
+
+      const nextInterview = stageResult.interview;
+      const finalizedNextStage = await finalizeNextInterviewStageCreation({
+        nextInterview,
+        stageResult,
+        actor: req.user,
+        operation: 'CREATE_NEXT_STAGE_INTERVIEW',
+      });
+      return res.status(stageResult.created ? 201 : 200).json({
+        success: true,
+        interview: sanitizeInterviewForClient(finalizedNextStage.interview),
+        created: Boolean(stageResult.created),
+        scheduled: Boolean(stageResult.scheduled),
+        slotFound: Boolean(stageResult.slotFound),
+        currentStage: stageResult.currentStage || null,
+        plan: sanitizeInterviewPlanForClient(stageResult.plan),
+        warning: stageResult.warning || null,
+        scheduleDecision: stageResult.scheduleDecision || null,
+      });
+    } catch (error) {
+      logger.error('Create next interview stage error:', error);
       return next(error);
     }
   }
@@ -1537,6 +3114,16 @@ export class InterviewController {
       if (trimmedReason.length > RESCHEDULE_REASON_MAX_LENGTH) {
         return res.status(400).json({
           error: `Reschedule reason must be at most ${RESCHEDULE_REASON_MAX_LENGTH} characters`,
+        });
+      }
+
+      if (
+        Array.isArray(preferredSlots)
+        && preferredSlots.some((slot) => slot && !isFutureDateTime(slot))
+      ) {
+        return res.status(400).json({
+          error: 'Preferred reschedule slots must be in the future',
+          code: 'PREFERRED_SLOT_IN_PAST',
         });
       }
 
@@ -1653,7 +3240,7 @@ export class InterviewController {
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.json({
         success: true,
-        interview: hydrated,
+        interview: sanitizeInterviewForClient(hydrated),
         request: requestEntry,
       });
     } catch (error) {
@@ -1762,7 +3349,7 @@ export class InterviewController {
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.json({
         success: true,
-        interview: hydrated,
+        interview: sanitizeInterviewForClient(hydrated),
       });
     } catch (error) {
       logger.error('Reject interview reschedule request error:', error);
@@ -1943,7 +3530,7 @@ export class InterviewController {
       });
 
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
-      return res.json({ success: true, interview: hydrated });
+      return res.json({ success: true, interview: sanitizeInterviewForClient(hydrated) });
     } catch (error) {
       logger.error('Cancel interview error:', error);
       return next(error);
@@ -1954,9 +3541,16 @@ export class InterviewController {
     try {
       const { id } = req.params;
       const interview = await interviewStore.getById(id);
-      const access = canViewRecording(interview, req.user);
+        const access = canUploadRecording(interview, req.user);
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req, {
+        allowCompletedRecordingUpload: true,
+      });
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       if (!req.file?.path) {
@@ -2001,7 +3595,7 @@ export class InterviewController {
       const hydrated = await attachSingleInterviewParticipants(updatedInterview);
       return res.status(201).json({
         success: true,
-        interview: hydrated,
+        interview: sanitizeInterviewForClient(hydrated),
         recordingUrl: publicPath,
         recording: recordingMetadata,
       });
@@ -2072,6 +3666,11 @@ export class InterviewController {
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req, { requireActiveWindow: true });
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       if (interview.status !== 'SCHEDULED' && interview.status !== 'PAUSED') {
@@ -2278,7 +3877,7 @@ export class InterviewController {
 
       res.json({
         success: true,
-        interview: responseInterview,
+        interview: sanitizeInterviewForClient(responseInterview),
         llmUnavailable: Boolean(responseInterview?.llmUnavailable),
         pendingEvaluation: Boolean(responseInterview?.pendingEvaluation),
       });
@@ -2295,6 +3894,11 @@ export class InterviewController {
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req);
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       if (interview.status !== 'IN_PROGRESS') {
@@ -2314,10 +3918,23 @@ export class InterviewController {
       const { evaluation, pendingEvaluation, llmUnavailable, metadata, reasonCode } = evaluationResult;
 
       const completionTimestamp = new Date().toISOString();
+      const completedReviewRequests = syncReviewRequests({
+        existingReviewRequests: interview?.reviewRequests,
+        reviewerAssignments: interview?.reviewerAssignments,
+        assignedBy: interview?.scheduledBy || interview?.companyId || null,
+        interview: {
+          ...interview,
+          status: 'COMPLETED',
+          completedAt: completionTimestamp,
+          duration: interview?.duration,
+        },
+        nowValue: completionTimestamp,
+      });
       const updatedInterview = await interviewStore.update(id, {
         status: 'COMPLETED',
         endedAt: completionTimestamp,
         completedAt: completionTimestamp,
+        reviewRequests: completedReviewRequests,
         evaluation,
         overallScore: pendingEvaluation ? null : evaluation?.overallScore ?? null,
         readinessLevel: pendingEvaluation ? null : evaluation?.readinessLevel ?? null,
@@ -2327,6 +3944,104 @@ export class InterviewController {
         llmFallbackReason: pendingEvaluation ? reasonCode : null,
         evaluationMetadata: metadata,
       });
+
+      const completedPlanStage = await completeLinkedInterviewPlanStage({
+        interview: updatedInterview,
+        completedAt: completionTimestamp,
+      }).catch((planError) => {
+        logger.warn('Failed to update linked interview plan after interview completion:', planError);
+        return { application: null, updated: false, plan: null };
+      });
+      let nextInterviewPayload = null;
+      let completionAutoAdvance = null;
+      if (completedPlanStage?.updated && completedPlanStage.application?.organizationId) {
+        await publishOrganizationRealtimeUpdate(
+          completedPlanStage.application.organizationId,
+          'application-interview-stage-completed',
+          {
+            applicationId: completedPlanStage.application.id,
+            interviewId: updatedInterview.id,
+            planStageId: updatedInterview.planStageId || null,
+            planStageName: updatedInterview.planStageName || null,
+          },
+        );
+        await publishCandidateRealtimeUpdate(updatedInterview.candidateId, 'application-interview-stage-completed', {
+          applicationId: completedPlanStage.application.id,
+          interviewId: updatedInterview.id,
+          organizationId: completedPlanStage.application.organizationId,
+          jobId: updatedInterview.jobId || null,
+          planStageId: updatedInterview.planStageId || null,
+          planStageName: updatedInterview.planStageName || null,
+        });
+      }
+
+      const completedPlan = completedPlanStage?.plan
+        ? normalizeInterviewPlanSnapshot(completedPlanStage.plan)
+        : null;
+      const completedStage = completedPlan
+        ? getInterviewPlanStage(completedPlan, updatedInterview.planStageId)
+        : null;
+
+      if (
+        isHiringInterview(updatedInterview)
+        && completedStage?.advanceRule === 'COMPLETE_TO_CONTINUE'
+        && completedStage?.autoAdvanceOnComplete === true
+        && completedPlanStage?.application?.id
+      ) {
+        try {
+          const stageResult = await createNextInterviewPlanStage({
+            interview: updatedInterview,
+            recruiter: req.user,
+            application: {
+              ...completedPlanStage.application,
+              interviewPlan: completedPlanStage.plan,
+            },
+          });
+
+          if (stageResult?.interview) {
+            const finalizedNextStage = await finalizeNextInterviewStageCreation({
+              nextInterview: stageResult.interview,
+              stageResult,
+              actor: req.user,
+              operation: 'AUTO_ADVANCE_STAGE_ON_COMPLETE',
+            });
+            nextInterviewPayload = sanitizeInterviewForClient(finalizedNextStage.interview);
+            completionAutoAdvance = {
+              attempted: true,
+              created: Boolean(stageResult.created),
+              scheduled: Boolean(stageResult.scheduled),
+              slotFound: Boolean(stageResult.slotFound),
+              done: false,
+              warning: stageResult.warning || null,
+            };
+          } else if (stageResult?.done) {
+            completionAutoAdvance = {
+              attempted: true,
+              created: false,
+              scheduled: false,
+              done: true,
+              warning: 'No further interview stages are planned for this application.',
+            };
+          } else if (stageResult?.blocked) {
+            completionAutoAdvance = {
+              attempted: true,
+              created: false,
+              scheduled: false,
+              blocked: true,
+              code: stageResult.code || 'INTERVIEW_STAGE_ADVANCE_BLOCKED',
+              warning: stageResult.error || 'This interview stage is not ready to advance.',
+            };
+          }
+        } catch (autoAdvanceError) {
+          logger.warn('Automatic stage progression on completion failed:', autoAdvanceError);
+          completionAutoAdvance = {
+            attempted: true,
+            created: false,
+            scheduled: false,
+            warning: 'Interview was completed, but the next stage could not be created automatically.',
+          };
+        }
+      }
 
       // GAP FIX: Auto-update application status when interview completes
       if (updatedInterview.mode === 'HIRING' && updatedInterview.invitationId) {
@@ -2444,13 +4159,16 @@ export class InterviewController {
         ...updatedInterview,
         questions: interview.questions,
       });
+      const interviewWithPlan = (await attachInterviewPlanContext([hydrated]))[0] || hydrated;
 
       res.json({
         success: true,
-        interview: hydrated,
-        pendingEvaluation: Boolean(hydrated?.pendingEvaluation),
-        llmUnavailable: Boolean(hydrated?.llmUnavailable),
-        message: hydrated?.pendingEvaluation
+        interview: sanitizeInterviewForClient(interviewWithPlan),
+        nextInterview: nextInterviewPayload,
+        autoAdvance: completionAutoAdvance,
+        pendingEvaluation: Boolean(interviewWithPlan?.pendingEvaluation),
+        llmUnavailable: Boolean(interviewWithPlan?.llmUnavailable),
+        message: interviewWithPlan?.pendingEvaluation
           ? (evaluationResult.message || 'AI scoring unavailable; session saved, scoring pending.')
           : undefined,
       });
@@ -2491,7 +4209,7 @@ export class InterviewController {
         const hydratedExisting = await attachSingleInterviewParticipants(interview);
         return res.json({
           success: true,
-          interview: hydratedExisting,
+          interview: sanitizeInterviewForClient(hydratedExisting),
           reusedExistingEvaluation: true,
           pendingEvaluation: false,
           llmUnavailable: Boolean(hydratedExisting?.llmUnavailable),
@@ -2565,7 +4283,7 @@ export class InterviewController {
 
       return res.json({
         success: true,
-        interview: hydrated,
+        interview: sanitizeInterviewForClient(hydrated),
         reusedExistingEvaluation: false,
         pendingEvaluation: Boolean(hydrated?.pendingEvaluation),
         llmUnavailable: Boolean(hydrated?.llmUnavailable),
@@ -2584,17 +4302,25 @@ export class InterviewController {
       const userId = req.user.id;
       const accountType = req.user.accountType;
       const organizationId = req.user.organizationContext?.organization?.id || null;
+      const reviewerOnly = accountType === 'COMPANY' && isReviewerRole(req.user);
       const requestedLimit = Number.parseInt(req.query.limit, 10);
       const listLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
         ? Math.min(requestedLimit, 200)
         : 100;
 
       const candidateInterviews = await interviewStore.listByCandidate(userId, { limit: listLimit });
-      const companyInterviews = accountType === 'COMPANY'
+      let companyInterviews = accountType === 'COMPANY'
         ? (organizationId
-          ? await interviewStore.listByOrganization(organizationId, { limit: listLimit })
+          ? await interviewStore.listByOrganization(
+            organizationId,
+            reviewerOnly ? {} : { limit: listLimit },
+          )
           : await interviewStore.listByCompany(userId, { limit: listLimit }))
         : [];
+
+      if (reviewerOnly) {
+        companyInterviews = filterInterviewsForReviewer(companyInterviews, userId).slice(0, listLimit);
+      }
 
       const combinedMap = new Map();
       [...candidateInterviews, ...companyInterviews].forEach((interview) => {
@@ -2605,11 +4331,16 @@ export class InterviewController {
         (a, b) => new Date(b.createdAt || 0) - new Date(a.createdAt || 0),
       );
 
-      const hydrated = (await hydrateInterviewParticipants(interviewsArray)).map((interview) =>
-        enrichInterviewSchedulingMeta(interview),
-      );
+      const hydrated = (await hydrateInterviewParticipants(interviewsArray)).map((interview) => {
+        const schedulingMeta = enrichInterviewSchedulingMeta(interview);
+        return {
+          ...schedulingMeta,
+          ...enrichInterviewReviewRequests(schedulingMeta),
+        };
+      });
+      const interviewsWithPlans = await attachInterviewPlanContext(hydrated);
 
-      res.json({ success: true, interviews: hydrated });
+      res.json({ success: true, interviews: sanitizeInterviewCollectionForClient(interviewsWithPlans) });
     } catch (error) {
       logger.error('Get my interviews error:', error);
       next(error);
@@ -2620,18 +4351,31 @@ export class InterviewController {
     try {
       const organizationId = req.user.organizationContext?.organization?.id || null;
       const companyId = req.user.id;
+      const reviewerOnly = isReviewerRole(req.user);
       const requestedLimit = Number.parseInt(req.query.limit, 10);
       const listLimit = Number.isInteger(requestedLimit) && requestedLimit > 0
         ? Math.min(requestedLimit, 200)
         : 100;
-      const interviews = organizationId
-        ? await interviewStore.listByOrganization(organizationId, { limit: listLimit })
+      let interviews = organizationId
+        ? await interviewStore.listByOrganization(
+          organizationId,
+          reviewerOnly ? {} : { limit: listLimit },
+        )
         : await interviewStore.listByCompany(companyId, { limit: listLimit });
-      const hydrated = (await hydrateInterviewParticipants(interviews)).map((interview) =>
-        enrichInterviewSchedulingMeta(interview),
-      );
+      if (reviewerOnly) {
+        interviews = filterInterviewsForReviewer(interviews, req.user.id).slice(0, listLimit);
+      }
+      const hydrated = (await hydrateInterviewParticipants(interviews)).map((interview) => {
+        const schedulingMeta = enrichInterviewSchedulingMeta(interview);
+        return {
+          ...schedulingMeta,
+          ...enrichInterviewReviewRequests(schedulingMeta),
+        };
+      });
+      const interviewsWithReviewState = await attachReviewerQueueState(hydrated, req.user);
+      const interviewsWithPlans = await attachInterviewPlanContext(interviewsWithReviewState);
 
-      res.json({ success: true, interviews: hydrated });
+      res.json({ success: true, interviews: sanitizeInterviewCollectionForClient(interviewsWithPlans) });
     } catch (error) {
       logger.error('Get company interviews error:', error);
       next(error);
@@ -2671,6 +4415,83 @@ export class InterviewController {
     }
   }
 
+  static async getScoreLeaderboard(req, res, next) {
+    try {
+      const rawInterviews = await interviewStore.listCompletedScoredForLeaderboard();
+      const candidateStats = new Map();
+
+      rawInterviews.forEach((interview) => {
+        const candidateId = interview?.candidateId;
+        const score = Number(interview?.overallScore);
+        if (!candidateId || !Number.isFinite(score)) return;
+
+        const current = candidateStats.get(candidateId) || {
+          userId: candidateId,
+          scoredInterviews: 0,
+          scoreSum: 0,
+          bestScore: null,
+          latestCompletedAt: null,
+        };
+
+        current.scoredInterviews += 1;
+        current.scoreSum += score;
+        current.bestScore = current.bestScore == null ? score : Math.max(current.bestScore, score);
+
+        const completedAt = interview?.completedAt || interview?.endedAt || interview?.updatedAt || interview?.createdAt || null;
+        if (!current.latestCompletedAt || Date.parse(completedAt || '') > Date.parse(current.latestCompletedAt || '')) {
+          current.latestCompletedAt = completedAt;
+        }
+
+        candidateStats.set(candidateId, current);
+      });
+
+      const summaries = await userStore.getSummaries(Array.from(candidateStats.keys()));
+      const leaderboard = Array.from(candidateStats.values())
+        .map((entry, index) => {
+          const averageScore = entry.scoredInterviews > 0
+            ? Math.round((entry.scoreSum / entry.scoredInterviews) * 10) / 10
+            : null;
+          const summary = summaries.get(entry.userId) || null;
+
+          return {
+            rankSeed: index + 1,
+            userId: entry.userId,
+            displayName: buildCandidateLeaderboardDisplayName(summary, index + 1),
+            profilePhotoUrl: summary?.profilePhotoUrl || null,
+            averageScore,
+            bestScore: entry.bestScore != null ? Math.round(entry.bestScore * 10) / 10 : null,
+            scoredInterviews: entry.scoredInterviews,
+            latestCompletedAt: entry.latestCompletedAt || null,
+          };
+        })
+        .sort((left, right) => {
+          if ((right.averageScore || 0) !== (left.averageScore || 0)) {
+            return (right.averageScore || 0) - (left.averageScore || 0);
+          }
+          if ((right.bestScore || 0) !== (left.bestScore || 0)) {
+            return (right.bestScore || 0) - (left.bestScore || 0);
+          }
+          if ((right.scoredInterviews || 0) !== (left.scoredInterviews || 0)) {
+            return (right.scoredInterviews || 0) - (left.scoredInterviews || 0);
+          }
+          return Date.parse(right.latestCompletedAt || '') - Date.parse(left.latestCompletedAt || '');
+        })
+        .slice(0, 20)
+        .map((entry, index) => ({
+          ...entry,
+          rank: index + 1,
+        }));
+
+      return res.json({
+        success: true,
+        leaderboard,
+      });
+    } catch (error) {
+      logger.error('Get score leaderboard error:', error);
+      return next(error);
+    }
+  }
+
   static async submitAnswer(req, res, next) {
     try {
       const { id } = req.params;
@@ -2679,6 +4500,11 @@ export class InterviewController {
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req);
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       if (interview.status !== 'IN_PROGRESS') {
@@ -2793,6 +4619,11 @@ export class InterviewController {
         return res.status(access.status).json({ error: access.message });
       }
 
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req);
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
+      }
+
       const askedAt = new Date().toISOString();
       await interviewStore.updateQuestion(id, questionId, {
         askedAt,
@@ -2825,6 +4656,11 @@ export class InterviewController {
       const access = ensureAccess(interview, req.user, { allowOrganizationMembers: false });
       if (!access.allowed) {
         return res.status(access.status).json({ error: access.message });
+      }
+
+      const tokenAccess = enforceCandidateMeetingTokenAccess(interview, req);
+      if (!tokenAccess.allowed) {
+        return res.status(tokenAccess.status).json({ error: tokenAccess.message, code: tokenAccess.code });
       }
 
       // Validate question exists

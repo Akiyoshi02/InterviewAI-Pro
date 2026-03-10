@@ -10,6 +10,7 @@ import {
   publishPublicRealtimeUpdate,
 } from '../services/firebaseData.service.js';
 import { buildJobSnapshot, buildOrganizationSnapshot } from '../utils/applicationSnapshot.util.js';
+import { normalizeInterviewPlanTemplateConfig } from '../utils/interviewPlan.util.js';
 import {
   appendStatusHistory,
   buildStatusHistoryEntry,
@@ -84,6 +85,17 @@ const normalizeAdvertImageUrls = (job) => {
     return [job.advertImageUrl.trim()];
   }
   return [];
+};
+
+const normalizeTemplateConfigPayload = (body = {}) => {
+  if (!body || typeof body !== 'object' || body.templateConfig === undefined) {
+    return body;
+  }
+
+  return {
+    ...body,
+    templateConfig: normalizeInterviewPlanTemplateConfig(body.templateConfig),
+  };
 };
 
 const normalizeWhitespace = (value) => (value == null ? '' : String(value).replace(/\s+/g, ' ').trim());
@@ -459,7 +471,7 @@ export class JobController {
       const job = await jobStore.create({
         organizationId,
         createdBy: req.user.id,
-        ...normalizeAdvertImagePayload(req.body),
+        ...normalizeTemplateConfigPayload(normalizeAdvertImagePayload(req.body)),
       });
 
       await activityLogStore.record({
@@ -502,7 +514,7 @@ export class JobController {
         return res.status(404).json({ error: 'Job not found' });
       }
 
-      const updated = await jobStore.update(jobId, normalizeAdvertImagePayload(req.body));
+      const updated = await jobStore.update(jobId, normalizeTemplateConfigPayload(normalizeAdvertImagePayload(req.body)));
       await activityLogStore.record({
         organizationId,
         actorId: req.user.id,

@@ -35,6 +35,14 @@ import {
   getDerivedApplicationStatus,
   groupCandidateApplicationsByJob,
 } from '../utils/candidateApplicationFilters.js';
+import { getApplicationRoundSummary } from '../../../utils/interviewRoundSummary.js';
+import {
+  canAccessApplicationOnboarding,
+  canAccessHiredHandoff,
+  formatOfferCompensation,
+  isOfferExpired,
+} from '../../../utils/applicationOfferPresentation.js';
+import { downloadOfferDocument } from '../../../utils/offerDocument.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 
@@ -112,6 +120,11 @@ const getStatusConfig = (application = {}) => {
       color: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-300',
       icon: 'Star',
     },
+    OFFER: {
+      label: 'Offer',
+      color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200',
+      icon: 'Briefcase',
+    },
     REJECTED: {
       label: 'Not Selected',
       color: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
@@ -142,6 +155,9 @@ const MyApplicationsList = () => {
   const [withdrawDialog, setWithdrawDialog] = useState({ open: false, applicationId: null });
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawSuccess, setWithdrawSuccess] = useState('');
+  const [offerSuccess, setOfferSuccess] = useState('');
+  const [offerActionLoadingId, setOfferActionLoadingId] = useState(null);
+  const [declineOfferDraft, setDeclineOfferDraft] = useState({ applicationId: null, reason: '' });
   const [expandedJobs, setExpandedJobs] = useState(new Set());
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage] = useState(3);
@@ -250,6 +266,47 @@ const MyApplicationsList = () => {
 
   const handleWithdrawCancel = () => {
     setWithdrawDialog({ open: false, applicationId: null });
+  };
+
+  const handleAcceptOffer = async (applicationId) => {
+    setOfferActionLoadingId(applicationId);
+    setOfferSuccess('');
+    try {
+      const result = await apiClient.applications.acceptOffer(applicationId);
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to accept offer.');
+      }
+      setOfferSuccess(result.message || 'Offer accepted successfully.');
+      setTimeout(() => setOfferSuccess(''), 4000);
+      await loadApplications();
+    } catch (err) {
+      setError(err.message || 'Failed to accept offer.');
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setOfferActionLoadingId(null);
+    }
+  };
+
+  const handleDeclineOffer = async (applicationId) => {
+    setOfferActionLoadingId(applicationId);
+    setOfferSuccess('');
+    try {
+      const result = await apiClient.applications.declineOffer(applicationId, {
+        declineReason: declineOfferDraft.reason.trim() || null,
+      });
+      if (!result?.success) {
+        throw new Error(result?.error || 'Failed to decline offer.');
+      }
+      setDeclineOfferDraft({ applicationId: null, reason: '' });
+      setOfferSuccess(result.message || 'Offer declined successfully.');
+      setTimeout(() => setOfferSuccess(''), 4000);
+      await loadApplications();
+    } catch (err) {
+      setError(err.message || 'Failed to decline offer.');
+      setTimeout(() => setError(''), 5000);
+    } finally {
+      setOfferActionLoadingId(null);
+    }
   };
 
   const toggleJob = (jobId) => {
@@ -364,6 +421,11 @@ const MyApplicationsList = () => {
       {withdrawSuccess && (
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-200">
           {withdrawSuccess}
+        </div>
+      )}
+      {offerSuccess && (
+        <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm text-blue-700 dark:border-blue-500/30 dark:bg-blue-500/10 dark:text-blue-200">
+          {offerSuccess}
         </div>
       )}
       <div className="space-y-4">
@@ -624,6 +686,7 @@ const MyApplicationsList = () => {
                           {jobData.applications.map((application, appIndex) => {
                             const appStatusConfig = getStatusConfig(application);
                             const canWithdraw = canCandidateWithdrawApplication(application);
+                            const roundSummary = getApplicationRoundSummary(application);
                             
                             return (
                               <motion.div
@@ -670,6 +733,209 @@ const MyApplicationsList = () => {
                                   {application.dispositionNotes && (
                                     <div className="text-xs text-gray-600 dark:text-slate-400">
                                       Note: {application.dispositionNotes}
+                                    </div>
+                                  )}
+
+                                  {roundSummary && (
+                                    <div className="rounded-lg border border-violet-200/80 dark:border-violet-500/30 bg-violet-50/70 dark:bg-violet-500/10 px-3 py-2">
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <span className="inline-flex items-center rounded-full bg-white/80 dark:bg-slate-900/60 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-violet-700 dark:text-violet-200">
+                                          {roundSummary.badge}
+                                        </span>
+                                        <p className="text-xs font-medium text-gray-900 dark:text-slate-100">
+                                          {roundSummary.title}
+                                        </p>
+                                      </div>
+                                      <p className="mt-1 text-xs text-gray-600 dark:text-slate-300">
+                                        {roundSummary.detail}
+                                      </p>
+                                    </div>
+                                  )}
+
+                                  {(application.status === 'OFFER' || application.offer?.status === 'ACCEPTED') && (
+                                    <div className="rounded-lg border border-amber-200/80 dark:border-amber-500/30 bg-amber-50/70 dark:bg-amber-500/10 px-3 py-3">
+                                      <div className="flex flex-wrap items-start justify-between gap-3">
+                                        <div>
+                                          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-300">
+                                            Offer Stage
+                                          </p>
+                                          {application.offer ? (
+                                            <>
+                                              <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                                {application.offer.title}
+                                              </p>
+                                              {formatOfferCompensation(application.offer) && (
+                                                <p className="mt-1 text-sm text-gray-700 dark:text-slate-300">
+                                                  {formatOfferCompensation(application.offer)}
+                                                </p>
+                                              )}
+                                            </>
+                                          ) : (
+                                            <p className="mt-1 text-sm text-gray-700 dark:text-slate-300">
+                                              The hiring team is preparing your offer details.
+                                            </p>
+                                          )}
+                                        </div>
+                                        {application.offer?.status && (
+                                          <span className={`inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+                                            application.offer.status === 'ACCEPTED'
+                                              ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-500/20 dark:text-emerald-200'
+                                              : application.offer.status === 'DECLINED'
+                                              ? 'bg-rose-100 text-rose-700 dark:bg-rose-500/20 dark:text-rose-200'
+                                              : 'bg-white/90 text-amber-700 dark:bg-slate-900/70 dark:text-amber-200'
+                                          }`}>
+                                            {application.offer.status}
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {application.offer && (
+                                        <>
+                                          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 text-xs text-gray-600 dark:text-slate-300">
+                                            {application.offer.startDate && (
+                                              <div className="flex items-center gap-2">
+                                                <Icon name="Calendar" className="w-3.5 h-3.5 shrink-0" />
+                                                <span>Start {formatDate(application.offer.startDate)}</span>
+                                              </div>
+                                            )}
+                                            {application.offer.expiresAt && (
+                                              <div className="flex items-center gap-2">
+                                                <Icon name="Clock" className="w-3.5 h-3.5 shrink-0" />
+                                                <span>Respond by {formatDate(application.offer.expiresAt)}</span>
+                                              </div>
+                                            )}
+                                          </div>
+                                          {application.offer.note && (
+                                            <p className="mt-3 text-sm text-gray-700 dark:text-slate-300 whitespace-pre-wrap">
+                                              {application.offer.note}
+                                            </p>
+                                          )}
+
+                                          {application.offer.status === 'DECLINED' && application.offer.declineReason && (
+                                            <div className="mt-3 rounded-lg border border-rose-200/80 dark:border-rose-500/30 bg-white/80 dark:bg-slate-900/60 px-3 py-2">
+                                              <p className="text-xs font-semibold uppercase tracking-[0.08em] text-rose-700 dark:text-rose-300">
+                                                Your decline note
+                                              </p>
+                                              <p className="mt-1 text-sm text-gray-700 dark:text-slate-300">
+                                                {application.offer.declineReason}
+                                              </p>
+                                            </div>
+                                          )}
+
+                                          {application.offer.status === 'PENDING' && application.status === 'OFFER' && (
+                                            <div className="mt-4 space-y-3">
+                                              {isOfferExpired(application.offer) ? (
+                                                <div className="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700 dark:border-rose-500/30 dark:bg-rose-500/10 dark:text-rose-200">
+                                                  This offer has expired. Please contact the hiring team if you need an updated offer.
+                                                </div>
+                                              ) : (
+                                                <>
+                                                  <div className="flex flex-wrap gap-2">
+                                                    <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      onClick={() => navigate(`/my-applications/${application.id}/offer`)}
+                                                      disabled={offerActionLoadingId === application.id}
+                                                    >
+                                                      View Full Offer
+                                                    </Button>
+                                                    <Button
+                                                      size="sm"
+                                                      onClick={() => handleAcceptOffer(application.id)}
+                                                      disabled={offerActionLoadingId === application.id}
+                                                      className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                                                    >
+                                                      Accept Offer
+                                                    </Button>
+                                                    <Button
+                                                      variant="outline"
+                                                      size="sm"
+                                                      onClick={() => setDeclineOfferDraft((previous) => ({
+                                                        applicationId: previous.applicationId === application.id ? null : application.id,
+                                                        reason: previous.applicationId === application.id ? '' : previous.reason,
+                                                      }))}
+                                                      disabled={offerActionLoadingId === application.id}
+                                                    >
+                                                      Decline Offer
+                                                    </Button>
+                                                  </div>
+
+                                                  {declineOfferDraft.applicationId === application.id && (
+                                                    <div className="space-y-2">
+                                                      <textarea
+                                                        value={declineOfferDraft.reason}
+                                                        onChange={(event) => setDeclineOfferDraft({
+                                                          applicationId: application.id,
+                                                          reason: event.target.value,
+                                                        })}
+                                                        placeholder="Optional note for the hiring team"
+                                                        className="min-h-[96px] w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:text-slate-100"
+                                                      />
+                                                      <div className="flex gap-2">
+                                                        <Button
+                                                          size="sm"
+                                                          variant="outline"
+                                                          onClick={() => setDeclineOfferDraft({ applicationId: null, reason: '' })}
+                                                          disabled={offerActionLoadingId === application.id}
+                                                        >
+                                                          Cancel
+                                                        </Button>
+                                                        <Button
+                                                          size="sm"
+                                                          onClick={() => handleDeclineOffer(application.id)}
+                                                          disabled={offerActionLoadingId === application.id}
+                                                          className="bg-rose-600 hover:bg-rose-700 text-white"
+                                                        >
+                                                          Confirm Decline
+                                                        </Button>
+                                                      </div>
+                                                    </div>
+                                                  )}
+                                                </>
+                                              )}
+                                            </div>
+                                          )}
+
+                                          {(application.offer.status === 'ACCEPTED' || application.offer.status === 'DECLINED') && (
+                                            <div className="mt-4 flex flex-wrap gap-2">
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={() => navigate(`/my-applications/${application.id}/offer`)}
+                                              >
+                                                View Full Offer
+                                              </Button>
+                                              {application.offer && (
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={() => downloadOfferDocument(application, { generatedFor: 'candidate' })}
+                                                >
+                                                  Download PDF
+                                                </Button>
+                                              )}
+                                              {canAccessHiredHandoff(application) && (
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={() => navigate(`/my-applications/${application.id}/handoff`)}
+                                                >
+                                                  View Handoff
+                                                </Button>
+                                              )}
+                                              {canAccessApplicationOnboarding(application) && (
+                                                <Button
+                                                  variant="outline"
+                                                  size="sm"
+                                                  onClick={() => navigate(`/my-applications/${application.id}/onboarding`)}
+                                                >
+                                                  Open Onboarding
+                                                </Button>
+                                              )}
+                                            </div>
+                                          )}
+                                        </>
+                                      )}
                                     </div>
                                   )}
 
@@ -724,22 +990,12 @@ const MyApplicationsList = () => {
 
             {/* Pagination Controls */}
             {totalPages > 1 && (
-              <div className="flex items-center justify-between gap-4 mt-6">
-                <div className="text-sm text-gray-600 dark:text-slate-400">
+              <div className="mt-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="text-sm leading-relaxed text-center text-gray-600 dark:text-slate-400 sm:text-left">
                   Showing {startIndex + 1} to {Math.min(endIndex, jobsArray.length)} of {jobsArray.length} positions
                 </div>
-                <div className="flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                    disabled={currentPage === 1}
-                    className="rounded-full"
-                  >
-                    <Icon name="ChevronLeft" size={16} />
-                    Previous
-                  </Button>
-                  <div className="flex items-center gap-1">
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:justify-end">
+                  <div className="order-first flex w-full items-center justify-center gap-1 sm:order-none sm:w-auto">
                     {Array.from({ length: totalPages }, (_, i) => i + 1).map((page) => {
                       if (
                         page === 1 ||
@@ -764,7 +1020,7 @@ const MyApplicationsList = () => {
                         page === currentPage + 2
                       ) {
                         return (
-                          <span key={page} className="text-gray-500 dark:text-slate-500 px-1">
+                          <span key={page} className="px-1 text-gray-500 dark:text-slate-500">
                             ...
                           </span>
                         );
@@ -775,11 +1031,25 @@ const MyApplicationsList = () => {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                    disabled={currentPage === 1}
+                    aria-label="Previous page"
+                    className="rounded-full min-w-[88px] justify-center px-3 sm:min-w-0 sm:px-4"
+                  >
+                    <Icon name="ChevronLeft" size={16} />
+                    <span aria-hidden="true" className="sm:hidden">Prev</span>
+                    <span aria-hidden="true" className="hidden sm:inline">Previous</span>
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
                     disabled={currentPage === totalPages}
-                    className="rounded-full"
+                    aria-label="Next page"
+                    className="rounded-full min-w-[88px] justify-center px-3 sm:min-w-0 sm:px-4"
                   >
-                    Next
+                    <span aria-hidden="true" className="sm:hidden">Next</span>
+                    <span aria-hidden="true" className="hidden sm:inline">Next</span>
                     <Icon name="ChevronRight" size={16} />
                   </Button>
                 </div>

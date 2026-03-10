@@ -16,7 +16,7 @@ router.get(
   authenticate,
   requireFeatureFlag('enableJobPosting'),
   requireOrganizationContext,
-  requireOrgRole(['ADMIN', 'RECRUITER', 'REVIEWER']),
+  requireOrgRole(['ADMIN', 'RECRUITER']),
   PipelineController.getPipeline,
 );
 

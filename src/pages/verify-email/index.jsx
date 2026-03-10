@@ -77,12 +77,6 @@ const VerifyEmail = () => {
         
         if (session) {
           // Session exists - user may have verified email
-          console.log('Session established:', { 
-            userId: session.user.id, 
-            email: session.user.email,
-            metadata: session.user.user_metadata 
-          });
-
           // Try to complete registration by syncing with backend
           try {
             // Check if this is a login attempt (not registration)
@@ -90,21 +84,16 @@ const VerifyEmail = () => {
             const socialAuthProvider = localStorage.getItem('socialAuthProvider') || 'Google';
             const isLoginAttempt = socialAuthIntent === 'login';
             
-            console.log('Social auth intent:', { isLoginAttempt, socialAuthIntent, socialAuthProvider });
-            
             // First, try to get user from backend (they might already be registered)
             let userExistsInBackend = false;
             let userData;
             
             try {
-              console.log('Checking if user exists in backend...');
               userData = await apiClient.auth.getMe();
-              console.log('getMe response:', userData);
               
               if (userData.success && userData.user) {
                 userExistsInBackend = true;
                 // User exists in backend, show success and redirect
-                console.log('User already exists in backend:', userData.user);
                 setStatus('success');
                 setMessage('Email verified successfully!');
                 localStorage.setItem('user', JSON.stringify(userData.user));
@@ -128,34 +117,26 @@ const VerifyEmail = () => {
               }
             } catch (getMeError) {
               // User doesn't exist in backend
-              console.log('User not found in backend:', getMeError.message);
               userExistsInBackend = false;
             }
             
             // If user doesn't exist and this is a login attempt, show error and DO NOT register
             if (!userExistsInBackend && isLoginAttempt) {
-              console.log('Login attempt failed - user does not exist in backend');
-              
               // Get the current user ID before signing out
               let userId = null;
               try {
                 const { data } = await authHelpers.getUser();
                 userId = data?.user?.id;
-                console.log('Current Firebase user ID:', userId);
               } catch (userError) {
                 console.error('Failed to get user ID:', userError);
               }
               
               // Delete the user from Firebase Auth since they shouldn't have been created
               if (userId) {
-                console.log('Attempting to delete Firebase auth user:', userId);
-                
                 try {
                   const deleteResult = await apiClient.auth.deleteUnregisteredAuthUser(userId);
-                  console.log('Delete auth user result:', deleteResult);
                   
                   if (deleteResult && deleteResult.success) {
-                    console.log('Successfully deleted unregistered auth user from Firebase');
                   } else {
                     console.warn('Failed to delete auth user:', deleteResult);
                   }
@@ -171,7 +152,6 @@ const VerifyEmail = () => {
               // Sign out after cleanup attempt
               try {
                 await authHelpers.signOut();
-                console.log('Signed out user from Firebase');
               } catch (signOutError) {
                 console.error('Failed to sign out:', signOutError);
               }
@@ -200,10 +180,8 @@ const VerifyEmail = () => {
             // So we proceed with registration
             
             if (!userExistsInBackend && !isLoginAttempt) {
-              console.log('Proceeding with registration for new user...');
             } else {
               // This shouldn't happen, but just in case
-              console.log('Unexpected state - stopping');
               return;
             }
 
@@ -234,21 +212,11 @@ const VerifyEmail = () => {
 
             const accountTypeUpper = (registrationData.accountType || 'candidate').toUpperCase();
             
-            console.log('Attempting to register user with data:', {
-              accountType: accountTypeUpper,
-              fullName: registrationData.fullName,
-              experienceLevel: registrationData.experienceLevel,
-              companyName: registrationData.companyName,
-              industry: registrationData.industry,
-            });
-
             // Verify we have a token before making the API call
-            const { authHelpers } = await import('../../config/firebase.js');
             const token = await authHelpers.getAccessToken();
             if (!token) {
               throw new Error('No authentication token available. Please try logging in again.');
             }
-            console.log('Auth token available. Redirecting to complete registration...');
 
             setStatus('success');
             setMessage('Email verified successfully! Please complete your account setup to finish registration.');

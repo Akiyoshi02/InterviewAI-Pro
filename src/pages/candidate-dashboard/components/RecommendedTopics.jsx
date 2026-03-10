@@ -169,7 +169,7 @@ const RecommendedTopics = ({
           iconName="BookOpen"
           iconPosition="left"
           onClick={() => navigate('/learning-center')}
-          className="rounded-full border border-gray-200 text-gray-700 hover:border-blue-300 hover:text-blue-600"
+          className="rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
         >
           Explore All Practice Topics
         </Button>

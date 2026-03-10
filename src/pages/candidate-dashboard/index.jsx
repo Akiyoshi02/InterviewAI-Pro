@@ -51,6 +51,7 @@ const PIPELINE_SEGMENTS = Object.freeze([
   { key: 'SCREENING', label: 'Screening', color: '#0ea5e9' },
   { key: 'INTERVIEWING', label: 'Interviewing', color: '#14b8a6' },
   { key: 'SHORTLISTED', label: 'Shortlisted', color: '#10b981' },
+  { key: 'OFFER', label: 'Offer', color: '#f59e0b' },
   { key: 'HIRED', label: 'Hired', color: '#22c55e' },
   { key: 'CLOSED', label: 'Closed', color: '#94a3b8' },
 ]);
@@ -80,7 +81,7 @@ const formatCompanyLabel = (company) => {
   if (!company) return '';
   if (typeof company === 'string') return company;
   if (typeof company === 'object') {
-    return company.companyName || company.fullName || company.email || '';
+    return company.displayName || company.name || company.companyName || company.fullName || company.email || '';
   }
   return '';
 };
@@ -140,12 +141,132 @@ const buildPerformanceTrend = (interviews = []) =>
       sessionLabel: `S${index + 1}`,
     }));
 
+const getSignedPointsLabel = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return 'N/A';
+  if (parsed === 0) return '0 pts';
+  return `${parsed > 0 ? '+' : ''}${parsed} pts`;
+};
+
+const buildTrajectorySummary = (trend = []) => {
+  if (!Array.isArray(trend) || trend.length === 0) return null;
+
+  const scores = trend
+    .map((entry) => Number(entry?.score))
+    .filter((score) => Number.isFinite(score));
+
+  if (!scores.length) return null;
+
+  const totalScore = scores.reduce((sum, score) => sum + score, 0);
+  const averageScore = Math.round(totalScore / scores.length);
+  const peakScore = Math.max(...scores);
+  const firstSession = trend[0];
+  const latestSession = trend[trend.length - 1];
+  const previousSession = trend.length > 1 ? trend[trend.length - 2] : null;
+  const recentSessions = trend
+    .map((entry, index) => ({
+      ...entry,
+      deltaFromPrevious: index > 0 ? entry.score - trend[index - 1].score : null,
+    }))
+    .slice(-4)
+    .reverse();
+  const netChange = latestSession && firstSession
+    ? latestSession.score - firstSession.score
+    : 0;
+  const latestDelta = latestSession && previousSession
+    ? latestSession.score - previousSession.score
+    : null;
+
+  if (averageScore === 0 && peakScore === 0) {
+    return {
+      averageScore,
+      peakScore,
+      trackedSessions: trend.length,
+      netChange,
+      recentSessions,
+      statusLabel: 'Baseline',
+      statusClassName: 'bg-slate-500/10 text-slate-600 dark:bg-slate-400/10 dark:text-slate-300',
+      coachTitle: 'Build the first lift',
+      coachNote: 'You have a clear baseline. Use the next practice run to improve one answer framework and one pacing habit.',
+    };
+  }
+
+  if (latestDelta != null && latestDelta >= 6) {
+    return {
+      averageScore,
+      peakScore,
+      trackedSessions: trend.length,
+      netChange,
+      recentSessions,
+      statusLabel: 'Rising',
+      statusClassName: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-400/10 dark:text-emerald-300',
+      coachTitle: 'Momentum is building',
+      coachNote: `Your latest session jumped ${getSignedPointsLabel(latestDelta)}. Repeat the prep pattern from that round while it is still fresh.`,
+    };
+  }
+
+  if (latestDelta != null && latestDelta <= -6) {
+    return {
+      averageScore,
+      peakScore,
+      trackedSessions: trend.length,
+      netChange,
+      recentSessions,
+      statusLabel: 'Cooling',
+      statusClassName: 'bg-rose-500/10 text-rose-600 dark:bg-rose-400/10 dark:text-rose-300',
+      coachTitle: 'Recent dip detected',
+      coachNote: `The latest session slipped ${getSignedPointsLabel(latestDelta)}. Review missed moments from the previous round before you practice again.`,
+    };
+  }
+
+  if (netChange >= 10) {
+    return {
+      averageScore,
+      peakScore,
+      trackedSessions: trend.length,
+      netChange,
+      recentSessions,
+      statusLabel: 'Positive',
+      statusClassName: 'bg-blue-500/10 text-blue-600 dark:bg-blue-400/10 dark:text-blue-300',
+      coachTitle: 'Trend is climbing',
+      coachNote: `Across the tracked window you are up ${getSignedPointsLabel(netChange)}. Focus on consistency so the next score does not fall back.`,
+    };
+  }
+
+  if (netChange <= -10) {
+    return {
+      averageScore,
+      peakScore,
+      trackedSessions: trend.length,
+      netChange,
+      recentSessions,
+      statusLabel: 'Rebuild',
+      statusClassName: 'bg-amber-500/10 text-amber-600 dark:bg-amber-400/10 dark:text-amber-300',
+      coachTitle: 'Stabilize the floor',
+      coachNote: `You are down ${getSignedPointsLabel(netChange)} across the tracked window. A focused fundamentals round should help reset the baseline.`,
+    };
+  }
+
+  return {
+    averageScore,
+    peakScore,
+    trackedSessions: trend.length,
+    netChange,
+    recentSessions,
+    statusLabel: 'Steady',
+    statusClassName: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-400/10 dark:text-cyan-300',
+    coachTitle: 'Progress is compact',
+    coachNote: 'Scores are clustering tightly. Pick one skill for the next round so the curve moves with intent.',
+  };
+};
+
 const toPipelineKey = (status) => {
   switch (status) {
     case 'SUBMITTED':
     case 'SCREENING':
     case 'INTERVIEWING':
     case 'SHORTLISTED':
+    case 'OFFER':
     case 'HIRED':
       return status;
     default:
@@ -172,9 +293,9 @@ const buildApplicationPipeline = (applications = []) => {
 
   const total = segments.reduce((sum, segment) => sum + segment.count, 0);
   const activeCount = segments
-    .filter((segment) => ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED'].includes(segment.key))
+    .filter((segment) => ['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'OFFER'].includes(segment.key))
     .reduce((sum, segment) => sum + segment.count, 0);
-  const strongSignalCount = (initialCounts.SHORTLISTED || 0) + (initialCounts.HIRED || 0);
+  const strongSignalCount = (initialCounts.SHORTLISTED || 0) + (initialCounts.OFFER || 0) + (initialCounts.HIRED || 0);
 
   return {
     segments,
@@ -382,6 +503,10 @@ const CandidateDashboard = () => {
     () => buildApplicationPipeline(safeApplications),
     [safeApplications],
   );
+  const trajectorySummary = useMemo(
+    () => buildTrajectorySummary(performanceTrend),
+    [performanceTrend],
+  );
   const showInitialLoader = dataLoading && !safeInterviews.length && !analytics;
 
   if (status === 'loading' || !user || showInitialLoader) {
@@ -445,7 +570,7 @@ const CandidateDashboard = () => {
     });
 
   const latestInterview = sortedActiveInterviews[0] || safeInterviews[0] || null;
-  const latestCompanyName = formatCompanyLabel(latestInterview?.company) || 'Interview AI';
+  const latestCompanyName = formatCompanyLabel(latestInterview?.organization || latestInterview?.company) || 'Interview AI';
   const latestInterviewDate = formatInterviewDate(
     latestInterview?.scheduledFor ||
     latestInterview?.date ||
@@ -638,7 +763,7 @@ const CandidateDashboard = () => {
                   />
 
                   <div className="grid grid-cols-1 2xl:grid-cols-5 gap-4">
-                    <div className="2xl:col-span-3 rounded-2xl border border-white/30 dark:border-slate-700/60 bg-white/85 dark:bg-slate-800/85 p-4 sm:p-5 shadow-[0_20px_50px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)] backdrop-blur">
+                    <div className="2xl:col-span-3 h-full rounded-2xl border border-white/30 dark:border-slate-700/60 bg-white/85 dark:bg-slate-800/85 p-4 sm:p-5 shadow-[0_20px_50px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_50px_rgba(0,0,0,0.4)] backdrop-blur flex flex-col">
                       <div className="flex items-start justify-between gap-3 mb-4">
                         <div>
                           <h3 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">
@@ -662,30 +787,125 @@ const CandidateDashboard = () => {
                       </div>
 
                       {performanceTrend.length > 1 && chartsEnabled ? (
-                        <div className="h-56">
-                          <ResponsiveContainer width="100%" height="100%">
-                            <AreaChart data={performanceTrend} margin={{ top: 12, right: 6, left: -22, bottom: 6 }}>
-                              <defs>
-                                <linearGradient id="scoreArea" x1="0" y1="0" x2="0" y2="1">
-                                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
-                                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0.04} />
-                                </linearGradient>
-                              </defs>
-                              <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.22)" />
-                              <XAxis dataKey="sessionLabel" tick={{ fontSize: 11, fill: '#64748b' }} />
-                              <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                              <Tooltip content={<TrendTooltip />} />
-                              <Area
-                                type="monotone"
-                                dataKey="score"
-                                stroke="#2563eb"
-                                strokeWidth={2.4}
-                                fill="url(#scoreArea)"
-                                activeDot={{ r: 4, fill: '#1d4ed8' }}
-                              />
-                            </AreaChart>
-                          </ResponsiveContainer>
-                        </div>
+                        <>
+                          <div className="h-56">
+                            <ResponsiveContainer width="100%" height="100%">
+                              <AreaChart data={performanceTrend} margin={{ top: 12, right: 6, left: -22, bottom: 6 }}>
+                                <defs>
+                                  <linearGradient id="scoreArea" x1="0" y1="0" x2="0" y2="1">
+                                    <stop offset="5%" stopColor="#2563eb" stopOpacity={0.35} />
+                                    <stop offset="95%" stopColor="#2563eb" stopOpacity={0.04} />
+                                  </linearGradient>
+                                </defs>
+                                <CartesianGrid strokeDasharray="3 3" stroke="rgba(148,163,184,0.22)" />
+                                <XAxis dataKey="sessionLabel" tick={{ fontSize: 11, fill: '#64748b' }} />
+                                <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
+                                <Tooltip content={<TrendTooltip />} />
+                                <Area
+                                  type="monotone"
+                                  dataKey="score"
+                                  stroke="#2563eb"
+                                  strokeWidth={2.4}
+                                  fill="url(#scoreArea)"
+                                  activeDot={{ r: 4, fill: '#1d4ed8' }}
+                                />
+                              </AreaChart>
+                            </ResponsiveContainer>
+                          </div>
+
+                          {trajectorySummary && (
+                            <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)] flex-1">
+                              <div className="rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/80 dark:bg-slate-900/40 p-3 sm:p-4">
+                                <div className="flex items-start justify-between gap-3">
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                                      Trajectory Signals
+                                    </p>
+                                    <h4 className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                      {trajectorySummary.coachTitle}
+                                    </h4>
+                                  </div>
+                                  <span className={`rounded-full px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide ${trajectorySummary.statusClassName}`}>
+                                    {trajectorySummary.statusLabel}
+                                  </span>
+                                </div>
+                                <p className="mt-2 text-xs sm:text-sm leading-relaxed text-gray-600 dark:text-slate-300">
+                                  {trajectorySummary.coachNote}
+                                </p>
+
+                                <div className="mt-3 grid grid-cols-2 gap-2">
+                                  <div className="rounded-lg border border-white/70 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/80 px-3 py-2.5">
+                                    <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Best score</p>
+                                    <p className="mt-1 text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                      {trajectorySummary.peakScore}%
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-white/70 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/80 px-3 py-2.5">
+                                    <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Average</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {trajectorySummary.averageScore}%
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-white/70 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/80 px-3 py-2.5">
+                                    <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Net change</p>
+                                    <p className={`mt-1 text-sm font-semibold ${trajectorySummary.netChange >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                      {getSignedPointsLabel(trajectorySummary.netChange)}
+                                    </p>
+                                  </div>
+                                  <div className="rounded-lg border border-white/70 dark:border-slate-700/70 bg-white/90 dark:bg-slate-800/80 px-3 py-2.5">
+                                    <p className="text-[11px] uppercase tracking-wide text-slate-500 dark:text-slate-400">Tracked</p>
+                                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                                      {trajectorySummary.trackedSessions} sessions
+                                    </p>
+                                  </div>
+                                </div>
+                              </div>
+
+                              <div className="rounded-xl border border-slate-200/70 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/30 p-3 sm:p-4">
+                                <div className="flex items-center justify-between gap-2">
+                                  <div>
+                                    <p className="text-[11px] uppercase tracking-[0.18em] text-slate-500 dark:text-slate-400">
+                                      Session Feed
+                                    </p>
+                                    <h4 className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                      Recent scored rounds
+                                    </h4>
+                                  </div>
+                                  <span className="rounded-full bg-slate-900/5 dark:bg-white/5 px-2.5 py-1 text-[11px] font-medium text-slate-500 dark:text-slate-400">
+                                    Last {trajectorySummary.recentSessions.length}
+                                  </span>
+                                </div>
+
+                                <div className="mt-3 space-y-2">
+                                  {trajectorySummary.recentSessions.map((session) => (
+                                    <div
+                                      key={session.id}
+                                      className="flex items-center justify-between gap-3 rounded-lg border border-slate-200/70 dark:border-slate-700/60 bg-slate-50/90 dark:bg-slate-800/70 px-3 py-2"
+                                    >
+                                      <div className="min-w-0">
+                                        <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                                          {session.sessionLabel}
+                                        </p>
+                                        <p className="text-xs text-gray-500 dark:text-slate-400">
+                                          {session.dateLabel}
+                                        </p>
+                                      </div>
+
+                                      <div className="text-right">
+                                        <p className="text-sm font-semibold text-blue-700 dark:text-blue-300">
+                                          {session.score}%
+                                        </p>
+                                        <p className={`text-[11px] font-medium ${session.deltaFromPrevious == null || session.deltaFromPrevious >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-rose-500 dark:text-rose-400'}`}>
+                                          {session.deltaFromPrevious == null ? 'Starting point' : getSignedPointsLabel(session.deltaFromPrevious)}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          )}
+                        </>
                       ) : (
                         <div className="rounded-xl border border-dashed border-blue-200/70 dark:border-blue-700/50 bg-blue-50/70 dark:bg-blue-900/15 p-5 text-center">
                           <Icon name="BarChart3" className="w-8 h-8 mx-auto text-blue-600 dark:text-blue-300 mb-2" />

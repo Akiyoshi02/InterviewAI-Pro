@@ -9,6 +9,7 @@ const BASE_APPLICATION_STATUSES = new Set([
   'SCREENING',
   'INTERVIEWING',
   'SHORTLISTED',
+  'OFFER',
   'REJECTED',
   'HIRED',
 ]);
@@ -18,26 +19,29 @@ const ACTIVE_DERIVED_STATUSES = new Set([
   'SCREENING',
   'INTERVIEWING',
   'SHORTLISTED',
+  'OFFER',
 ]);
 
 const FINAL_DERIVED_STATUSES = new Set([
+  'OFFER',
   'HIRED',
   'REJECTED',
   'WITHDRAWN',
   'POSITION_CLOSED',
 ]);
 
-const WITHDRAW_BLOCKED_STATUSES = new Set(['INTERVIEWING', 'REJECTED', 'HIRED']);
+const WITHDRAW_BLOCKED_STATUSES = new Set(['INTERVIEWING', 'OFFER', 'REJECTED', 'HIRED']);
 
 const STATUS_SORT_PRIORITY = Object.freeze({
   SUBMITTED: 1,
   SCREENING: 2,
   INTERVIEWING: 3,
   SHORTLISTED: 4,
-  HIRED: 5,
-  REJECTED: 6,
-  WITHDRAWN: 7,
-  POSITION_CLOSED: 8,
+  OFFER: 5,
+  HIRED: 6,
+  REJECTED: 7,
+  WITHDRAWN: 8,
+  POSITION_CLOSED: 9,
   UNKNOWN: 99,
 });
 
@@ -56,6 +60,7 @@ export const DERIVED_STATUS_LABELS = Object.freeze({
   SCREENING: 'Screening',
   INTERVIEWING: 'Interviewing',
   SHORTLISTED: 'Shortlisted',
+  OFFER: 'Offer',
   HIRED: 'Hired',
   REJECTED: 'Not Selected',
   WITHDRAWN: 'Withdrew',
@@ -86,6 +91,7 @@ export const APPLICATION_STATUS_FILTER_OPTIONS = Object.freeze([
   { value: 'SCREENING', label: 'Screening' },
   { value: 'INTERVIEWING', label: 'Interviewing' },
   { value: 'SHORTLISTED', label: 'Shortlisted' },
+  { value: 'OFFER', label: 'Offer' },
   { value: 'HIRED', label: 'Hired' },
   { value: 'WITHDRAWN', label: 'Withdrew' },
   { value: 'POSITION_CLOSED', label: 'Position Closed' },

@@ -7,6 +7,11 @@ import apiClient from '../../../services/apiClient.js';
 
 // ── Mocks ──────────────────────────────────────────────────────────────────
 const mockNavigate = vi.fn();
+let mockAuthState = {
+  user: { id: 'candidate-1', accountType: 'CANDIDATE' },
+  isAuthenticated: true,
+  logout: vi.fn(),
+};
 
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual('react-router-dom');
@@ -35,11 +40,7 @@ vi.mock('../../../components/ui/LoadingState', () => ({
 }));
 
 vi.mock('../../../contexts/AuthContext.jsx', () => ({
-  useAuth: () => ({
-    user: { id: 'candidate-1', accountType: 'CANDIDATE' },
-    isAuthenticated: true,
-    logout: vi.fn(),
-  }),
+  useAuth: () => mockAuthState,
 }));
 
 vi.mock('../../../hooks/useInterviewRealtimeFeed', () => ({
@@ -85,6 +86,11 @@ const sampleInterview = {
 describe('InterviewLobby', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    mockAuthState = {
+      user: { id: 'candidate-1', accountType: 'CANDIDATE' },
+      isAuthenticated: true,
+      logout: vi.fn(),
+    };
   });
 
   afterEach(() => {
@@ -93,13 +99,27 @@ describe('InterviewLobby', () => {
 
   // ── Loading state ──
   it('shows loading state initially', () => {
-    apiClient.interviews.getInterview.mockReturnValue(new Promise(() => {})); // never resolves
-    renderLobby();
+    apiClient.interviews.validateMeetingAccess.mockReturnValue(new Promise(() => {})); // never resolves
+    renderLobby('int-1', '?token=abc123');
     expect(screen.getByTestId('loading')).toBeTruthy();
   });
 
-  // ── No token → uses getInterview ──
-  it('calls getInterview when no token in URL', async () => {
+  it('shows a meeting-link-required message for candidates without a token', async () => {
+    renderLobby('int-1', '');
+
+    await waitFor(() => {
+      expect(screen.getByText('Use Your Email Join Link')).toBeTruthy();
+    });
+    expect(apiClient.interviews.getInterview).not.toHaveBeenCalled();
+    expect(apiClient.interviews.validateMeetingAccess).not.toHaveBeenCalled();
+  });
+
+  it('still allows company users to open the lobby without a token', async () => {
+    mockAuthState = {
+      user: { id: 'recruiter-1', accountType: 'COMPANY' },
+      isAuthenticated: true,
+      logout: vi.fn(),
+    };
     apiClient.interviews.getInterview.mockResolvedValue({
       success: true,
       interview: sampleInterview,
@@ -109,7 +129,6 @@ describe('InterviewLobby', () => {
     await waitFor(() => {
       expect(apiClient.interviews.getInterview).toHaveBeenCalledWith('int-1');
     });
-    expect(apiClient.interviews.validateMeetingAccess).not.toHaveBeenCalled();
   });
 
   // ── With token → uses validateMeetingAccess ──
@@ -128,12 +147,12 @@ describe('InterviewLobby', () => {
 
   // ── Success display ──
   it('renders interview details after successful load', async () => {
-    apiClient.interviews.getInterview.mockResolvedValue({
+    apiClient.interviews.validateMeetingAccess.mockResolvedValue({
       success: true,
       interview: sampleInterview,
     });
 
-    renderLobby('int-1', '');
+    renderLobby('int-1', '?token=abc123');
     await waitFor(() => {
       expect(screen.getByText('Software Engineer')).toBeTruthy();
     });
@@ -143,18 +162,18 @@ describe('InterviewLobby', () => {
 
   // ── Start Interview button navigates ──
   it('navigates to live-interview-session on Start Interview click', async () => {
-    apiClient.interviews.getInterview.mockResolvedValue({
+    apiClient.interviews.validateMeetingAccess.mockResolvedValue({
       success: true,
       interview: sampleInterview,
     });
 
-    renderLobby('int-1', '');
+    renderLobby('int-1', '?token=abc123');
     await waitFor(() => {
       expect(screen.getByText('Software Engineer')).toBeTruthy();
     });
 
     fireEvent.click(screen.getByText('Start Interview'));
-    expect(mockNavigate).toHaveBeenCalledWith('/live-interview-session?interviewId=int-1');
+    expect(mockNavigate).toHaveBeenCalledWith('/live-interview-session?interviewId=int-1&token=abc123');
   });
 
   // ── TOO_EARLY error ──
@@ -200,6 +219,11 @@ describe('InterviewLobby', () => {
 
   // ── Generic error (no access code) ──
   it('shows generic error for non-access-code failures', async () => {
+    mockAuthState = {
+      user: { id: 'recruiter-1', accountType: 'COMPANY' },
+      isAuthenticated: true,
+      logout: vi.fn(),
+    };
     apiClient.interviews.getInterview.mockRejectedValue(new Error('Network error'));
 
     renderLobby('int-1', '');

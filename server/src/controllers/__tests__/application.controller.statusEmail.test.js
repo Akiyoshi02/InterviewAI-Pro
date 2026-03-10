@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 
 const mockJobApplicationStore = {
   getById: jest.fn(),
+  checkDuplicate: jest.fn(),
   update: jest.fn(),
 };
 
@@ -20,6 +21,7 @@ const mockInterviewStore = {
 
 const mockUserStore = {
   getSummary: jest.fn(),
+  getById: jest.fn(),
 };
 
 const mockActivityLogStore = {
@@ -28,6 +30,9 @@ const mockActivityLogStore = {
 
 const mockOrganizationStore = {
   getById: jest.fn(),
+};
+const mockOrganizationMemberStore = {
+  listByOrganization: jest.fn(),
 };
 
 const mockPublishOrganizationRealtimeUpdate = jest.fn();
@@ -55,6 +60,7 @@ jest.unstable_mockModule('../../services/firebaseData.service.js', () => ({
   userStore: mockUserStore,
   activityLogStore: mockActivityLogStore,
   organizationStore: mockOrganizationStore,
+  organizationMemberStore: mockOrganizationMemberStore,
   isJobCurrentlyPublic: jest.fn(() => true),
   publishOrganizationRealtimeUpdate: mockPublishOrganizationRealtimeUpdate,
   publishCandidateRealtimeUpdate: mockPublishCandidateRealtimeUpdate,
@@ -92,9 +98,132 @@ const buildReq = (status = 'SCREENING') => ({
   },
 });
 
+describe('ApplicationController.getApplication scheduling preview', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockJobApplicationStore.checkDuplicate.mockResolvedValue(null);
+    mockOrganizationMemberStore.listByOrganization.mockResolvedValue([
+      { userId: 'reviewer-1', role: 'REVIEWER', status: 'ACTIVE' },
+      { userId: 'company-admin-1', role: 'ADMIN', status: 'ACTIVE' },
+    ]);
+
+    mockJobApplicationStore.getById.mockResolvedValue({
+      id: 'app-1',
+      jobId: 'job-1',
+      candidateId: 'candidate-1',
+      organizationId: 'org-1',
+      status: 'SCREENING',
+      reviewedBy: 'reviewer-1',
+    });
+    mockJobStore.getById.mockResolvedValue({
+      id: 'job-1',
+      title: 'Senior Frontend Engineer',
+      templateConfig: { duration: 45 },
+    });
+    mockInterviewStore.getById.mockResolvedValue(null);
+    mockUserStore.getSummary.mockResolvedValue({
+      id: 'candidate-1',
+      fullName: 'Candidate One',
+      email: 'candidate@example.com',
+    });
+    mockUserStore.getById.mockImplementation(async (id) => {
+      if (id === 'reviewer-1') {
+        return {
+          id: 'reviewer-1',
+          accountType: 'COMPANY',
+          fullName: 'Reviewer One',
+          timezone: 'Asia/Colombo',
+          profile: {
+            timezone: 'Asia/Colombo',
+            interviewAvailability: {
+              timezone: 'Asia/Colombo',
+              workingDays: [2, 4],
+              businessHoursStart: '10:00',
+              businessHoursEnd: '16:00',
+              maxInterviewsPerDay: 4,
+            },
+          },
+        };
+      }
+      return null;
+    });
+    mockOrganizationStore.getById.mockResolvedValue({
+      id: 'org-1',
+      name: 'Cynectex',
+      settings: {
+        interviewAutomation: {
+          timezone: 'Asia/Colombo',
+          leadHours: 6,
+          slotMinutes: 30,
+          scheduleWindowDays: 10,
+          durationMinutes: 30,
+          businessHoursStart: '09:00',
+          businessHoursEnd: '17:00',
+          workingDays: [1, 2, 3, 4, 5],
+          conflictScope: 'RECRUITER',
+        },
+      },
+    });
+  });
+
+  it('returns recruiter-aware scheduling preview data for company users', async () => {
+    const req = {
+      params: { id: 'app-1' },
+      user: {
+        id: 'reviewer-1',
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: { id: 'org-1' },
+          membership: { role: 'ADMIN' },
+        },
+      },
+    };
+    const res = createResponse();
+    const next = jest.fn();
+
+    await ApplicationController.getApplication(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      application: expect.objectContaining({
+        interviewSchedulingPreview: expect.objectContaining({
+          timezone: 'Asia/Colombo',
+          leadHours: 6,
+          slotMinutes: 30,
+          scheduleWindowDays: 10,
+          workingDays: [2, 4],
+          businessHoursStartMinutes: 10 * 60,
+          businessHoursEndMinutes: 16 * 60,
+          availabilitySource: 'RECRUITER',
+          assignedRecruiterId: 'reviewer-1',
+          assignedRecruiterName: 'Reviewer One',
+        }),
+        interviewSchedulingPreviewError: null,
+      }),
+    }));
+  });
+});
+
+const futureWeekdayIso = (weekday, hour = 12, minute = 0, minimumDaysAhead = 2) => {
+  const date = new Date();
+  date.setUTCSeconds(0, 0);
+  date.setUTCDate(date.getUTCDate() + minimumDaysAhead);
+  while (date.getUTCDay() !== weekday) {
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  date.setUTCHours(hour, minute, 0, 0);
+  return date.toISOString();
+};
+
 describe('ApplicationController.updateApplicationStatus email queuing', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockJobApplicationStore.checkDuplicate.mockResolvedValue(null);
+    mockOrganizationMemberStore.listByOrganization.mockResolvedValue([
+      { userId: 'reviewer-1', role: 'REVIEWER', status: 'ACTIVE' },
+      { userId: 'company-admin-1', role: 'ADMIN', status: 'ACTIVE' },
+    ]);
 
     mockActivityLogStore.record.mockResolvedValue(undefined);
     mockPublishOrganizationRealtimeUpdate.mockResolvedValue(undefined);
@@ -114,6 +243,15 @@ describe('ApplicationController.updateApplicationStatus email queuing', () => {
       email: 'candidate@example.com',
       fullName: 'Candidate One',
     });
+    mockUserStore.getById.mockImplementation(async (id) => ({
+      id,
+      accountType: 'COMPANY',
+      timezone: 'UTC',
+      profile: {
+        timezone: 'UTC',
+        interviewAvailability: null,
+      },
+    }));
     mockJobStore.getById.mockResolvedValue({
       id: 'job-1',
       title: 'Senior Frontend Engineer',
@@ -270,6 +408,19 @@ describe('ApplicationController.updateApplicationStatus email queuing', () => {
     const queueTypes = mockQueueEmailJob.mock.calls.map((call) => call[0]?.type);
     expect(queueTypes).toContain('APPLICATION_STATUS_UPDATED');
     expect(queueTypes).toContain('INTERVIEW_SCHEDULED');
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      application: expect.objectContaining({
+        status: 'INTERVIEWING',
+        job: expect.objectContaining({
+          title: 'Senior Frontend Engineer',
+          isDeleted: false,
+        }),
+        organization: expect.objectContaining({
+          name: 'Cynectex',
+        }),
+      }),
+    }));
   });
 
   it('skips conflicting slots and picks the next valid automation slot', async () => {
@@ -458,5 +609,342 @@ describe('ApplicationController.updateApplicationStatus email queuing', () => {
         scheduled: false,
       }),
     }));
+  });
+
+  it('persists reviewer assignments when moving a candidate to interviewing', async () => {
+    const submitted = {
+      id: 'app-1',
+      jobId: 'job-1',
+      candidateId: 'candidate-1',
+      organizationId: 'org-1',
+      status: 'SCREENING',
+      statusHistory: [],
+    };
+    const interviewing = {
+      ...submitted,
+      status: 'INTERVIEWING',
+      dispositionReason: null,
+      statusHistory: [],
+    };
+
+    mockJobApplicationStore.getById.mockResolvedValue(submitted);
+    mockJobApplicationStore.update.mockImplementation(async (_id, payload) => {
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        return interviewing;
+      }
+      return {
+        ...interviewing,
+        ...payload,
+      };
+    });
+    mockInterviewStore.create.mockImplementation(async (payload) => ({
+      id: 'int-1',
+      ...payload,
+    }));
+    mockOrganizationStore.getById.mockResolvedValue({
+      id: 'org-1',
+      name: 'Cynectex',
+      displayName: 'Cynectex',
+      settings: {
+        interviewAutomation: {
+          autoScheduleOnInterviewing: false,
+        },
+      },
+    });
+
+    const req = buildReq('INTERVIEWING');
+    req.body.interviewSchedulingMode = 'MANUAL';
+    req.body.reviewerAssignments = ['reviewer-1'];
+    const res = createResponse();
+    const next = jest.fn();
+
+    await ApplicationController.updateApplicationStatus(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(mockOrganizationMemberStore.listByOrganization).toHaveBeenCalledWith('org-1');
+    expect(mockInterviewStore.create).toHaveBeenCalledWith(expect.objectContaining({
+      planStageId: 'recruiter-screen',
+      planStageName: 'Recruiter Screen',
+      reviewerAssignments: [],
+      reviewRequests: [],
+    }));
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      application: expect.objectContaining({
+        interviewPlan: expect.objectContaining({
+          stages: expect.arrayContaining([
+            expect.objectContaining({
+              id: 'sme-interview',
+              reviewerAssignments: ['reviewer-1'],
+            }),
+          ]),
+        }),
+      }),
+    }));
+  });
+
+  it('uses the linked interview recruiter instead of the acting admin for automation availability', async () => {
+    jest.useFakeTimers().setSystemTime(new Date('2026-03-08T08:05:00.000Z'));
+    try {
+      const submitted = {
+        id: 'app-1',
+        jobId: 'job-1',
+        candidateId: 'candidate-1',
+        organizationId: 'org-1',
+        status: 'SCREENING',
+        statusHistory: [],
+        interviewId: 'int-1',
+      };
+      const interviewing = {
+        ...submitted,
+        status: 'INTERVIEWING',
+        dispositionReason: null,
+        statusHistory: [],
+      };
+
+      mockJobApplicationStore.getById.mockResolvedValue(submitted);
+      mockJobApplicationStore.update.mockImplementation(async (_id, payload) => {
+        if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+          return interviewing;
+        }
+        return {
+          ...interviewing,
+          ...payload,
+        };
+      });
+      mockInterviewStore.getById.mockResolvedValue({
+        id: 'int-1',
+        mode: 'HIRING',
+        status: 'PENDING',
+        candidateId: 'candidate-1',
+        companyId: 'assigned-recruiter-1',
+        organizationId: 'org-1',
+        jobId: 'job-1',
+      });
+      mockInterviewStore.update.mockImplementation(async (_id, payload) => ({
+        id: 'int-1',
+        companyId: 'assigned-recruiter-1',
+        ...payload,
+      }));
+      mockUserStore.getById.mockImplementation(async (id) => {
+        if (id === 'assigned-recruiter-1') {
+          return {
+            id,
+            accountType: 'COMPANY',
+            timezone: 'UTC',
+            profile: {
+              timezone: 'UTC',
+              interviewAvailability: {
+                timezone: 'UTC',
+                workingDays: [1],
+                businessHoursStart: '09:00',
+                businessHoursEnd: '10:00',
+                maxInterviewsPerDay: 4,
+              },
+            },
+          };
+        }
+        if (id === 'company-admin-1') {
+          return {
+            id,
+            accountType: 'COMPANY',
+            timezone: 'UTC',
+            profile: {
+              timezone: 'UTC',
+              interviewAvailability: {
+                timezone: 'UTC',
+                workingDays: [2],
+                businessHoursStart: '12:00',
+                businessHoursEnd: '13:00',
+                maxInterviewsPerDay: 4,
+              },
+            },
+          };
+        }
+        return null;
+      });
+      mockOrganizationStore.getById.mockResolvedValue({
+        id: 'org-1',
+        name: 'Cynectex',
+        displayName: 'Cynectex',
+        settings: {
+          interviewAutomation: {
+            autoScheduleOnInterviewing: true,
+            timezone: 'UTC',
+            leadHours: 1,
+            slotMinutes: 30,
+            durationMinutes: 30,
+            bufferMinutes: 0,
+            scheduleWindowDays: 7,
+            businessHoursStart: '09:00',
+            businessHoursEnd: '17:00',
+            workingDays: [1, 2, 3, 4, 5],
+            maxInterviewsPerDay: 8,
+            conflictScope: 'RECRUITER',
+          },
+        },
+      });
+
+      const req = buildReq('INTERVIEWING');
+      const res = createResponse();
+      const next = jest.fn();
+
+      await ApplicationController.updateApplicationStatus(req, res, next);
+
+      expect(next).not.toHaveBeenCalled();
+      expect(mockInterviewStore.listByCompany).toHaveBeenCalledWith('assigned-recruiter-1', { limit: 200 });
+      expect(mockUserStore.getById).toHaveBeenCalledWith('assigned-recruiter-1');
+      expect(mockInterviewStore.update).toHaveBeenCalledWith(
+        'int-1',
+        expect.objectContaining({
+          scheduledFor: '2026-03-09T09:00:00.000Z',
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('keeps the interview pending and returns a warning when assigned recruiter availability cannot be loaded', async () => {
+    const submitted = {
+      id: 'app-1',
+      jobId: 'job-1',
+      candidateId: 'candidate-1',
+      organizationId: 'org-1',
+      status: 'SCREENING',
+      statusHistory: [],
+    };
+    const interviewing = {
+      ...submitted,
+      status: 'INTERVIEWING',
+      dispositionReason: null,
+      statusHistory: [],
+    };
+
+    mockJobApplicationStore.getById.mockResolvedValue(submitted);
+    mockJobApplicationStore.update.mockImplementation(async (_id, payload) => {
+      if (Object.prototype.hasOwnProperty.call(payload, 'status')) {
+        return interviewing;
+      }
+      return {
+        ...interviewing,
+        ...payload,
+      };
+    });
+    mockInterviewStore.create.mockImplementation(async (payload) => ({
+      id: 'int-1',
+      ...payload,
+    }));
+    mockUserStore.getById.mockRejectedValue(new Error('user store unavailable'));
+    mockOrganizationStore.getById.mockResolvedValue({
+      id: 'org-1',
+      name: 'Cynectex',
+      displayName: 'Cynectex',
+      settings: {
+        interviewAutomation: {
+          autoScheduleOnInterviewing: true,
+          timezone: 'UTC',
+          leadHours: 1,
+          slotMinutes: 30,
+          durationMinutes: 30,
+          bufferMinutes: 0,
+          scheduleWindowDays: 7,
+          businessHoursStart: '09:00',
+          businessHoursEnd: '17:00',
+          workingDays: [1, 2, 3, 4, 5],
+          maxInterviewsPerDay: 8,
+          conflictScope: 'RECRUITER',
+        },
+      },
+    });
+
+    const req = buildReq('INTERVIEWING');
+    const res = createResponse();
+    const next = jest.fn();
+
+    await ApplicationController.updateApplicationStatus(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(mockInterviewStore.create).toHaveBeenCalledWith(expect.objectContaining({
+      companyId: 'company-admin-1',
+      status: 'PENDING',
+      scheduledFor: null,
+    }));
+    expect(mockInterviewStore.update).not.toHaveBeenCalledWith(
+      'int-1',
+      expect.objectContaining({ status: 'SCHEDULED' }),
+    );
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      warning: 'Assigned recruiter availability could not be loaded. Interview was created without automatic scheduling.',
+      interviewAutomation: expect.objectContaining({
+        scheduled: false,
+      }),
+    }));
+  });
+
+  it('blocks moving an application to offer until the final interview round has a pass outcome', async () => {
+    mockJobApplicationStore.getById.mockResolvedValue({
+      id: 'app-1',
+      jobId: 'job-1',
+      candidateId: 'candidate-1',
+      organizationId: 'org-1',
+      status: 'INTERVIEWING',
+      interviewPlan: {
+        version: 1,
+        source: 'JOB_TEMPLATE',
+        generatedAt: '2026-03-10T08:20:00.843Z',
+        status: 'COMPLETED',
+        currentStageId: 'final-interview',
+        stages: [
+          {
+            id: 'recruiter-screen',
+            sequence: 1,
+            name: 'Recruiter Screen',
+            category: 'SCREENING',
+            status: 'COMPLETED',
+            outcome: 'PASS',
+            advanceRule: 'PASS_REQUIRED',
+          },
+          {
+            id: 'sme-interview',
+            sequence: 2,
+            name: 'SME Interview',
+            category: 'TECHNICAL',
+            status: 'COMPLETED',
+            outcome: 'PASS',
+            advanceRule: 'PASS_REQUIRED',
+          },
+          {
+            id: 'final-interview',
+            sequence: 3,
+            name: 'Final Interview',
+            category: 'FINAL',
+            status: 'COMPLETED',
+            outcome: 'PENDING',
+            advanceRule: 'PASS_REQUIRED',
+          },
+        ],
+      },
+      statusHistory: [],
+    });
+
+    const req = buildReq('OFFER');
+    const res = createResponse();
+    const next = jest.fn();
+
+    await ApplicationController.updateApplicationStatus(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      error: 'Record a Pass outcome for this stage before creating the next stage.',
+      code: 'INTERVIEW_STAGE_OUTCOME_REQUIRED',
+      details: expect.objectContaining({
+        blockingStageId: 'final-interview',
+        blockingStageName: 'Final Interview',
+        blockingStageOutcome: 'PENDING',
+        blockingStageStatus: 'COMPLETED',
+      }),
+    }));
+    expect(mockJobApplicationStore.update).not.toHaveBeenCalled();
   });
 });

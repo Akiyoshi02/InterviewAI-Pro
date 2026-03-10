@@ -24,6 +24,10 @@ const COLLECTIONS = {
   ANALYTICS_DATASETS: 'trainingDatasets_analytics',
   DATASET_METADATA: 'trainingDatasets_metadata',
 };
+const MAX_ANALYTICS_DATASET_POINTS = Math.max(
+  60,
+  Number.parseInt(process.env.MAX_ANALYTICS_DATASET_POINTS || '180', 10) || 180,
+);
 
 /**
  * Normalize incoming training examples to the canonical array shape.
@@ -35,6 +39,45 @@ const normalizeTrainingData = (value) => {
     return [value];
   }
   return [];
+};
+
+const compactAnalyticsPoint = (point = {}) => ({
+  timestamp: Number.isFinite(point.timestamp) ? point.timestamp : 0,
+  frameNumber: Number.isFinite(point.frameNumber) ? point.frameNumber : 0,
+  scores: {
+    posture: Number.isFinite(point.scores?.posture) ? point.scores.posture : 0,
+    attention: Number.isFinite(point.scores?.attention) ? point.scores.attention : 0,
+    bodyLanguage: Number.isFinite(point.scores?.bodyLanguage) ? point.scores.bodyLanguage : 0,
+    overall: Number.isFinite(point.scores?.overall) ? point.scores.overall : 0,
+  },
+  bodyLanguage: {
+    posture: point.bodyLanguage?.posture || null,
+    eyeContact: point.bodyLanguage?.eyeContact || null,
+    headPosition: point.bodyLanguage?.headPosition || null,
+    handMovement: point.bodyLanguage?.handMovement || null,
+  },
+  signals: {
+    poseDetected: Boolean(point.pose),
+    faceDetected: Boolean(point.face),
+  },
+});
+
+const sampleAnalyticsPoints = (dataPoints = [], maxPoints = MAX_ANALYTICS_DATASET_POINTS) => {
+  if (!Array.isArray(dataPoints) || dataPoints.length <= maxPoints) {
+    return dataPoints.map(compactAnalyticsPoint);
+  }
+
+  const sampled = [];
+  const lastIndex = dataPoints.length - 1;
+  for (let index = 0; index < maxPoints; index += 1) {
+    const sourceIndex = Math.min(
+      lastIndex,
+      Math.round((index * lastIndex) / Math.max(maxPoints - 1, 1)),
+    );
+    sampled.push(compactAnalyticsPoint(dataPoints[sourceIndex]));
+  }
+
+  return sampled;
 };
 
 /**
@@ -160,6 +203,8 @@ export const saveAnalyticsDataset = async (req, res) => {
       });
     }
 
+    const sampledPoints = sampleAnalyticsPoints(dataPoints);
+
     // Prepare analytics dataset document
     const dataset = {
       sessionId,
@@ -174,20 +219,18 @@ export const saveAnalyticsDataset = async (req, res) => {
         detectionInterval: config?.detectionInterval || 100,
       },
       data: {
-        dataPoints: dataPoints.map(point => ({
-          timestamp: point.timestamp,
-          frameNumber: point.frameNumber,
-          pose: point.pose || {},
-          face: point.face || {},
-          bodyLanguage: point.bodyLanguage || {},
-          scores: point.scores || {},
-        })),
+        dataPoints: sampledPoints,
         totalFrames: dataPoints.length,
+        storedFrames: sampledPoints.length,
+        wasSampled: sampledPoints.length !== dataPoints.length,
         duration: dataPoints.length > 0
           ? dataPoints[dataPoints.length - 1].timestamp - dataPoints[0].timestamp
           : 0,
       },
-      summary: summary || {},
+      summary: {
+        ...(summary || {}),
+        storedFrames: sampledPoints.length,
+      },
       referenceComparison: calculateReferenceComparison(dataPoints),
       metadata: {
         createdAt: nowIso,

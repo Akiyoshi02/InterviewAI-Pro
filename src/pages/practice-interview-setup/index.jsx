@@ -265,10 +265,10 @@ const PracticeInterviewSetup = () => {
           <div className="space-y-6">
             {/* Template Quick-start */}
             {!showTemplateSelector ? (
-              <div className="rounded-xl border border-blue-100 dark:border-blue-800/40 bg-blue-50/60 dark:bg-blue-900/10 p-4 flex items-center justify-between gap-3">
-                <div>
+              <div className="flex flex-col gap-3 rounded-xl border border-blue-100 bg-blue-50/60 p-4 dark:border-blue-800/40 dark:bg-blue-900/10 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
                   <p className="text-sm font-medium text-blue-800 dark:text-blue-200">Start from a template</p>
-                  <p className="text-xs text-blue-600 dark:text-blue-400 mt-0.5">Use a pre-built configuration for common roles</p>
+                  <p className="mt-0.5 text-xs leading-relaxed text-blue-600 dark:text-blue-400">Use a pre-built configuration for common roles</p>
                 </div>
                 <Button
                   variant="outline"
@@ -276,6 +276,7 @@ const PracticeInterviewSetup = () => {
                   onClick={() => setShowTemplateSelector(true)}
                   iconName="Zap"
                   iconPosition="left"
+                  className="w-full justify-center sm:w-auto"
                 >
                   Browse Templates
                 </Button>

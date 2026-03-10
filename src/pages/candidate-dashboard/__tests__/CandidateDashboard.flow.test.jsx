@@ -112,6 +112,19 @@ vi.mock('../../../components/ui/LoadingState.jsx', () => ({
   default: ({ title }) => <div>{title}</div>,
 }));
 
+vi.mock('recharts', () => ({
+  ResponsiveContainer: ({ children }) => <div data-testid="mock-responsive-container">{children}</div>,
+  AreaChart: () => <div data-testid="mock-area-chart" />,
+  Area: () => null,
+  XAxis: () => null,
+  YAxis: () => null,
+  CartesianGrid: () => null,
+  Tooltip: () => null,
+  PieChart: () => <div data-testid="mock-pie-chart" />,
+  Pie: () => null,
+  Cell: () => null,
+}));
+
 describe('CandidateDashboard flow', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
@@ -169,6 +182,7 @@ describe('CandidateDashboard flow', () => {
 
   afterEach(() => {
     cleanup();
+    vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
@@ -199,7 +213,7 @@ describe('CandidateDashboard flow', () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'View All' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'View All' }));
     expect(mockNavigate).toHaveBeenCalledWith('/my-applications');
   });
 
@@ -260,6 +274,54 @@ describe('CandidateDashboard flow', () => {
       expect(screen.queryByTestId('dashboard-quick-actions')).not.toBeNull();
       expect(screen.queryByTestId('progress-overview-card')).not.toBeNull();
       expect(screen.queryByTestId('recent-activity-feed')).not.toBeNull();
+    });
+  });
+
+  it('uses the extra trajectory card space for trend insights when scored sessions exist', async () => {
+    vi.stubGlobal('ResizeObserver', class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    });
+
+    apiClient.interviews.getMyInterviews.mockResolvedValue({
+      success: true,
+      interviews: [
+        {
+          id: 'interview_1',
+          status: 'COMPLETED',
+          overallScore: 42,
+          endedAt: '2026-02-01T11:30:00.000Z',
+        },
+        {
+          id: 'interview_2',
+          status: 'COMPLETED',
+          overallScore: 55,
+          endedAt: '2026-02-08T11:30:00.000Z',
+        },
+        {
+          id: 'interview_3',
+          status: 'COMPLETED',
+          overallScore: 63,
+          endedAt: '2026-02-15T11:30:00.000Z',
+        },
+        {
+          id: 'interview_4',
+          status: 'SCHEDULED',
+          company: 'Acme Corp',
+          scheduledFor: '2026-03-12T11:30:00.000Z',
+        },
+      ],
+    });
+
+    renderDashboard();
+
+    await waitFor(() => {
+      expect(screen.queryByText('Trajectory Signals')).not.toBeNull();
+      expect(screen.queryByText('Session Feed')).not.toBeNull();
+      expect(screen.queryByText('Momentum is building')).not.toBeNull();
+      expect(screen.queryByText('3 sessions')).not.toBeNull();
+      expect(screen.queryByText('Last 3')).not.toBeNull();
     });
   });
 

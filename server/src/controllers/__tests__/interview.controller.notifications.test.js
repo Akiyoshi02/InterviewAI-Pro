@@ -17,6 +17,8 @@ const mockInvitationStore = {
 };
 
 const mockJobApplicationStore = {
+  getById: jest.fn(),
+  checkDuplicate: jest.fn(),
   update: jest.fn(),
 };
 
@@ -26,6 +28,18 @@ const mockJobStore = {
 
 const mockOrganizationStore = {
   getById: jest.fn(),
+};
+
+const mockOrganizationMemberStore = {
+  listByOrganization: jest.fn(),
+  getMember: jest.fn(),
+};
+
+const mockReviewStore = {
+  getByInterviewAndReviewer: jest.fn(),
+  listByInterview: jest.fn(),
+  create: jest.fn(),
+  update: jest.fn(),
 };
 
 const mockNotificationStore = {
@@ -90,11 +104,13 @@ jest.unstable_mockModule('../../services/firebaseData.service.js', () => ({
   jobApplicationStore: mockJobApplicationStore,
   jobStore: mockJobStore,
   organizationStore: mockOrganizationStore,
+  organizationMemberStore: mockOrganizationMemberStore,
   notificationStore: mockNotificationStore,
   publishAdminRealtimeUpdate: mockPublishAdminRealtimeUpdate,
   publishCandidateRealtimeUpdate: mockPublishCandidateRealtimeUpdate,
   publishOrganizationRealtimeUpdate: mockPublishOrganizationRealtimeUpdate,
   recordRealtimeEvent: mockRecordRealtimeEvent,
+  reviewStore: mockReviewStore,
   systemSettingsStore: mockSystemSettingsStore,
   userStore: mockUserStore,
 }));
@@ -173,7 +189,11 @@ describe('InterviewController lifecycle email queuing', () => {
     mockPublishOrganizationRealtimeUpdate.mockResolvedValue(undefined);
     mockNotificationStore.create.mockResolvedValue({ id: 'notif-1' });
     mockInvitationStore.getById.mockResolvedValue(null);
+    mockJobApplicationStore.getById.mockResolvedValue(null);
+    mockJobApplicationStore.checkDuplicate.mockResolvedValue(null);
     mockJobApplicationStore.update.mockResolvedValue(undefined);
+    mockOrganizationMemberStore.listByOrganization.mockResolvedValue([]);
+    mockOrganizationMemberStore.getMember.mockResolvedValue(null);
     mockOnFirstInterviewInternal.mockResolvedValue({ success: true });
     mockInterviewStore.listByCompany.mockResolvedValue([]);
     mockInterviewStore.listByOrganization.mockResolvedValue([]);

@@ -6,12 +6,15 @@ import {
   Twitter, Linkedin, Github, Globe, ArrowUpRight 
 } from 'lucide-react';
 import Button from '../ui/Button';
+import apiClient from '../../services/apiClient.js';
+import { getSupportContactEmail, getSupportMailtoHref, SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '../../constants/support.js';
 
 const PublicFooter = () => {
   const navigate = useNavigate();
   const [newsletterEmail, setNewsletterEmail] = useState('');
   const [newsletterStatus, setNewsletterStatus] = useState({ type: '', message: '' });
   const [isSubmittingNewsletter, setIsSubmittingNewsletter] = useState(false);
+  const supportContactEmail = getSupportContactEmail();
 
   const footerHighlights = [
     { icon: Users, label: 'Professionals coached', value: '50K+' },
@@ -20,8 +23,8 @@ const PublicFooter = () => {
   ];
 
   const contactChannels = [
-    { icon: Mail, label: 'Email', value: 'akiyoshiyapa@gmail.com', href: 'mailto:akiyoshiyapa@gmail.com' },
-    { icon: PhoneCall, label: 'Phone', value: '+94 71 121 4592', href: 'tel:+94711214592' }
+    { icon: Mail, label: 'Email', value: supportContactEmail, href: getSupportMailtoHref() },
+    { icon: PhoneCall, label: 'Phone', value: SUPPORT_PHONE_DISPLAY, href: SUPPORT_PHONE_HREF }
   ];
 
   const socialLinks = [
@@ -89,7 +92,6 @@ const PublicFooter = () => {
     setNewsletterStatus({ type: '', message: '' });
 
     try {
-      const apiClient = (await import('../../services/apiClient.js')).default;
       const response = await apiClient.newsletter.subscribe(newsletterEmail);
 
       if (response.success) {

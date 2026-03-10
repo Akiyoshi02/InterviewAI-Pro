@@ -4,6 +4,8 @@ import * as firebaseData from '../../services/firebaseData.service.js';
 import { LLMService } from '../../services/llm.service.js';
 import admin, { firestore as firestoreDb } from '../../config/firebase.js';
 
+const pastIso = () => new Date(Date.now() - 5 * 60 * 1000).toISOString();
+
 const createResponse = () => {
   const response = {};
   response.status = jest.fn().mockReturnValue(response);
@@ -24,6 +26,7 @@ describe('InterviewController hiring structured flow', () => {
       candidateId: 'candidate-1',
       companyId: 'company-1',
       organizationId: 'org-1',
+      scheduledFor: pastIso(),
       jobRole: 'Software Engineer',
       experienceLevel: 'mid',
       industry: 'technology',
@@ -84,6 +87,7 @@ describe('InterviewController hiring structured flow', () => {
       candidateId: 'candidate-2',
       companyId: 'company-1',
       organizationId: 'org-1',
+      scheduledFor: pastIso(),
       jobRole: 'Software Engineer',
       experienceLevel: 'mid',
       industry: 'technology',

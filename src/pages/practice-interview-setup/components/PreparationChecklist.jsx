@@ -169,7 +169,10 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
   const requiredChecked = requiredItems?.filter(item => checkedItems?.[item?.id])?.length;
   const allDevicesTested = Object.values(deviceTests)?.every(status => status === 'success');
   const anyDeviceTesting = Object.values(deviceTests)?.some(status => status === 'testing');
-  const isComplete = requiredChecked === requiredItems?.length && allDevicesTested;
+  const hasAnyDeviceFailure = Object.values(deviceTests)?.some(status => status === 'error');
+  const hasAnyDeviceSuccess = Object.values(deviceTests)?.some(status => status === 'success');
+  const isRequiredChecklistComplete = requiredChecked === requiredItems?.length;
+  const isComplete = isRequiredChecklistComplete && !anyDeviceTesting;
 
   useEffect(() => {
     onChecklistComplete(isComplete);
@@ -348,12 +351,18 @@ const PreparationChecklist = ({ onChecklistComplete, className = '' }) => {
             ></div>
           </div>
           
-          {isComplete ? (
+                  {isComplete ? (
             <div className="flex items-center space-x-2 p-3 rounded-xl bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/60">
               <div className="w-6 h-6 rounded-full bg-emerald-600 dark:bg-emerald-500 flex items-center justify-center">
                 <Icon name="CheckCircle" size={14} className="text-white" />
               </div>
-              <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">Ready to start interview!</span>
+              <span className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                {hasAnyDeviceFailure
+                  ? 'Ready to start interview. Some devices are unavailable, but the session can continue with reduced media features.'
+                  : hasAnyDeviceSuccess
+                    ? 'Ready to start interview! Device checks passed or were partially completed.'
+                    : 'Ready to start interview! Device tests are recommended before you begin.'}
+              </span>
             </div>
           ) : (
             <div className="flex items-center space-x-2 p-3 rounded-xl bg-amber-50 dark:bg-amber-500/10 border border-amber-200 dark:border-amber-500/60">

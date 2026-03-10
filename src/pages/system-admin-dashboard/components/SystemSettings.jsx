@@ -374,7 +374,7 @@ const SystemSettings = () => {
                 </p>
                 <p className="text-xs text-gray-600 dark:text-slate-400 mt-1">
                   {flag === 'enableJobPosting' && 'Enable job posting and management features'}
-                  {flag === 'enableInvitations' && 'Enable interview invitation system'}
+                  {flag === 'enableInvitations' && 'Enable team invitation onboarding and related compatibility flows'}
                   {flag === 'enableReviews' && 'Enable interview review and evaluation features'}
                   {flag === 'enableAnalytics' && 'Enable analytics and reporting features'}
                 </p>

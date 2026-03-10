@@ -152,15 +152,28 @@ const CandidateNotesTimeline = ({ applicationId, candidateName, applicationStatu
 
   return (
     <div className="space-y-4">
-      <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
+      <h3 className="flex flex-wrap items-center gap-2 text-sm font-semibold text-gray-900 dark:text-slate-100">
         <Icon name="Activity" size={15} className="text-blue-500" />
         Activity Timeline
-        {candidateName && <span className="text-gray-500 font-normal">- {candidateName}</span>}
+        {candidateName && (
+          <span className="min-w-0 break-words text-gray-500 font-normal">
+            - {candidateName}
+          </span>
+        )}
       </h3>
 
-      <div className="rounded-xl border border-gray-200 dark:border-slate-700 p-3 bg-gray-50/50 dark:bg-slate-900/30">
-        <div className="flex items-center gap-2">
-          <div className="relative w-32 shrink-0">
+      <div
+        data-testid="candidate-notes-composer"
+        className="rounded-xl border border-gray-200 bg-gray-50/50 p-3 dark:border-slate-700 dark:bg-slate-900/30"
+      >
+        <div
+          data-testid="candidate-notes-composer-row"
+          className="flex flex-col gap-3 sm:flex-row sm:items-center"
+        >
+          <div
+            data-testid="candidate-note-type-wrapper"
+            className="relative w-full shrink-0 sm:w-32"
+          >
             <select
               value={noteType}
               onChange={(event) => setNoteType(event.target.value)}
@@ -188,7 +201,7 @@ const CandidateNotesTimeline = ({ applicationId, candidateName, applicationStatu
             data-gramm="false"
             data-gramm_editor="false"
             data-enable-grammarly="false"
-            className="flex-1 min-w-0 h-10 px-3 py-2 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+            className="h-12 w-full min-w-0 rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none dark:border-slate-600 dark:bg-slate-700/50 dark:text-slate-100 sm:h-10 sm:flex-1"
           />
 
           <Button
@@ -197,7 +210,7 @@ const CandidateNotesTimeline = ({ applicationId, candidateName, applicationStatu
             onClick={handleAddNote}
             disabled={!noteText.trim() || saving}
             iconName="Plus"
-            className="shrink-0"
+            className="w-full justify-center sm:w-auto"
           >
             Add Note
           </Button>

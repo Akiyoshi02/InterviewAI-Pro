@@ -15,7 +15,6 @@
 import express from 'express';
 import { param, query } from 'express-validator';
 import { JobController } from '../controllers/job.controller.js';
-import { InvitationController } from '../controllers/invitation.controller.js';
 import { TeamInvitationController } from '../controllers/teamInvitation.controller.js';
 import { AdminController } from '../controllers/admin.controller.js';
 import { ContactController } from '../controllers/contact.controller.js';
@@ -108,32 +107,6 @@ router.get(
   ],
   validateRequest,
   JobController.getPublicJob,
-);
-
-// =============================================================================
-// INVITATION PREVIEWS
-// =============================================================================
-
-/**
- * GET /api/public/invitations/:token
- * Preview an interview invitation (before accepting)
- * 
- * Rate limited: 200 requests per 15 minutes
- * Validates: Token format and length
- */
-router.get(
-  '/invitations/:token',
-  requireFeatureFlag('enableInvitations', { allowSystemAdminBypass: false }),
-  [
-    param('token')
-      .trim()
-      .notEmpty()
-      .withMessage('Invitation token is required')
-      .isLength({ max: LENGTH_LIMITS.TOKEN })
-      .withMessage('Invalid token format'),
-  ],
-  validateRequest,
-  InvitationController.previewInvitation,
 );
 
 /**

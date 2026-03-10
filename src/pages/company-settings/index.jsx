@@ -16,6 +16,12 @@ const CompanySettingsPage = () => {
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const userType = user?.accountType?.toUpperCase() === 'COMPANY' ? 'company' : null;
+  const organizationRole = (user?.organizationContext?.membership?.role || '').toString().toUpperCase();
+  const settingsDescription = organizationRole === 'REVIEWER'
+    ? 'Manage your reviewer profile, alerts, and account preferences.'
+    : organizationRole === 'RECRUITER'
+      ? 'Manage your recruiter profile, notifications, and interview availability.'
+      : 'Manage your company profile, account details, and notification preferences.';
 
   const handleLogout = async () => {
     await logout();
@@ -77,17 +83,19 @@ const CompanySettingsPage = () => {
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="Settings" size={22} color="white" />
-                </div>
-                <div>
-                  <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
-                    Settings
-                  </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
-                    Manage your company profile, account details, and notification preferences.
-                  </p>
+              <div className="mb-6">
+                <div className="flex items-center gap-4">
+                  <div className="shrink-0 p-3 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 shadow-lg shadow-purple-500/30">
+                    <Icon name="Settings" size={24} color="white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
+                      Settings
+                    </h1>
+                    <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                      {settingsDescription}
+                    </p>
+                  </div>
                 </div>
               </div>
 

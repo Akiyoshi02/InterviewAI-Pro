@@ -15,8 +15,8 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../../../components/ui/Button.jsx', () => ({
-  default: ({ children, onClick, disabled, type = 'button' }) => (
-    <button type={type} onClick={onClick} disabled={disabled}>
+  default: ({ children, onClick, disabled, type = 'button', className }) => (
+    <button type={type} onClick={onClick} disabled={disabled} className={className}>
       {children}
     </button>
   ),
@@ -36,6 +36,12 @@ vi.mock('../../../../services/apiClient.js', () => ({
   },
 }));
 
+const toDateTimeLocal = (value) => {
+  const date = value instanceof Date ? value : new Date(value);
+  const pad = (part) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 describe('SchedulingWidget', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
@@ -48,6 +54,7 @@ describe('SchedulingWidget', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     cleanup();
     vi.clearAllMocks();
   });
@@ -92,6 +99,35 @@ describe('SchedulingWidget', () => {
     expect(payload).not.toHaveProperty('meetingLink');
     expect(typeof payload.timezone).toBe('string');
     expect(onScheduleSaved).toHaveBeenCalledTimes(1);
+    expect(apiClient.interviews.schedule).not.toHaveBeenCalled();
+  });
+
+  it('blocks practice rescheduling when the selected time is in the past', async () => {
+    const interview = {
+      id: 'interview_1',
+      status: 'SCHEDULED',
+      mode: 'PRACTICE',
+      company: { companyName: 'Acme Corp' },
+      jobRole: 'Backend Engineer',
+      interviewType: 'Technical',
+      interviewerName: 'Alex',
+      scheduledFor: '2026-03-10T10:00:00.000Z',
+      duration: '45 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[interview]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Reschedule' }));
+    const datetimeInput = document.querySelector('input[type="datetime-local"]');
+    expect(datetimeInput).not.toBeNull();
+    fireEvent.change(datetimeInput, { target: { value: toDateTimeLocal(new Date(Date.now() - (60 * 60 * 1000))) } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Interview date and time must be in the future.')).toBeTruthy();
+    });
+    expect(apiClient.interviews.reschedule).not.toHaveBeenCalled();
     expect(apiClient.interviews.schedule).not.toHaveBeenCalled();
   });
 
@@ -145,5 +181,156 @@ describe('SchedulingWidget', () => {
     expect(payload.reason.toLowerCase()).toContain('exam');
     expect(apiClient.interviews.schedule).not.toHaveBeenCalled();
     expect(apiClient.interviews.reschedule).not.toHaveBeenCalled();
+  });
+
+  it('shows the email-link notice instead of a direct join button for hiring interviews before the scheduled start time', () => {
+    const hiringInterview = {
+      id: 'interview_hiring_2',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    expect(screen.queryByRole('button', { name: 'Join' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Join Meeting' })).toBeNull();
+    expect(screen.getByText('Join link is emailed 30 minutes before start')).toBeTruthy();
+  });
+
+  it('prefers the interview organization over the assigned recruiter summary when rendering the company name', () => {
+    const hiringInterview = {
+      id: 'interview_hiring_org_1',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { fullName: 'Recruiter UI Test' },
+      organization: { displayName: 'Cynectex', logo: '/logos/cynectex.png' },
+      jobRole: 'Data Analyst',
+      interviewType: 'Hiring',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    expect(screen.getByText('Cynectex')).toBeTruthy();
+    expect(screen.queryByText('Recruiter UI Test')).toBeNull();
+  });
+
+  it('shows the current interview round context on candidate interview cards', () => {
+    const hiringInterview = {
+      id: 'interview_hiring_round_1',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      organization: { displayName: 'Cynectex' },
+      jobRole: 'Data Analyst',
+      interviewType: 'Hiring',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+      planStageSequence: 2,
+      planStageTotal: 3,
+      planStageName: 'SME Interview',
+      planStageCategory: 'TECHNICAL',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    expect(screen.getByText('Round 2 of 3')).toBeTruthy();
+    expect(screen.getByText('SME Interview')).toBeTruthy();
+  });
+
+  it('keeps exhausted hiring interview actions stacked cleanly for mobile layouts', () => {
+    const exhaustedHiringInterview = {
+      id: 'interview_hiring_3',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+      rescheduleRequests: [
+        {
+          id: 'request_1',
+          status: 'APPROVED',
+        },
+      ],
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[exhaustedHiringInterview]} />);
+
+    const contactButton = screen.getByRole('button', { name: 'Contact Company' });
+    const actionGroup = contactButton.parentElement;
+    const noticeChip = screen.getByText('Join link is emailed 30 minutes before start');
+
+    expect(actionGroup?.className || '').toContain('flex-col');
+    expect(actionGroup?.className || '').toContain('sm:flex-row');
+    expect(contactButton.className).toContain('w-full');
+    expect(contactButton.className).toContain('sm:w-auto');
+    expect(noticeChip.className).toContain('w-full');
+    expect(noticeChip.className).toContain('whitespace-normal');
+    expect(noticeChip.className).toContain('sm:w-auto');
+  });
+
+  it('shows a direct Join Meeting button for hiring interviews once the scheduled start time arrives', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-11T09:05:00.000Z'));
+
+    const hiringInterview = {
+      id: 'interview_hiring_2',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    expect(screen.queryByText('Join link is emailed 30 minutes before start')).toBeNull();
+    expect(screen.getByText('Live Now')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Join Interview Now' }));
+
+    expect(mockNavigate).toHaveBeenCalledWith('/live-interview-session?interviewId=interview_hiring_2');
+  });
+
+  it('blocks reschedule requests when the preferred slot is in the past', async () => {
+    const hiringInterview = {
+      id: 'interview_hiring_1',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Request Reschedule' }));
+    fireEvent.change(document.querySelector('textarea'), {
+      target: { value: 'I have an unavoidable exam and need a different interview slot this week.' },
+    });
+    fireEvent.change(document.querySelector('input[type="datetime-local"]'), {
+      target: { value: toDateTimeLocal(new Date(Date.now() - (2 * 60 * 60 * 1000))) },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Submit Request' }));
+
+    await waitFor(() => {
+      expect(screen.getByText('Preferred reschedule slot must be in the future.')).toBeTruthy();
+    });
+    expect(apiClient.interviews.requestReschedule).not.toHaveBeenCalled();
   });
 });

@@ -185,7 +185,7 @@ const CandidatePipeline = () => {
             <div>
               <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Pipeline is empty</h3>
               <p className="text-xs sm:text-sm text-gray-600 dark:text-slate-300">
-                As soon as candidates apply or interviews are invited, they appear in these stages.
+                As soon as candidates apply and move through your hiring stages, they appear here.
               </p>
             </div>
           </div>

@@ -15,8 +15,8 @@ vi.mock('react-router-dom', async () => {
 });
 
 vi.mock('../../../../components/ui/Button.jsx', () => ({
-  default: ({ children, onClick, disabled, type = 'button' }) => (
-    <button type={type} onClick={onClick} disabled={disabled}>
+  default: ({ children, className, onClick, disabled, type = 'button' }) => (
+    <button type={type} className={className} onClick={onClick} disabled={disabled}>
       {children}
     </button>
   ),
@@ -66,13 +66,16 @@ describe('RecommendedTopics', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     fireEvent.click(screen.getByRole('button', { name: 'Practice' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Explore All Practice Topics' }));
+    const exploreButton = screen.getByRole('button', { name: 'Explore All Practice Topics' });
+    fireEvent.click(exploreButton);
 
     expect(onRefresh).toHaveBeenCalledTimes(1);
     expect(onStartPractice).toHaveBeenCalledWith({
       role: 'backend-developer',
       difficulty: 'advanced',
     });
+    expect(exploreButton.className).toContain('dark:text-slate-300');
+    expect(exploreButton.className).toContain('dark:hover:text-blue-400');
     expect(mockNavigate).toHaveBeenCalledWith('/learning-center');
   });
 });

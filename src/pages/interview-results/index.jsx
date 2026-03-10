@@ -20,6 +20,7 @@ import UserContextNavigation from '../../components/ui/UserContextNavigation';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import LoadingState from '../../components/ui/LoadingState';
+import { jsPDF } from 'jspdf';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
@@ -31,7 +32,14 @@ const formatCompanyLabel = (company) => {
   if (!company) return 'Practice Session';
   if (typeof company === 'string') return company;
   if (typeof company === 'object') {
-    return company.companyName || company.fullName || company.email || 'Practice Session';
+    return (
+      company.displayName
+      || company.name
+      || company.companyName
+      || company.fullName
+      || company.email
+      || 'Practice Session'
+    );
   }
   return 'Practice Session';
 };
@@ -206,7 +214,6 @@ const InterviewResultsPage = () => {
   const handleDownloadPDF = async () => {
     setPdfLoading(true);
     try {
-      const { jsPDF } = await import('jspdf');
       const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
 
       const pageWidth = doc.internal.pageSize.getWidth();
@@ -392,7 +399,7 @@ const InterviewResultsPage = () => {
   const questions = Array.isArray(evaluationData?.questions)
     ? evaluationData.questions
     : Array.isArray(interview?.questions) ? interview.questions : [];
-  const companyName = formatCompanyLabel(interview.company);
+  const companyName = formatCompanyLabel(interview.organization || interview.company);
   const jobRole = interview.jobRole || interview.position || 'Interview';
   const completedAt = interview.endedAt || interview.completedAt || interview.updatedAt || interview.createdAt;
 

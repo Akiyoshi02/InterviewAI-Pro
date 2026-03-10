@@ -4,6 +4,8 @@ import {
   interviewStore,
   jobApplicationStore,
   jobStore,
+  organizationStore,
+  reviewStore,
   systemSettingsStore,
   userStore,
 } from '../../services/firebaseData.service.js';
@@ -139,6 +141,149 @@ describe('InterviewController RBAC guards', () => {
 
     expect(res.status).toHaveBeenCalledWith(403);
     expect(updateQuestionSpy).not.toHaveBeenCalled();
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('filters reviewer interview listings down to assigned interviews', async () => {
+    jest.spyOn(interviewStore, 'listByOrganization').mockResolvedValue([
+      {
+        id: 'interview-assigned',
+        organizationId: 'org-1',
+        candidateId: 'candidate-1',
+        reviewerAssignments: ['reviewer-user'],
+      },
+      {
+        id: 'interview-unassigned',
+        organizationId: 'org-1',
+        candidateId: 'candidate-2',
+        reviewerAssignments: ['reviewer-2'],
+      },
+    ]);
+    jest.spyOn(userStore, 'getSummaries').mockResolvedValue(new Map());
+    jest.spyOn(organizationStore, 'getById').mockResolvedValue({
+      id: 'org-1',
+      name: 'Cynectex',
+      displayName: 'Cynectex',
+    });
+    jest.spyOn(reviewStore, 'getByInterviewAndReviewer').mockResolvedValue(null);
+
+    const req = {
+      query: {},
+      user: {
+        id: 'reviewer-user',
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: { id: 'org-1', status: 'APPROVED' },
+          membership: { role: 'REVIEWER' },
+        },
+      },
+    };
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.getCompanyInterviews(req, res, next);
+
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      success: true,
+      interviews: [expect.objectContaining({ id: 'interview-assigned' })],
+    }));
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects reviewer access to unassigned interview details', async () => {
+    jest.spyOn(interviewStore, 'getWithQuestions').mockResolvedValue({
+      id: 'int-1',
+      status: 'COMPLETED',
+      organizationId: 'org-1',
+      candidateId: 'candidate-user',
+      companyId: 'recruiter-user',
+      reviewerAssignments: ['reviewer-2'],
+      questions: [],
+    });
+
+    const req = {
+      params: { id: 'int-1' },
+      user: {
+        id: 'reviewer-user',
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: { id: 'org-1', status: 'APPROVED' },
+          membership: { role: 'REVIEWER' },
+        },
+      },
+    };
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.getInterview(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects reviewer users from uploading interview recordings', async () => {
+    jest.spyOn(interviewStore, 'getById').mockResolvedValue({
+      id: 'int-1',
+      status: 'COMPLETED',
+      organizationId: 'org-1',
+      candidateId: 'candidate-user',
+      companyId: 'recruiter-user',
+      reviewerAssignments: ['reviewer-user'],
+    });
+
+    const req = {
+      params: { id: 'int-1' },
+      file: { path: 'uploads/recordings/file.webm' },
+      user: {
+        id: 'reviewer-user',
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: { id: 'org-1', status: 'APPROVED' },
+          membership: { role: 'REVIEWER' },
+        },
+      },
+      headers: {},
+      get(name) {
+        return this.headers[name] || null;
+      },
+    };
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.uploadRecording(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(next).not.toHaveBeenCalled();
+  });
+
+  it('rejects reviewer users from running AI evaluation', async () => {
+    jest.spyOn(interviewStore, 'getWithQuestions').mockResolvedValue({
+      id: 'int-1',
+      status: 'COMPLETED',
+      organizationId: 'org-1',
+      candidateId: 'candidate-user',
+      companyId: 'recruiter-user',
+      reviewerAssignments: ['reviewer-user'],
+      questions: [],
+    });
+
+    const req = {
+      params: { id: 'int-1' },
+      user: {
+        id: 'reviewer-user',
+        accountType: 'COMPANY',
+        organizationContext: {
+          organization: { id: 'org-1', status: 'APPROVED' },
+          membership: { role: 'REVIEWER' },
+        },
+      },
+    };
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.runEvaluation(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
     expect(next).not.toHaveBeenCalled();
   });
 

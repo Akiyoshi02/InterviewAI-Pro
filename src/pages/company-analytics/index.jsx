@@ -79,15 +79,15 @@ const CompanyAnalyticsPage = () => {
               transition={{ duration: 0.6, ease: 'easeOut' }}
               className="container-responsive py-6 xs:py-8 sm:py-10 space-y-4 xs:space-y-5 sm:space-y-6"
             >
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 flex items-center justify-center shadow-lg shadow-purple-500/30">
-                  <Icon name="BarChart3" size={22} color="white" />
+              <div className="mb-6 flex items-center gap-4">
+                <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                  <Icon name="BarChart3" size={24} color="white" />
                 </div>
-                <div>
+                <div className="min-w-0">
                   <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
                     Analytics Dashboard
                   </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400">
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
                     Track candidate progress, hiring metrics, and performance analytics.
                   </p>
                 </div>

@@ -10,7 +10,6 @@ describe('interview create validation schema', () => {
     expect(fields).toContain('candidateId');
     expect(fields).toContain('jobId');
     expect(fields).toContain('jobStage');
-    expect(fields).toContain('invitationId');
     expect(fields).toContain('config');
   });
 
@@ -22,7 +21,6 @@ describe('interview create validation schema', () => {
         candidateId: 'cand-1',
         jobId: 'job-1',
         jobStage: 'INITIAL_SCREENING',
-        invitationId: 'inv-1',
         config: {
           interviewerName: 'Aiva',
         },
@@ -39,7 +37,6 @@ describe('interview create validation schema', () => {
     expect(req.body.candidateId).toBe('cand-1');
     expect(req.body.jobId).toBe('job-1');
     expect(req.body.jobStage).toBe('INITIAL_SCREENING');
-    expect(req.body.invitationId).toBe('inv-1');
     expect(req.body.config).toEqual({ interviewerName: 'Aiva' });
     expect(req.body.unknownField).toBeUndefined();
   });

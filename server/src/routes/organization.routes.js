@@ -54,7 +54,7 @@ router.get(
   '/me/members',
   authenticate,
   allowPendingOrganization,
-  requireOrgRole(['ADMIN']),
+  requireOrgRole(['ADMIN', 'RECRUITER']),
   OrganizationController.listMembers,
 );
 

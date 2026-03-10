@@ -9,6 +9,7 @@ import OrganizationSettings from './OrganizationSettings';
 import PhoneInput from './PhoneInput';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
+import { hasPermission } from '../../utils/rolePermissions.js';
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
@@ -571,6 +572,11 @@ const ProfileSettingsPanel = ({
   const isCompany = userType === 'company';
   const isAdmin = userType === 'admin';
   const isCandidate = userType === 'candidate';
+  const companyOrganizationRole = (user?.organizationContext?.membership?.role || '').toString().toUpperCase();
+  const isReviewerRole = companyOrganizationRole === 'REVIEWER';
+  const isRecruiterRole = companyOrganizationRole === 'RECRUITER';
+  const canManageOrganizationSettings = isCompany && hasPermission(companyOrganizationRole, 'MANAGE_ORGANIZATION');
+  const canManageInterviewAvailability = isCompany && hasPermission(companyOrganizationRole, 'SEND_INVITATIONS');
   const fileInputRef = useRef(null);
   const isCompact = density === 'compact';
 
@@ -588,6 +594,16 @@ const ProfileSettingsPanel = ({
   const toggleSpacing = isCompact ? 'space-y-2' : 'space-y-3';
   const photoGap = isCompact ? 'gap-3' : 'gap-4';
   const titleSize = isCompact ? 'text-xl' : 'text-2xl';
+  const companyProfileDescription = isReviewerRole
+    ? 'Keep your reviewer identity and contact details current for interview feedback.'
+    : isRecruiterRole
+      ? 'Keep your recruiter profile current for hiring coordination.'
+      : 'Keep your company profile current for candidates.';
+  const companyPreferencesDescription = isReviewerRole
+    ? 'Configure the alerts you want while reviewing interviews.'
+    : isRecruiterRole
+      ? 'Configure notifications and recruiting workflow settings.'
+      : 'Configure notifications and workflow settings.';
 
   const [profileForm, setProfileForm] = useState(() => buildProfileDefaults(user, userType));
   const [recruiterInterviewAvailability, setRecruiterInterviewAvailability] = useState(
@@ -617,7 +633,9 @@ const ProfileSettingsPanel = ({
   const [saveAllStatus, setSaveAllStatus] = useState(null);
   const [saveOrganizationSettings, setSaveOrganizationSettings] = useState(null);
   const [isSavingOrganizationSettings, setIsSavingOrganizationSettings] = useState(false);
-  const [activeTab, setActiveTab] = useState(isCompany ? 'company' : 'user');
+  const [activeTab, setActiveTab] = useState(
+    isCompany && canManageOrganizationSettings ? 'company' : 'user',
+  );
 
   const preferencesKey = useMemo(() => {
     const identifier = user?.id || user?.email || 'guest';
@@ -633,6 +651,12 @@ const ProfileSettingsPanel = ({
       ),
     );
   }, [user, userType]);
+
+  useEffect(() => {
+    if (isCompany && !canManageOrganizationSettings && activeTab !== 'user') {
+      setActiveTab('user');
+    }
+  }, [activeTab, canManageOrganizationSettings, isCompany]);
 
   useEffect(() => {
     if (!photoFile) {
@@ -668,17 +692,12 @@ const ProfileSettingsPanel = ({
     }
   }, [user]);
 
-  const profilePhotoUrl = isCompany
-    ? user?.companyLogoUrl
-      || user?.organizationContext?.organization?.branding?.logoUrl
-      || storedUser?.companyLogoUrl
-      || storedUser?.organizationContext?.organization?.branding?.logoUrl
-    : user?.profilePhotoUrl
-      || user?.photoURL
-      || user?.user_metadata?.photoURL
-      || storedUser?.profilePhotoUrl
-      || storedUser?.photoURL
-      || storedUser?.user_metadata?.photoURL;
+  const profilePhotoUrl = user?.profilePhotoUrl
+    || user?.photoURL
+    || user?.user_metadata?.photoURL
+    || storedUser?.profilePhotoUrl
+    || storedUser?.photoURL
+    || storedUser?.user_metadata?.photoURL;
 
   const photoSources = useMemo(
     () => buildAssetSources(profilePhotoUrl),
@@ -698,10 +717,10 @@ const ProfileSettingsPanel = ({
     ? ''
     : (photoSources[photoSourceIndex] || '');
   const photoSource = photoPreview || fallbackPhotoSource;
-  const photoLabel = isCompany ? 'Company logo' : 'Profile photo';
-  const photoHelper = isCompany ? 'SVG, PNG, JPG, or WEBP. Max 5 MB.' : 'PNG, JPG, or WEBP. Max 5 MB.';
-  const photoIcon = isCompany ? 'Building2' : (isAdmin ? 'Shield' : 'UserRound');
-  const photoUploadMethod = isCompany ? apiClient.auth.updateCompanyLogo : apiClient.auth.updateProfilePhoto;
+  const photoLabel = 'Profile photo';
+  const photoHelper = 'PNG, JPG, or WEBP. Max 5 MB.';
+  const photoIcon = isAdmin ? 'Shield' : 'UserRound';
+  const photoUploadMethod = apiClient.auth.updateProfilePhoto;
   const preferenceToggles = getPreferenceTogglesByUserType(userType);
   const cadenceOptions = notificationCadenceOptions[userType === 'company' ? 'company' : userType === 'admin' ? 'admin' : 'candidate'];
   const resolvedJobRoleOptions = useMemo(
@@ -784,11 +803,9 @@ const ProfileSettingsPanel = ({
     const file = event?.target?.files?.[0];
     if (!file) return;
 
-    const allowedTypes = isCompany
-      ? ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml']
-      : ['image/jpeg', 'image/png', 'image/webp'];
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
     const maxBytes = 5 * 1024 * 1024;
-    const allowedLabel = isCompany ? 'PNG, JPG, WEBP, or SVG' : 'PNG, JPG, or WEBP';
+    const allowedLabel = 'PNG, JPG, or WEBP';
 
     setPhotoStatus(null);
     if (saveAllStatus) {
@@ -834,7 +851,7 @@ const ProfileSettingsPanel = ({
       if (showStatus) {
         setPhotoStatus({
           type: 'success',
-          message: isCompany ? 'Company logo updated.' : 'Profile photo updated.',
+          message: 'Profile photo updated.',
         });
       }
       success = true;
@@ -867,20 +884,25 @@ const ProfileSettingsPanel = ({
     setIsSavingProfile(true);
     let success = false;
     try {
-      const payload = isCompany
-        ? {
+      const companyPayload = {
             fullName: profileForm.fullName,
             jobTitle: profileForm.jobTitle,
             department: normalizeOptionValue(profileForm.department) === OTHER_DEPARTMENT_VALUE
               ? null
               : profileForm.department || null,
             phoneNumber: profileForm.phoneNumber,
-            timezone: recruiterInterviewAvailability.timezone || profileForm.timezone || null,
-            interviewAvailability: normalizeRecruiterInterviewAvailability(
-              recruiterInterviewAvailability,
-              recruiterInterviewAvailability.timezone || profileForm.timezone || 'UTC',
-            ),
-          }
+          };
+
+      if (canManageInterviewAvailability) {
+        companyPayload.timezone = recruiterInterviewAvailability.timezone || profileForm.timezone || null;
+        companyPayload.interviewAvailability = normalizeRecruiterInterviewAvailability(
+          recruiterInterviewAvailability,
+          recruiterInterviewAvailability.timezone || profileForm.timezone || 'UTC',
+        );
+      }
+
+      const payload = isCompany
+        ? companyPayload
         : isAdmin
           ? {
               fullName: profileForm.fullName,
@@ -1190,6 +1212,11 @@ const ProfileSettingsPanel = ({
     const profileSaved = await handleSaveProfile({ showStatus: true });
     results.push(Boolean(profileSaved));
 
+    if (photoFile) {
+      const photoSaved = await handleSavePhoto({ showStatus: true });
+      results.push(Boolean(photoSaved));
+    }
+
     const preferencesSaved = handleSavePreferences({ showStatus: true });
     results.push(Boolean(preferencesSaved));
 
@@ -1247,7 +1274,7 @@ const ProfileSettingsPanel = ({
       )}
 
       {/* Tabs for Company Users */}
-      {isCompany && (
+      {isCompany && canManageOrganizationSettings && (
         <div className="mb-6">
           <div className="border-b border-gray-200 dark:border-slate-700">
             <nav className="-mb-px flex space-x-4 sm:space-x-6 lg:space-x-8 overflow-x-auto scrollbar-hide">
@@ -1285,7 +1312,7 @@ const ProfileSettingsPanel = ({
       )}
 
       {/* Tab Content */}
-      {isCompany && activeTab === 'company' ? (
+      {isCompany && canManageOrganizationSettings && activeTab === 'company' ? (
         <motion.div
           key="company"
           initial={{ opacity: 0, y: 20 }}
@@ -1317,7 +1344,7 @@ const ProfileSettingsPanel = ({
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Profile Details</h3>
                   <p className="text-sm text-gray-500 dark:text-slate-400">
                     {isCompany
-                      ? 'Keep your company profile current for candidates.'
+                      ? companyProfileDescription
                       : isAdmin
                         ? 'Keep your administrator identity and contact details current.'
                         : 'Keep your candidate profile up to date.'}
@@ -1442,36 +1469,38 @@ const ProfileSettingsPanel = ({
                     placeholder="Select target role"
                     searchable
                   />
-                  <div className="space-y-1.5 sm:space-y-2">
+                  <div className="min-w-0 space-y-1.5 sm:space-y-2">
                     <label
                       htmlFor="profile-location"
                       className="text-sm sm:text-sm font-medium leading-none text-foreground"
                     >
                       Location
                     </label>
-                    <div className="relative">
+                    <div className="flex min-w-0 flex-col gap-2 sm:relative sm:block">
                       <input
                         id="profile-location"
                         type="text"
                         value={isDetectingLocation && locationFeedback?.message ? locationFeedback.message : profileForm.location}
                         onChange={(event) => handleProfileFieldChange('location', event.target.value)}
                         disabled={isDetectingLocation}
-                        className="flex h-11 sm:h-12 w-full rounded-xl border border-input bg-background px-3 sm:px-4 pr-[90px] sm:pr-[100px] py-2.5 text-base sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200 min-h-[44px]"
+                        className="flex h-11 sm:h-12 min-h-[44px] w-full min-w-0 rounded-xl border border-input bg-background px-3 py-2.5 pr-3 text-base sm:px-4 sm:pr-[100px] sm:text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 transition-all duration-200"
                       />
                       <button
                         type="button"
                         onClick={handleDetectLocation}
                         disabled={isDetectingLocation}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="inline-flex min-h-[44px] w-full items-center justify-center gap-1.5 rounded-xl bg-blue-50 px-3 py-2 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50 sm:absolute sm:right-2 sm:top-1/2 sm:min-h-0 sm:w-auto sm:-translate-y-1/2 sm:rounded-lg sm:px-2.5 sm:py-1.5 sm:text-xs"
                       >
                         {isDetectingLocation ? (
                           <>
                             <LoadingIndicator size={14} tone="current" />
+                            <span className="sm:hidden">Detecting location</span>
                             <span className="hidden sm:inline">Detecting</span>
                           </>
                         ) : (
                           <>
                             <Icon name="MapPin" size={14} />
+                            <span className="sm:hidden">Detect location</span>
                             <span className="hidden sm:inline">Detect</span>
                           </>
                         )}
@@ -1511,7 +1540,7 @@ const ProfileSettingsPanel = ({
             <StatusMessage status={profileStatus} />
           </div>
 
-          {isCompany && (
+          {isCompany && canManageInterviewAvailability && (
             <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
               <div className={`flex flex-col sm:flex-row sm:items-center sm:justify-between ${cardHeaderGap}`}>
                 <div className="flex items-center gap-3">
@@ -1560,7 +1589,7 @@ const ProfileSettingsPanel = ({
                 <p className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-slate-400 mb-2">
                   Working days
                 </p>
-                <div className="grid grid-cols-7 gap-2 w-full">
+                <div className="grid w-full grid-cols-7 gap-1.5 sm:gap-2">
                   {recruiterWorkingDayOptions.map((day) => {
                     const isActive = recruiterInterviewAvailability.workingDays.includes(day.value);
                     return (
@@ -1568,7 +1597,7 @@ const ProfileSettingsPanel = ({
                         key={day.value}
                         type="button"
                         onClick={() => handleRecruiterWorkingDayToggle(day.value)}
-                        className={`w-full py-2 rounded-lg text-xs font-medium border transition-colors ${
+                        className={`min-h-[44px] min-w-0 w-full rounded-lg border px-0 py-2 text-sm font-medium leading-none whitespace-nowrap transition-colors sm:min-h-0 sm:text-xs ${
                           isActive
                             ? 'bg-violet-100 border-violet-300 text-violet-700 dark:bg-violet-600/20 dark:border-violet-500/40 dark:text-violet-200'
                             : 'bg-white dark:bg-slate-800 border-gray-200 dark:border-slate-600 text-gray-600 dark:text-slate-300'
@@ -1891,6 +1920,90 @@ const ProfileSettingsPanel = ({
               </div>
             )}
 
+            {isCompany && (
+              <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-cyan-50 dark:bg-cyan-900/30 flex items-center justify-center">
+                      <Icon name="Image" size={18} className="text-cyan-600 dark:text-cyan-400" />
+                    </div>
+                    <div>
+                      <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">{photoLabel}</h3>
+                      <p className="text-sm text-gray-500 dark:text-slate-400">
+                        Keep your team-facing identity current for reviewer assignments and hiring collaboration.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={`mx-auto flex w-fit max-w-full items-center justify-center ${photoGap}`}>
+                  <div className={`relative rounded-full border border-white/60 dark:border-slate-700/60 bg-white/80 dark:bg-slate-800/80 flex items-center justify-center overflow-visible ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                    {photoSource ? (
+                      <>
+                        <div className={`w-full h-full rounded-full overflow-hidden ${isCompact ? 'w-20 h-20' : 'w-24 h-24'}`}>
+                          <img
+                            src={photoSource}
+                            alt={photoLabel}
+                            className="w-full h-full object-cover"
+                            onError={handlePhotoError}
+                          />
+                        </div>
+                        {photoFile && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPhotoFile(null);
+                              setPhotoStatus(null);
+                              if (saveAllStatus) {
+                                setSaveAllStatus(null);
+                              }
+                              if (fileInputRef.current) {
+                                fileInputRef.current.value = '';
+                              }
+                            }}
+                            className="absolute -top-1 -right-1 w-6 h-6 rounded-full bg-red-500 hover:bg-red-600 text-white flex items-center justify-center shadow-lg transition-colors z-10 border-2 border-white dark:border-slate-800"
+                            aria-label="Cancel photo upload"
+                          >
+                            <Icon name="X" size={12} color="white" />
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <Icon name={photoIcon} size={28} className="text-blue-600 dark:text-blue-400" />
+                    )}
+                  </div>
+                  <div className="min-w-0 max-w-[26rem]">
+                    <p className="text-sm font-medium text-gray-900 dark:text-slate-100">
+                      {photoFile?.name || (photoSource ? 'Current image' : 'No profile photo uploaded')}
+                    </p>
+                    <p className="text-xs text-gray-500 dark:text-slate-400">{photoHelper}</p>
+                    <StatusMessage status={photoStatus} />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2 justify-center">
+                  <Button
+                    type="button"
+                    variant="default"
+                    size="sm"
+                    iconName="Upload"
+                    className="rounded-full bg-gradient-to-r from-blue-600 to-purple-600 text-white"
+                    onClick={() => fileInputRef.current?.click()}
+                  >
+                    Choose file
+                  </Button>
+                </div>
+
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*"
+                  onChange={handlePhotoFileChange}
+                  className="hidden"
+                />
+              </div>
+            )}
+
           <div className={`rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-900/60 ${cardPadding} ${cardSpacing}`}>
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -1900,7 +2013,7 @@ const ProfileSettingsPanel = ({
                 <div>
                   <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100">Preferences</h3>
                   <p className="text-sm text-gray-500 dark:text-slate-400">
-                    Configure notifications and workflow settings.
+                    {isCompany ? companyPreferencesDescription : 'Configure notifications and workflow settings.'}
                   </p>
                 </div>
               </div>

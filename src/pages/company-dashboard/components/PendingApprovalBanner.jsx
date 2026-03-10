@@ -26,7 +26,7 @@ const PendingApprovalBanner = ({ organization }) => {
               Organization Approval Pending
             </h3>
             <p className="text-sm sm:text-base text-yellow-800 dark:text-yellow-200 mb-3 sm:mb-4">
-              Your organization registration is under review by our system administrators. You can view your organization settings but cannot create jobs or send interview invitations until approval is granted.
+              Your organization registration is under review by our system administrators. You can view your organization settings but cannot create jobs or advance candidates into the interviewing workflow until approval is granted.
             </p>
             
             <div className="space-y-2">
@@ -48,7 +48,7 @@ const PendingApprovalBanner = ({ organization }) => {
               </div>
               <div className="flex items-start gap-2 text-xs sm:text-sm text-yellow-600 dark:text-yellow-400 opacity-60">
                 <Icon name="XCircle" className="w-4 h-4 shrink-0 mt-0.5" />
-                <span>✗ Send interview invitations</span>
+                <span>✗ Advance candidates into interviewing</span>
               </div>
               <div className="flex items-start gap-2 text-xs sm:text-sm text-yellow-600 dark:text-yellow-400 opacity-60">
                 <Icon name="XCircle" className="w-4 h-4 shrink-0 mt-0.5" />

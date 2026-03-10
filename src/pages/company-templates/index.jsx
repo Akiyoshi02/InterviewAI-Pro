@@ -92,14 +92,14 @@ const CompanyTemplatesPage = () => {
 
   const [templates, setTemplates] = useState([]);
   const [libraryQuestions, setLibraryQuestions] = useState([]);
-  const [catalogTemplates, setCatalogTemplates] = useState([]);
   const [form, setForm] = useState(buildDefaultFormState());
   const [selectedTemplateId, setSelectedTemplateId] = useState(null);
   const [questionSearch, setQuestionSearch] = useState('');
   const [questionTypeFilter, setQuestionTypeFilter] = useState('ALL');
 
   const organizationRole = user?.organizationContext?.membership?.role || null;
-  const canManageTemplates = hasPermission(organizationRole, 'ACCESS_JOBS_PAGE');
+  const canManageTemplates = hasPermission(organizationRole, 'CREATE_TEMPLATES')
+    || hasPermission(organizationRole, 'EDIT_TEMPLATES');
 
   const questionMap = useMemo(() => {
     const map = new Map();
@@ -129,15 +129,11 @@ const CompanyTemplatesPage = () => {
       const nextTemplates = Array.isArray(templateResponse?.templates)
         ? templateResponse.templates
         : [];
-      const nextCatalogTemplates = Array.isArray(catalogResponse?.catalog?.templates)
-        ? catalogResponse.catalog.templates
-        : [];
       const nextLibraryQuestions = Array.isArray(catalogResponse?.catalog?.library?.questions)
         ? catalogResponse.catalog.library.questions
         : [];
 
       setTemplates(nextTemplates);
-      setCatalogTemplates(nextCatalogTemplates);
       setLibraryQuestions(nextLibraryQuestions);
 
       const nextSelectedId = keepSelection && selectedTemplateId
@@ -331,7 +327,6 @@ const CompanyTemplatesPage = () => {
       setNotice(selectedTemplateId ? 'Template updated.' : 'Template created.');
 
       const catalogResponse = await apiClient.templates.getStructuredCatalog();
-      setCatalogTemplates(Array.isArray(catalogResponse?.catalog?.templates) ? catalogResponse.catalog.templates : []);
       setLibraryQuestions(Array.isArray(catalogResponse?.catalog?.library?.questions) ? catalogResponse.catalog.library.questions : []);
     } catch (saveError) {
       setError(saveError?.message || 'Failed to save template.');
@@ -409,41 +404,41 @@ const CompanyTemplatesPage = () => {
 
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-3">
-              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                <div>
-                  <h1 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Structured Templates</h1>
-                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                    Build consistent interview flows with core fairness questions and controlled random pools.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" iconName="Plus" onClick={resetForNewTemplate}>New Template</Button>
-                  <Button iconName="Save" loading={saving} onClick={handleSave}>Save Template</Button>
-                  <Button
-                    variant="destructive"
-                    iconName="Trash2"
-                    loading={deleting}
-                    disabled={!selectedTemplateId}
-                    onClick={handleDelete}
-                  >
-                    Delete
-                  </Button>
+            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="space-y-5">
+              <div
+                data-testid="structured-templates-header"
+                className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="h-12 w-12 shrink-0 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
+                    <Icon name="ClipboardList" size={22} color="white" />
+                  </div>
+                  <div className="min-w-0">
+                    <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
+                      Structured Templates
+                    </h1>
+                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                      Build consistent interview flows with core fairness questions and controlled random pools.
+                    </p>
+                  </div>
                 </div>
               </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 p-4">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400">Core Questions</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{coreQuestionCount}</p>
-                </div>
-                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 p-4">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400">Random Pool</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{randomQuestionCount}</p>
-                </div>
-                <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white/80 dark:bg-slate-800/70 p-4">
-                  <p className="text-xs uppercase tracking-wider text-gray-500 dark:text-slate-400">Catalog Templates</p>
-                  <p className="text-2xl font-semibold text-gray-900 dark:text-slate-100">{catalogTemplates.length}</p>
-                </div>
+              <div
+                data-testid="structured-templates-actions"
+                className="grid grid-cols-1 gap-3 sm:grid-cols-3"
+              >
+                <Button variant="outline" iconName="Plus" onClick={resetForNewTemplate} fullWidth>New Template</Button>
+                <Button iconName="Save" loading={saving} onClick={handleSave} fullWidth>Save Template</Button>
+                <Button
+                  variant="destructive"
+                  iconName="Trash2"
+                  loading={deleting}
+                  disabled={!selectedTemplateId}
+                  onClick={handleDelete}
+                  fullWidth
+                >
+                  Delete
+                </Button>
               </div>
             </motion.div>
 

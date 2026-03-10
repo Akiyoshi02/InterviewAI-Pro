@@ -5,16 +5,19 @@
 
 class SpeechService {
   constructor() {
-    this.synth = window.speechSynthesis;
+    this.synth = typeof window !== 'undefined' ? window.speechSynthesis : null;
     this.currentUtterance = null;
     this.isPaused = false;
     this.availableVoices = [];
+    this.lastVoiceCount = null;
     
     // Load voices when available
-    this.loadVoices();
-    
+    if (this.synth) {
+      this.loadVoices();
+    }
+
     // Some browsers load voices asynchronously
-    if (this.synth.onvoiceschanged !== undefined) {
+    if (this.synth && this.synth.onvoiceschanged !== undefined) {
       this.synth.onvoiceschanged = () => this.loadVoices();
     }
   }
@@ -23,8 +26,36 @@ class SpeechService {
    * Load available voices from the browser
    */
   loadVoices() {
+    if (!this.synth) {
+      this.availableVoices = [];
+      return;
+    }
     this.availableVoices = this.synth.getVoices();
-    console.log('Available voices:', this.availableVoices.length);
+    this.lastVoiceCount = this.availableVoices.length;
+  }
+
+  isAutomationEnvironment() {
+    return typeof navigator !== 'undefined' && navigator.webdriver === true;
+  }
+
+  resolveWithoutPlayback(options = {}, reason = 'unsupported') {
+    if (options.onEnd) options.onEnd();
+    return {
+      spoken: false,
+      reason,
+    };
+  }
+
+  isRecoverableSpeechError(errorCode = '') {
+    return new Set([
+      'canceled',
+      'cancelled',
+      'interrupted',
+      'audio-busy',
+      'synthesis-failed',
+      'not-allowed',
+      'service-not-allowed',
+    ]).has(String(errorCode || '').toLowerCase());
   }
 
   normalizeName(value = '') {
@@ -97,7 +128,7 @@ class SpeechService {
   }
 
   resolveVoice(optionVoice, optionCriteria = null, lang = 'en-US') {
-    const voices = this.synth.getVoices();
+    const voices = this.synth?.getVoices?.() || [];
     if (!voices.length) return null;
 
     if (optionVoice) {
@@ -141,8 +172,13 @@ class SpeechService {
    */
   speak(text, options = {}) {
     return new Promise((resolve, reject) => {
-      if (!this.synth) {
-        reject(new Error('Speech synthesis not supported'));
+      if (!this.synth || typeof window === 'undefined' || typeof window.SpeechSynthesisUtterance === 'undefined') {
+        resolve(this.resolveWithoutPlayback(options, 'unsupported'));
+        return;
+      }
+
+      if (this.isAutomationEnvironment()) {
+        resolve(this.resolveWithoutPlayback(options, 'automation'));
         return;
       }
 
@@ -167,22 +203,26 @@ class SpeechService {
 
       // Event handlers
       utterance.onstart = () => {
-        console.log('Speech started:', text.substring(0, 50));
         if (options.onStart) options.onStart();
       };
 
       utterance.onend = () => {
-        console.log('Speech ended');
         this.currentUtterance = null;
         if (options.onEnd) options.onEnd();
-        resolve();
+        resolve({ spoken: true });
       };
 
       utterance.onerror = (event) => {
-        console.error('Speech error:', event.error);
+        const errorCode = String(event?.error || 'unknown');
         this.currentUtterance = null;
         if (options.onError) options.onError(event.error);
-        reject(new Error(`Speech error: ${event.error}`));
+        if (this.isRecoverableSpeechError(errorCode)) {
+          if (options.onEnd) options.onEnd();
+          resolve({ spoken: false, reason: errorCode });
+          return;
+        }
+        console.error('Speech error:', errorCode);
+        reject(new Error(`Speech error: ${errorCode}`));
       };
 
       utterance.onpause = () => {
@@ -225,7 +265,7 @@ class SpeechService {
    * Cancel/stop current speech
    */
   cancel() {
-    if (this.synth.speaking || this.synth.pending) {
+    if (this.synth && (this.synth.speaking || this.synth.pending)) {
       this.synth.cancel();
       this.currentUtterance = null;
       this.isPaused = false;
@@ -236,21 +276,21 @@ class SpeechService {
    * Check if currently speaking
    */
   isSpeaking() {
-    return this.synth.speaking;
+    return Boolean(this.synth?.speaking);
   }
 
   /**
    * Get all available voices
    */
   getVoices() {
-    return this.synth.getVoices();
+    return this.synth?.getVoices?.() || [];
   }
 
   /**
    * Check if speech synthesis is supported
    */
   static isSupported() {
-    return 'speechSynthesis' in window;
+    return typeof window !== 'undefined' && 'speechSynthesis' in window;
   }
 }
 

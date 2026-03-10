@@ -24,6 +24,10 @@ const normalizeSpeechLanguage = (value) => {
   return normalized.includes('-') ? normalized : `${normalized}-US`;
 };
 
+const isRecoverableSpeechError = (value) =>
+  speechService.isRecoverableSpeechError?.(value)
+  || speechService.isRecoverableSpeechError?.(String(value || '').replace(/^Speech error:\s*/i, ''));
+
 export const useAIInterviewer = (config = {}) => {
   const [isInitialized, setIsInitialized] = useState(false);
   const [currentMessage, setCurrentMessage] = useState('');
@@ -81,13 +85,17 @@ export const useAIInterviewer = (config = {}) => {
           setCanCandidateSpeak(true); // AI finished, candidate can now speak
         },
         onError: (error) => {
-          console.error('TTS error:', error);
+          if (!isRecoverableSpeechError(error)) {
+            console.warn('TTS playback issue:', error);
+          }
           setIsSpeaking(false);
           setCanCandidateSpeak(true); // On error, allow candidate to speak
         }
       });
     } catch (err) {
-      console.error('Speech error:', err);
+      if (!isRecoverableSpeechError(err?.message || err)) {
+        console.warn('Speech playback failed:', err);
+      }
       setIsSpeaking(false);
       setCanCandidateSpeak(true);
     }

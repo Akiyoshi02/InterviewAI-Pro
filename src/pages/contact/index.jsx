@@ -8,10 +8,11 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import { Mail, PhoneCall, MapPin, Clock, MessageCircle } from 'lucide-react';
 import { apiClient } from '../../services/apiClient';
+import { getSupportContactEmail, getSupportMailtoHref, SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '../../constants/support.js';
 
 const ContactPage = () => {
   const navigate = useNavigate();
-  const supportContactEmail = (import.meta.env.VITE_SMTP_USER || import.meta.env.VITE_FROM_EMAIL || '').trim();
+  const supportContactEmail = getSupportContactEmail();
   const [contactForm, setContactForm] = useState({
     name: '',
     email: '',
@@ -28,8 +29,8 @@ const ContactPage = () => {
       icon: Mail,
       title: 'Email Support',
       description: 'Get help via email',
-      actionLabel: supportContactEmail || 'Email not configured',
-      href: supportContactEmail ? `mailto:${supportContactEmail}` : null,
+      actionLabel: supportContactEmail,
+      href: getSupportMailtoHref(),
       color: 'from-blue-600 to-blue-500'
     },
     {
@@ -37,8 +38,8 @@ const ContactPage = () => {
       icon: PhoneCall,
       title: 'Phone Support',
       description: 'Call us directly',
-      actionLabel: '+94 71 121 4592',
-      href: 'tel:+94711214592',
+      actionLabel: SUPPORT_PHONE_DISPLAY,
+      href: SUPPORT_PHONE_HREF,
       color: 'from-purple-600 to-purple-500'
     },
     {
@@ -132,9 +133,12 @@ const ContactPage = () => {
         }, {});
         setFieldErrors(nextErrors);
       }
+      const isContactInboxUnavailable = /contact inbox is not configured/i.test(error?.error || error?.message || '');
       setStatus({
         type: 'error',
-        message: error?.error || error?.message || 'Failed to send message. Please try again.',
+        message: isContactInboxUnavailable
+          ? `The contact form is unavailable right now. Please email ${supportContactEmail} or call ${SUPPORT_PHONE_DISPLAY}.`
+          : (error?.error || error?.message || 'Failed to send message. Please try again.'),
       });
     } finally {
       setIsSubmitting(false);

@@ -3,6 +3,7 @@ import { useNavigate, useLocation } from 'react-router-dom';
 import Icon from '../AppIcon';
 import Button from './Button';
 import NavigationMenu from './NavigationMenu';
+import { ADMIN_NAV_ITEMS } from '../../config/adminNavigation.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { formatCandidateFieldValue } from '../../utils/profileDisplay.js';
 import { filterNavByRole } from '../../utils/rolePermissions';
@@ -11,6 +12,8 @@ import CompanyAIChatAssistant from '../../pages/company-dashboard/components/AIC
 
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const FIREBASE_STORAGE_BUCKET = import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || '';
+const MOBILE_PRIMARY_NAV_LIMIT = 4;
+const MOBILE_OVERFLOW_MENU_KEY = '__mobile-overflow__';
 
 const buildCurrentRoute = (pathname = '', hash = '') => `${pathname || ''}${hash || ''}`;
 
@@ -137,6 +140,7 @@ const UserContextNavigation = ({
   const [profileImageIndex, setProfileImageIndex] = useState(0);
   const [profileImageFailed, setProfileImageFailed] = useState(false);
   const [mobileGroupMenuKey, setMobileGroupMenuKey] = useState(null);
+  const companyOrgRole = String(user?.organizationContext?.membership?.role || '').toUpperCase();
 
   useEffect(() => {
     setActiveItem(buildCurrentRoute(location.pathname, location.hash));
@@ -167,282 +171,209 @@ const UserContextNavigation = ({
       label: 'Dashboard', 
       path: '/candidate-dashboard', 
       icon: 'LayoutDashboard',
+      mobileLabel: 'Dashboard',
       description: 'Overview and progress tracking'
     },
     { 
       label: 'Jobs', 
       path: '/jobs', 
       icon: 'Briefcase',
+      mobileLabel: 'Jobs',
       description: 'Browse available positions'
     },
     {
       label: 'Companies',
       path: '/companies',
       icon: 'Building2',
+      mobileLabel: 'Companies',
       description: 'Browse company profiles'
     },
     { 
       label: 'My Applications', 
       path: '/my-applications', 
       icon: 'FileText',
+      mobileLabel: 'Apps',
       description: 'Track your job applications'
     },
     { 
       label: 'Practice Interview', 
       path: '/practice-interview-setup', 
       icon: 'Play',
+      mobileLabel: 'Practice',
       description: 'Set up practice sessions'
     },
     { 
       label: 'My Analytics', 
       path: '/candidate-analytics', 
       icon: 'BarChart2',
+      mobileLabel: 'Analytics',
       description: 'Track your performance trends'
     },
     {
       label: 'Achievements',
       path: '/gamification',
       icon: 'Trophy',
+      mobileLabel: 'Awards',
       description: 'Streaks, badges, XP & challenges'
     },
     {
       label: 'Prep Library',
       path: '/interview-prep-library',
       icon: 'BookOpen',
+      mobileLabel: 'Prep',
       description: 'Guides, question bank & STAR builder'
     },
     {
       label: 'Referral Program',
       path: '/referral-program',
       icon: 'Gift',
+      mobileLabel: 'Referral',
       description: 'Invite friends and earn rewards'
     },
     {
       label: 'Privacy & Data',
       path: '/privacy-settings',
       icon: 'Shield',
+      mobileLabel: 'Privacy',
       description: 'GDPR rights, data export & deletion'
     },
     {
       label: 'Settings',
       path: '/candidate-settings',
       icon: 'Settings',
+      mobileLabel: 'Settings',
       description: 'Edit your profile details'
     },
   ];
 
-  const companyNavItems = [
-    { 
-      key: 'dashboard',
-      label: 'Dashboard', 
-      path: '/company-dashboard', 
-      icon: 'LayoutDashboard',
-      description: 'Company overview and analytics'
-    },
-    { 
-      key: 'hiring',
-      label: 'Hiring', 
-      icon: 'Briefcase',
-      description: 'Jobs, applications, and candidates',
-      items: [
-        { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', description: 'Manage job postings', requiredPermission: 'ACCESS_JOBS_PAGE' },
-        { label: 'Templates', path: '/company-templates', icon: 'ListChecks', description: 'Manage structured interview templates', requiredPermission: 'ACCESS_JOBS_PAGE' },
-        { label: 'Applications', path: '/company-applications', icon: 'FileText', description: 'Review candidate applications', requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
-        { label: 'Candidates', path: '/company-candidates', icon: 'Users', description: 'Manage candidate pipeline', requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
-        { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', description: 'View and manage interviews', requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
-      ]
-    },
-    { 
-      key: 'analytics',
-      label: 'Analytics', 
-      path: '/company-analytics', 
-      icon: 'BarChart3',
-      description: 'View progress and metrics',
-      requiredPermission: 'ACCESS_ANALYTICS_PAGE'
-    },
-    { 
-      key: 'team',
-      label: 'Team Members', 
-      path: '/company-team-members', 
-      icon: 'Users2',
-      description: 'Manage team members and invitations',
-      requiredPermission: 'MANAGE_MEMBERS'
-    },
-    { 
-      key: 'billing',
-      label: 'Billing', 
-      path: '/company-billing', 
-      icon: 'CreditCard',
-      description: 'Plan, usage, and billing history'
-    },
-    {
-      key: 'public-profile',
-      label: 'Public Profile',
-      path: '/company-profile-editor',
-      icon: 'Globe',
-      description: 'Edit your company\'s public page'
-    },
-    {
-      key: 'webhooks',
-      label: 'Webhooks',
-      path: '/company-webhooks',
-      icon: 'Webhook',
-      description: 'Integrate with your ATS and tools'
-    },
-    {
-      key: 'privacy',
-      label: 'Privacy & Data',
-      path: '/privacy-settings',
-      icon: 'Shield',
-      description: 'GDPR rights, data export & deletion'
-    },
-    { 
-      key: 'settings',
-      label: 'Settings', 
-      path: '/company-settings', 
-      icon: 'Settings',
-      description: 'Organization and user profile settings'
-    },
-  ];
+  const companyNavItems = useMemo(() => {
+    const isReviewerRole = companyOrgRole === 'REVIEWER';
+    const hiringGroupDescription = isReviewerRole
+      ? 'Assigned application, candidate, and interview context'
+      : 'Submissions, candidate context, and interview reviews';
+    const applicationsDescription = isReviewerRole
+      ? 'Review assigned applications and interview context'
+      : 'Candidate submissions and status context';
+    const candidatesDescription = isReviewerRole
+      ? 'Review assigned candidate profiles and resumes'
+      : 'Candidate profiles and pipeline context';
+    const interviewsDescription = isReviewerRole
+      ? 'Review interview evidence, recordings, and scorecards'
+      : 'Interview schedule, recordings, and reviews';
+    const settingsDescription = isReviewerRole
+      ? 'Profile and review preferences'
+      : 'Profile and workspace settings';
 
-  const adminNavItems = [
-    {
-      key: 'overview',
-      label: 'Overview',
-      path: '/system-admin-dashboard',
-      exact: true,
-      icon: 'LayoutDashboard',
-      description: 'Platform stats and quick actions'
-    },
-    {
-      key: 'organizations',
-      label: 'Organizations',
-      icon: 'Building2',
-      description: 'Approvals and organization controls',
-      items: [
-        {
-          label: 'Pending Approvals',
-          path: '/system-admin-dashboard/approvals',
-          icon: 'CheckCircle',
-          description: 'Review pending organizations'
-        },
-        {
-          label: 'All Organizations',
-          path: '/system-admin-dashboard/organizations',
-          icon: 'Building',
-          description: 'Manage organization lifecycle'
-        },
-      ],
-    },
-    {
-      key: 'users',
-      label: 'Users',
-      path: '/system-admin-dashboard/users',
-      icon: 'Users',
-      description: 'Manage users and admin promotions'
-    },
-    {
-      key: 'operations',
-      label: 'Operations',
-      path: '/system-admin-dashboard/operations',
-      icon: 'Wallet',
-      description: 'Billing, retention, and newsletters'
-    },
-    {
-      key: 'governance',
-      label: 'Governance',
-      icon: 'Scale',
-      description: 'Policy, templates, fairness, and auditing',
-      items: [
-        {
-          label: 'Templates',
-          path: '/system-admin-dashboard/templates',
-          icon: 'ListChecks',
-          description: 'Structured template defaults and adoption'
-        },
-        {
-          label: 'Fairness',
-          path: '/system-admin-dashboard/fairness',
-          icon: 'Scale',
-          description: 'Calibration and fairness checks'
-        },
-        {
-          label: 'System Settings',
-          path: '/system-admin-dashboard/settings',
-          icon: 'Settings',
-          description: 'Maintenance and platform flags'
-        },
-        {
-          label: 'Audit Logs',
-          path: '/system-admin-dashboard/audit',
-          icon: 'FileText',
-          description: 'Trace administrative events'
-        },
-      ],
-    },
-    {
-      key: 'data-research',
-      label: 'Data & AI',
-      icon: 'Database',
-      description: 'Datasets, models, and research tools',
-      items: [
-        {
-          label: 'Training Data',
-          path: '/system-admin-dashboard/training-data',
-          icon: 'Database',
-          description: 'Inspect and export datasets'
-        },
-        {
-          label: 'Question Catalog',
-          path: '/system-admin-dashboard/question-catalog',
-          icon: 'BookOpenCheck',
-          description: 'Import and curate approved question pools'
-        },
-        {
-          label: 'Classification Metrics',
-          path: '/system-admin-dashboard/classification',
-          icon: 'Grid3X3',
-          description: 'Confusion matrix and precision/recall'
-        },
-        {
-          label: 'Model Fine-Tuning',
-          path: '/system-admin-dashboard/fine-tuning',
-          icon: 'Cpu',
-          description: 'Train LLM from interview data'
-        },
-        {
-          label: 'MediaPipe Calibration',
-          path: '/system-admin-dashboard/mediapipe-calibration',
-          icon: 'ScanFace',
-          description: 'Posture and face threshold calibration'
-        },
-        {
-          label: 'Research Tools',
-          path: '/system-admin-dashboard/research-tools',
-          icon: 'FlaskConical',
-          description: 'Record posture and analyze videos'
-        },
-      ],
-    },
-    {
-      key: 'support',
-      label: 'Live Chat',
-      path: '/system-admin-dashboard/live-chat',
-      icon: 'MessageSquare',
-      description: 'Respond to user support chats'
-    },
-  ];
+    const baseItems = [
+      { 
+        key: 'dashboard',
+        label: 'Dashboard', 
+        path: '/company-dashboard', 
+        icon: 'LayoutDashboard',
+        mobileLabel: 'Dashboard',
+        description: 'Workspace overview'
+      },
+      { 
+        key: 'hiring',
+        label: 'Hiring', 
+        icon: 'Briefcase',
+        mobileLabel: 'Hiring',
+        description: hiringGroupDescription,
+        items: [
+          { label: 'Jobs', path: '/company-jobs', icon: 'Briefcase', description: 'Job postings and hiring plans', requiredPermission: 'ACCESS_JOBS_PAGE' },
+          { label: 'Templates', path: '/company-templates', icon: 'ListChecks', description: 'Manage structured interview templates', requiredPermission: 'ACCESS_TEMPLATES_PAGE' },
+          { label: 'Applications', path: '/company-applications', icon: 'FileText', description: applicationsDescription, requiredPermission: 'ACCESS_APPLICATIONS_PAGE' },
+          { label: 'Candidates', path: '/company-candidates', icon: 'Users', description: candidatesDescription, requiredPermission: 'ACCESS_CANDIDATES_PAGE' },
+          { label: 'Interviews', path: '/company-interviews', icon: 'Calendar', description: interviewsDescription, requiredPermission: 'ACCESS_INTERVIEWS_PAGE' },
+        ]
+      },
+      { 
+        key: 'analytics',
+        label: 'Analytics', 
+        path: '/company-analytics', 
+        icon: 'BarChart3',
+        mobileLabel: 'Analytics',
+        description: 'View progress and metrics',
+        requiredPermission: 'ACCESS_ANALYTICS_PAGE'
+      },
+      { 
+        key: 'team',
+        label: 'Team Members', 
+        path: '/company-team-members', 
+        icon: 'Users2',
+        mobileLabel: 'Team',
+        description: 'Manage team members and invitations',
+        requiredPermission: 'MANAGE_MEMBERS'
+      },
+      { 
+        key: 'billing',
+        label: 'Billing', 
+        path: '/company-billing', 
+        icon: 'CreditCard',
+        mobileLabel: 'Billing',
+        description: 'Plan, usage, and billing history',
+        requiredPermission: 'MANAGE_ORGANIZATION',
+      },
+      {
+        key: 'public-profile',
+        label: 'Public Profile',
+        path: '/company-profile-editor',
+        icon: 'Globe',
+        mobileLabel: 'Profile',
+        description: 'Edit your company\'s public page',
+        requiredPermission: 'MANAGE_ORGANIZATION',
+      },
+      {
+        key: 'webhooks',
+        label: 'Webhooks',
+        path: '/company-webhooks',
+        icon: 'Webhook',
+        mobileLabel: 'Webhooks',
+        description: 'Integrate with your ATS and tools',
+        requiredPermission: 'MANAGE_ORGANIZATION',
+      },
+      {
+        key: 'privacy',
+        label: 'Privacy & Data',
+        path: '/privacy-settings',
+        icon: 'Shield',
+        mobileLabel: 'Privacy',
+        description: 'GDPR rights, data export & deletion'
+      },
+      { 
+        key: 'settings',
+        label: 'Settings', 
+        path: '/company-settings', 
+        icon: 'Settings',
+        mobileLabel: 'Settings',
+        description: settingsDescription
+      },
+    ];
+
+    if (isReviewerRole) {
+      baseItems.splice(2, 0, {
+        key: 'assigned-reviews',
+        label: 'Assigned Reviews',
+        path: '/company-reviews',
+        icon: 'ClipboardCheck',
+        mobileLabel: 'Reviews',
+        description: 'Your assigned interview feedback queue',
+        requiredPermission: 'VIEW_REVIEWS',
+      });
+    }
+
+    return baseItems;
+  }, [companyOrgRole]);
 
   // Filter navigation items based on organization role for company users
   const navigationItems = useMemo(() => {
     if (userType === 'candidate') return candidateNavItems;
-    if (userType === 'admin') return adminNavItems;
+    if (userType === 'admin') return ADMIN_NAV_ITEMS;
     if (userType === 'company') {
-      const role = user?.organizationContext?.membership?.role;
-      return filterNavByRole(companyNavItems, role);
+      return filterNavByRole(companyNavItems, companyOrgRole);
     }
     return companyNavItems;
-  }, [userType, user?.organizationContext?.membership?.role]);
+  }, [companyNavItems, companyOrgRole, userType]);
 
   const resolveItemPath = (item) => {
     if (!item) return '';
@@ -472,6 +403,23 @@ const UserContextNavigation = ({
       (subItem) => typeof subItem?.path === 'string' && subItem.path.trim()
     );
   };
+
+  const getNavigationItemKey = (item, index = 0) => (
+    item?.key || item?.path || item?.label || `nav-item-${index}`
+  );
+
+  const getMobileItemLabel = (item) => {
+    if (!item) return '';
+    if (typeof item.mobileLabel === 'string' && item.mobileLabel.trim()) return item.mobileLabel;
+    if (typeof item.label === 'string' && item.label.trim()) {
+      return item.label.split(' ')[0];
+    }
+    return 'Menu';
+  };
+
+  const getMobileItemAriaLabel = (item) => (
+    item?.fullLabel || item?.label || 'Navigation item'
+  );
 
   const handleNavigation = (path) => {
     if (!path || typeof path !== 'string') return;
@@ -571,8 +519,26 @@ const UserContextNavigation = ({
     || storedUser?.jobTitle
     || 'Hiring Manager';
   const adminRole = 'System Administrator';
-  const mobilePrimaryItems = navigationItems?.slice(0, 4) || [];
-
+  const profilePath = userType === 'company'
+    ? '/company-settings'
+    : userType === 'admin'
+      ? '/system-admin-dashboard/settings'
+      : '/candidate-settings';
+  const profileIconName = userType === 'company'
+    ? 'Building2'
+    : userType === 'admin'
+      ? 'Shield'
+      : 'UserRound';
+  const mobileNavigationItems = navigationItems?.filter((item) => (
+    userType === 'admin' || resolveItemPath(item) !== profilePath
+  )) || [];
+  const mobilePrimaryItems = mobileNavigationItems.slice(0, MOBILE_PRIMARY_NAV_LIMIT);
+  const mobileOverflowItems = mobileNavigationItems.slice(MOBILE_PRIMARY_NAV_LIMIT);
+  const isMoreMenuOpen = mobileGroupMenuKey === MOBILE_OVERFLOW_MENU_KEY;
+  const isProfileActive = isRouteMatch(activeItem, profilePath);
+  const isOverflowActive = !isProfileActive && mobileOverflowItems.some((item) => (
+    isNavigationItemActive(item, activeItem)
+  ));
   return (
     <>
       {/* Desktop Sidebar */}
@@ -663,15 +629,14 @@ const UserContextNavigation = ({
       {/* Mobile Bottom Navigation */}
       <nav
         ref={mobileNavRef}
-        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding"
+        className="lg:hidden fixed bottom-0 left-0 right-0 z-40 overflow-visible bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl border-t border-gray-200/50 dark:border-slate-800 safe-area-padding"
       >
-        <div className="flex items-center justify-around h-16 xs:h-18 px-2">
+        <div className="flex items-center gap-1 h-16 xs:h-18 px-1.5">
           {mobilePrimaryItems.map((item, index) => {
             const isActive = isNavigationItemActive(item, activeItem);
             const subItems = getNavigableSubItems(item);
             const hasSubmenu = !item?.path && subItems.length > 1;
-            // Use key property if available, otherwise use path, otherwise use index
-            const uniqueKey = item?.key || item?.path || `nav-item-${index}`;
+            const uniqueKey = getNavigationItemKey(item, index);
             const isSubmenuOpen = mobileGroupMenuKey === uniqueKey;
             const isFirstItem = index === 0;
             const isLastPrimaryItem = index === mobilePrimaryItems.length - 1;
@@ -682,19 +647,21 @@ const UserContextNavigation = ({
                 : 'left-1/2 -translate-x-1/2';
             
             return (
-              <div key={uniqueKey} className="relative flex flex-col items-center">
+              <div key={uniqueKey} className="relative flex min-w-0 flex-1 flex-col items-center">
                 {hasSubmenu && isSubmenuOpen && (
                   <div
                     role="menu"
                     aria-label={`${item?.label || 'Navigation'} submenu`}
-                    className={`absolute bottom-full mb-2 z-50 w-44 max-w-[46vw] rounded-2xl border border-gray-200/70 dark:border-slate-700/80 bg-white/96 dark:bg-slate-900/96 backdrop-blur-xl shadow-[0_20px_35px_rgba(15,23,42,0.2)] overflow-hidden ${popoverPositionClass}`}
+                    className={`absolute bottom-full mb-3 z-50 w-48 max-w-[min(18rem,calc(100vw-1rem))] overflow-visible rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow-[0_24px_48px_rgba(15,23,42,0.32)] ring-1 ring-black/5 dark:ring-white/10 ${popoverPositionClass}`}
                   >
-                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-1 w-2.5 h-2.5 rotate-45 bg-white/96 dark:bg-slate-900/96 border-r border-b border-gray-200/70 dark:border-slate-700/80" />
-                    <div className="px-2 py-1.5">
-                      <p className="text-xs uppercase tracking-wide text-gray-500 dark:text-slate-400 px-1 pb-1">
-                        {item?.label}
-                      </p>
-                      <div className="space-y-1">
+                    <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white to-slate-50 dark:from-slate-950 dark:to-slate-900" />
+                    <div className="relative overflow-hidden rounded-2xl">
+                      <div className="px-2 py-1.5 border-b border-gray-200/80 dark:border-slate-800">
+                        <p className="text-[10px] font-semibold uppercase tracking-[0.2em] text-gray-500 dark:text-slate-400 px-1">
+                          {item?.label}
+                        </p>
+                      </div>
+                      <div className="p-1.5 space-y-1">
                         {subItems.map((subItem, subIndex) => {
                           const isSubActive = isNavigationItemActive(subItem, activeItem);
                           const subItemKey = subItem?.path || `${uniqueKey}-sub-${subIndex}`;
@@ -702,12 +669,13 @@ const UserContextNavigation = ({
                           return (
                             <button
                               key={subItemKey}
+                              type="button"
                               role="menuitem"
                               onClick={() => handleNavigation(subItem.path)}
-                              className={`w-full flex items-center gap-2.5 px-2.5 py-2 rounded-xl transition-all duration-200 text-left ${
+                              className={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-all duration-200 ${
                                 isSubActive
-                                  ? 'bg-blue-100 dark:bg-blue-900/45 text-blue-700 dark:text-blue-300'
-                                  : 'text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800'
+                                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300'
+                                  : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800/90'
                               }`}
                               aria-current={isSubActive ? 'page' : undefined}
                             >
@@ -724,16 +692,19 @@ const UserContextNavigation = ({
                         })}
                       </div>
                     </div>
+                    <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 h-3 w-3 rotate-45 border-r border-b border-gray-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />
                   </div>
                 )}
 
                 <button
+                  type="button"
                   onClick={() => handleMobileTabNavigation(item, uniqueKey)}
-                  className={`flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl transition-all duration-200 min-w-[60px] ${
+                  className={`w-full flex flex-col items-center justify-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200 min-w-0 ${
                     isActive
                       ? 'text-blue-600 dark:text-blue-400'
                       : 'text-gray-500 dark:text-slate-400'
                   }`}
+                  aria-label={getMobileItemAriaLabel(item)}
                   aria-current={isActive ? 'page' : undefined}
                   aria-expanded={hasSubmenu ? isSubmenuOpen : undefined}
                   aria-haspopup={hasSubmenu ? 'menu' : undefined}
@@ -747,37 +718,163 @@ const UserContextNavigation = ({
                       className={isActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
                     />
                   </div>
-                  <span className="text-xs font-medium text-center whitespace-nowrap">
-                    {item?.label?.split(' ')[0]}
+                  <span className="max-w-full truncate text-[11px] font-medium leading-tight text-center">
+                    {getMobileItemLabel(item)}
                   </span>
                 </button>
               </div>
             );
           })}
+
+          {mobileOverflowItems.length > 0 && (
+            <div className="relative flex min-w-0 flex-1 flex-col items-center">
+              {isMoreMenuOpen && (
+                <div
+                  role="menu"
+                  aria-label="More navigation"
+                  className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 z-50 w-56 max-w-[min(20rem,calc(100vw-1rem))] overflow-visible rounded-2xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-950 shadow-[0_24px_48px_rgba(15,23,42,0.32)] ring-1 ring-black/5 dark:ring-white/10"
+                >
+                  <div className="absolute inset-0 rounded-2xl bg-gradient-to-b from-white to-slate-50 dark:from-slate-950 dark:to-slate-900" />
+                  <div className="relative overflow-hidden rounded-2xl">
+                    <div className="max-h-[60vh] overflow-y-auto p-1.5 space-y-1.5">
+                      {mobileOverflowItems.map((item, index) => {
+                        const overflowKey = getNavigationItemKey(item, index + MOBILE_PRIMARY_NAV_LIMIT);
+                        const overflowSubItems = getNavigableSubItems(item);
+                        const hasGroupedSubmenu = !item?.path && overflowSubItems.length > 1;
+                        const isOverflowItemActive = isNavigationItemActive(item, activeItem);
+                        const overflowPath = resolveItemPath(item);
+
+                        if (hasGroupedSubmenu) {
+                          return (
+                            <div key={overflowKey} className="space-y-1">
+                              <div className="px-2.5 pt-1 pb-0.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-slate-400">
+                                  {item?.label}
+                                </p>
+                              </div>
+                              <div className="space-y-1">
+                                {overflowSubItems.map((subItem, subIndex) => {
+                                  const isSubActive = isNavigationItemActive(subItem, activeItem);
+                                  const subItemKey = subItem?.path || `${overflowKey}-sub-${subIndex}`;
+
+                                  return (
+                                    <button
+                                      key={subItemKey}
+                                      type="button"
+                                      role="menuitem"
+                                      onClick={() => handleNavigation(subItem.path)}
+                                      className={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-all duration-200 ${
+                                        isSubActive
+                                          ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300'
+                                          : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800/90'
+                                      }`}
+                                      aria-current={isSubActive ? 'page' : undefined}
+                                    >
+                                      <Icon
+                                        name={subItem?.icon}
+                                        size={16}
+                                        className={isSubActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                                      />
+                                      <span className="text-xs font-medium leading-snug text-left whitespace-normal">
+                                        {subItem?.label}
+                                      </span>
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        }
+
+                        return (
+                          <div key={overflowKey} className="space-y-1">
+                            {userType === 'admin' && (
+                              <div className="px-2.5 pt-1 pb-0.5">
+                                <p className="text-[10px] font-semibold uppercase tracking-[0.18em] text-gray-500 dark:text-slate-400">
+                                  {item?.label}
+                                </p>
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              role="menuitem"
+                              onClick={() => handleNavigation(overflowPath)}
+                              className={`w-full flex items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition-all duration-200 ${
+                                isOverflowItemActive
+                                  ? 'bg-blue-50 text-blue-700 dark:bg-blue-950/70 dark:text-blue-300'
+                                  : 'text-gray-700 hover:bg-gray-100 dark:text-slate-200 dark:hover:bg-slate-800/90'
+                              }`}
+                              aria-current={isOverflowItemActive ? 'page' : undefined}
+                            >
+                              <Icon
+                                name={item?.icon}
+                                size={16}
+                                className={isOverflowItemActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                              />
+                              <span className="min-w-0 flex-1 text-xs font-medium leading-snug text-left whitespace-normal">
+                                {item?.label}
+                              </span>
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="absolute left-1/2 -translate-x-1/2 -bottom-1.5 h-3 w-3 rotate-45 border-r border-b border-gray-200 bg-slate-50 dark:border-slate-700 dark:bg-slate-900" />
+                </div>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setMobileGroupMenuKey((prev) => (prev === MOBILE_OVERFLOW_MENU_KEY ? null : MOBILE_OVERFLOW_MENU_KEY))}
+                className={`w-full flex flex-col items-center justify-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200 min-w-0 ${
+                  isOverflowActive
+                    ? 'text-blue-600 dark:text-blue-400'
+                    : 'text-gray-500 dark:text-slate-400'
+                }`}
+                aria-label="More navigation"
+                aria-current={isOverflowActive ? 'page' : undefined}
+                aria-expanded={isMoreMenuOpen}
+                aria-haspopup="menu"
+              >
+                <div className={`p-1.5 rounded-lg transition-colors ${
+                  isOverflowActive ? 'bg-blue-100 dark:bg-blue-900/50' : ''
+                }`}>
+                  <Icon
+                    name="MoreHorizontal"
+                    size={20}
+                    className={isOverflowActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+                  />
+                </div>
+                <span className="max-w-full truncate text-[11px] font-medium leading-tight text-center">
+                  More
+                </span>
+              </button>
+            </div>
+          )}
           
           {/* Profile button on mobile */}
           <button
+            type="button"
             onClick={handleProfileClick}
-            className="flex flex-col items-center justify-center gap-1 px-3 py-2 rounded-xl text-gray-500 dark:text-slate-400 min-w-[60px]"
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-1 px-1.5 py-2 rounded-xl transition-all duration-200 ${
+              isProfileActive
+                ? 'text-blue-600 dark:text-blue-400'
+                : 'text-gray-500 dark:text-slate-400'
+            }`}
             aria-label="Profile"
+            aria-current={isProfileActive ? 'page' : undefined}
           >
-            <div className="w-7 h-7 rounded-full border border-gray-200 dark:border-slate-700 bg-gray-100 dark:bg-slate-800 flex items-center justify-center overflow-hidden">
-              {profileImageUrl ? (
-                <img
-                  src={profileImageUrl}
-                  alt="Profile"
-                  className={`h-full w-full ${userType === 'company' ? 'object-contain' : 'object-cover'}`}
-                  onError={handleProfileImageError}
-                />
-              ) : (
-                <Icon
-                  name={userType === 'company' ? 'Building2' : userType === 'admin' ? 'Shield' : 'UserRound'}
-                  size={14}
-                  className="text-gray-400 dark:text-slate-500"
-                />
-              )}
+            <div className={`p-1.5 rounded-lg transition-colors ${
+              isProfileActive ? 'bg-blue-100 dark:bg-blue-900/50' : ''
+            }`}>
+              <Icon
+                name={profileIconName}
+                size={20}
+                className={isProfileActive ? 'text-blue-600 dark:text-blue-400' : 'text-gray-400 dark:text-slate-500'}
+              />
             </div>
-            <span className="text-xs font-medium">Profile</span>
+            <span className="max-w-full truncate text-[11px] font-medium leading-tight text-center">Profile</span>
           </button>
         </div>
       </nav>

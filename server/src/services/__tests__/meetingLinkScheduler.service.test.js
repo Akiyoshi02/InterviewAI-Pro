@@ -76,6 +76,12 @@ describe('meetingLinkScheduler', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockInterviewStore.update.mockResolvedValue(undefined);
+    mockQueueEmailJob.mockImplementation(({ onSuccess }) => {
+      if (typeof onSuccess === 'function') {
+        void onSuccess();
+      }
+      return 'job-1';
+    });
   });
 
   afterEach(() => {
@@ -101,8 +107,16 @@ describe('meetingLinkScheduler', () => {
     expect(jobArg.payload.interviewId).toBe('int-1');
     expect(jobArg.payload.recipient).toBe('cand@test.com');
 
-    // Should mark as sent
-    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', { meetingLinkEmailSent: true });
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', expect.objectContaining({
+      meetingLinkEmailPendingAt: expect.any(String),
+      meetingLinkEmailFailureAt: null,
+    }));
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', expect.objectContaining({
+      meetingLinkEmailSent: true,
+      meetingLinkEmailSentAt: expect.any(String),
+      meetingLinkEmailPendingAt: null,
+      meetingLinkEmailFailureAt: null,
+    }));
   });
 
   it('skips interviews where email was already sent', async () => {
@@ -160,18 +174,19 @@ describe('meetingLinkScheduler', () => {
     expect(mockQueueEmailJob).not.toHaveBeenCalled();
   });
 
-  it('still marks emailSent even if queueEmailJob is synchronous', async () => {
+  it('records reminder success from the queued job callback', async () => {
     const interview = buildInterview();
     mockInterviewStore.listScheduledBetween.mockResolvedValue([interview]);
     mockUserStore.getSummary.mockResolvedValue({ id: 'cand-1', email: 'test@test.com' });
     mockJobStore.getById.mockResolvedValue({ id: 'job-1', title: 'Dev' });
     mockOrganizationStore.getById.mockResolvedValue({ id: 'org-1', name: 'Org' });
-    mockQueueEmailJob.mockReturnValue(undefined);
 
     startMeetingLinkScheduler();
     await waitForTick();
 
-    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', { meetingLinkEmailSent: true });
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', expect.objectContaining({
+      meetingLinkEmailSent: true,
+    }));
   });
 
   // --------------------------------------------------------------------------
@@ -213,7 +228,28 @@ describe('meetingLinkScheduler', () => {
     await waitForTick();
 
     expect(mockQueueEmailJob).toHaveBeenCalledTimes(2);
-    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', { meetingLinkEmailSent: true });
-    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-2', { meetingLinkEmailSent: true });
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', expect.objectContaining({
+      meetingLinkEmailSent: true,
+    }));
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-2', expect.objectContaining({
+      meetingLinkEmailSent: true,
+    }));
+  });
+
+  it('records a reminder failure when the queued job cannot be created', async () => {
+    const interview = buildInterview();
+    mockInterviewStore.listScheduledBetween.mockResolvedValue([interview]);
+    mockUserStore.getSummary.mockResolvedValue({ id: 'cand-1', email: 'cand@test.com', fullName: 'Candidate' });
+    mockJobStore.getById.mockResolvedValue({ id: 'job-1', title: 'Engineer' });
+    mockOrganizationStore.getById.mockResolvedValue({ id: 'org-1', name: 'Acme' });
+    mockQueueEmailJob.mockReturnValue(null);
+
+    startMeetingLinkScheduler();
+    await waitForTick();
+
+    expect(mockInterviewStore.update).toHaveBeenCalledWith('int-1', expect.objectContaining({
+      meetingLinkEmailFailureAt: expect.any(String),
+      meetingLinkEmailPendingAt: null,
+    }));
   });
 });

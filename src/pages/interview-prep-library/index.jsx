@@ -272,10 +272,17 @@ const InterviewPrepLibraryPage = () => {
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Interview Prep Library</h1>
-              <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                Guides, question banks, and a STAR answer builder to help you prepare.
-              </p>
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                  <Icon name="BookOpen" size={24} color="white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Interview Prep Library</h1>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                    Guides, question banks, and a STAR answer builder to help you prepare.
+                  </p>
+                </div>
+              </div>
             </motion.div>
 
             {/* Tabs */}
@@ -308,20 +315,34 @@ const InterviewPrepLibraryPage = () => {
                     placeholder="Search questions…"
                     className="flex-1 min-w-[160px] text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
-                  <select
-                    value={catFilter}
-                    onChange={(e) => setCatFilter(e.target.value)}
-                    className="text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
-                  </select>
-                  <select
-                    value={diffFilter}
-                    onChange={(e) => setDiffFilter(e.target.value)}
-                    className="text-sm rounded-lg border border-gray-300 dark:border-slate-600 bg-white dark:bg-slate-800 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    {DIFFICULTIES.map((d) => <option key={d} value={d}>{d === 'All' ? 'All levels' : d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
-                  </select>
+                  <div className="relative min-w-[132px]">
+                    <select
+                      value={catFilter}
+                      onChange={(e) => setCatFilter(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+                    >
+                      {CATEGORIES.map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                    <Icon
+                      name="ChevronDown"
+                      size={16}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400"
+                    />
+                  </div>
+                  <div className="relative min-w-[132px]">
+                    <select
+                      value={diffFilter}
+                      onChange={(e) => setDiffFilter(e.target.value)}
+                      className="w-full appearance-none rounded-lg border border-gray-300 bg-white px-3 py-2 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800"
+                    >
+                      {DIFFICULTIES.map((d) => <option key={d} value={d}>{d === 'All' ? 'All levels' : d.charAt(0).toUpperCase() + d.slice(1)}</option>)}
+                    </select>
+                    <Icon
+                      name="ChevronDown"
+                      size={16}
+                      className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400"
+                    />
+                  </div>
                 </div>
 
                 <p className="text-xs text-gray-500 dark:text-slate-400">{filteredQuestions.length} questions</p>

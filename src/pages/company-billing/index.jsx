@@ -18,6 +18,7 @@ const CompanyBillingPage = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [plans, setPlans] = useState([]);
+  const [paymentsConfigured, setPaymentsConfigured] = useState(false);
   const [subscription, setSubscription] = useState(null);
   const [usage, setUsage] = useState(null);
   const [history, setHistory] = useState([]);
@@ -57,6 +58,7 @@ const CompanyBillingPage = () => {
 
       if (plansRes.status === 'fulfilled' && plansRes.value?.success) {
         setPlans(plansRes.value.plans || []);
+        setPaymentsConfigured(Boolean(plansRes.value.paymentsConfigured));
       }
       if (usageRes.status === 'fulfilled' && usageRes.value?.success) {
         setUsage(usageRes.value.usage || {});
@@ -88,12 +90,16 @@ const CompanyBillingPage = () => {
   const handleUpgradeClick = async (planId) => {
     if (!isAdmin) return;
     setUpgradeMessage(null);
+    if (!paymentsConfigured) {
+      setUpgradeMessage('Billing upgrades are unavailable in this environment until Stripe is configured.');
+      return;
+    }
     try {
       const res = await apiClient.billing.createCheckoutSession(planId);
       if (res?.checkoutUrl) {
         window.location.href = res.checkoutUrl;
       } else {
-        setUpgradeMessage(res?.message || 'Payment integration coming soon.');
+        setUpgradeMessage(res?.message || 'Billing upgrades are unavailable in this environment until Stripe is configured.');
       }
     } catch (err) {
       setUpgradeMessage(err?.message || 'Unable to start checkout.');
@@ -283,6 +289,13 @@ const CompanyBillingPage = () => {
               {isAdmin && plans.length > 0 && (
                 <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-lg">
                   <h2 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-4">Plans</h2>
+                  {!paymentsConfigured && (
+                    <div className="mb-4 rounded-xl border border-amber-200 dark:border-amber-700/50 bg-amber-50 dark:bg-amber-900/20 p-4">
+                      <p className="text-sm text-amber-800 dark:text-amber-200">
+                        Plan comparisons are available, but upgrades are disabled until Stripe is configured for this environment.
+                      </p>
+                    </div>
+                  )}
                   <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     {plans.map((plan) => (
                       <div
@@ -299,14 +312,20 @@ const CompanyBillingPage = () => {
                           {plan.price > 0 && <span className="text-sm font-normal text-gray-500">/mo</span>}
                         </p>
                         {plan.id !== currentPlan.id && plan.price > 0 && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="mt-3 w-full"
-                            onClick={() => handleUpgradeClick(plan.id)}
-                          >
-                            Upgrade
-                          </Button>
+                          paymentsConfigured ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="mt-3 w-full"
+                              onClick={() => handleUpgradeClick(plan.id)}
+                            >
+                              Upgrade
+                            </Button>
+                          ) : (
+                            <div className="mt-3 rounded-lg border border-dashed border-amber-300/80 dark:border-amber-700/60 bg-amber-50/80 dark:bg-amber-900/20 px-3 py-2 text-center text-xs font-medium text-amber-800 dark:text-amber-200">
+                              Unavailable in this environment
+                            </div>
+                          )
                         )}
                         {plan.id === currentPlan.id && (
                           <span className="inline-block mt-3 text-xs font-medium text-blue-600 dark:text-blue-400">Current plan</span>
@@ -315,7 +334,9 @@ const CompanyBillingPage = () => {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-slate-400 mt-4">
-                    Payment upgrades are processed securely. Stripe integration coming soon.
+                    {paymentsConfigured
+                      ? 'Payment upgrades are processed securely via Stripe.'
+                      : 'Stripe billing is not configured in this environment yet.'}
                   </p>
                 </div>
               )}

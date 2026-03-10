@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import Header from '../../components/ui/Header';
 import UserContextNavigation from '../../components/ui/UserContextNavigation';
@@ -12,7 +12,7 @@ import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { deriveAchievementBadges } from '../candidate-dashboard/utils/candidateInsights.js';
 
-// ── Weekly Challenges ─────────────────────────────────────────────────────
+// Weekly Challenges
 
 function getWeekChallenges() {
   const now = new Date();
@@ -31,7 +31,7 @@ function getWeekChallenges() {
   return [pool[start % pool.length], pool[(start + 1) % pool.length], pool[(start + 2) % pool.length]];
 }
 
-// ── Streak Calendar ──────────────────────────────────────────────────────
+// Streak Calendar
 
 export function buildStreakData(interviews) {
   const today = new Date();
@@ -61,7 +61,7 @@ export function buildStreakData(interviews) {
   return { calDays, currentStreak: streak };
 }
 
-// ── XP System ────────────────────────────────────────────────────────────
+// XP System
 
 export function computeXP(interviews) {
   let xp = 0;
@@ -100,7 +100,7 @@ export function getLevel(xp) {
   return { ...current, next, xp, progress };
 }
 
-// ── Main Page ─────────────────────────────────────────────────────────────
+// Main Page
 
 const TABS = [
   { id: 'overview', label: 'Overview', icon: 'LayoutDashboard' },
@@ -114,7 +114,8 @@ const GamificationPage = () => {
   const navigate = useNavigate();
   const [isNavCollapsed, setIsNavCollapsed] = useState(false);
   const [interviews, setInterviews] = useState([]);
-  const [leaderboard, setLeaderboard] = useState([]);
+  const [referralLeaderboard, setReferralLeaderboard] = useState([]);
+  const [scoreLeaderboard, setScoreLeaderboard] = useState([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('overview');
 
@@ -122,15 +123,19 @@ const GamificationPage = () => {
     const load = async () => {
       setLoading(true);
       try {
-        const [ivRes, lbRes] = await Promise.allSettled([
+        const [ivRes, lbRes, scoreRes] = await Promise.allSettled([
           apiClient.interviews.getMyInterviews(),
           apiClient.referrals.getLeaderboard(),
+          apiClient.interviews.getScoreLeaderboard(),
         ]);
         if (ivRes.status === 'fulfilled' && ivRes.value?.success) {
           setInterviews(ivRes.value?.interviews || ivRes.value?.data || []);
         }
         if (lbRes.status === 'fulfilled' && lbRes.value?.success) {
-          setLeaderboard(lbRes.value.leaderboard || []);
+          setReferralLeaderboard(lbRes.value.leaderboard || []);
+        }
+        if (scoreRes?.status === 'fulfilled' && scoreRes.value?.success) {
+          setScoreLeaderboard(scoreRes.value.leaderboard || []);
         }
       } catch { /* ignore */ } finally {
         setLoading(false);
@@ -171,10 +176,17 @@ const GamificationPage = () => {
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
             <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Achievements & Progress</h1>
-              <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                Track your streaks, badges, XP, and weekly challenges.
-              </p>
+              <div className="flex items-center gap-4">
+                <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                  <Icon name="Trophy" size={24} color="white" />
+                </div>
+                <div>
+                  <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Achievements & Progress</h1>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                    Track your streaks, badges, XP, and weekly challenges.
+                  </p>
+                </div>
+              </div>
             </motion.div>
 
             {/* XP / Level card */}
@@ -238,7 +250,7 @@ const GamificationPage = () => {
                 <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-lg p-5">
                   <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-4 flex items-center gap-2">
                     <Icon name="Flame" size={16} className="text-orange-500" />
-                    Practice Streak – Last 30 Days
+                    Practice Streak - Last 30 Days
                   </h2>
                   <div className="grid grid-cols-10 gap-1.5">
                     {calDays.map((day) => (
@@ -258,7 +270,7 @@ const GamificationPage = () => {
                     ))}
                   </div>
                   <p className="text-xs text-gray-500 dark:text-slate-400 mt-3">
-                    {currentStreak > 0 ? `🔥 ${currentStreak}-day streak! Keep it up.` : 'Complete an interview today to start your streak!'}
+                    {currentStreak > 0 ? `Current streak: ${currentStreak} days. Keep it up.` : 'Complete an interview today to start your streak!'}
                   </p>
                 </div>
 
@@ -272,31 +284,33 @@ const GamificationPage = () => {
                     {weekChallenges.map((challenge) => {
                       const done = completedChallenges.includes(challenge.id);
                       return (
-                        <div key={challenge.id} className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                        <div key={challenge.id} className={`flex flex-col gap-3 p-3 rounded-xl border transition-all sm:flex-row sm:items-center ${
                           done
                             ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800/50'
                             : 'bg-gray-50 dark:bg-slate-700/30 border-gray-200 dark:border-slate-700'
                         }`}>
-                          <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
-                            done ? 'bg-green-500' : 'bg-blue-100 dark:bg-blue-900/30'
-                          }`}>
-                            <Icon name={done ? 'Check' : challenge.icon} size={16} className={done ? 'text-white' : 'text-blue-600 dark:text-blue-400'} />
+                          <div className="flex flex-1 min-w-0 items-start gap-3">
+                            <div className={`w-9 h-9 rounded-xl flex items-center justify-center shrink-0 ${
+                              done ? 'bg-green-500' : 'bg-blue-100 dark:bg-blue-900/30'
+                            }`}>
+                              <Icon name={done ? 'Check' : challenge.icon} size={16} className={done ? 'text-white' : 'text-blue-600 dark:text-blue-400'} />
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{challenge.title}</p>
+                              <p className="text-xs leading-relaxed text-gray-500 dark:text-slate-400">{challenge.desc}</p>
+                            </div>
                           </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 dark:text-slate-100">{challenge.title}</p>
-                            <p className="text-xs text-gray-500 dark:text-slate-400">{challenge.desc}</p>
-                          </div>
-                          <div className="flex items-center gap-2 shrink-0">
-                            <span className="text-xs font-semibold text-yellow-600 dark:text-yellow-400">+{challenge.xp} XP</span>
+                          <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:flex-col sm:items-end sm:justify-center lg:flex-row lg:items-center">
+                            <span className="shrink-0 text-xs font-semibold text-yellow-600 dark:text-yellow-400">+{challenge.xp} XP</span>
                             <button
                               onClick={() => toggleChallenge(challenge.id)}
-                              className={`text-xs px-2 py-1 rounded-lg border transition-colors ${
+                              className={`min-w-[96px] rounded-lg border px-2 py-1 text-center text-xs transition-colors ${
                                 done
                                   ? 'border-green-300 text-green-700 dark:border-green-700 dark:text-green-400'
                                   : 'border-gray-300 text-gray-600 dark:border-slate-600 dark:text-slate-400 hover:border-blue-400 hover:text-blue-600'
                               }`}
                             >
-                              {done ? 'Done ✓' : 'Mark done'}
+                              {done ? 'Done' : 'Mark done'}
                             </button>
                           </div>
                         </div>
@@ -374,38 +388,97 @@ const GamificationPage = () => {
             {activeTab === 'leaderboard' && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
                 <p className="text-xs text-gray-500 dark:text-slate-400">
-                  Top referrers by points (referral leaderboard). Interview score leaderboard coming soon.
+                  Compare your referral momentum and scored interview performance against other candidates.
                 </p>
-                {leaderboard.length === 0 ? (
-                  <div className="rounded-2xl border-2 border-dashed border-gray-200 dark:border-slate-700 p-10 text-center space-y-3">
-                    <Icon name="Trophy" size={36} className="text-gray-300 dark:text-slate-600 mx-auto" />
-                    <p className="text-sm text-gray-500 dark:text-slate-400">Leaderboard is empty. Refer friends to appear here!</p>
-                  </div>
-                ) : (
+                <div className="grid gap-4 xl:grid-cols-2">
                   <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-lg overflow-hidden">
-                    {leaderboard.slice(0, 15).map((entry, idx) => (
-                      <div key={entry.userId} className={`flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-slate-700/50 last:border-0 ${
-                        entry.userId === user?.id ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
-                      }`}>
-                        <span className={`text-sm font-bold w-6 text-center ${
-                          idx === 0 ? 'text-yellow-500' : idx === 1 ? 'text-slate-400' : idx === 2 ? 'text-amber-600' : 'text-gray-400'
-                        }`}>
-                          {idx + 1}
-                        </span>
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
-                          {(entry.displayName || 'U').charAt(0).toUpperCase()}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
-                            {entry.userId === user?.id ? 'You' : entry.displayName}
-                          </p>
-                          <p className="text-xs text-gray-500 dark:text-slate-400">{entry.totalReferrals} referrals</p>
-                        </div>
-                        <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{entry.totalPoints} pts</span>
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700/50">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Referral Points</h3>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">Top referrers ranked by total referral points.</p>
                       </div>
-                    ))}
+                      <Icon name="Gift" size={18} className="text-purple-500" />
+                    </div>
+                    {referralLeaderboard.length === 0 ? (
+                      <div className="p-10 text-center space-y-3">
+                        <Icon name="Trophy" size={36} className="text-gray-300 dark:text-slate-600 mx-auto" />
+                        <p className="text-sm text-gray-500 dark:text-slate-400">No referral rankings yet. Refer friends to appear here.</p>
+                      </div>
+                    ) : (
+                      referralLeaderboard.slice(0, 15).map((entry, idx) => (
+                        <div key={`ref-${entry.userId}`} className={`flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-slate-700/50 last:border-0 ${
+                          entry.userId === user?.id ? 'bg-blue-50/50 dark:bg-blue-900/10' : ''
+                        }`}>
+                          <span className={`text-sm font-bold w-6 text-center ${
+                            idx === 0 ? 'text-yellow-500' : idx === 1 ? 'text-slate-400' : idx === 2 ? 'text-amber-600' : 'text-gray-400'
+                          }`}>
+                            {idx + 1}
+                          </span>
+                          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                            {(entry.displayName || 'U').charAt(0).toUpperCase()}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
+                              {entry.userId === user?.id ? 'You' : entry.displayName}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-slate-400">{entry.totalReferrals} referrals</p>
+                          </div>
+                          <span className="text-sm font-semibold text-blue-600 dark:text-blue-400">{entry.totalPoints} pts</span>
+                        </div>
+                      ))
+                    )}
                   </div>
-                )}
+
+                  <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-lg overflow-hidden">
+                    <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100 dark:border-slate-700/50">
+                      <div>
+                        <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Interview Scores</h3>
+                        <p className="text-xs text-gray-500 dark:text-slate-400">Ranked by average score across completed scored interviews.</p>
+                      </div>
+                      <Icon name="BarChart2" size={18} className="text-emerald-500" />
+                    </div>
+                    {scoreLeaderboard.length === 0 ? (
+                      <div className="p-10 text-center space-y-3">
+                        <Icon name="BarChart2" size={36} className="text-gray-300 dark:text-slate-600 mx-auto" />
+                        <p className="text-sm text-gray-500 dark:text-slate-400">Score rankings will appear after completed interviews are evaluated.</p>
+                      </div>
+                    ) : (
+                      scoreLeaderboard.slice(0, 15).map((entry, idx) => (
+                        <div key={`score-${entry.userId}`} className={`flex items-center gap-3 px-5 py-3 border-b border-gray-100 dark:border-slate-700/50 last:border-0 ${
+                          entry.userId === user?.id ? 'bg-emerald-50/50 dark:bg-emerald-900/10' : ''
+                        }`}>
+                          <span className={`text-sm font-bold w-6 text-center ${
+                            idx === 0 ? 'text-yellow-500' : idx === 1 ? 'text-slate-400' : idx === 2 ? 'text-amber-600' : 'text-gray-400'
+                          }`}>
+                            {entry.rank || idx + 1}
+                          </span>
+                          {entry.profilePhotoUrl ? (
+                            <img
+                              src={entry.profilePhotoUrl}
+                              alt=""
+                              className="w-8 h-8 rounded-full object-cover shrink-0"
+                            />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-emerald-500 to-cyan-500 flex items-center justify-center text-white text-xs font-bold shrink-0">
+                              {(entry.displayName || 'U').charAt(0).toUpperCase()}
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-gray-900 dark:text-slate-100 truncate">
+                              {entry.userId === user?.id ? 'You' : entry.displayName}
+                            </p>
+                            <p className="text-xs text-gray-500 dark:text-slate-400">
+                              {entry.scoredInterviews} scored interviews - Best {Math.round(entry.bestScore || 0)}%
+                            </p>
+                          </div>
+                          <span className="text-sm font-semibold text-emerald-600 dark:text-emerald-400">
+                            {Math.round(entry.averageScore || 0)}%
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
               </motion.div>
             )}
           </div>

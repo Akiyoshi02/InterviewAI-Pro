@@ -22,6 +22,8 @@ export class BillingController {
       res.json({
         success: true,
         plans: Object.values(PLANS),
+        paymentsConfigured: Boolean(stripe),
+        paymentProvider: stripe ? 'stripe' : null,
       });
     } catch (error) {
       logger.error('Get plans error:', error);
@@ -187,7 +189,7 @@ export class BillingController {
   }
 
   /**
-   * Create Stripe checkout session (placeholder)
+   * Create Stripe checkout session
    */
   static async createCheckoutSession(req, res, next) {
     try {
@@ -199,12 +201,10 @@ export class BillingController {
       }
       
       if (!stripe) {
-        // Stripe not configured – return a placeholder URL for demo/dev
-        logger.warn('Stripe not configured. Returning placeholder checkout URL.');
-        return res.json({
-          success: true,
-          checkoutUrl: null,
-          message: 'Stripe is not yet configured. Set STRIPE_SECRET_KEY and STRIPE_PRICE_* environment variables to enable payments.',
+        logger.warn('Stripe not configured. Rejecting checkout session request.');
+        return res.status(503).json({
+          success: false,
+          error: 'Billing upgrades are unavailable in this environment until Stripe is configured.',
           configured: false,
         });
       }

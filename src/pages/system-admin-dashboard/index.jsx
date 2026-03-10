@@ -27,117 +27,16 @@ import PlatformOperationsPanel from './components/PlatformOperationsPanel.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useRealtimePathFeed } from '../../hooks/useRealtimePathFeed';
 import {
+  ADMIN_SECTION_ALIASES,
+  ADMIN_SECTION_DEFINITIONS,
+  ADMIN_SECTION_MAP,
+  getAdminSectionPath,
+} from '../../config/adminNavigation.js';
+import {
   ADMIN_FEED_EVENTS,
   combineRealtimeEventTypes,
 } from '../../constants/realtimeFeedEvents.js';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
-
-const SECTION_DEFINITIONS = [
-  {
-    id: 'approvals',
-    title: 'Organization Approvals',
-    description: 'Review and process pending organization verification requests.',
-    icon: 'CheckCircle',
-  },
-  {
-    id: 'organizations',
-    title: 'All Organizations',
-    description: 'View all organizations and manage lifecycle status.',
-    icon: 'Building',
-  },
-  {
-    id: 'users',
-    title: 'User Management',
-    description: 'Manage user access, role elevation, and account status.',
-    icon: 'Users',
-  },
-  {
-    id: 'operations',
-    title: 'Platform Operations',
-    description: 'Monitor billing, data retention, and operational health.',
-    icon: 'Wallet',
-  },
-  {
-    id: 'fairness',
-    title: 'Fairness and Calibration',
-    description: 'Inspect fairness quality and calibration outcomes.',
-    icon: 'Scale',
-  },
-  {
-    id: 'templates',
-    title: 'Templates',
-    description: 'Manage structured interview templates, defaults, and adoption.',
-    icon: 'ListChecks',
-  },
-  {
-    id: 'classification',
-    title: 'Classification Metrics',
-    description: 'Confusion matrix and precision/recall/F1 for AI vs SME score classification.',
-    icon: 'Grid3X3',
-  },
-  {
-    id: 'fine-tuning',
-    title: 'Model Fine-Tuning',
-    description: 'Train and evaluate domain-specialized LLM from collected interview data.',
-    icon: 'Cpu',
-  },
-  {
-    id: 'mediapipe-calibration',
-    title: 'MediaPipe Calibration',
-    description: 'Compare static posture/face thresholds against data-driven calibrated values.',
-    icon: 'ScanFace',
-  },
-  {
-    id: 'training-data',
-    title: 'Training Data Governance',
-    description: 'Manage datasets for evaluation and model training workflows.',
-    icon: 'Database',
-  },
-  {
-    id: 'question-catalog',
-    title: 'Question Catalog',
-    description: 'Curate approved dataset questions and import vetted sources.',
-    icon: 'BookOpenCheck',
-  },
-  {
-    id: 'research-tools',
-    title: 'Research Tools',
-    description: 'Record posture/gestures and analyze videos for calibration.',
-    icon: 'FlaskConical',
-  },
-  {
-    id: 'live-chat',
-    title: 'Live Chat',
-    description: 'Monitor and respond to visitor conversations from admin console.',
-    icon: 'MessageSquare',
-  },
-  {
-    id: 'settings',
-    title: 'System Settings',
-    description: 'Update global maintenance and platform settings.',
-    icon: 'Settings',
-  },
-  {
-    id: 'audit',
-    title: 'Audit Logs',
-    description: 'Track system-level actions and administrative events.',
-    icon: 'FileText',
-  },
-];
-
-const SECTION_MAP = SECTION_DEFINITIONS.reduce((acc, section) => {
-  acc[section.id] = section;
-  return acc;
-}, {});
-
-const SECTION_ALIASES = Object.freeze({
-  'structured-interviews': 'templates',
-});
-
-const getSectionPath = (sectionId) => {
-  if (!sectionId || sectionId === 'overview') return '/system-admin-dashboard';
-  return `/system-admin-dashboard/${sectionId}`;
-};
 
 const SectionContainer = ({ title, description, icon, children }) => (
   <section className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/88 dark:bg-slate-800/85 p-4 sm:p-6 shadow-lg space-y-4">
@@ -195,8 +94,8 @@ const SystemAdminDashboard = () => {
 
   const activeSection = useMemo(() => {
     if (!section) return 'overview';
-    const normalizedSection = SECTION_ALIASES[section] || section;
-    return SECTION_MAP[normalizedSection] ? normalizedSection : null;
+    const normalizedSection = ADMIN_SECTION_ALIASES[section] || section;
+    return ADMIN_SECTION_MAP[normalizedSection] ? normalizedSection : null;
   }, [section]);
 
   useEffect(() => {
@@ -269,7 +168,7 @@ const SystemAdminDashboard = () => {
   };
 
   const navigateToSection = useCallback((sectionId) => {
-    navigate(getSectionPath(sectionId));
+    navigate(getAdminSectionPath(sectionId));
   }, [navigate]);
 
   const showInitialLoader = loading && !stats;
@@ -298,7 +197,7 @@ const SystemAdminDashboard = () => {
       description: 'Centralized controls for organizations, users, operations, and policy governance.',
       icon: 'LayoutDashboard',
     }
-    : SECTION_MAP[activeSection];
+    : ADMIN_SECTION_MAP[activeSection];
 
   const renderOverview = () => (
     <>
@@ -334,7 +233,7 @@ const SystemAdminDashboard = () => {
       <section className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/88 dark:bg-slate-800/85 p-4 sm:p-6 shadow-lg">
         <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Administrative Modules</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
-          {SECTION_DEFINITIONS.map((sectionDef) => (
+          {ADMIN_SECTION_DEFINITIONS.map((sectionDef) => (
             <button
               key={sectionDef.id}
               type="button"
@@ -361,95 +260,95 @@ const SystemAdminDashboard = () => {
     switch (activeSection) {
       case 'approvals':
         return (
-          <SectionContainer title={SECTION_MAP.approvals.title} description={SECTION_MAP.approvals.description} icon={SECTION_MAP.approvals.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.approvals.title} description={ADMIN_SECTION_MAP.approvals.description} icon={ADMIN_SECTION_MAP.approvals.icon}>
             <OrganizationApprovalQueue onApprovalChange={loadStats} />
           </SectionContainer>
         );
       case 'organizations':
         return (
-          <SectionContainer title={SECTION_MAP.organizations.title} description={SECTION_MAP.organizations.description} icon={SECTION_MAP.organizations.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.organizations.title} description={ADMIN_SECTION_MAP.organizations.description} icon={ADMIN_SECTION_MAP.organizations.icon}>
             <AllOrganizationsList />
           </SectionContainer>
         );
       case 'users':
         return (
-          <SectionContainer title={SECTION_MAP.users.title} description={SECTION_MAP.users.description} icon={SECTION_MAP.users.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.users.title} description={ADMIN_SECTION_MAP.users.description} icon={ADMIN_SECTION_MAP.users.icon}>
             <UserManagementPanel />
           </SectionContainer>
         );
       case 'operations':
         return (
-          <SectionContainer title={SECTION_MAP.operations.title} description={SECTION_MAP.operations.description} icon={SECTION_MAP.operations.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.operations.title} description={ADMIN_SECTION_MAP.operations.description} icon={ADMIN_SECTION_MAP.operations.icon}>
             <PlatformOperationsPanel />
           </SectionContainer>
         );
       case 'fairness':
         return (
-          <SectionContainer title={SECTION_MAP.fairness.title} description={SECTION_MAP.fairness.description} icon={SECTION_MAP.fairness.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.fairness.title} description={ADMIN_SECTION_MAP.fairness.description} icon={ADMIN_SECTION_MAP.fairness.icon}>
             <FairnessCalibrationPanel />
           </SectionContainer>
         );
       case 'classification':
         return (
-          <SectionContainer title={SECTION_MAP.classification.title} description={SECTION_MAP.classification.description} icon={SECTION_MAP.classification.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.classification.title} description={ADMIN_SECTION_MAP.classification.description} icon={ADMIN_SECTION_MAP.classification.icon}>
             <ClassificationMetricsPanel />
           </SectionContainer>
         );
       case 'templates':
         return (
           <SectionContainer
-            title={SECTION_MAP.templates.title}
-            description={SECTION_MAP.templates.description}
-            icon={SECTION_MAP.templates.icon}
+            title={ADMIN_SECTION_MAP.templates.title}
+            description={ADMIN_SECTION_MAP.templates.description}
+            icon={ADMIN_SECTION_MAP.templates.icon}
           >
             <StructuredInterviewGovernancePanel />
           </SectionContainer>
         );
       case 'fine-tuning':
         return (
-          <SectionContainer title={SECTION_MAP['fine-tuning'].title} description={SECTION_MAP['fine-tuning'].description} icon={SECTION_MAP['fine-tuning'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['fine-tuning'].title} description={ADMIN_SECTION_MAP['fine-tuning'].description} icon={ADMIN_SECTION_MAP['fine-tuning'].icon}>
             <ModelFineTuningPanel />
           </SectionContainer>
         );
       case 'mediapipe-calibration':
         return (
-          <SectionContainer title={SECTION_MAP['mediapipe-calibration'].title} description={SECTION_MAP['mediapipe-calibration'].description} icon={SECTION_MAP['mediapipe-calibration'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['mediapipe-calibration'].title} description={ADMIN_SECTION_MAP['mediapipe-calibration'].description} icon={ADMIN_SECTION_MAP['mediapipe-calibration'].icon}>
             <MediaPipeCalibrationPanel />
           </SectionContainer>
         );
       case 'training-data':
         return (
-          <SectionContainer title={SECTION_MAP['training-data'].title} description={SECTION_MAP['training-data'].description} icon={SECTION_MAP['training-data'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['training-data'].title} description={ADMIN_SECTION_MAP['training-data'].description} icon={ADMIN_SECTION_MAP['training-data'].icon}>
             <TrainingDataManager />
           </SectionContainer>
         );
       case 'question-catalog':
         return (
-          <SectionContainer title={SECTION_MAP['question-catalog'].title} description={SECTION_MAP['question-catalog'].description} icon={SECTION_MAP['question-catalog'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['question-catalog'].title} description={ADMIN_SECTION_MAP['question-catalog'].description} icon={ADMIN_SECTION_MAP['question-catalog'].icon}>
             <QuestionCatalogPanel />
           </SectionContainer>
         );
       case 'research-tools':
         return (
-          <SectionContainer title={SECTION_MAP['research-tools'].title} description={SECTION_MAP['research-tools'].description} icon={SECTION_MAP['research-tools'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['research-tools'].title} description={ADMIN_SECTION_MAP['research-tools'].description} icon={ADMIN_SECTION_MAP['research-tools'].icon}>
             <ResearchToolsPanel />
           </SectionContainer>
         );
       case 'live-chat':
         return (
-          <SectionContainer title={SECTION_MAP['live-chat'].title} description={SECTION_MAP['live-chat'].description} icon={SECTION_MAP['live-chat'].icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP['live-chat'].title} description={ADMIN_SECTION_MAP['live-chat'].description} icon={ADMIN_SECTION_MAP['live-chat'].icon}>
             <LiveChatManager />
           </SectionContainer>
         );
       case 'settings':
         return (
-          <SectionContainer title={SECTION_MAP.settings.title} description={SECTION_MAP.settings.description} icon={SECTION_MAP.settings.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.settings.title} description={ADMIN_SECTION_MAP.settings.description} icon={ADMIN_SECTION_MAP.settings.icon}>
             <SystemSettings />
           </SectionContainer>
         );
       case 'audit':
         return (
-          <SectionContainer title={SECTION_MAP.audit.title} description={SECTION_MAP.audit.description} icon={SECTION_MAP.audit.icon}>
+          <SectionContainer title={ADMIN_SECTION_MAP.audit.title} description={ADMIN_SECTION_MAP.audit.description} icon={ADMIN_SECTION_MAP.audit.icon}>
             <PlatformAuditLogs />
           </SectionContainer>
         );

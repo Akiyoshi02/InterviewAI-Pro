@@ -1,6 +1,6 @@
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import PWAInstallPrompt from '../PWAInstallPrompt.jsx';
 
 vi.mock('../Button.jsx', () => ({
@@ -69,10 +69,10 @@ describe('PWAInstallPrompt', () => {
     const promptEvent = createBeforeInstallPromptEvent();
 
     window.dispatchEvent(promptEvent);
-    vi.advanceTimersByTime(3000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     expect(promptEvent.preventDefault).toHaveBeenCalledTimes(1);
-    expect(await screen.findByText('Install App')).toBeTruthy();
+    expect(screen.getByText('Install App')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'Install' })).toBeTruthy();
   });
 
@@ -81,35 +81,35 @@ describe('PWAInstallPrompt', () => {
     const promptEvent = createBeforeInstallPromptEvent();
 
     window.dispatchEvent(promptEvent);
-    vi.advanceTimersByTime(3000);
-    expect(await screen.findByText('Install App')).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(screen.getByText('Install App')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Install' }));
+    await Promise.resolve();
+    await Promise.resolve();
 
-    await waitFor(() => {
-      expect(promptEvent.prompt).toHaveBeenCalledTimes(1);
-      expect(screen.queryByText('Install App')).toBeNull();
-    });
+    expect(promptEvent.prompt).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('Install App')).toBeNull();
   });
 
   it('hides prompt for the rest of the session when dismissed', async () => {
     render(<PWAInstallPrompt />);
     window.dispatchEvent(createBeforeInstallPromptEvent());
-    vi.advanceTimersByTime(3000);
-    expect(await screen.findByText('Install App')).toBeTruthy();
+    await vi.advanceTimersByTimeAsync(3000);
+    expect(screen.getByText('Install App')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Not now' }));
     expect(screen.queryByText('Install App')).toBeNull();
     expect(sessionStorage.getItem('pwa_install_dismissed_session')).toBe('1');
 
     window.dispatchEvent(createBeforeInstallPromptEvent());
-    vi.advanceTimersByTime(3000);
+    await vi.advanceTimersByTimeAsync(3000);
     expect(screen.queryByText('Install App')).toBeNull();
 
     cleanup();
     render(<PWAInstallPrompt />);
     window.dispatchEvent(createBeforeInstallPromptEvent());
-    vi.advanceTimersByTime(3000);
+    await vi.advanceTimersByTimeAsync(3000);
 
     expect(screen.queryByText('Install App')).toBeNull();
   });

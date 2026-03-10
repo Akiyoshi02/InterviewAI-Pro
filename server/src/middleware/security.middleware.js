@@ -94,6 +94,7 @@ const corsOptions = {
   allowedHeaders: [
     'Content-Type',
     'Authorization',
+    'X-Meeting-Token',
     'X-CSRF-Token',
     'X-Requested-With',
     'Accept',
@@ -169,14 +170,14 @@ export function setupSecurity(app) {
   app.use('/api/auth/register', registrationLimiter);
   app.use('/api/auth/check-email', emailCheckLimiter);
   app.use('/api/auth/email-verification', emailVerificationLimiter);
-  app.use('/api/auth/', authLimiter);
+  // Do not apply login-style throttling to session/profile routes such as /api/auth/me.
+  // The app polls those endpoints during normal navigation and role switching.
   
   // Interview creation - prevent resource abuse
   app.use('/api/interviews/create', interviewLimiter);
   
   // Public endpoints
   app.use('/api/public/jobs', publicLimiter);
-  app.use('/api/public/invitations', publicLimiter);
   app.use('/api/public/team-invitations', publicLimiter);
   app.use('/api/public/contact', contactLimiter);
   app.use('/api/public/maintenance-status', publicLimiter);

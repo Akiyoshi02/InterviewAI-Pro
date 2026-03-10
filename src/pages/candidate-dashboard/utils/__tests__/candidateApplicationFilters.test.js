@@ -94,6 +94,20 @@ const APPLICATION_FIXTURES = [
     },
     organization: { name: 'Acme Labs' },
   },
+  {
+    id: 'app-7',
+    status: 'OFFER',
+    submittedAt: '2026-02-06T09:30:00.000Z',
+    createdAt: '2026-02-06T09:30:00.000Z',
+    reviewedAt: '2026-02-10T12:00:00.000Z',
+    job: {
+      id: 'job-f',
+      title: 'Platform Engineer',
+      location: 'Colombo',
+      employmentType: 'FULL_TIME',
+    },
+    organization: { name: 'Cynectex' },
+  },
 ];
 
 describe('candidateApplicationFilters', () => {
@@ -110,7 +124,7 @@ describe('candidateApplicationFilters', () => {
       { now: NOW },
     );
     const activeIds = active.map((item) => item.id);
-    expect(activeIds).toEqual(['app-1', 'app-6']);
+    expect(activeIds).toEqual(['app-1', 'app-7', 'app-6']);
 
     const withdrew = filterCandidateApplications(
       APPLICATION_FIXTURES,
@@ -135,7 +149,7 @@ describe('candidateApplicationFilters', () => {
       { ...DEFAULT_CANDIDATE_APPLICATION_FILTERS, datePreset: 'last30' },
       { now: NOW },
     );
-    expect(lastThirtyDays.map((item) => item.id)).toEqual(['app-1', 'app-6', 'app-4']);
+    expect(lastThirtyDays.map((item) => item.id)).toEqual(['app-1', 'app-7', 'app-6', 'app-4']);
 
     const customRange = filterCandidateApplications(
       APPLICATION_FIXTURES,
@@ -147,7 +161,7 @@ describe('candidateApplicationFilters', () => {
       },
       { now: NOW },
     );
-    expect(customRange.map((item) => item.id)).toEqual(['app-1', 'app-6', 'app-4']);
+    expect(customRange.map((item) => item.id)).toEqual(['app-1', 'app-7', 'app-6', 'app-4']);
   });
 
   it('supports review, job-state, and withdrawal availability filters', () => {
@@ -156,7 +170,7 @@ describe('candidateApplicationFilters', () => {
       { ...DEFAULT_CANDIDATE_APPLICATION_FILTERS, reviewStateFilter: 'REVIEWED' },
       { now: NOW },
     );
-    expect(reviewed.map((item) => item.id)).toEqual(['app-4', 'app-5']);
+    expect(reviewed.map((item) => item.id)).toEqual(['app-7', 'app-4', 'app-5']);
 
     const closedJobs = filterCandidateApplications(
       APPLICATION_FIXTURES,

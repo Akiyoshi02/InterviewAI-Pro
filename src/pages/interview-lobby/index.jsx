@@ -41,6 +41,10 @@ const InterviewLobby = () => {
       let result;
       if (meetingToken) {
         result = await apiClient.interviews.validateMeetingAccess(interviewId, meetingToken);
+      } else if (user?.accountType === 'CANDIDATE') {
+        setAccessDeniedCode('MEETING_LINK_REQUIRED');
+        setError('Use the latest meeting link from your email to join this interview.');
+        return;
       } else {
         result = await apiClient.interviews.getInterview(interviewId);
       }
@@ -58,7 +62,7 @@ const InterviewLobby = () => {
     } finally {
       setLoading(false);
     }
-  }, [interviewId, meetingToken]);
+  }, [interviewId, meetingToken, user?.accountType]);
 
   useEffect(() => {
     loadInterview();
@@ -98,7 +102,9 @@ const InterviewLobby = () => {
   const handleStartInterview = () => {
     setStarting(true);
     // Redirect to live interview session
-    navigate(`/live-interview-session?interviewId=${interviewId}`);
+    navigate(
+      `/live-interview-session?interviewId=${interviewId}${meetingToken ? `&token=${encodeURIComponent(meetingToken)}` : ''}`,
+    );
   };
 
   const handleLogout = async () => {
@@ -146,6 +152,12 @@ const InterviewLobby = () => {
         iconColor: 'text-red-600',
         title: 'Invalid Meeting Link',
         message: 'This meeting link is invalid or has been replaced by a newer one. Please check your email for the latest meeting link.',
+      },
+      MEETING_LINK_REQUIRED: {
+        icon: 'MailOpen',
+        iconColor: 'text-blue-600',
+        title: 'Use Your Email Join Link',
+        message: 'For hiring interviews, access is only available through the current meeting link emailed to you shortly before the scheduled time.',
       },
     };
     const accessInfo = accessDeniedCode ? accessMessages[accessDeniedCode] : null;

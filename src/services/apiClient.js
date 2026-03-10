@@ -2,6 +2,7 @@
  * Centralized API client for backend communication
  * Handles authentication, error handling, and API calls
  */
+import { authHelpers } from '../config/firebase.js';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000';
 const API_BASE = API_URL.replace(/\/$/, '');
@@ -41,7 +42,6 @@ const toApiAbsoluteUrl = (pathValue) => `${API_BASE}${pathValue.startsWith('/') 
  */
 async function getAuthToken() {
   try {
-    const { authHelpers } = await import('../config/firebase.js');
     const token = await authHelpers.getAccessToken();
     if (!token) {
       console.warn('No auth token available from Firebase client');
@@ -49,6 +49,17 @@ async function getAuthToken() {
     return token;
   } catch (error) {
     console.error('Failed to get auth token from Firebase client:', error);
+    return null;
+  }
+}
+
+function getMeetingTokenFromLocation() {
+  if (typeof window === 'undefined') return null;
+  try {
+    const searchParams = new URLSearchParams(window.location.search || '');
+    const token = searchParams.get('token');
+    return token && token.trim() ? token.trim() : null;
+  } catch {
     return null;
   }
 }
@@ -66,6 +77,11 @@ async function getHeaders(includeAuth = true) {
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
+  }
+
+  const meetingToken = getMeetingTokenFromLocation();
+  if (meetingToken) {
+    headers['X-Meeting-Token'] = meetingToken;
   }
 
   return headers;
@@ -160,6 +176,7 @@ async function handleResponse(response) {
         'INVALID_TOKEN',
         'MISSING_TOKEN',
         'NO_TOKEN',
+        'MEETING_LINK_REQUIRED',
         'NOT_SCHEDULED',
         'INVALID_SCHEDULE',
         'FORBIDDEN',
@@ -191,7 +208,6 @@ async function handleResponse(response) {
         
         // Clear all auth data
         try {
-          const { authHelpers } = await import('../config/firebase.js');
           await authHelpers.signOut();
         } catch (e) {
           console.error('Failed to sign out:', e);
@@ -262,17 +278,11 @@ export const apiClient = {
         body = JSON.stringify(userData);
       }
 
-      console.log('Register API call:', {
-        url: `${API_URL}/api/auth/register`,
-        hasAuth: !!headers?.Authorization,
-        isMultipart: isFormDataPayload,
-      });
       const response = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers,
         body,
       });
-      console.log('Register API response status:', response.status, response.statusText);
       return handleResponse(response);
     },
 
@@ -305,30 +315,19 @@ export const apiClient = {
 
     async getMe() {
       const headers = await getHeaders();
-      console.log('getMe API call:', {
-        url: `${API_URL}/api/auth/me`,
-        hasAuth: !!headers['Authorization'],
-      });
       const response = await fetch(`${API_URL}/api/auth/me`, {
         method: 'GET',
         headers,
       });
-      console.log('getMe API response status:', response.status, response.statusText);
       return handleResponse(response);
     },
     async updateMe(payload) {
       const headers = await getHeaders();
-      console.log('updateMe API call:', {
-        url: `${API_URL}/api/auth/me`,
-        hasAuth: !!headers['Authorization'],
-        data: payload,
-      });
       const response = await fetch(`${API_URL}/api/auth/me`, {
         method: 'PATCH',
         headers,
         body: JSON.stringify(payload),
       });
-      console.log('updateMe API response status:', response.status, response.statusText);
       return handleResponse(response);
     },
 
@@ -457,11 +456,6 @@ export const apiClient = {
 
     async deleteUnregisteredAuthUser(userId) {
       const headers = await getHeaders(true); // Must include Firebase auth token (user may not exist in DB yet)
-      console.log('deleteUnregisteredAuthUser API call:', {
-        url: `${API_URL}/api/auth/delete-unregistered-auth-user`,
-        userId,
-        hasAuth: !!headers['Authorization'],
-      });
       
       try {
         const response = await fetch(`${API_URL}/api/auth/delete-unregistered-auth-user`, {
@@ -469,10 +463,7 @@ export const apiClient = {
           headers,
           body: JSON.stringify({ userId }),
         });
-        console.log('deleteUnregisteredAuthUser API response status:', response.status, response.statusText);
-        const result = await handleResponse(response);
-        console.log('deleteUnregisteredAuthUser API result:', result);
-        return result;
+        return await handleResponse(response);
       } catch (error) {
         console.error('deleteUnregisteredAuthUser API error:', error);
         throw error;
@@ -635,6 +626,40 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async updateReviewRequests(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/review-requests`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async sendReviewReminder(interviewId, reviewerId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/review-requests/${reviewerId}/remind`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async updateStageOutcome(interviewId, payload) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/stage-outcome`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async createNextStage(interviewId) {
+      const response = await fetch(`${API_URL}/api/interviews/${interviewId}/next-stage`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async requestReschedule(interviewId, payload) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/reschedule-request`, {
         method: 'POST',
@@ -679,6 +704,10 @@ export const apiClient = {
       formData.append('recording', recordingFile);
       const token = await getAuthToken();
       const headers = token ? { Authorization: `Bearer ${token}` } : {};
+      const meetingToken = getMeetingTokenFromLocation();
+      if (meetingToken) {
+        headers['X-Meeting-Token'] = meetingToken;
+      }
 
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/recording`, {
         method: 'POST',
@@ -728,6 +757,14 @@ export const apiClient = {
       return handleResponse(response);
     },
 
+    async getScoreLeaderboard() {
+      const response = await fetch(`${API_URL}/api/interviews/leaderboards/scores`, {
+        method: 'GET',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
     async getCompanyInterviews() {
       const response = await fetch(`${API_URL}/api/interviews/company/all`, {
         method: 'GET',
@@ -744,11 +781,12 @@ export const apiClient = {
       return handleResponse(response);
     },
 
-    async markQuestionAsked(interviewId, questionId) {
+    async markQuestionAsked(interviewId, questionId, options = {}) {
       const response = await fetch(`${API_URL}/api/interviews/${interviewId}/question/asked`, {
         method: 'POST',
         headers: await getHeaders(),
         body: JSON.stringify({ questionId }),
+        signal: options?.signal,
       });
       return handleResponse(response);
     },
@@ -1253,53 +1291,6 @@ export const apiClient = {
   },
 
   /**
-   * Invitation APIs
-   */
-  invitations: {
-    async create(payload) {
-      const response = await fetch(`${API_URL}/api/invitations`, {
-        method: 'POST',
-        headers: await getHeaders(),
-        body: JSON.stringify(payload),
-      });
-      return handleResponse(response);
-    },
-
-    async list() {
-      const response = await fetch(`${API_URL}/api/invitations`, {
-        method: 'GET',
-        headers: await getHeaders(),
-      });
-      return handleResponse(response);
-    },
-
-    async preview(token) {
-      const response = await fetch(`${API_URL}/api/public/invitations/${token}`, {
-        method: 'GET',
-        headers: await getHeaders(false),
-      });
-      return handleResponse(response);
-    },
-
-    async accept(token) {
-      const response = await fetch(`${API_URL}/api/invitations/accept`, {
-        method: 'POST',
-        headers: await getHeaders(),
-        body: JSON.stringify({ token }),
-      });
-      return handleResponse(response);
-    },
-
-    async revoke(id) {
-      const response = await fetch(`${API_URL}/api/invitations/${id}/revoke`, {
-        method: 'PATCH',
-        headers: await getHeaders(),
-      });
-      return handleResponse(response);
-    },
-  },
-
-  /**
    * Pipeline APIs
    */
   pipeline: {
@@ -1793,6 +1784,67 @@ export const apiClient = {
           ? { ...statusOrPayload }
           : { status: statusOrPayload, reviewedBy };
       const response = await fetch(`${API_URL}/api/applications/${id}`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async upsertOffer(id, payload) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/offer`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async resendOffer(id) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/offer/resend`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async acceptOffer(id) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/offer/accept`, {
+        method: 'POST',
+        headers: await getHeaders(),
+      });
+      return handleResponse(response);
+    },
+
+    async declineOffer(id, payload = {}) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/offer/decline`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async updateOnboarding(id, payload = {}) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/onboarding`, {
+        method: 'PATCH',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async respondToOnboardingTask(id, taskId, payload = {}) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/onboarding/tasks/${taskId}/respond`, {
+        method: 'POST',
+        headers: await getHeaders(),
+        body: JSON.stringify(payload),
+      });
+      return handleResponse(response);
+    },
+
+    async reviewOnboardingTask(id, taskId, payload = {}) {
+      const response = await fetch(`${API_URL}/api/applications/${id}/onboarding/tasks/${taskId}`, {
         method: 'PATCH',
         headers: await getHeaders(),
         body: JSON.stringify(payload),

@@ -120,8 +120,11 @@ const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPa
       {/* Email Input */}
       <div className="min-w-0">
         <Input
+          id="login-email"
           label="Email Address"
+          name="email"
           type="email"
+          autoComplete="email"
           placeholder="Enter your email address"
           value={formData?.email}
           onChange={(e) => handleInputChange('email', e?.target?.value)}
@@ -133,8 +136,11 @@ const LoginForm = ({ onSubmit, isLoading, error, onForgotPassword, isResettingPa
       {/* Password Input */}
       <div className="min-w-0">
         <Input
+          id="login-password"
           label="Password"
+          name="password"
           type="password"
+          autoComplete="current-password"
           placeholder="Enter your password"
           value={formData?.password}
           onChange={(e) => handleInputChange('password', e?.target?.value)}

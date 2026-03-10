@@ -1,84 +1,70 @@
 # InterviewAI Pro
 
-InterviewAI Pro is a mock interview platform that combines live practice sessions with automated feedback and progress tracking. The project includes a React/Vite frontend, an Express/Firebase backend, and optional local AI services for transcription and scoring.
+InterviewAI Pro is a full-stack interview platform that combines practice interviews, hiring interviews, scheduling, reviewer workflows, and AI-assisted evaluation. The repository contains a React/Vite frontend and an Express/Firebase backend.
 
----
+## Repository status
 
-## Overview
+Current local verification command:
 
-- Separate candidate and company dashboards with role-specific insights
-- Live interview experience with question flow, chat, and feedback panels
-- AI assistant for follow-up guidance and study plan generation
-- Local speech and pose analysis support through Whisper and MediaPipe
-- Backend APIs with authentication, validation, rate limiting, and realtime updates
+```bash
+npm run verify
+```
 
----
+This runs:
+- frontend tests
+- backend tests
+- production frontend build
 
-## Architecture
+## Documentation map
 
-| Layer | Responsibilities | Key Technology |
-| --- | --- | --- |
-| Frontend (`src/`) | Single-page app, dashboards, interview UI, assistant, pose overlays | React 18, Vite, Tailwind CSS, Lucide, MediaPipe |
-| Backend (`server/`) | Auth, analytics, interview orchestration, Firebase and Supabase adapters, sockets | Node.js, Express, Firebase Admin, Socket.IO, Winston |
-| AI/ML Services | Local inference and transcription | Ollama, Faster-Whisper (Python), MediaPipe |
-| Deployment | Static frontend hosting and separate API hosting | GitHub Actions Pages workflow, environment-based API URL |
+- Architecture: [docs/architecture.md](docs/architecture.md)
+- Testing and verification: [docs/testing.md](docs/testing.md)
+- Deployment: [docs/deployment.md](docs/deployment.md)
+- Evaluator walkthrough: [docs/evaluator-guide.md](docs/evaluator-guide.md)
 
----
+## Tech stack
 
-## Tech Stack
+- Frontend: React 18, Vite 5, Tailwind CSS, Redux Toolkit
+- Backend: Express, Firebase Admin, Socket.IO, Winston
+- Optional AI services: Ollama, local Whisper, MediaPipe
 
-- Core: React 18, Vite 5, Tailwind CSS, Redux Toolkit, React Hook Form
-- UI and Visualization: Framer Motion, Lucide, Radix Slot, D3, Recharts
-- Server: Express 4, Firebase Admin, JWT, CORS, Helmet, Socket.IO, Winston
-- AI and Realtime: Ollama, Faster-Whisper server, MediaPipe Tasks Vision
-- Tooling: ESLint, npm, GitHub Actions (Pages), Nodemon
-
----
-
-## Project Structure
+## Project structure
 
 ```text
 .
-|-- src/                     # React + Vite application
-|   |-- components/          # Shared UI and layout components
-|   |-- pages/               # Route-based feature modules
-|   |-- services/            # API, LLM, audio, and pose helpers
-|   |-- hooks/contexts/      # State and feature hooks
-|   `-- styles/              # Tailwind and global CSS
-|-- server/                  # Express API and socket server
-|   |-- src/                 # Config, controllers, middleware, routes
-|   |-- prisma/              # Placeholder for DB schema
-|   `-- whisper_server.py    # Optional local Whisper endpoint
-|-- public/                  # Static assets and manifest
-|-- .github/workflows/       # GitHub Pages deployment pipeline
+|-- src/                      # Frontend application
+|-- server/                   # Backend API
+|-- public/                   # Static frontend assets
+|-- docs/                     # Architecture, deployment, testing, evaluator docs
+|-- .github/workflows/        # CI and frontend deployment workflows
+|-- render.yaml               # Baseline backend deployment blueprint
+|-- vite.config.mjs
 `-- README.md
 ```
 
----
+## Prerequisites
 
-## Getting Started
+- Node.js 20+
+- npm 9+
+- Firebase project credentials
+- Optional:
+  - Ollama for local LLM-backed features
+  - Python 3.10+ for `server/whisper_server.py`
 
-### Prerequisites
-
-- Node.js 18+ and npm 9+
-- Python 3.10+ (only if you plan to run `whisper_server.py`)
-- Ollama installed locally ([documentation](https://ollama.ai))
-
-### 1. Clone and Install
+## Installation
 
 ```bash
 git clone https://github.com/Akiyoshi02/InterviewAI-Pro.git
 cd InterviewAI-Pro
 npm install
-
-cd server
-npm install
-cd ..
+npm --prefix server install
 ```
 
-### 2. Configure Environment Variables
+## Environment configuration
 
-Create a root `.env` file for the Vite app:
+### Frontend
+
+Create a root `.env` file:
 
 ```bash
 VITE_API_URL=http://localhost:3000
@@ -91,75 +77,118 @@ VITE_FIREBASE_APP_ID=...
 VITE_OLLAMA_URL=http://localhost:11434
 VITE_OLLAMA_MODEL=qwen3:8b
 VITE_OLLAMA_FALLBACK_MODEL=qwen2.5:7b-instruct
-# Optional: set VITE_LOCAL_WHISPER_URL when using a local Whisper server
+# Optional: override frontend asset base when deploying under a subpath
+# VITE_BASE_PATH=/InterviewAI-Pro/
 ```
 
-Copy `server/.env.example` to `server/.env` and fill in required values (Firebase Admin, Sightengine, Ollama, Whisper, and related settings).
+### Backend
 
-### 3. Run Locally
+Copy:
 
 ```bash
-# Terminal 1: API + sockets
-cd server
-npm run dev
-
-# Terminal 2: Frontend
-cd ..
-npm run dev
-# Default Vite port: 4028 (set in vite.config.mjs)
+cp server/.env.example server/.env
 ```
 
-Optional local services:
+Then fill in the required values in `server/.env`.
 
+Reference:
+- [server/.env.example](server/.env.example)
+
+## Local development
+
+### Terminal 1: backend
+
+```bash
+npm run dev:backend
+```
+
+### Terminal 2: frontend
+
+```bash
+npm run dev
+```
+
+Default local URLs:
+- frontend: `http://localhost:4028`
+- backend: `http://localhost:3000`
+
+Optional local services:
 - Ollama: `ollama run qwen3:8b --keepalive 1h`
 - Whisper: `python server/whisper_server.py`
 
-### Qwen3-8B Configuration
+## Available scripts
 
-1. Pull required models:
-`ollama pull qwen3:8b`
-`ollama pull qwen2.5:7b-instruct`
-2. Set `VITE_OLLAMA_MODEL` and `OLLAMA_MODEL` to `qwen3:8b`.
-3. Set `VITE_OLLAMA_FALLBACK_MODEL` and `OLLAMA_FALLBACK_MODEL` to `qwen2.5:7b-instruct`.
-4. The app applies a tuned preset for Qwen3 by default (16K context and related generation settings). Override only if you need custom behavior.
+### Root
 
----
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start the frontend dev server |
+| `npm run dev:frontend` | Start the frontend dev server |
+| `npm run dev:backend` | Start the backend in watch mode |
+| `npm run build` | Build the frontend into `build/` |
+| `npm run serve` | Preview the built frontend |
+| `npm test` | Run frontend Vitest in interactive mode |
+| `npm run test:frontend` | Run frontend tests once |
+| `npm run test:backend` | Run backend tests once |
+| `npm run verify` | Run frontend tests, backend tests, and frontend build |
 
-## Available Scripts
+### Backend
 
-| Location | Command | Description |
-| --- | --- | --- |
-| `/` | `npm run dev` | Start the Vite development server |
-| `/` | `npm run build` | Build production assets to `build/` |
-| `/` | `npm run serve` | Preview the built frontend |
-| `/server` | `npm run dev` | Run backend with Nodemon reload |
-| `/server` | `npm start` | Start the Express server |
+| Command | Description |
+| --- | --- |
+| `npm --prefix server run dev` | Start backend with Nodemon |
+| `npm --prefix server start` | Start backend in normal mode |
+| `npm --prefix server test -- --runInBand` | Run backend Jest suite |
 
----
+## Health checks
+
+Useful local endpoints:
+- `http://localhost:3000/health`
+- `http://localhost:3000/api/health`
+- `http://localhost:3000/api/ai/health`
 
 ## Deployment
 
-- The frontend deploys through `.github/workflows/deploy.yml`.
-- Pushes to `main` build the Vite app and publish the `build/` directory to GitHub Pages.
-- Set `VITE_API_URL` to your hosted backend endpoint (for example Render, Railway, Fly.io, or Supabase Edge Functions).
-- In repository settings, set GitHub Pages source to GitHub Actions after the first successful workflow run.
+### Frontend
 
----
+Frontend deployment is automated through:
+- [.github/workflows/deploy.yml](.github/workflows/deploy.yml)
 
-## Contribution
+It publishes the `build/` directory to GitHub Pages.
 
-1. Create a branch from `main` using `feature/<description>` or `fix/<description>`.
-2. Keep changes focused and use conventional commit types (`feat`, `fix`, `chore`, and related).
-3. Open a pull request to `main` with a concise summary and test notes.
-4. Merge through GitHub UI. The deployment workflow will run automatically.
+Frontend asset base behavior:
+- local and preview builds default to `/`
+- GitHub Actions Pages builds automatically use the repository subpath
+- manual overrides can be supplied through `VITE_BASE_PATH`
 
----
+### Backend
+
+Backend deployment is separate from the frontend.
+
+Baseline backend blueprint:
+- [render.yaml](render.yaml)
+
+Detailed instructions:
+- [docs/deployment.md](docs/deployment.md)
+
+Minimum backend host settings:
+- root directory: `server`
+- install command: `npm ci`
+- start command: `npm start`
+- health check path: `/health`
+
+## Submission and evaluation guidance
+
+If this repository is being assessed as a project submission, use:
+- [docs/evaluator-guide.md](docs/evaluator-guide.md)
+- [docs/testing.md](docs/testing.md)
+
+These documents define the expected verification path and runtime assumptions.
 
 ## Support
 
-If you encounter a bug or need help, open an issue or comment on the relevant pull request and include:
-
-- What you tried
-- Relevant logs or screenshots
-- Whether local backend and LLM services were running
-- Clear steps to reproduce the issue
+If you hit a runtime issue, collect:
+- failing command
+- console or server log output
+- current role and page
+- whether backend and optional AI services were running

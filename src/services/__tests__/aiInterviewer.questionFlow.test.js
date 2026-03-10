@@ -149,4 +149,26 @@ describe('AIInterviewer structured question flow', () => {
     expect(response.message).toContain('How do you design a resilient API?');
     expect(response.message).not.toContain('cloud cost optimization');
   });
+
+  it('falls back to the next planned question when the model stalls or fails', async () => {
+    const interviewer = new AIInterviewer({
+      totalQuestions: 2,
+      questionBank: [
+        { id: 'q1', question: 'Tell me about a production incident you handled.', type: 'behavioral' },
+        { id: 'q2', question: 'How do you diagnose a slow database query?', type: 'technical' },
+      ],
+    });
+
+    callOllama.mockResolvedValueOnce('Welcome');
+    await interviewer.startInterview();
+    await interviewer.processIntroduction('Intro');
+
+    callOllama.mockRejectedValueOnce(new Error('Ollama request timed out after 20000ms'));
+
+    const response = await interviewer.processAnswer('I coordinated rollback and customer updates.');
+    expect(response.fallback).toBe(true);
+    expect(response.actionType).toBe('next_question');
+    expect(response.questionNumber).toBe(2);
+    expect(response.message).toContain('How do you diagnose a slow database query?');
+  });
 });

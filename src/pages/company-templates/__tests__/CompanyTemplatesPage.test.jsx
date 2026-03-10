@@ -220,8 +220,8 @@ describe('CompanyTemplatesPage', () => {
     renderPage();
 
     await screen.findByText('Structured Templates');
-    expect(screen.getByText('Core Questions (1)')).toBeTruthy();
-    expect(screen.getByText('Random Pool (1)')).toBeTruthy();
+    await screen.findByText('Core Questions (1)');
+    await screen.findByText('Random Pool (1)');
 
     fireEvent.click(screen.getByRole('button', { name: 'Toggle q1 as random' }));
 
@@ -236,6 +236,35 @@ describe('CompanyTemplatesPage', () => {
       expect(screen.getByText('Core Questions (1)')).toBeTruthy();
       expect(screen.getByText('Random Pool (1)')).toBeTruthy();
     });
+  });
+
+  it('keeps the page header above the content section and removes the old summary strip', async () => {
+    mockHasPermission.mockReturnValue(true);
+
+    apiClient.templates.list.mockResolvedValue({ templates: [] });
+    apiClient.templates.getStructuredCatalog.mockResolvedValue({
+      catalog: {
+        templates: [{ id: 'catalog-1', name: 'Catalog Template' }],
+        library: { questions: LIBRARY_QUESTIONS },
+      },
+    });
+
+    renderPage();
+
+    await screen.findByText('Structured Templates');
+
+    const header = screen.getByTestId('structured-templates-header');
+    const actions = screen.getByTestId('structured-templates-actions');
+
+    expect(header.className).toContain('mb-6');
+    expect(header.className).toContain('flex');
+    expect(header.className).toContain('sm:flex-row');
+    expect(header.className).toContain('sm:items-center');
+    expect(header.className).toContain('sm:justify-between');
+    expect(actions.previousElementSibling).toBe(header);
+    expect(actions.className).toContain('grid-cols-1');
+    expect(actions.className).toContain('sm:grid-cols-3');
+    expect(screen.queryByText('Catalog Templates')).toBeNull();
   });
 
   it('submits structured create payload with selected core questions', async () => {

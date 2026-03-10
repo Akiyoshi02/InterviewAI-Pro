@@ -160,11 +160,24 @@ const PrivacySettingsPage = () => {
         <UserContextNavigation userType={userType} isCollapsed={isNavCollapsed} onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)} />
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }}>
-              <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Privacy & Data</h1>
-              <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                Manage your data, consent preferences and account deletion rights under GDPR.
-              </p>
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="mb-6"
+            >
+              <div className="flex items-center gap-4">
+                <div className="shrink-0 p-3 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 shadow-lg shadow-purple-500/30">
+                  <Icon name="Shield" size={24} color="white" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">
+                    Privacy &amp; Data
+                  </h1>
+                  <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                    Manage your data, consent preferences and account deletion rights under GDPR.
+                  </p>
+                </div>
+              </div>
             </motion.div>
 
             {/* Two-Factor Authentication */}

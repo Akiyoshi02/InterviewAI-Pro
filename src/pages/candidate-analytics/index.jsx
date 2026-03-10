@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -53,6 +53,8 @@ const StatCard = ({ label, value, sub, icon, color = 'text-blue-600 dark:text-bl
   </div>
 );
 
+const COMPACT_ROLE_CHART_MAX_WIDTH = 520;
+
 const CandidateAnalyticsPage = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
@@ -62,6 +64,8 @@ const CandidateAnalyticsPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [timeRange, setTimeRange] = useState('all');
+  const roleChartCardRef = useRef(null);
+  const [roleChartCardWidth, setRoleChartCardWidth] = useState(0);
 
   const handleLogout = async () => {
     await logout();
@@ -89,6 +93,35 @@ const CandidateAnalyticsPage = () => {
     loadAnalytics();
   }, [loadAnalytics]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+
+    const cardNode = roleChartCardRef.current;
+    if (!cardNode) return undefined;
+
+    const syncRoleChartWidth = () => {
+      const nextWidth = Math.round(cardNode.getBoundingClientRect().width || 0);
+      setRoleChartCardWidth((currentWidth) => (currentWidth === nextWidth ? currentWidth : nextWidth));
+    };
+
+    syncRoleChartWidth();
+
+    let resizeObserver;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        syncRoleChartWidth();
+      });
+      resizeObserver.observe(cardNode);
+    }
+
+    window.addEventListener('resize', syncRoleChartWidth);
+
+    return () => {
+      resizeObserver?.disconnect();
+      window.removeEventListener('resize', syncRoleChartWidth);
+    };
+  }, [analytics?.roleBreakdown?.length]);
+
   if (loading) {
     return <LoadingState title="Loading your analytics" message="Crunching your interview data…" variant="fullscreen" tone="primary" />;
   }
@@ -112,6 +145,9 @@ const CandidateAnalyticsPage = () => {
 
   const overallAvg = skillAverages.overall ?? 0;
   const vsAvg = overallAvg - BENCHMARK_SCORE;
+  const isCompactRoleChart = roleChartCardWidth > 0
+    ? roleChartCardWidth < COMPACT_ROLE_CHART_MAX_WIDTH
+    : typeof window !== 'undefined' && window.innerWidth < 640;
 
   return (
     <div className="relative min-h-screen bg-gradient-to-b from-blue-50 via-white to-purple-50 dark:from-slate-900 dark:via-slate-900 dark:to-slate-950">
@@ -139,13 +175,18 @@ const CandidateAnalyticsPage = () => {
             >
               {/* Header */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-                <div>
-                  <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">
-                    My Analytics
-                  </h1>
-                  <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
-                    Track your interview performance trends and skill gaps
-                  </p>
+                <div className="flex items-center gap-4">
+                  <div className="p-3 rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 shadow-lg shadow-blue-500/30">
+                    <Icon name="BarChart3" size={24} color="white" />
+                  </div>
+                  <div>
+                    <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100">
+                      My Analytics
+                    </h1>
+                    <p className="text-sm text-gray-600 dark:text-slate-400 mt-1">
+                      Track your interview performance trends and skill gaps
+                    </p>
+                  </div>
                 </div>
                 <Button
                   variant="outline"
@@ -203,7 +244,10 @@ const CandidateAnalyticsPage = () => {
 
                   {/* Score Trend Chart */}
                   {filteredTrend.length >= 2 && (
-                    <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-lg">
+                    <div
+                      ref={roleChartCardRef}
+                      className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4 sm:p-6 shadow-lg"
+                    >
                       <div className="flex items-center justify-between mb-4">
                         <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
                           <Icon name="TrendingUp" size={16} className="text-blue-500" />
@@ -334,17 +378,32 @@ const CandidateAnalyticsPage = () => {
                         <Icon name="Briefcase" size={16} className="text-amber-500" />
                         Performance by Role
                       </h2>
-                      <div className="h-48">
+                      <div className="h-56 sm:h-48">
                         <ResponsiveContainer width="100%" height="100%">
-                          <BarChart data={roleBreakdown} margin={{ top: 4, right: 8, bottom: 30, left: -10 }}>
+                          <BarChart
+                            data={roleBreakdown}
+                            margin={isCompactRoleChart
+                              ? { top: 4, right: 4, bottom: 8, left: -20 }
+                              : { top: 4, right: 8, bottom: 30, left: -10 }}
+                          >
                             <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                            <XAxis dataKey="role" tick={{ fontSize: 10, fill: '#64748b' }} angle={-20} textAnchor="end" interval={0} />
-                            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} />
-                            <Tooltip
-                              formatter={(v, name) => [name === 'avgScore' ? `${v}%` : v, name === 'avgScore' ? 'Avg Score' : 'Sessions']}
-                              contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: 8, fontSize: 12 }}
+                            <XAxis
+                              dataKey="role"
+                              hide={isCompactRoleChart}
+                              tick={{ fontSize: 10, fill: '#64748b' }}
+                              angle={isCompactRoleChart ? 0 : -20}
+                              textAnchor={isCompactRoleChart ? 'middle' : 'end'}
+                              interval={0}
+                              height={isCompactRoleChart ? 0 : 40}
                             />
-                            <Bar dataKey="avgScore" name="Avg Score" radius={[4, 4, 0, 0]}>
+                            <YAxis domain={[0, 100]} tick={{ fontSize: 10, fill: '#94a3b8' }} width={isCompactRoleChart ? 28 : 36} />
+                            {!isCompactRoleChart && (
+                              <Tooltip
+                                formatter={(v, name) => [name === 'avgScore' ? `${v}%` : v, name === 'avgScore' ? 'Avg Score' : 'Sessions']}
+                                contentStyle={{ backgroundColor: '#1e293b', border: 'none', borderRadius: 8, fontSize: 12 }}
+                              />
+                            )}
+                            <Bar dataKey="avgScore" name="Avg Score" radius={[4, 4, 0, 0]} barSize={isCompactRoleChart ? 32 : 40}>
                               {roleBreakdown.map((entry, idx) => (
                                 <Cell key={entry.role} fill={getScoreColor(entry.avgScore)} />
                               ))}
@@ -352,11 +411,19 @@ const CandidateAnalyticsPage = () => {
                           </BarChart>
                         </ResponsiveContainer>
                       </div>
-                      <div className="flex flex-wrap gap-2 mt-3">
+                      <div
+                        className={`mt-3 ${isCompactRoleChart ? 'grid gap-2' : 'flex flex-wrap gap-2'}`}
+                        role="list"
+                        aria-label="Role performance summary"
+                      >
                         {roleBreakdown.map((r, idx) => (
-                          <span key={r.role} className={`text-xs px-2.5 py-1 rounded-full font-medium ${getRoleBadgeColor(idx)}`}>
+                          <div
+                            key={r.role}
+                            role="listitem"
+                            className={`${isCompactRoleChart ? 'rounded-xl px-3 py-2 text-sm leading-snug break-words' : 'rounded-full px-2.5 py-1 text-xs'} font-medium ${getRoleBadgeColor(idx)}`}
+                          >
                             {r.role} · {r.count} session{r.count !== 1 ? 's' : ''} · {r.avgScore}%
-                          </span>
+                          </div>
                         ))}
                       </div>
                     </div>

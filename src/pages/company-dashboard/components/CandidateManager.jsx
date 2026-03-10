@@ -35,6 +35,7 @@ import {
   filterCompanyApplications,
   getDerivedApplicationStatus,
 } from '../utils/companyApplicationFilters.js';
+import { hasPermission } from '../../../utils/rolePermissions';
 
 const formatDate = (dateInput) => {
   if (!dateInput) return 'N/A';
@@ -131,6 +132,10 @@ const getStatusConfig = (application = {}) => {
       label: 'Shortlisted',
       className: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
     },
+    OFFER: {
+      label: 'Offer',
+      className: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200',
+    },
     REJECTED: {
       label: 'Not Selected',
       className: 'bg-gray-100 text-gray-700 dark:bg-gray-900/30 dark:text-gray-300',
@@ -159,6 +164,7 @@ const BULK_STATUS_OPTIONS = [
   { value: 'SCREENING', label: 'Move to Screening' },
   { value: 'SHORTLISTED', label: 'Shortlist' },
   { value: 'INTERVIEWING', label: 'Move to Interviewing' },
+  { value: 'OFFER', label: 'Move to Offer' },
   { value: 'REJECTED', label: 'Reject' },
   { value: 'HIRED', label: 'Mark as Hired' },
 ];
@@ -184,8 +190,23 @@ const exportCandidatesCSV = (candidates) => {
   URL.revokeObjectURL(url);
 };
 
+const deriveJobsFromApplications = (applications = []) => Array.from(
+  new Map(
+    (Array.isArray(applications) ? applications : [])
+      .map((application) => application?.job)
+      .filter((job) => job?.id)
+      .map((job) => [job.id, job]),
+  ).values(),
+);
+
 const CandidateManager = () => {
-  const { organization } = useAuth();
+  const { organization, user } = useAuth();
+  const organizationRole = user?.organizationContext?.membership?.role;
+  const canManageCandidates = hasPermission(organizationRole, 'MANAGE_CANDIDATES');
+  const canExportCandidates = hasPermission(organizationRole, 'EXPORT_REPORTS');
+  const canSendCandidateEmails = hasPermission(organizationRole, 'SEND_INVITATIONS');
+  const canAccessJobsPage = hasPermission(organizationRole, 'ACCESS_JOBS_PAGE');
+  const isReviewerOnly = organizationRole === 'REVIEWER';
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState(DEFAULT_COMPANY_APPLICATION_FILTERS);
@@ -221,19 +242,30 @@ const CandidateManager = () => {
   const loadData = async () => {
     try {
       setLoading(true);
-      
-      // Load applications (which include candidate info)
-      const [applicationsResult, jobsResult] = await Promise.all([
+
+      const [applicationsResult, jobsResult] = await Promise.allSettled([
         apiClient.applications.getOrganizationApplications(),
-        apiClient.jobs.getOrganizationJobs(),
+        canAccessJobsPage ? apiClient.jobs.getOrganizationJobs() : Promise.resolve(null),
       ]);
 
-      if (applicationsResult.success) {
-        setCandidates(applicationsResult.applications || []);
-      }
+      const resolvedApplications = applicationsResult.status === 'fulfilled'
+        ? applicationsResult.value
+        : null;
+      const resolvedJobs = jobsResult.status === 'fulfilled'
+        ? jobsResult.value
+        : null;
 
-      if (jobsResult.success) {
-        setJobs(jobsResult.jobs || []);
+      if (resolvedApplications?.success) {
+        const applications = resolvedApplications.applications || [];
+        setCandidates(applications);
+        setJobs(
+          resolvedJobs?.success
+            ? (resolvedJobs.jobs || [])
+            : deriveJobsFromApplications(applications),
+        );
+      } else {
+        setCandidates([]);
+        setJobs([]);
       }
     } catch {
       // Silent failure — table stays empty; user can refresh
@@ -386,7 +418,7 @@ const CandidateManager = () => {
       <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/90 dark:bg-slate-800/90 p-4 shadow-lg">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900 dark:text-slate-100">
-            Candidate Pipeline ({filteredCandidates.length})
+            {isReviewerOnly ? 'Candidate Profiles' : 'Candidate Pipeline'} ({filteredCandidates.length})
           </h2>
           <Button
             variant="ghost"
@@ -402,7 +434,9 @@ const CandidateManager = () => {
         {/* Filters */}
         <UnifiedFilterPanel
           title="Candidate Filters"
-          description="Search and segment candidates by role, status, job state, review progress, and application date."
+          description={isReviewerOnly
+            ? 'Search candidate profiles and narrow them by role, status, review state, and application date.'
+            : 'Search and segment candidates by role, status, job state, review progress, and application date.'}
           activeCount={activeFilterCount}
           onClear={clearFilters}
           headerActions={(
@@ -522,7 +556,7 @@ const CandidateManager = () => {
       </div>
 
       {/* Bulk Actions Toolbar */}
-      {selectedIds.size > 0 && (
+      {(canManageCandidates || canExportCandidates) && selectedIds.size > 0 && (
         <motion.div
           initial={{ opacity: 0, y: -8 }}
           animate={{ opacity: 1, y: 0 }}
@@ -531,38 +565,44 @@ const CandidateManager = () => {
           <span className="text-sm font-medium text-blue-800 dark:text-blue-200">
             {selectedIds.size} selected
           </span>
-          <div className="relative flex-1 min-w-[160px]">
-            <select
-              value={bulkStatusValue}
-              onChange={(event) => setBulkStatusValue(event.target.value)}
-              className="h-10 w-full appearance-none rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 py-1.5 pl-3 pr-9 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+          {canManageCandidates && (
+            <>
+              <div className="relative flex-1 min-w-[160px]">
+                <select
+                  value={bulkStatusValue}
+                  onChange={(event) => setBulkStatusValue(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-lg border border-blue-200 dark:border-blue-700 bg-white dark:bg-slate-800 py-1.5 pl-3 pr-9 text-sm text-gray-900 dark:text-slate-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">Change status...</option>
+                  {BULK_STATUS_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+                <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-blue-500 dark:text-blue-300">
+                  <Icon name="ChevronDown" className="h-4 w-4" />
+                </span>
+              </div>
+              <Button
+                size="sm"
+                variant="default"
+                onClick={handleBulkStatusUpdate}
+                disabled={!bulkStatusValue || bulkUpdating}
+                loading={bulkUpdating}
+              >
+                Apply
+              </Button>
+            </>
+          )}
+          {canExportCandidates && (
+            <Button
+              size="sm"
+              variant="outline"
+              iconName="Download"
+              onClick={handleBulkExport}
             >
-              <option value="">Change status...</option>
-              {BULK_STATUS_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>{opt.label}</option>
-              ))}
-            </select>
-            <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-blue-500 dark:text-blue-300">
-              <Icon name="ChevronDown" className="h-4 w-4" />
-            </span>
-          </div>
-          <Button
-            size="sm"
-            variant="default"
-            onClick={handleBulkStatusUpdate}
-            disabled={!bulkStatusValue || bulkUpdating}
-            loading={bulkUpdating}
-          >
-            Apply
-          </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            iconName="Download"
-            onClick={handleBulkExport}
-          >
-            Export CSV
-          </Button>
+              Export CSV
+            </Button>
+          )}
           <button
             onClick={() => setSelectedIds(new Set())}
             className="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto"
@@ -588,27 +628,34 @@ const CandidateManager = () => {
         </div>
       ) : (
         <>
-        {/* Select All row */}
-        <div className="flex items-center gap-2 px-1 mb-1">
-          <input
-            type="checkbox"
-            checked={paginatedCandidates.length > 0 && paginatedCandidates.every((c) => selectedIds.has(c.id))}
-            onChange={() => toggleSelectAll(paginatedCandidates)}
-            className="w-4 h-4 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-          />
-          <span className="text-xs text-gray-500 dark:text-slate-400">
-            Select all on this page
-          </span>
-          <Button
-            size="sm"
-            variant="ghost"
-            iconName="Download"
-            onClick={handleBulkExport}
-            className="ml-auto text-xs text-gray-500 dark:text-slate-400"
-          >
-            Export All
-          </Button>
-        </div>
+        {(canManageCandidates || canExportCandidates) && (
+          <div className="flex items-center gap-2 px-1 mb-1">
+            {canManageCandidates && (
+              <>
+                <input
+                  type="checkbox"
+                  checked={paginatedCandidates.length > 0 && paginatedCandidates.every((c) => selectedIds.has(c.id))}
+                  onChange={() => toggleSelectAll(paginatedCandidates)}
+                  className="w-4 h-4 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
+                />
+                <span className="text-xs text-gray-500 dark:text-slate-400">
+                  Select all on this page
+                </span>
+              </>
+            )}
+            {canExportCandidates && (
+              <Button
+                size="sm"
+                variant="ghost"
+                iconName="Download"
+                onClick={handleBulkExport}
+                className="ml-auto text-xs text-gray-500 dark:text-slate-400"
+              >
+                Export All
+              </Button>
+            )}
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-3">
           {paginatedCandidates.map((candidate, index) => {
             const statusConfig = getStatusConfig(candidate);
@@ -629,13 +676,15 @@ const CandidateManager = () => {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-start gap-3 mb-3">
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        onChange={() => toggleSelect(candidate.id)}
-                        className="w-4 h-4 mt-1 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
-                        onClick={(e) => e.stopPropagation()}
-                      />
+                      {canManageCandidates && (
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleSelect(candidate.id)}
+                          className="w-4 h-4 mt-1 rounded-full border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer shrink-0"
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      )}
                       <div className="p-2 rounded-lg bg-purple-100 dark:bg-purple-900/30 shrink-0">
                         <Icon name="User" className="w-5 h-5 text-purple-600 dark:text-purple-400" />
                       </div>
@@ -772,45 +821,51 @@ const CandidateManager = () => {
                 animate={{ scale: 1, opacity: 1 }}
                 exit={{ scale: 0.95, opacity: 0 }}
                 onClick={(e) => e.stopPropagation()}
-                className="bg-white dark:bg-slate-800 rounded-2xl shadow-2xl max-w-4xl w-full my-8"
+                className="my-8 flex max-h-[calc(100vh-2rem)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-800"
               >
               {/* Modal Header */}
-              <div className="flex items-start justify-between p-6 border-b border-gray-200 dark:border-slate-700">
-                <div className="flex items-center gap-3">
-                  <div className="p-3 rounded-lg bg-purple-100 dark:bg-purple-900/30">
+              <div className="flex items-start justify-between gap-3 border-b border-gray-200 p-4 dark:border-slate-700 sm:p-6">
+                <div className="flex min-w-0 items-start gap-3">
+                  <div className="rounded-lg bg-purple-100 p-3 dark:bg-purple-900/30">
                     <Icon name="User" className="w-6 h-6 text-purple-600 dark:text-purple-400" />
                   </div>
-                  <div>
-                    <h2 className="text-xl font-bold text-gray-900 dark:text-slate-100">
+                  <div className="min-w-0">
+                    <h2 className="break-words text-xl font-bold text-gray-900 dark:text-slate-100">
                       {selectedCandidate.candidate?.fullName || 'Candidate Profile'}
                     </h2>
-                    <p className="text-sm text-gray-600 dark:text-slate-400">
+                    <p className="break-all text-sm text-gray-600 dark:text-slate-400">
                       {selectedCandidate.candidate?.email}
                     </p>
                   </div>
                 </div>
                 <button
                   onClick={() => setShowDetails(false)}
-                  className="p-2 hover:bg-gray-100 dark:hover:bg-slate-700 rounded-lg"
+                  className="shrink-0 rounded-lg p-2 hover:bg-gray-100 dark:hover:bg-slate-700"
                 >
                   <Icon name="X" className="w-5 h-5" />
                 </button>
               </div>
 
               {/* Modal Content */}
-              <div className="p-6 space-y-6 max-h-[70vh] overflow-y-auto">
+              <div
+                data-testid="candidate-details-content"
+                className="max-h-[70vh] space-y-6 overflow-y-auto p-4 sm:p-6"
+              >
                 {/* Basic Info */}
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
+                <div
+                  data-testid="candidate-details-basic-info"
+                  className="grid grid-cols-1 gap-4 md:grid-cols-2 sm:gap-6"
+                >
+                  <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                       Position Applied For
                     </h3>
-                    <p className="text-base text-gray-900 dark:text-slate-100">
+                    <p className="break-words text-base text-gray-900 dark:text-slate-100">
                       {selectedCandidate.job?.title}
                     </p>
                   </div>
 
-                  <div>
+                  <div className="min-w-0">
                     <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                       Status
                     </h3>
@@ -825,29 +880,29 @@ const CandidateManager = () => {
                   </div>
 
                   {selectedCandidate.candidate?.experienceLevel && (
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                         Experience Level
                       </h3>
-                      <p className="text-base text-gray-900 dark:text-slate-100">
+                      <p className="break-words text-base text-gray-900 dark:text-slate-100">
                         {selectedCandidate.candidate.experienceLevel}
                       </p>
                     </div>
                   )}
 
                   {selectedCandidate.candidate?.location && (
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                         Location
                       </h3>
-                      <p className="text-base text-gray-900 dark:text-slate-100">
+                      <p className="break-words text-base text-gray-900 dark:text-slate-100">
                         {selectedCandidate.candidate.location}
                       </p>
                     </div>
                   )}
 
                   {selectedCandidate.submittedAt && (
-                    <div>
+                    <div className="min-w-0">
                       <h3 className="text-sm font-semibold text-gray-700 dark:text-slate-300 mb-2">
                         Application Date
                       </h3>
@@ -1052,6 +1107,7 @@ const CandidateManager = () => {
                         if (!resumeUrl) return;
                         window.open(resumeUrl, '_blank', 'noopener,noreferrer');
                       }}
+                      className="w-full sm:w-auto"
                     >
                       <Icon name="FileText" className="w-4 h-4 mr-2" />
                       View Resume
@@ -1088,7 +1144,7 @@ const CandidateManager = () => {
                           <p className="text-xs font-medium text-gray-600 dark:text-slate-400 mb-1">
                             {response.prompt || `Question ${idx + 1}`}
                           </p>
-                          <p className={`text-sm ${response.isMissing ? 'text-gray-500 dark:text-slate-400 italic' : 'text-gray-900 dark:text-slate-100'}`}>
+                          <p className={`break-words text-sm ${response.isMissing ? 'text-gray-500 dark:text-slate-400 italic' : 'text-gray-900 dark:text-slate-100'}`}>
                             {response.response}
                           </p>
                         </div>
@@ -1099,23 +1155,28 @@ const CandidateManager = () => {
               </div>
 
               {/* Candidate Notes & Activity Timeline */}
-              <div className="px-6 pb-2">
-                <CandidateNotesTimeline
-                  applicationId={selectedCandidate.id}
-                  candidateName={selectedCandidate.candidate?.fullName || selectedCandidate.candidate?.email}
-                  applicationStatus={getDerivedApplicationStatus(selectedCandidate)}
-                />
-              </div>
+              {canManageCandidates && (
+                <div className="px-4 pb-2 sm:px-6">
+                  <CandidateNotesTimeline
+                    applicationId={selectedCandidate.id}
+                    candidateName={selectedCandidate.candidate?.fullName || selectedCandidate.candidate?.email}
+                    applicationStatus={getDerivedApplicationStatus(selectedCandidate)}
+                  />
+                </div>
+              )}
 
               {/* Email Composer (inline, toggled) */}
-              {showEmailComposer && (
-                <div className="px-6 pb-4">
+              {canSendCandidateEmails && showEmailComposer && (
+                <div className="px-4 pb-4 sm:px-6">
                   <EmailTemplatesManager candidate={selectedCandidate.candidate} />
                 </div>
               )}
 
               {/* Modal Footer */}
-              <div className="flex gap-3 p-6 border-t border-gray-200 dark:border-slate-700">
+              <div
+                data-testid="candidate-details-footer"
+                className="flex flex-col gap-3 border-t border-gray-200 p-4 dark:border-slate-700 sm:flex-row sm:p-6"
+              >
                 <Button
                   variant="outline"
                   onClick={() => { setShowDetails(false); setShowEmailComposer(false); }}
@@ -1123,14 +1184,16 @@ const CandidateManager = () => {
                 >
                   Close
                 </Button>
-                <Button
-                  variant="outline"
-                  onClick={() => setShowEmailComposer((v) => !v)}
-                  className="flex-1 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300"
-                >
-                  <Icon name="Mail" className="w-4 h-4 mr-2" />
-                  {showEmailComposer ? 'Hide Email' : 'Send Email'}
-                </Button>
+                {canSendCandidateEmails && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setShowEmailComposer((v) => !v)}
+                    className="flex-1 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300"
+                  >
+                    <Icon name="Mail" className="w-4 h-4 mr-2" />
+                    {showEmailComposer ? 'Hide Email' : 'Send Email'}
+                  </Button>
+                )}
               </div>
             </motion.div>
           </motion.div>

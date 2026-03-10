@@ -483,13 +483,20 @@ export const interviewStore = {
       candidateId: data.candidateId || null,
       companyId: data.companyId || null,
       organizationId: data.organizationId || null,
+      applicationId: data.applicationId || null,
       jobId: data.jobId || null,
       jobStage: data.jobStage || null,
+      planStageId: data.planStageId || null,
+      planStageName: data.planStageName || null,
+      planStageSequence: data.planStageSequence || null,
+      planStageTotal: data.planStageTotal || null,
+      planStageCategory: data.planStageCategory || null,
       invitationId: data.invitationId || null,
       pipelineStatus: PIPELINE_STATUSES.has((data.pipelineStatus || '').toUpperCase())
         ? data.pipelineStatus.toUpperCase()
         : null,
       reviewerAssignments: ensureArray(data.reviewerAssignments),
+      reviewRequests: ensureArray(data.reviewRequests),
       status: data.status || 'SCHEDULED',
       jobRole: data.jobRole || null,
       experienceLevel: data.experienceLevel || null,
@@ -567,6 +574,36 @@ export const interviewStore = {
       .where('scheduledFor', '<=', toISO)
       .get();
     return snap.docs.map(docToData);
+  },
+
+  async listCompletedForReviewReminders(options = {}) {
+    const limit = Math.min(
+      Math.max(1, Number.parseInt(options?.limit, 10) || 250),
+      1000,
+    );
+
+    try {
+      const snapshot = await interviewsCollection
+        .where('status', '==', 'COMPLETED')
+        .orderBy('updatedAt', 'desc')
+        .limit(limit)
+        .get();
+      return snapshot.docs.map(docToData);
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+
+      logger.warn('Completed interviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await interviewsCollection.where('status', '==', 'COMPLETED').get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.updatedAt) - toMillis(a?.updatedAt))
+        .slice(0, limit);
+    }
   },
 
   async addQuestions(interviewId, questions = []) {
@@ -737,6 +774,37 @@ export const interviewStore = {
         items = items.slice(0, limit);
       }
       return items;
+    }
+  },
+
+  async listCompletedScoredForLeaderboard() {
+    try {
+      const snapshot = await interviewsCollection
+        .where('status', '==', 'COMPLETED')
+        .get();
+
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .filter((interview) => {
+          const score = Number(interview?.overallScore);
+          return Boolean(interview?.candidateId) && Number.isFinite(score);
+        });
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+      logger.warn('Completed scored interviews index still building; falling back to in-memory filter.');
+      const snapshot = await interviewsCollection.get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .filter((interview) => {
+          const score = Number(interview?.overallScore);
+          return (
+            String(interview?.status || '').toUpperCase() === 'COMPLETED'
+            && Boolean(interview?.candidateId)
+            && Number.isFinite(score)
+          );
+        });
     }
   },
 
@@ -1085,22 +1153,53 @@ export async function hydrateInterviewParticipants(interviews = []) {
   if (!interviews.length) return interviews;
 
   const participantIds = new Set();
+  const organizationIds = new Set();
   interviews.forEach((interview) => {
     if (interview?.candidateId) participantIds.add(interview.candidateId);
     if (interview?.companyId) participantIds.add(interview.companyId);
+    if (interview?.organizationId) organizationIds.add(interview.organizationId);
+    if (Array.isArray(interview?.reviewerAssignments)) {
+      interview.reviewerAssignments.forEach((reviewerId) => {
+        if (reviewerId) participantIds.add(reviewerId);
+      });
+    }
   });
 
-  const summaries = await userStore.getSummaries(Array.from(participantIds));
+  const [summaries, organizations] = await Promise.all([
+    userStore.getSummaries(Array.from(participantIds)),
+    Promise.all(
+      Array.from(organizationIds).map(async (organizationId) => {
+        const organization = await Promise.resolve(
+          organizationStore.getById(organizationId),
+        ).catch(() => null);
+        return [
+          organizationId,
+          organization ? {
+            id: organization.id || organizationId,
+            name: organization.name || organization.displayName || 'Company',
+            displayName: organization.displayName || organization.name || 'Company',
+            logo: organization.logo || null,
+          } : null,
+        ];
+      }),
+    ).then((entries) => new Map(entries)),
+  ]);
 
   return interviews.map((interview) => ({
     ...interview,
     candidate: interview.candidateId ? summaries.get(interview.candidateId) || null : null,
     company: interview.companyId ? summaries.get(interview.companyId) || null : null,
+    organization: interview.organizationId ? organizations.get(interview.organizationId) || null : null,
+    reviewerAssignees: Array.isArray(interview?.reviewerAssignments)
+      ? interview.reviewerAssignments
+        .map((reviewerId) => summaries.get(reviewerId) || null)
+        .filter(Boolean)
+      : [],
   }));
 }
 
-const ACTIVE_CANDIDATE_APPLICATION_STATUSES = new Set(['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED']);
-const STRONG_SIGNAL_APPLICATION_STATUSES = new Set(['SHORTLISTED', 'INTERVIEWING', 'HIRED']);
+const ACTIVE_CANDIDATE_APPLICATION_STATUSES = new Set(['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'OFFER']);
+const STRONG_SIGNAL_APPLICATION_STATUSES = new Set(['SHORTLISTED', 'INTERVIEWING', 'OFFER', 'HIRED']);
 
 const formatDurationMinutes = (value) => {
   const totalMinutes = Math.max(0, Math.round(Number(value) || 0));
@@ -3013,11 +3112,28 @@ export const reviewStore = {
 
   async listByInterview(interviewId) {
     if (!interviewId) return [];
-    const snapshot = await interviewReviewsCollection
-      .where('interviewId', '==', interviewId)
-      .orderBy('createdAt', 'desc')
-      .get();
-    return snapshot.docs.map((doc) => docToData(doc));
+    try {
+      const snapshot = await interviewReviewsCollection
+        .where('interviewId', '==', interviewId)
+        .orderBy('createdAt', 'desc')
+        .get();
+      return snapshot.docs.map((doc) => docToData(doc));
+    } catch (error) {
+      if (!isIndexBuildingError(error)) {
+        throw error;
+      }
+
+      logger.warn('Interview reviews index still building; falling back to in-memory sort.');
+      console.error('Firestore index error - click the link below to create the index:');
+      console.error(error.message || error);
+
+      const snapshot = await interviewReviewsCollection
+        .where('interviewId', '==', interviewId)
+        .get();
+      return snapshot.docs
+        .map((doc) => docToData(doc))
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+    }
   },
 
   /**
@@ -3404,12 +3520,15 @@ export const jobApplicationStore = {
 
   async listByOrganization(organizationId, limit = 50) {
     if (!organizationId) return [];
+    const normalizedLimit = normalizeInterviewListLimit(limit, 500);
     try {
-      const snapshot = await jobApplicationsCollection
+      let query = jobApplicationsCollection
         .where('organizationId', '==', organizationId)
-        .orderBy('createdAt', 'desc')
-        .limit(limit)
-        .get();
+        .orderBy('createdAt', 'desc');
+      if (normalizedLimit) {
+        query = query.limit(normalizedLimit);
+      }
+      const snapshot = await query.get();
       return snapshot.docs.map((doc) => docToData(doc));
     } catch (error) {
       if (!isIndexBuildingError(error)) {
@@ -3421,10 +3540,13 @@ export const jobApplicationStore = {
       const snapshot = await jobApplicationsCollection
         .where('organizationId', '==', organizationId)
         .get();
-      return snapshot.docs
+      let applications = snapshot.docs
         .map((doc) => docToData(doc))
-        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt))
-        .slice(0, limit);
+        .sort((a, b) => toMillis(b?.createdAt) - toMillis(a?.createdAt));
+      if (normalizedLimit) {
+        applications = applications.slice(0, normalizedLimit);
+      }
+      return applications;
     }
   },
 

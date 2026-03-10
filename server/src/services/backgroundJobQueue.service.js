@@ -30,6 +30,8 @@ class InMemoryBackgroundQueue {
     handler,
     payload = {},
     maxAttempts = 3,
+    onSuccess = null,
+    onPermanentFailure = null,
   }) {
     if (typeof handler !== 'function') {
       throw new Error(`[${this.name}] Queue handler must be a function.`);
@@ -44,6 +46,8 @@ class InMemoryBackgroundQueue {
       attempts: 0,
       maxAttempts: Math.max(1, Number.parseInt(maxAttempts, 10) || 3),
       enqueuedAt: new Date().toISOString(),
+      onSuccess: typeof onSuccess === 'function' ? onSuccess : null,
+      onPermanentFailure: typeof onPermanentFailure === 'function' ? onPermanentFailure : null,
     };
 
     if (this.mode === 'INLINE') {
@@ -94,6 +98,26 @@ class InMemoryBackgroundQueue {
 
     try {
       await job.handler(job.payload);
+      if (job.onSuccess) {
+        try {
+          await job.onSuccess(job.payload);
+        } catch (callbackError) {
+          logger.error(
+            `[${this.name}] Job ${job.type} (${job.id}) completed but its success callback failed.`,
+            callbackError,
+          );
+          if (job.onPermanentFailure) {
+            try {
+              await job.onPermanentFailure(job.payload, callbackError);
+            } catch (failureCallbackError) {
+              logger.error(
+                `[${this.name}] Job ${job.type} (${job.id}) failed to run permanent-failure callback after success callback error.`,
+                failureCallbackError,
+              );
+            }
+          }
+        }
+      }
       this.totalProcessed += 1;
     } catch (error) {
       const shouldRetry = job.attempts < job.maxAttempts;
@@ -109,6 +133,16 @@ class InMemoryBackgroundQueue {
         }, retryDelayMs);
       } else {
         this.totalFailed += 1;
+        if (job.onPermanentFailure) {
+          try {
+            await job.onPermanentFailure(job.payload, error);
+          } catch (callbackError) {
+            logger.error(
+              `[${this.name}] Job ${job.type} (${job.id}) failed to run permanent-failure callback.`,
+              callbackError,
+            );
+          }
+        }
         logger.error(
           `[${this.name}] Job ${job.type} (${job.id}) failed permanently after ${job.attempts} attempts.`,
           error,
@@ -124,18 +158,46 @@ class InMemoryBackgroundQueue {
 const emailQueue = new InMemoryBackgroundQueue('email', { concurrency: 2 });
 const analyticsQueue = new InMemoryBackgroundQueue('analytics', { concurrency: 1 });
 
-export const queueEmailJob = ({ type, handler, payload, maxAttempts = 3 }) => {
+export const queueEmailJob = ({
+  type,
+  handler,
+  payload,
+  maxAttempts = 3,
+  onSuccess,
+  onPermanentFailure,
+}) => {
   try {
-    return emailQueue.enqueue({ type, handler, payload, maxAttempts });
+    return emailQueue.enqueue({
+      type,
+      handler,
+      payload,
+      maxAttempts,
+      onSuccess,
+      onPermanentFailure,
+    });
   } catch (error) {
     logger.error(`[email] Failed to enqueue ${type || 'UNKNOWN'} job.`, error);
     return null;
   }
 };
 
-export const queueAnalyticsJob = ({ type, handler, payload, maxAttempts = 2 }) => {
+export const queueAnalyticsJob = ({
+  type,
+  handler,
+  payload,
+  maxAttempts = 2,
+  onSuccess,
+  onPermanentFailure,
+}) => {
   try {
-    return analyticsQueue.enqueue({ type, handler, payload, maxAttempts });
+    return analyticsQueue.enqueue({
+      type,
+      handler,
+      payload,
+      maxAttempts,
+      onSuccess,
+      onPermanentFailure,
+    });
   } catch (error) {
     logger.error(`[analytics] Failed to enqueue ${type || 'UNKNOWN'} job.`, error);
     return null;

@@ -490,6 +490,21 @@ export class AuthController {
         }
       }
 
+      if (accountTypeEnum === 'COMPANY' && teamInvitationToken) {
+        if (!profilePhoto) {
+          const error = new Error('Profile picture is required.');
+          error.status = 400;
+          throw error;
+        }
+        if (profilePhoto.size > PROFILE_PHOTO_MAX_BYTES) {
+          const error = new Error('Profile picture must be 5 MB or less.');
+          error.status = 400;
+          throw error;
+        }
+
+        await validateCandidateProfilePhoto(profilePhoto.path);
+      }
+
       if (accountTypeEnum === 'COMPANY' && !teamInvitationToken) {
         const missingCompanyFields = [];
         if (!companyName?.trim()) missingCompanyFields.push('company name');
@@ -701,7 +716,7 @@ export class AuthController {
         primaryOrganizationId,
         organizationRoles,
         profilePhotoUrl:
-          accountTypeEnum === 'CANDIDATE'
+          accountTypeEnum === 'CANDIDATE' || (accountTypeEnum === 'COMPANY' && teamInvitationToken)
             ? buildUploadUrl(PROFILE_PHOTO_BASE_PATH, profilePhoto?.filename)
             : null,
         resumeUrl:

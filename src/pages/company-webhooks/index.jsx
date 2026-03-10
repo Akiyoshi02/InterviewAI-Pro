@@ -178,14 +178,27 @@ const CompanyWebhooksPage = () => {
         <UserContextNavigation userType={userType} isCollapsed={isNavCollapsed} onToggleCollapse={() => setIsNavCollapsed(!isNavCollapsed)} />
         <main className={`flex-1 transition-all duration-300 pb-20 lg:pb-0 ${isNavCollapsed ? 'lg:ml-20' : 'lg:ml-72 xl:ml-80'}`}>
           <div className="container-responsive py-6 xs:py-8 sm:py-10 space-y-6">
-            <motion.div initial={{ opacity: 0, y: -10 }} animate={{ opacity: 1, y: 0 }} className="flex items-center justify-between">
-              <div>
-                <h1 className="text-xl font-bold text-gray-900 dark:text-slate-100">Webhooks</h1>
-                <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                  Receive real-time HTTP notifications when events happen in your hiring pipeline.
-                </p>
+            <motion.div
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="flex items-center gap-4">
+                <div className="shrink-0 rounded-2xl bg-gradient-to-br from-purple-600 to-blue-600 p-3 shadow-lg shadow-purple-500/30">
+                  <Icon name="Webhook" size={24} color="white" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-xl xs:text-2xl sm:text-3xl font-bold text-gray-900 dark:text-slate-100 leading-tight">Webhooks</h1>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
+                    Receive real-time HTTP notifications when events happen in your hiring pipeline.
+                  </p>
+                </div>
               </div>
-              <Button iconName="Plus" onClick={() => { setShowForm(true); setNewSecret(null); }}>
+              <Button
+                iconName="Plus"
+                onClick={() => { setShowForm(true); setNewSecret(null); }}
+                className="w-full justify-center sm:w-auto"
+              >
                 Add Webhook
               </Button>
             </motion.div>

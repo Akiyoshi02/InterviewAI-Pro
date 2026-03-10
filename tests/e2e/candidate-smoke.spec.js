@@ -1,7 +1,14 @@
-import { test, expect } from '@playwright/test';
+import { expect, test } from '@playwright/test';
 
-test('candidate register and jobs pages load with referral-friendly entry points', async ({ page }) => {
-  await page.route('**/api/auth/me', async (route) => {
+test('candidate register and protected jobs entry points behave correctly for guests', async ({ page }) => {
+  await page.addInitScript(() => {
+    window.localStorage.setItem(
+      'cookieConsent',
+      JSON.stringify({ functional: true, analytics: false, marketing: false }),
+    );
+  });
+
+  await page.route('**/api/auth/me*', async (route) => {
     await route.fulfill({
       status: 401,
       contentType: 'application/json',

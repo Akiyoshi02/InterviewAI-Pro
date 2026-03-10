@@ -5,13 +5,14 @@ import {
   userStore,
   activityLogStore,
   organizationStore,
+  organizationMemberStore,
   isJobCurrentlyPublic,
   publishOrganizationRealtimeUpdate,
   publishCandidateRealtimeUpdate,
 } from '../services/firebaseData.service.js';
 import { emailNotifications } from '../services/email.service.js';
 import { queueEmailJob } from '../services/backgroundJobQueue.service.js';
-import { generateMeetingToken } from '../services/meetingLink.service.js';
+import { ensureInterviewPlanStageForInterviewing } from '../services/hiringInterviewPlan.service.js';
 import { buildJobSnapshot, buildOrganizationSnapshot } from '../utils/applicationSnapshot.util.js';
 import {
   APPLICATION_STATUSES,
@@ -23,6 +24,37 @@ import {
   normalizeApplicationStatus,
   normalizeDisposition,
 } from '../utils/applicationLifecycle.util.js';
+import {
+  buildReviewerApplicationScope,
+  canReviewerAccessApplication,
+  isReviewerRole,
+} from '../utils/reviewerAccess.util.js';
+import { validateReviewerAssignmentsForOrganization } from '../utils/reviewerAssignment.util.js';
+import { syncReviewRequests } from '../utils/reviewRequest.util.js';
+import {
+  buildInterviewPlanSnapshot,
+  canMoveInterviewPlanToOffer,
+  getCurrentInterviewPlanStage,
+  sanitizeInterviewPlanForClient,
+} from '../utils/interviewPlan.util.js';
+import {
+  appendApplicationOfferHistory,
+  buildApplicationOfferHistoryEntry,
+  buildAcceptedApplicationOffer,
+  buildApplicationOfferPayload,
+  buildDeclinedApplicationOffer,
+  buildResentApplicationOffer,
+  sanitizeApplicationOffer,
+  sanitizeApplicationOfferHistory,
+} from '../utils/applicationOffer.util.js';
+import {
+  createApplicationOnboarding,
+  ensureApplicationOnboarding,
+  reviewCompanyOnboardingTask,
+  sanitizeApplicationOnboarding,
+  submitCandidateOnboardingTask,
+  updateApplicationOnboardingOverview,
+} from '../utils/applicationOnboarding.util.js';
 import logger from '../utils/logger.js';
 
 const STATUS_TRANSITION_ERROR_CODE = 'INVALID_APPLICATION_STATUS_TRANSITION';
@@ -457,10 +489,6 @@ const resolveInterviewAutomationSettings = (organization, job, recruiter = null,
     ? parsedBusinessHoursEndMinutes
     : Math.min(24 * 60, organizationBusinessHoursStartMinutes + durationMinutes + 15);
   const conflictScope = parseConflictScope(automation.conflictScope);
-  const meetingLinkTemplate = typeof automation.meetingLinkTemplate === 'string' && automation.meetingLinkTemplate.trim()
-    ? automation.meetingLinkTemplate.trim()
-    : '';
-
   const recruiterAvailability = resolveRecruiterAvailabilityOverrides(recruiter, {
     timezone: organizationTimezone,
     workingDays: organizationWorkingDays,
@@ -505,27 +533,8 @@ const resolveInterviewAutomationSettings = (organization, job, recruiter = null,
     durationMinutes: effectiveDurationMinutes,
     interviewTypes,
     skillFocus,
-    meetingLinkTemplate,
     availabilitySource: recruiterAvailability ? 'RECRUITER' : 'ORGANIZATION',
   };
-};
-
-const buildAutomatedMeetingLink = ({
-  interviewId,
-  candidateId = '',
-  jobId = '',
-  settings,
-  req,
-}) => {
-  const template = settings?.meetingLinkTemplate || '';
-  if (template) {
-    return template
-      .replaceAll('{interviewId}', interviewId)
-      .replaceAll('{candidateId}', candidateId)
-      .replaceAll('{jobId}', jobId);
-  }
-  const frontendBase = String(process.env.FRONTEND_URL || getRequestOrigin(req)).trim().replace(/\/$/, '');
-  return `${frontendBase}/interview-lobby/${encodeURIComponent(interviewId)}`;
 };
 
 const queueInterviewScheduledEmail = ({
@@ -560,6 +569,8 @@ const APPLICATION_STATUS_EMAIL_MESSAGES = Object.freeze({
     'Great news. Your application has moved to interviewing. Interview scheduling details will follow shortly.',
   SHORTLISTED:
     'You have been shortlisted. The hiring team will share next steps soon.',
+  OFFER:
+    'Your interviews are complete. The hiring team is preparing the offer stage for this application.',
   REJECTED:
     'Thank you for your interest. We have moved forward with other candidates for this role.',
   HIRED:
@@ -592,6 +603,18 @@ const buildApplicationStatusEmailMessage = ({
   return baseMessage;
 };
 
+const loadReviewerApplicationScope = async (organizationId, reviewerId) => {
+  if (!organizationId || !reviewerId) {
+    return {
+      allowedInterviewIds: new Set(),
+      allowedCandidateJobScopes: new Set(),
+    };
+  }
+
+  const interviews = await interviewStore.listByOrganization(organizationId).catch(() => []);
+  return buildReviewerApplicationScope(interviews, reviewerId);
+};
+
 const parseOptionalStatus = (value) => {
   if (!value) return null;
   return normalizeApplicationStatus(value);
@@ -609,6 +632,27 @@ const parseOptionalLimit = (value) => {
   const parsed = Number.parseInt(value, 10);
   if (!Number.isInteger(parsed) || parsed < 1) return null;
   return parsed;
+};
+
+const paginateApplicationsInMemory = (applications = [], { limit = 50, cursor = null } = {}) => {
+  const normalizedLimit = Math.max(1, Math.min(Number.parseInt(limit, 10) || 50, 200));
+  const cursorMs = cursor ? Date.parse(cursor) : Number.NaN;
+
+  const filtered = applications
+    .slice()
+    .sort((left, right) => Date.parse(right?.createdAt || 0) - Date.parse(left?.createdAt || 0))
+    .filter((application) => {
+      if (!Number.isFinite(cursorMs)) return true;
+      const createdAtMs = Date.parse(application?.createdAt || '');
+      return Number.isFinite(createdAtMs) ? createdAtMs < cursorMs : true;
+    });
+
+  const items = filtered.slice(0, normalizedLimit);
+  return {
+    items,
+    nextCursor: items.length === normalizedLimit ? items[items.length - 1]?.createdAt || null : null,
+    hasMore: filtered.length > normalizedLimit,
+  };
 };
 
 const normalizeJobQuestions = (job = {}) => {
@@ -658,6 +702,9 @@ const buildApplicationJobPayload = (application, liveJob = null) => {
     location: source?.location || null,
     employmentType: source?.employmentType || null,
     experienceLevel: source?.experienceLevel || null,
+    salaryCurrency: source?.salaryCurrency || null,
+    salaryMin: source?.salaryMin ?? null,
+    salaryMax: source?.salaryMax ?? null,
     skills: Array.isArray(source?.skills) ? source.skills : [],
     applicationQuestions,
     isDeleted,
@@ -683,8 +730,10 @@ const buildApplicationOrganizationPayload = (application, liveOrganization = nul
   };
 };
 
-const sanitizeApplication = (application, candidate = null, job = null, organization = null) => {
+const sanitizeApplication = (application, candidate = null, job = null, organization = null, options = {}) => {
   if (!application) return null;
+  const includeOffer = options?.includeOffer === true;
+  const includeOnboarding = options?.includeOnboarding === true;
   const hasDeletedJobContext = Boolean(
     application.jobDeletedAt || (!job && application.jobId),
   );
@@ -725,26 +774,103 @@ const sanitizeApplication = (application, candidate = null, job = null, organiza
     interviewId: application.interviewId,
     createdAt: application.createdAt,
     updatedAt: application.updatedAt,
+    interviewPlan: sanitizeInterviewPlanForClient(application.interviewPlan),
+    offer: includeOffer ? sanitizeApplicationOffer(application.offer) : null,
+    offerHistory: includeOffer ? sanitizeApplicationOfferHistory(application.offerHistory) : [],
+    onboarding: includeOnboarding ? sanitizeApplicationOnboarding(application.onboarding) : null,
     candidate,
     job: buildApplicationJobPayload(application, job),
     organization: buildApplicationOrganizationPayload(application, organization),
   };
 };
 
+const ensureOnboardingForHiredApplication = async (application, { actorId = null, actorRole = 'SYSTEM' } = {}) => {
+  if (!application || normalizeApplicationStatus(application.status) !== 'HIRED') {
+    return application;
+  }
+
+  const sanitizedExisting = sanitizeApplicationOnboarding(application.onboarding);
+  if (sanitizedExisting) {
+    return application;
+  }
+
+  const onboarding = createApplicationOnboarding(application, { actorId, actorRole });
+  const updated = await jobApplicationStore.update(application.id, { onboarding });
+  return {
+    ...application,
+    ...updated,
+    status: updated?.status ?? application.status,
+    offer: updated?.offer ?? application.offer,
+    offerHistory: updated?.offerHistory ?? application.offerHistory,
+    statusHistory: updated?.statusHistory ?? application.statusHistory,
+    onboarding,
+  };
+};
+
+const loadApplicationContext = async (application) => {
+  if (!application) {
+    return {
+      candidate: null,
+      job: null,
+      organization: null,
+    };
+  }
+
+  const [candidate, job, organization] = await Promise.all([
+    application.candidateId ? userStore.getSummary(application.candidateId) : Promise.resolve(null),
+    application.jobId ? jobStore.getById(application.jobId) : Promise.resolve(null),
+    application.organizationId ? organizationStore.getById(application.organizationId) : Promise.resolve(null),
+  ]);
+
+  return { candidate, job, organization };
+};
+
+const isOfferPendingAndActionable = (offer) => {
+  const sanitized = sanitizeApplicationOffer(offer);
+  if (!sanitized || sanitized.status !== 'PENDING') return false;
+  if (!sanitized.expiresAt) return true;
+  return new Date(sanitized.expiresAt).getTime() > Date.now();
+};
+
+const buildApplicationOfferUrl = (applicationId) => (
+  `${process.env.FRONTEND_URL || 'http://localhost:5173'}/my-applications/${encodeURIComponent(applicationId)}/offer`
+);
+
+const buildOfferNotificationRecipients = async (organizationId, actorId = null) => {
+  if (!organizationId) return [];
+
+  const members = await organizationMemberStore.listByOrganization(organizationId).catch(() => []);
+  const eligibleMembers = members.filter((member) => {
+    const role = String(member?.role || '').toUpperCase();
+    const status = String(member?.status || '').toUpperCase();
+    return ['ADMIN', 'RECRUITER'].includes(role) && (!status || status === 'ACTIVE');
+  });
+
+  const users = await Promise.all(
+    eligibleMembers.map(async (member) => {
+      const user = member?.userId ? await userStore.getSummary(member.userId).catch(() => null) : null;
+      if (!user?.email) return null;
+      if (actorId && user.id === actorId) return null;
+      return user;
+    }),
+  );
+
+  return users.filter(Boolean);
+};
+
 const loadSchedulingCandidates = async ({
   application,
-  recruiter,
+  recruiterId,
   settings,
   interviewIdToExclude = null,
 } = {}) => {
   if (!application || !settings?.autoScheduleEnabled) return [];
 
-  const recruiterId = recruiter?.id || application.reviewedBy || null;
   let interviews = [];
   if (settings.conflictScope === 'ORGANIZATION' || !recruiterId) {
-    interviews = await interviewStore.listByOrganization(application.organizationId, { limit: 200 }).catch(() => []);
+    interviews = await interviewStore.listByOrganization(application.organizationId, { limit: 200 });
   } else {
-    interviews = await interviewStore.listByCompany(recruiterId, { limit: 200 }).catch(() => []);
+    interviews = await interviewStore.listByCompany(recruiterId, { limit: 200 });
   }
 
   return interviews.filter((interview) => (
@@ -755,6 +881,132 @@ const loadSchedulingCandidates = async ({
   ));
 };
 
+const resolveAutomationRecruiterContext = async ({
+  application,
+  recruiter,
+  interview,
+} = {}) => {
+  const linkedRecruiterId = typeof interview?.companyId === 'string' && interview.companyId.trim()
+    ? interview.companyId.trim()
+    : null;
+  const actingRecruiterId = typeof recruiter?.id === 'string' && recruiter.id.trim()
+    ? recruiter.id.trim()
+    : null;
+  const reviewedByRecruiterId = typeof application?.reviewedBy === 'string' && application.reviewedBy.trim()
+    ? application.reviewedBy.trim()
+    : null;
+  const recruiterId = linkedRecruiterId || actingRecruiterId || reviewedByRecruiterId || null;
+
+  if (!recruiterId) {
+    return {
+      recruiterId: null,
+      recruiterRecord: null,
+      warning: null,
+    };
+  }
+
+  try {
+    const recruiterRecord = await userStore.getById(recruiterId);
+    if (recruiterRecord) {
+      return {
+        recruiterId,
+        recruiterRecord,
+        warning: null,
+      };
+    }
+    return {
+      recruiterId,
+      recruiterRecord: null,
+      warning: 'Assigned recruiter availability could not be loaded. Interview was created without automatic scheduling.',
+    };
+  } catch (error) {
+    logger.warn(`Failed to load recruiter ${recruiterId} for interview automation:`, error);
+    return {
+      recruiterId,
+      recruiterRecord: null,
+      warning: 'Assigned recruiter availability could not be loaded. Interview was created without automatic scheduling.',
+    };
+  }
+};
+
+const buildInterviewSchedulingPreview = async ({
+  application,
+  job,
+  organization,
+  recruiter,
+  interview,
+} = {}) => {
+  if (!application || !job || !organization) {
+    return {
+      constraints: null,
+      error: {
+        message: 'Scheduling rules are unavailable right now.',
+        code: 'SCHEDULING_PREVIEW_UNAVAILABLE',
+      },
+    };
+  }
+
+  const recruiterContext = await resolveAutomationRecruiterContext({
+    application,
+    recruiter,
+    interview,
+  });
+  const settings = resolveInterviewAutomationSettings(
+    organization,
+    job,
+    recruiterContext.recruiterRecord,
+  );
+  const interviewPlan = buildInterviewPlanSnapshot({
+    application,
+    job,
+    settings,
+    reviewerAssignments: Array.isArray(interview?.reviewerAssignments)
+      ? interview.reviewerAssignments
+      : [],
+  });
+  const currentStage = getCurrentInterviewPlanStage(interviewPlan);
+  const previewInterviewTypes = Array.isArray(currentStage?.interviewTypes) && currentStage.interviewTypes.length > 0
+    ? currentStage.interviewTypes
+    : settings.interviewTypes;
+  const previewSkillFocus = Array.isArray(currentStage?.skillFocus) && currentStage.skillFocus.length > 0
+    ? currentStage.skillFocus
+    : settings.skillFocus;
+
+  return {
+    constraints: {
+      timezone: settings.timezone,
+      leadHours: settings.leadHours,
+      slotMinutes: settings.slotMinutes,
+      scheduleWindowDays: settings.scheduleWindowDays,
+      durationMinutes: Number(currentStage?.durationMinutes) || settings.durationMinutes,
+      workingDays: Array.isArray(settings.workingDays) ? [...settings.workingDays] : [],
+      businessHoursStartMinutes: settings.businessHoursStartMinutes,
+      businessHoursEndMinutes: settings.businessHoursEndMinutes,
+      maxInterviewsPerDay: settings.maxInterviewsPerDay,
+      conflictScope: settings.conflictScope || null,
+      availabilitySource: settings.availabilitySource || null,
+      assignedRecruiterId: recruiterContext.recruiterId || null,
+      assignedRecruiterName: recruiterContext.recruiterRecord?.fullName
+        || recruiterContext.recruiterRecord?.displayName
+        || recruiterContext.recruiterRecord?.companyName
+        || null,
+      planStageId: currentStage?.id || null,
+      planStageName: currentStage?.name || null,
+      planStageCategory: currentStage?.category || null,
+      planStageSequence: currentStage?.sequence || null,
+      planStageTotal: Array.isArray(interviewPlan?.stages) ? interviewPlan.stages.length : null,
+      interviewTypes: Array.isArray(previewInterviewTypes) ? [...previewInterviewTypes] : [],
+      skillFocus: Array.isArray(previewSkillFocus) ? [...previewSkillFocus] : [],
+    },
+    error: recruiterContext.warning
+      ? {
+        message: recruiterContext.warning,
+        code: 'ASSIGNED_RECRUITER_UNAVAILABLE',
+      }
+      : null,
+  };
+};
+
 const ensureInterviewAutomationForInterviewing = async ({
   req,
   application,
@@ -763,114 +1015,36 @@ const ensureInterviewAutomationForInterviewing = async ({
   recruiter,
   candidate,
   interviewSchedulingMode = null,
+  reviewerAssignments = undefined,
 } = {}) => {
   if (!application || !job || !organization) {
     return { interview: null, created: false, scheduled: false };
   }
-
-  const forceAutoSchedule = interviewSchedulingMode === 'AUTO'
-    ? true
-    : interviewSchedulingMode === 'MANUAL'
-      ? false
-      : undefined;
-  const settings = resolveInterviewAutomationSettings(organization, job, recruiter, { forceAutoSchedule });
-  const nowIso = new Date().toISOString();
-  let interview = null;
-  let created = false;
-  let scheduled = false;
-  let slotFound = false;
-  let selectedSlot = null;
-  let schedulingStats = null;
-  let emailOperation = null;
-
-  if (application.interviewId) {
-    interview = await interviewStore.getById(application.interviewId).catch(() => null);
-    if (interview && TERMINAL_INTERVIEW_STATUSES.has(String(interview.status || '').toUpperCase())) {
-      interview = null;
-    }
-  }
+  const result = await ensureInterviewPlanStageForInterviewing({
+    application,
+    job,
+    organization,
+    recruiter,
+    reviewerAssignments,
+    interviewSchedulingMode,
+  });
+  const {
+    interview,
+    created,
+    scheduled,
+    slotFound,
+    schedulingStats,
+    warning,
+    currentStage,
+    plan,
+  } = result;
 
   if (!interview) {
-    const relatedInterviews = await interviewStore.listByJob(application.jobId, { limit: 200 }).catch(() => []);
-    interview = relatedInterviews.find((candidateInterview) =>
-      candidateInterview.candidateId === application.candidateId
-      && !TERMINAL_INTERVIEW_STATUSES.has(String(candidateInterview.status || '').toUpperCase()),
-    ) || null;
-  }
-
-  if (!interview) {
-    const interviewPayload = {
-      mode: 'HIRING',
-      candidateId: application.candidateId,
-      companyId: recruiter?.id || application.reviewedBy || null,
-      organizationId: application.organizationId,
-      jobId: application.jobId,
-      jobStage: 'INTERVIEWING',
-      pipelineStatus: 'SCREENING',
-      status: 'PENDING',
-      scheduledFor: null,
-      timezone: settings.timezone,
-      scheduleStatus: null,
-      scheduledBy: null,
-      scheduledAt: null,
-      jobRole: job.title || 'Position',
-      experienceLevel: job.experienceLevel || 'MID',
-      industry: job.department || organization.industry || null,
-      interviewTypes: settings.interviewTypes,
-      skillFocus: settings.skillFocus,
-      duration: settings.durationMinutes,
+    return {
+      ...result,
+      warning: warning || null,
+      plan,
     };
-    interview = await interviewStore.create(interviewPayload);
-    created = true;
-  }
-
-  if (settings.autoScheduleEnabled) {
-    const schedulingCandidates = await loadSchedulingCandidates({
-      application,
-      recruiter,
-      settings,
-      interviewIdToExclude: interview.id,
-    });
-    const slotDecision = findConstraintBasedAutoScheduleSlot({
-      settings,
-      existingInterviews: schedulingCandidates,
-    });
-    selectedSlot = slotDecision.scheduledFor || null;
-    slotFound = Boolean(selectedSlot);
-    schedulingStats = {
-      iterations: slotDecision.iterations || 0,
-      conflictChecks: slotDecision.conflictChecks || 0,
-      candidatePoolSize: schedulingCandidates.length,
-      conflictScope: settings.conflictScope,
-      availabilitySource: settings.availabilitySource || 'ORGANIZATION',
-    };
-  }
-
-  const shouldApplyAutoSchedule = settings.autoScheduleEnabled
-    && Boolean(selectedSlot)
-    && (created || !interview.scheduledFor || String(interview.status || '').toUpperCase() === 'PENDING');
-
-  if (shouldApplyAutoSchedule) {
-    const wasPreviouslyScheduled = Boolean(interview.scheduledFor);
-    const meetingTokenData = generateMeetingToken();
-    interview = await interviewStore.update(interview.id, {
-      status: 'SCHEDULED',
-      scheduledFor: selectedSlot,
-      timezone: settings.timezone,
-      ...meetingTokenData,
-      scheduleStatus: wasPreviouslyScheduled ? 'RESCHEDULED' : 'SCHEDULED',
-      scheduledBy: recruiter?.id || application.reviewedBy || null,
-      scheduledAt: nowIso,
-      interviewTypes: settings.interviewTypes,
-      skillFocus: settings.skillFocus,
-      duration: settings.durationMinutes,
-    });
-    scheduled = true;
-    emailOperation = created ? 'AUTO_CREATED_AND_SCHEDULED' : 'AUTO_SCHEDULED';
-  }
-
-  if (application.interviewId !== interview.id) {
-    await jobApplicationStore.update(application.id, { interviewId: interview.id });
   }
 
   if (created) {
@@ -879,12 +1053,16 @@ const ensureInterviewAutomationForInterviewing = async ({
       status: interview.status || null,
       candidateId: interview.candidateId || null,
       jobId: interview.jobId || null,
+      planStageId: interview.planStageId || null,
+      planStageName: interview.planStageName || currentStage?.name || null,
     });
     await publishCandidateRealtimeUpdate(application.candidateId, 'interview-created', {
       interviewId: interview.id,
       status: interview.status || null,
       organizationId: interview.organizationId || null,
       jobId: interview.jobId || null,
+      planStageId: interview.planStageId || null,
+      planStageName: interview.planStageName || currentStage?.name || null,
     });
   }
 
@@ -902,6 +1080,8 @@ const ensureInterviewAutomationForInterviewing = async ({
         timezone: interview.timezone || null,
         strategy: 'CONSTRAINT_BASED_V1',
         slotFound,
+        planStageId: interview.planStageId || null,
+        planStageName: interview.planStageName || currentStage?.name || null,
         ...(schedulingStats || {}),
       },
     });
@@ -913,6 +1093,8 @@ const ensureInterviewAutomationForInterviewing = async ({
       jobId: interview.jobId || null,
       autoScheduled: true,
       strategy: 'CONSTRAINT_BASED_V1',
+      planStageId: interview.planStageId || null,
+      planStageName: interview.planStageName || currentStage?.name || null,
     });
     await publishCandidateRealtimeUpdate(application.candidateId, 'interview-scheduled', {
       interviewId: interview.id,
@@ -922,28 +1104,22 @@ const ensureInterviewAutomationForInterviewing = async ({
       jobId: interview.jobId || null,
       autoScheduled: true,
       strategy: 'CONSTRAINT_BASED_V1',
+      planStageId: interview.planStageId || null,
+      planStageName: interview.planStageName || currentStage?.name || null,
     });
     queueInterviewScheduledEmail({
       interview,
       candidate,
       job,
       organization,
-      operation: emailOperation || 'AUTO_SCHEDULED_INTERVIEW',
+      operation: created ? 'AUTO_CREATED_AND_SCHEDULED' : 'AUTO_SCHEDULED',
     });
   }
 
   return {
-    interview,
-    created,
-    scheduled,
-    slotFound,
-    mode: settings.autoScheduleEnabled ? 'AUTO' : 'MANUAL',
-    strategy: 'CONSTRAINT_BASED_V1',
-    scheduleDecision: {
-      requestedAutoSchedule: settings.autoScheduleEnabled,
-      selectedSlot: selectedSlot || null,
-      ...(schedulingStats || {}),
-    },
+    ...result,
+    plan,
+    warning: warning || null,
   };
 };
 
@@ -1042,7 +1218,7 @@ export class ApplicationController {
         if (duplicateError.code === 'DUPLICATE_APPLICATION') {
           return res.status(409).json({
             error: 'You have already applied to this position',
-            application: sanitizeApplication(duplicateError.existingApplication, null, null, null),
+            application: sanitizeApplication(duplicateError.existingApplication, null, null, null, { includeOffer: true }),
           });
         }
         throw duplicateError;
@@ -1098,7 +1274,7 @@ export class ApplicationController {
 
       res.status(201).json({
         success: true,
-        application: sanitizeApplication(application, null, job, organization),
+        application: sanitizeApplication(application, null, job, organization, { includeOffer: true }),
         message: 'Application submitted successfully',
       });
     } catch (error) {
@@ -1148,7 +1324,10 @@ export class ApplicationController {
       const orgMap = new Map(organizations.filter(Boolean).map((org) => [org.id, org]));
 
       const enriched = applications.map((app) =>
-        sanitizeApplication(app, null, jobMap.get(app.jobId), orgMap.get(app.organizationId)),
+        sanitizeApplication(app, null, jobMap.get(app.jobId), orgMap.get(app.organizationId), {
+          includeOffer: true,
+          includeOnboarding: true,
+        }),
       );
 
       res.json({
@@ -1177,6 +1356,7 @@ export class ApplicationController {
       const userId = req.user.id;
       const accountType = req.user.accountType;
       const organizationId = req.user.organizationContext?.organization?.id;
+      const reviewerOnly = accountType === 'COMPANY' && isReviewerRole(req.user);
 
       const application = await jobApplicationStore.getById(id);
       if (!application) {
@@ -1185,22 +1365,57 @@ export class ApplicationController {
 
       // Check access
       const isCandidate = accountType === 'CANDIDATE' && application.candidateId === userId;
-      const isRecruiter = accountType === 'COMPANY' && application.organizationId === organizationId;
+      const isCompanyMember = accountType === 'COMPANY' && application.organizationId === organizationId;
 
-      if (!isCandidate && !isRecruiter) {
+      let reviewerScope = null;
+      if (reviewerOnly && isCompanyMember) {
+        reviewerScope = await loadReviewerApplicationScope(organizationId, userId);
+      }
+
+      const isRecruiter = isCompanyMember && !reviewerOnly;
+      const isScopedReviewer = reviewerOnly
+        && isCompanyMember
+        && canReviewerAccessApplication(application, reviewerScope);
+
+      if (!isCandidate && !isRecruiter && !isScopedReviewer) {
         return res.status(403).json({ error: 'Access denied' });
       }
 
       // Get job, candidate, and organization details
-      const [job, candidate, organization] = await Promise.all([
+      const [job, candidate, organization, interview] = await Promise.all([
         jobStore.getById(application.jobId),
         userStore.getSummary(application.candidateId),
         organizationStore.getById(application.organizationId),
+        application.interviewId
+          ? interviewStore.getById(application.interviewId).catch(() => null)
+          : Promise.resolve(null),
       ]);
+
+      let responseApplication = sanitizeApplication(
+        application,
+        candidate,
+        job,
+        organization,
+        { includeOffer: isCandidate || isRecruiter, includeOnboarding: isCandidate || isRecruiter },
+      );
+      if (isRecruiter) {
+        const schedulingPreview = await buildInterviewSchedulingPreview({
+          application,
+          job,
+          organization,
+          recruiter: req.user,
+          interview,
+        });
+        responseApplication = {
+          ...responseApplication,
+          interviewSchedulingPreview: schedulingPreview.constraints,
+          interviewSchedulingPreviewError: schedulingPreview.error,
+        };
+      }
 
       res.json({
         success: true,
-        application: sanitizeApplication(application, candidate, job, organization),
+        application: responseApplication,
       });
     } catch (error) {
       logger.error('Get application error:', error);
@@ -1215,6 +1430,7 @@ export class ApplicationController {
     try {
       const { jobId } = req.params;
       const organizationId = req.user.organizationContext?.organization?.id;
+      const reviewerOnly = isReviewerRole(req.user);
       const requestedStatus = parseOptionalStatus(req.query.status);
       const requestedLimit = parseOptionalLimit(req.query.limit);
       const requestedCursor = req.query.cursor ? String(req.query.cursor).trim() : null;
@@ -1231,7 +1447,14 @@ export class ApplicationController {
 
       let applications = [];
       let page = null;
-      if (requestedLimit || requestedCursor) {
+      if (reviewerOnly) {
+        applications = await jobApplicationStore.listByJob(jobId);
+        if (requestedStatus) {
+          applications = applications.filter(
+            (application) => normalizeApplicationStatus(application?.status) === requestedStatus,
+          );
+        }
+      } else if (requestedLimit || requestedCursor) {
         page = await jobApplicationStore.listByJobPage(jobId, {
           status: requestedStatus,
           limit: requestedLimit || 50,
@@ -1247,12 +1470,30 @@ export class ApplicationController {
         }
       }
 
+      if (reviewerOnly) {
+        const reviewerScope = await loadReviewerApplicationScope(organizationId, req.user.id);
+        applications = applications.filter((application) => canReviewerAccessApplication(application, reviewerScope));
+        if (requestedLimit || requestedCursor) {
+          page = paginateApplicationsInMemory(applications, {
+            limit: requestedLimit || 50,
+            cursor: requestedCursor,
+          });
+          applications = page.items;
+        }
+      }
+
       // Enrich with candidate details
       const candidateIds = applications.map((app) => app.candidateId).filter(Boolean);
       const candidates = await userStore.getSummaries(candidateIds);
 
       const enriched = applications.map((app) =>
-        sanitizeApplication(app, candidates.get(app.candidateId), job, null),
+        sanitizeApplication(
+          app,
+          candidates.get(app.candidateId),
+          job,
+          null,
+          { includeOffer: !reviewerOnly, includeOnboarding: !reviewerOnly },
+        ),
       );
 
       res.json({
@@ -1285,6 +1526,10 @@ export class ApplicationController {
       const { id } = req.params;
       const { status } = req.body;
       const requestedInterviewSchedulingMode = parseInterviewSchedulingMode(req.body?.interviewSchedulingMode);
+      const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
+        req.body || {},
+        'reviewerAssignments',
+      );
       const userId = req.user.id;
       const organizationId = req.user.organizationContext?.organization?.id;
 
@@ -1327,6 +1572,25 @@ export class ApplicationController {
         });
       }
 
+      if (nextStatus === 'OFFER') {
+        const offerReadiness = canMoveInterviewPlanToOffer(application.interviewPlan);
+        if (!offerReadiness.allowed) {
+          return res.status(409).json({
+            error: offerReadiness.reason || 'Complete the interview plan before moving this application to the offer stage.',
+            code: offerReadiness.code || STATUS_TRANSITION_ERROR_CODE,
+            details: {
+              applicationId: id,
+              currentStatus: previousStatus,
+              requestedStatus: nextStatus,
+              blockingStageId: offerReadiness.stage?.id || null,
+              blockingStageName: offerReadiness.stage?.name || null,
+              blockingStageOutcome: offerReadiness.stage?.outcome || null,
+              blockingStageStatus: offerReadiness.stage?.status || null,
+            },
+          });
+        }
+      }
+
       const statusChangedAt = new Date().toISOString();
       const disposition = normalizeDisposition(req.body, {
         status: nextStatus,
@@ -1345,7 +1609,7 @@ export class ApplicationController {
         dispositionCategory: disposition.category,
       });
 
-      const updated = await jobApplicationStore.update(id, {
+      let updated = await jobApplicationStore.update(id, {
         status: nextStatus,
         reviewedAt: statusChangedAt,
         reviewedBy: userId,
@@ -1372,6 +1636,31 @@ export class ApplicationController {
           }),
         statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
       });
+
+      if (nextStatus === 'HIRED') {
+        updated = await ensureOnboardingForHiredApplication(updated, {
+          actorId: userId,
+          actorRole: req.user.organizationContext?.membership?.role || 'ADMIN',
+        });
+      }
+
+      let validatedReviewerAssignments = undefined;
+      if (hasReviewerAssignmentsOverride) {
+        const reviewerAssignmentValidation = await validateReviewerAssignmentsForOrganization({
+          organizationId,
+          reviewerAssignments: req.body?.reviewerAssignments,
+        });
+        if (!reviewerAssignmentValidation.ok) {
+          return res.status(reviewerAssignmentValidation.status || 400).json({
+            error: reviewerAssignmentValidation.error,
+            code: reviewerAssignmentValidation.code || 'INVALID_REVIEWER_ASSIGNMENTS',
+            ...(reviewerAssignmentValidation.details
+              ? { details: reviewerAssignmentValidation.details }
+              : {}),
+          });
+        }
+        validatedReviewerAssignments = reviewerAssignmentValidation.reviewerAssignments;
+      }
 
       // Log activity
       await activityLogStore.record({
@@ -1429,6 +1718,7 @@ export class ApplicationController {
             recruiter: req.user,
             candidate,
             interviewSchedulingMode: requestedInterviewSchedulingMode,
+            reviewerAssignments: validatedReviewerAssignments,
           });
           if (
             requestedInterviewSchedulingMode !== 'MANUAL'
@@ -1437,6 +1727,9 @@ export class ApplicationController {
           ) {
             interviewAutomationWarning = 'No available interview slots matched automation constraints. Schedule manually from the interview workspace.';
           }
+          if (interviewAutomation?.warning) {
+            interviewAutomationWarning = interviewAutomation.warning;
+          }
         } catch (automationError) {
           interviewAutomationWarning = 'Interview automation could not complete automatically. Please review interview scheduling.';
           logger.error('Failed to auto-create/schedule interview after INTERVIEWING transition:', automationError);
@@ -1444,8 +1737,15 @@ export class ApplicationController {
       }
 
       const responseApplication = interviewAutomation?.interview?.id
-        ? { ...updated, interviewId: interviewAutomation.interview.id }
-        : updated;
+        ? {
+          ...updated,
+          interviewId: interviewAutomation.interview.id,
+          ...(interviewAutomation?.plan ? { interviewPlan: interviewAutomation.plan } : {}),
+        }
+        : {
+          ...updated,
+          ...(interviewAutomation?.plan ? { interviewPlan: interviewAutomation.plan } : {}),
+        };
       const shouldNotifyCandidate = previousStatus && previousStatus !== nextStatus;
       if (shouldNotifyCandidate && candidate?.email && job && organization) {
         const statusMessage = buildApplicationStatusEmailMessage({
@@ -1476,7 +1776,10 @@ export class ApplicationController {
 
       res.json({
         success: true,
-        application: sanitizeApplication(responseApplication, null, null, null),
+        application: sanitizeApplication(responseApplication, candidate, job, organization, {
+          includeOffer: true,
+          includeOnboarding: true,
+        }),
         ...(interviewAutomation?.interview
           ? {
             interview: interviewAutomation.interview,
@@ -1486,6 +1789,8 @@ export class ApplicationController {
               slotFound: Boolean(interviewAutomation.slotFound),
               mode: interviewAutomation.mode || null,
               strategy: interviewAutomation.strategy || null,
+              currentStage: interviewAutomation.currentStage || null,
+              plan: sanitizeInterviewPlanForClient(interviewAutomation.plan),
               scheduleDecision: interviewAutomation.scheduleDecision || null,
             },
           }
@@ -1494,6 +1799,714 @@ export class ApplicationController {
       });
     } catch (error) {
       logger.error('Update application status error:', error);
+      next(error);
+    }
+  }
+
+  static async upsertApplicationOffer(req, res, next) {
+    try {
+      const { id } = req.params;
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const actorId = req.user.id;
+      const actorName = req.user.fullName || req.user.email || null;
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      if (application.organizationId !== organizationId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (normalizeApplicationStatus(application.status) !== 'OFFER') {
+        return res.status(409).json({
+          error: 'Application must be in the offer stage before creating an offer.',
+          code: STATUS_TRANSITION_ERROR_CODE,
+        });
+      }
+
+      const offer = buildApplicationOfferPayload(req.body, {
+        existing: application.offer,
+        actorId,
+      });
+
+      if (!offer) {
+        return res.status(400).json({ error: 'Invalid offer payload.' });
+      }
+
+      if (!offer.startDate || !offer.expiresAt) {
+        return res.status(400).json({ error: 'Offer start date and expiry are required.' });
+      }
+
+      if (new Date(offer.expiresAt).getTime() <= Date.now()) {
+        return res.status(400).json({ error: 'Offer expiry must be in the future.' });
+      }
+
+      if (new Date(offer.startDate).getTime() > new Date(offer.expiresAt).getTime()) {
+        return res.status(400).json({ error: 'Offer start date must be before the offer expiry.' });
+      }
+
+      const offerHistory = appendApplicationOfferHistory(
+        application.offerHistory,
+        buildApplicationOfferHistoryEntry(offer, {
+          eventType: application.offer ? 'UPDATED' : 'SENT',
+          actorId,
+          actorName,
+          note: application.offer
+            ? 'Offer details were updated.'
+            : 'Structured offer was shared with the candidate.',
+        }),
+      );
+      const updated = await jobApplicationStore.update(id, { offer, offerHistory });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId,
+        actorId,
+        actorRole: req.user.organizationContext?.membership?.role,
+        action: 'APPLICATION_OFFER_UPSERTED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          status: updated.status,
+          candidateId: updated.candidateId,
+          jobId: updated.jobId,
+          offerStatus: offer.status,
+          compensationCurrency: offer.compensationCurrency,
+          compensationPeriod: offer.compensationPeriod,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'application-offer-updated', {
+        applicationId: id,
+        candidateId: updated.candidateId || null,
+        jobId: updated.jobId || null,
+        status: updated.status || 'OFFER',
+        offerStatus: offer.status,
+      });
+      await publishCandidateRealtimeUpdate(updated.candidateId, 'application-offer-updated', {
+        applicationId: id,
+        organizationId,
+        jobId: updated.jobId || null,
+        status: updated.status || 'OFFER',
+        offerStatus: offer.status,
+      });
+
+      if (candidate?.email && job && organization) {
+        const offerUrl = buildApplicationOfferUrl(updated.id);
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_SHARED',
+          payload: {
+            applicationId: updated.id,
+            candidateId: updated.candidateId,
+            recipient: candidate.email,
+            status: updated.status || 'OFFER',
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferShared(
+              updated,
+              candidate,
+              job,
+              organization,
+              offerUrl,
+              { resent: Boolean(application.offer) },
+            );
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, { includeOffer: true, includeOnboarding: true }),
+        message: 'Offer details saved successfully.',
+      });
+    } catch (error) {
+      logger.error('Upsert application offer error:', error);
+      next(error);
+    }
+  }
+
+  static async resendApplicationOffer(req, res, next) {
+    try {
+      const { id } = req.params;
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const actorId = req.user.id;
+      const actorName = req.user.fullName || req.user.email || null;
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+      if (application.organizationId !== organizationId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      if (normalizeApplicationStatus(application.status) !== 'OFFER') {
+        return res.status(409).json({ error: 'Only offer-stage applications can resend offers.' });
+      }
+      if (!isOfferPendingAndActionable(application.offer)) {
+        return res.status(409).json({ error: 'Only pending offers can be resent.' });
+      }
+
+      const offer = buildResentApplicationOffer(application.offer, { actorId });
+      const offerHistory = appendApplicationOfferHistory(
+        application.offerHistory,
+        buildApplicationOfferHistoryEntry(offer, {
+          eventType: 'RESENT',
+          actorId,
+          actorName,
+          note: 'Offer email was resent to the candidate.',
+        }),
+      );
+      const updated = await jobApplicationStore.update(id, { offer, offerHistory });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId,
+        actorId,
+        actorRole: req.user.organizationContext?.membership?.role,
+        action: 'APPLICATION_OFFER_RESENT',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          status: updated.status,
+          candidateId: updated.candidateId,
+          jobId: updated.jobId,
+          offerStatus: offer.status,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'application-offer-updated', {
+        applicationId: id,
+        candidateId: updated.candidateId || null,
+        jobId: updated.jobId || null,
+        status: updated.status || 'OFFER',
+        offerStatus: offer.status,
+      });
+      await publishCandidateRealtimeUpdate(updated.candidateId, 'application-offer-updated', {
+        applicationId: id,
+        organizationId,
+        jobId: updated.jobId || null,
+        status: updated.status || 'OFFER',
+        offerStatus: offer.status,
+      });
+
+      if (candidate?.email && job && organization) {
+        const offerUrl = buildApplicationOfferUrl(updated.id);
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_RESENT',
+          payload: {
+            applicationId: updated.id,
+            candidateId: updated.candidateId,
+            recipient: candidate.email,
+            status: updated.status || 'OFFER',
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferShared(
+              updated,
+              candidate,
+              job,
+              organization,
+              offerUrl,
+              { resent: true },
+            );
+          },
+        });
+      }
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, { includeOffer: true, includeOnboarding: true }),
+        message: 'Offer email resent successfully.',
+      });
+    } catch (error) {
+      logger.error('Resend application offer error:', error);
+      next(error);
+    }
+  }
+
+  static async acceptApplicationOffer(req, res, next) {
+    try {
+      const { id } = req.params;
+      const candidateId = req.user.id;
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      if (application.candidateId !== candidateId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (normalizeApplicationStatus(application.status) !== 'OFFER') {
+        return res.status(409).json({ error: 'This application is not in the offer stage.' });
+      }
+
+      if (!isOfferPendingAndActionable(application.offer)) {
+        return res.status(409).json({ error: 'This offer is no longer available for acceptance.' });
+      }
+
+      const acceptedAt = new Date().toISOString();
+      const offer = buildAcceptedApplicationOffer(application.offer, { actorId: candidateId });
+      const offerHistory = appendApplicationOfferHistory(
+        application.offerHistory,
+        buildApplicationOfferHistoryEntry(offer, {
+          eventType: 'ACCEPTED',
+          actorId: candidateId,
+          actorName: req.user.fullName || req.user.email || null,
+          note: 'Candidate accepted the offer.',
+          createdAt: acceptedAt,
+        }),
+      );
+      let updated = await jobApplicationStore.update(id, {
+        status: 'HIRED',
+        reviewedAt: acceptedAt,
+        reviewedBy: candidateId,
+        statusSource: 'CANDIDATE_OFFER_ACCEPTED',
+        statusChangedAt: acceptedAt,
+        dispositionCode: 'HIRED',
+        dispositionCategory: 'FINAL_DECISION',
+        dispositionReason: 'Candidate accepted the offer.',
+        dispositionNotes: null,
+        dispositionTags: [],
+        dispositionAt: acceptedAt,
+        dispositionBy: candidateId,
+        statusHistory: appendStatusHistory(
+          application.statusHistory,
+          buildStatusHistoryEntry({
+            previousStatus: application.status,
+            status: 'HIRED',
+            changedAt: acceptedAt,
+            changedBy: candidateId,
+            source: 'CANDIDATE_OFFER_ACCEPTED',
+            note: 'Candidate accepted the offer.',
+            dispositionCode: 'HIRED',
+            dispositionCategory: 'FINAL_DECISION',
+          }),
+        ),
+        offer,
+        offerHistory,
+      });
+
+      updated = await ensureOnboardingForHiredApplication(updated, {
+        actorId: candidateId,
+        actorRole: 'CANDIDATE',
+      });
+
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId: updated.organizationId,
+        actorId: candidateId,
+        actorRole: 'CANDIDATE',
+        action: 'APPLICATION_OFFER_ACCEPTED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          status: updated.status,
+          jobId: updated.jobId,
+          candidateId,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(updated.organizationId, 'application-offer-accepted', {
+        applicationId: id,
+        candidateId,
+        jobId: updated.jobId || null,
+        status: updated.status,
+      });
+      await publishCandidateRealtimeUpdate(candidateId, 'application-offer-accepted', {
+        applicationId: id,
+        organizationId: updated.organizationId || null,
+        jobId: updated.jobId || null,
+        status: updated.status,
+      });
+
+      if (candidate?.email && job && organization) {
+        const offerUrl = buildApplicationOfferUrl(updated.id);
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_ACCEPTED_CANDIDATE',
+          payload: {
+            applicationId: updated.id,
+            candidateId,
+            recipient: candidate.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferAcceptedCandidate(
+              updated,
+              candidate,
+              job,
+              organization,
+              offerUrl,
+            );
+          },
+        });
+      }
+
+      const notificationRecipients = await buildOfferNotificationRecipients(updated.organizationId, null);
+      notificationRecipients.forEach((recipient) => {
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_ACCEPTED_TEAM',
+          payload: {
+            applicationId: updated.id,
+            recipient: recipient.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferAcceptedHiringTeam(
+              updated,
+              recipient,
+              candidate,
+              job,
+              organization,
+            );
+          },
+        });
+      });
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, { includeOffer: true, includeOnboarding: true }),
+        message: 'Offer accepted successfully.',
+      });
+    } catch (error) {
+      logger.error('Accept application offer error:', error);
+      next(error);
+    }
+  }
+
+  static async declineApplicationOffer(req, res, next) {
+    try {
+      const { id } = req.params;
+      const candidateId = req.user.id;
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+
+      if (application.candidateId !== candidateId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+
+      if (normalizeApplicationStatus(application.status) !== 'OFFER') {
+        return res.status(409).json({ error: 'This application is not in the offer stage.' });
+      }
+
+      if (!isOfferPendingAndActionable(application.offer)) {
+        return res.status(409).json({ error: 'This offer is no longer available for response.' });
+      }
+
+      const declineReason = String(req.body?.declineReason || '').trim() || null;
+      const offer = buildDeclinedApplicationOffer(application.offer, {
+        actorId: candidateId,
+        declineReason,
+      });
+      const offerHistory = appendApplicationOfferHistory(
+        application.offerHistory,
+        buildApplicationOfferHistoryEntry(offer, {
+          eventType: 'DECLINED',
+          actorId: candidateId,
+          actorName: req.user.fullName || req.user.email || null,
+          note: declineReason || 'Candidate declined the offer.',
+        }),
+      );
+      const updated = await jobApplicationStore.update(id, { offer, offerHistory });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId: updated.organizationId,
+        actorId: candidateId,
+        actorRole: 'CANDIDATE',
+        action: 'APPLICATION_OFFER_DECLINED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          status: updated.status,
+          jobId: updated.jobId,
+          candidateId,
+          declineReason,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(updated.organizationId, 'application-offer-declined', {
+        applicationId: id,
+        candidateId,
+        jobId: updated.jobId || null,
+        status: updated.status,
+        offerStatus: offer?.status || 'DECLINED',
+      });
+      await publishCandidateRealtimeUpdate(candidateId, 'application-offer-declined', {
+        applicationId: id,
+        organizationId: updated.organizationId || null,
+        jobId: updated.jobId || null,
+        status: updated.status,
+        offerStatus: offer?.status || 'DECLINED',
+      });
+
+      if (candidate?.email && job && organization) {
+        const offerUrl = buildApplicationOfferUrl(updated.id);
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_DECLINED_CANDIDATE',
+          payload: {
+            applicationId: updated.id,
+            candidateId,
+            recipient: candidate.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferDeclinedCandidate(
+              updated,
+              candidate,
+              job,
+              organization,
+              offerUrl,
+            );
+          },
+        });
+      }
+
+      const notificationRecipients = await buildOfferNotificationRecipients(updated.organizationId, null);
+      notificationRecipients.forEach((recipient) => {
+        queueEmailJob({
+          type: 'APPLICATION_OFFER_DECLINED_TEAM',
+          payload: {
+            applicationId: updated.id,
+            recipient: recipient.email,
+          },
+          handler: async () => {
+            await emailNotifications.sendApplicationOfferDeclinedHiringTeam(
+              updated,
+              recipient,
+              candidate,
+              job,
+              organization,
+              declineReason,
+            );
+          },
+        });
+      });
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, { includeOffer: true, includeOnboarding: true }),
+        message: 'Offer declined successfully.',
+      });
+    } catch (error) {
+      logger.error('Decline application offer error:', error);
+      next(error);
+    }
+  }
+
+  static async updateApplicationOnboarding(req, res, next) {
+    try {
+      const { id } = req.params;
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const actorId = req.user.id;
+      const actorRole = req.user.organizationContext?.membership?.role || 'ADMIN';
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+      if (application.organizationId !== organizationId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      if (normalizeApplicationStatus(application.status) !== 'HIRED') {
+        return res.status(409).json({ error: 'Onboarding is only available after the application is hired.' });
+      }
+
+      const existingOnboarding = ensureApplicationOnboarding(application, { actorId, actorRole });
+      const onboarding = updateApplicationOnboardingOverview(existingOnboarding, {
+        actorId,
+        actorRole,
+        welcomeNote: Object.prototype.hasOwnProperty.call(req.body || {}, 'welcomeNote') ? req.body.welcomeNote : undefined,
+        startDate: Object.prototype.hasOwnProperty.call(req.body || {}, 'startDate') ? req.body.startDate : undefined,
+      });
+
+      if (!onboarding) {
+        return res.status(400).json({ error: 'Failed to update onboarding details.' });
+      }
+
+      const updated = await jobApplicationStore.update(id, { onboarding });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId,
+        actorId,
+        actorRole,
+        action: 'APPLICATION_ONBOARDING_UPDATED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          candidateId: updated.candidateId || null,
+          jobId: updated.jobId || null,
+          onboardingStatus: onboarding.status,
+        },
+      });
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, {
+          includeOffer: true,
+          includeOnboarding: true,
+        }),
+        message: 'Onboarding details updated successfully.',
+      });
+    } catch (error) {
+      logger.error('Update application onboarding error:', error);
+      next(error);
+    }
+  }
+
+  static async submitApplicationOnboardingTask(req, res, next) {
+    try {
+      const { id, taskId } = req.params;
+      const candidateId = req.user.id;
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+      if (application.candidateId !== candidateId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      if (normalizeApplicationStatus(application.status) !== 'HIRED') {
+        return res.status(409).json({ error: 'Onboarding is only available after the application is hired.' });
+      }
+
+      const onboarding = ensureApplicationOnboarding(application, { actorId: candidateId, actorRole: 'CANDIDATE' });
+      const result = submitCandidateOnboardingTask(onboarding, taskId, {
+        actorId: candidateId,
+        actorRole: 'CANDIDATE',
+        note: req.body?.note || null,
+      });
+      if (!result?.onboarding) {
+        return res.status(400).json({ error: result?.error || 'Failed to submit onboarding task.' });
+      }
+
+      const updated = await jobApplicationStore.update(id, { onboarding: result.onboarding });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId: updated.organizationId,
+        actorId: candidateId,
+        actorRole: 'CANDIDATE',
+        action: 'APPLICATION_ONBOARDING_TASK_SUBMITTED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          taskId,
+          taskStatus: result.task?.status || null,
+          onboardingStatus: result.onboarding.status,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(updated.organizationId, 'application-onboarding-updated', {
+        applicationId: id,
+        candidateId,
+        jobId: updated.jobId || null,
+        onboardingStatus: result.onboarding.status,
+        taskId,
+        taskStatus: result.task?.status || null,
+      });
+      await publishCandidateRealtimeUpdate(candidateId, 'application-onboarding-updated', {
+        applicationId: id,
+        organizationId: updated.organizationId || null,
+        jobId: updated.jobId || null,
+        onboardingStatus: result.onboarding.status,
+        taskId,
+        taskStatus: result.task?.status || null,
+      });
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, {
+          includeOffer: true,
+          includeOnboarding: true,
+        }),
+        message: result.task?.status === 'SUBMITTED'
+          ? 'Task submitted for hiring team review.'
+          : 'Onboarding task completed.',
+      });
+    } catch (error) {
+      logger.error('Submit application onboarding task error:', error);
+      next(error);
+    }
+  }
+
+  static async reviewApplicationOnboardingTask(req, res, next) {
+    try {
+      const { id, taskId } = req.params;
+      const organizationId = req.user.organizationContext?.organization?.id;
+      const actorId = req.user.id;
+      const actorRole = req.user.organizationContext?.membership?.role || 'ADMIN';
+
+      const application = await jobApplicationStore.getById(id);
+      if (!application) {
+        return res.status(404).json({ error: 'Application not found' });
+      }
+      if (application.organizationId !== organizationId) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+      if (normalizeApplicationStatus(application.status) !== 'HIRED') {
+        return res.status(409).json({ error: 'Onboarding is only available after the application is hired.' });
+      }
+
+      const onboarding = ensureApplicationOnboarding(application, { actorId, actorRole });
+      const result = reviewCompanyOnboardingTask(onboarding, taskId, {
+        actorId,
+        actorRole,
+        status: req.body?.status,
+        note: req.body?.note || null,
+      });
+      if (!result?.onboarding) {
+        return res.status(400).json({ error: result?.error || 'Failed to update onboarding task.' });
+      }
+
+      const updated = await jobApplicationStore.update(id, { onboarding: result.onboarding });
+      const { candidate, job, organization } = await loadApplicationContext(updated);
+
+      await activityLogStore.record({
+        organizationId,
+        actorId,
+        actorRole,
+        action: 'APPLICATION_ONBOARDING_TASK_REVIEWED',
+        targetType: 'APPLICATION',
+        targetId: id,
+        metadata: {
+          taskId,
+          taskStatus: result.task?.status || null,
+          onboardingStatus: result.onboarding.status,
+        },
+      });
+
+      await publishOrganizationRealtimeUpdate(organizationId, 'application-onboarding-updated', {
+        applicationId: id,
+        candidateId: updated.candidateId || null,
+        jobId: updated.jobId || null,
+        onboardingStatus: result.onboarding.status,
+        taskId,
+        taskStatus: result.task?.status || null,
+      });
+      await publishCandidateRealtimeUpdate(updated.candidateId, 'application-onboarding-updated', {
+        applicationId: id,
+        organizationId,
+        jobId: updated.jobId || null,
+        onboardingStatus: result.onboarding.status,
+        taskId,
+        taskStatus: result.task?.status || null,
+      });
+
+      return res.json({
+        success: true,
+        application: sanitizeApplication(updated, candidate, job, organization, {
+          includeOffer: true,
+          includeOnboarding: true,
+        }),
+        message: 'Onboarding task updated successfully.',
+      });
+    } catch (error) {
+      logger.error('Review application onboarding task error:', error);
       next(error);
     }
   }
@@ -1582,7 +2595,7 @@ export class ApplicationController {
 
       res.json({
         success: true,
-        application: sanitizeApplication(updated),
+        application: sanitizeApplication(updated, null, null, null, { includeOffer: true }),
         message: 'Application withdrawn successfully',
       });
     } catch (error) {
@@ -1597,6 +2610,7 @@ export class ApplicationController {
   static async getOrganizationApplications(req, res, next) {
     try {
       const organizationId = req.user.organizationContext?.organization?.id;
+      const reviewerOnly = isReviewerRole(req.user);
       const requestedStatus = parseOptionalStatus(req.query.status);
       const requestedLimit = parseOptionalLimit(req.query.limit) || 50;
       const requestedCursor = req.query.cursor ? String(req.query.cursor).trim() : null;
@@ -1604,7 +2618,14 @@ export class ApplicationController {
 
       let applications = [];
       let page = null;
-      if (usingPagination) {
+      if (reviewerOnly) {
+        applications = await jobApplicationStore.listByOrganization(organizationId, null);
+        if (requestedStatus) {
+          applications = applications.filter(
+            (app) => normalizeApplicationStatus(app?.status) === requestedStatus,
+          );
+        }
+      } else if (usingPagination) {
         page = await jobApplicationStore.listByOrganizationPage(organizationId, {
           status: requestedStatus,
           limit: requestedLimit,
@@ -1617,6 +2638,18 @@ export class ApplicationController {
           applications = applications.filter(
             (app) => normalizeApplicationStatus(app?.status) === requestedStatus,
           );
+        }
+      }
+
+      if (reviewerOnly) {
+        const reviewerScope = await loadReviewerApplicationScope(organizationId, req.user.id);
+        applications = applications.filter((application) => canReviewerAccessApplication(application, reviewerScope));
+        if (usingPagination) {
+          page = paginateApplicationsInMemory(applications, {
+            limit: requestedLimit,
+            cursor: requestedCursor,
+          });
+          applications = page.items;
         }
       }
 
@@ -1633,7 +2666,13 @@ export class ApplicationController {
       const jobMap = new Map(jobs.filter(Boolean).map((job) => [job.id, job]));
 
       const enriched = applications.map((app) =>
-        sanitizeApplication(app, candidates.get(app.candidateId), jobMap.get(app.jobId), organization),
+        sanitizeApplication(
+          app,
+          candidates.get(app.candidateId),
+          jobMap.get(app.jobId),
+          organization,
+          { includeOffer: !reviewerOnly, includeOnboarding: !reviewerOnly },
+        ),
       );
 
       res.json({
@@ -1772,7 +2811,7 @@ export class ApplicationController {
           dispositionCategory: disposition.category,
         });
 
-        const updated = await jobApplicationStore.update(applicationId, {
+        let updated = await jobApplicationStore.update(applicationId, {
           status: targetStatus,
           reviewedAt: statusChangedAt,
           reviewedBy: userId,
@@ -1799,6 +2838,13 @@ export class ApplicationController {
             }),
           statusHistory: appendStatusHistory(application.statusHistory, statusHistoryEntry),
         });
+
+        if (targetStatus === 'HIRED') {
+          updated = await ensureOnboardingForHiredApplication(updated, {
+            actorId: userId,
+            actorRole: req.user.organizationContext?.membership?.role || 'ADMIN',
+          });
+        }
 
         let updatedRecord = updated;
         const shouldRunInterviewAutomation = targetStatus === 'INTERVIEWING' && previousStatus !== 'INTERVIEWING';
@@ -1830,7 +2876,14 @@ export class ApplicationController {
                 candidate,
               });
               if (interviewAutomation?.interview?.id) {
-                updatedRecord = { ...updatedRecord, interviewId: interviewAutomation.interview.id };
+                updatedRecord = {
+                  ...updatedRecord,
+                  interviewId: interviewAutomation.interview.id,
+                  ...(interviewAutomation?.plan ? { interviewPlan: interviewAutomation.plan } : {}),
+                };
+              }
+              if (interviewAutomation?.warning) {
+                logger.warn(`Bulk status update interview automation warning for application ${applicationId}: ${interviewAutomation.warning}`);
               }
             } catch (automationError) {
               logger.error(`Bulk status update interview automation failed for application ${applicationId}:`, automationError);

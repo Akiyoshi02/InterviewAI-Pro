@@ -1,5 +1,6 @@
 import fs from 'fs/promises';
-import { jobStore } from '../services/firebaseData.service.js';
+import { interviewStore, jobStore } from '../services/firebaseData.service.js';
+import { isReviewerAssignedToInterview } from '../utils/reviewerAccess.util.js';
 import {
   createSignedDownloadPath,
   normalizeUploadsPublicPath,
@@ -137,12 +138,37 @@ export class ObjectStorageController {
 
     // Validate interview recordings
     if (category === 'interviews') {
-      // Interview recordings can be accessed by:
-      // - The candidate who completed the interview
-      // - Company members (ADMIN/RECRUITER/REVIEWER) of the organization that owns the interview
-      // For now, we allow access (interview controller has its own access checks)
-      // This is acceptable because signed URLs are time-limited
-      return { valid: true };
+      const interview = await interviewStore.getById(identifier);
+      if (!interview) {
+        return { valid: false, error: 'Interview not found for recording access' };
+      }
+
+      if (user.accountType === 'CANDIDATE') {
+        if (interview.candidateId !== user.id) {
+          return { valid: false, error: 'You can only access recordings from your own interviews' };
+        }
+        return { valid: true };
+      }
+
+      if (user.accountType === 'COMPANY') {
+        const userOrgId = user.organizationContext?.organization?.id;
+        if (!userOrgId) {
+          return { valid: false, error: 'Organization context not found' };
+        }
+
+        if (interview.organizationId !== userOrgId) {
+          return { valid: false, error: 'You can only access recordings from your organization' };
+        }
+
+        const organizationRole = String(user.organizationContext?.membership?.role || '').toUpperCase();
+        if (organizationRole === 'REVIEWER' && !isReviewerAssignedToInterview(interview, user.id)) {
+          return { valid: false, error: 'You are not assigned to this interview recording' };
+        }
+
+        return { valid: true };
+      }
+
+      return { valid: false, error: 'Only interview participants can access this recording' };
     }
 
     // Unknown file category - deny by default

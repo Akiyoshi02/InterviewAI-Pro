@@ -23,6 +23,23 @@ const mockOrganizationStore = {
   getById: jest.fn(),
 };
 
+const mockOrganizationMemberStore = {
+  listByOrganization: jest.fn(),
+  getMember: jest.fn(),
+};
+
+const mockReviewStore = {
+  getByInterviewAndReviewer: jest.fn(),
+  listByInterview: jest.fn(),
+  create: jest.fn(),
+  update: jest.fn(),
+};
+const mockJobApplicationStore = {
+  getById: jest.fn(),
+  checkDuplicate: jest.fn(),
+  update: jest.fn(),
+};
+
 const mockUserStore = {
   getById: jest.fn(),
   getSummary: jest.fn(),
@@ -68,14 +85,16 @@ jest.unstable_mockModule('../../services/firebaseData.service.js', () => ({
   hydrateInterviewParticipants: jest.fn((interviews) => interviews || []),
   interviewStore: mockInterviewStore,
   invitationStore: { getById: jest.fn() },
-  jobApplicationStore: { update: jest.fn() },
+  jobApplicationStore: mockJobApplicationStore,
   jobStore: mockJobStore,
   organizationStore: mockOrganizationStore,
+  organizationMemberStore: mockOrganizationMemberStore,
   notificationStore: mockNotificationStore,
   publishAdminRealtimeUpdate: jest.fn(),
   publishCandidateRealtimeUpdate: mockPublishCandidateRealtimeUpdate,
   publishOrganizationRealtimeUpdate: mockPublishOrganizationRealtimeUpdate,
   recordRealtimeEvent: mockRecordRealtimeEvent,
+  reviewStore: mockReviewStore,
   systemSettingsStore: { get: jest.fn() },
   userStore: mockUserStore,
 }));
@@ -120,20 +139,37 @@ const buildCandidateReq = (body = {}) => ({
   },
 });
 
-const buildCompanyReq = (body = {}, requestId = 'request-1') => ({
-  params: { id: 'int-1', requestId },
-  body,
-  user: {
+const buildCompanyReq = (body = {}, requestId = 'request-1', userOverrides = {}) => {
+  const baseUser = {
     id: 'recruiter-1',
     accountType: 'COMPANY',
     organizationContext: {
       organization: { id: 'org-1', status: 'APPROVED' },
       membership: { role: 'ADMIN' },
     },
-  },
-});
+  };
+  return {
+    params: { id: 'int-1', requestId },
+    body,
+    user: {
+      ...baseUser,
+      ...userOverrides,
+      organizationContext: userOverrides.organizationContext || baseUser.organizationContext,
+    },
+  };
+};
 
 const futureIso = (hours = 24) => new Date(Date.now() + hours * 60 * 60 * 1000).toISOString();
+const futureWeekdayIso = (weekday, hour = 12, minute = 0, minimumDaysAhead = 2) => {
+  const date = new Date();
+  date.setUTCSeconds(0, 0);
+  date.setUTCDate(date.getUTCDate() + minimumDaysAhead);
+  while (date.getUTCDay() !== weekday) {
+    date.setUTCDate(date.getUTCDate() + 1);
+  }
+  date.setUTCHours(hour, minute, 0, 0);
+  return date.toISOString();
+};
 
 const baseInterview = {
   id: 'int-1',
@@ -153,6 +189,9 @@ const baseInterview = {
 describe('InterviewController reschedule request flow', () => {
   beforeEach(() => {
     jest.clearAllMocks();
+    mockJobApplicationStore.getById.mockResolvedValue(null);
+    mockJobApplicationStore.checkDuplicate.mockResolvedValue(null);
+    mockJobApplicationStore.update.mockResolvedValue(undefined);
     mockActivityLogStore.record.mockResolvedValue(undefined);
     mockNotificationStore.create.mockResolvedValue({ id: 'notif-1' });
     mockRecordRealtimeEvent.mockResolvedValue(undefined);
@@ -228,6 +267,27 @@ describe('InterviewController reschedule request flow', () => {
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       success: true,
     }));
+  });
+
+  it('rejects candidate request when a preferred slot is in the past', async () => {
+    mockInterviewStore.getById.mockResolvedValue(baseInterview);
+
+    const req = buildCandidateReq({
+      reason: 'I have an overlapping university exam and need a different slot.',
+      preferredSlots: [futureIso(-2)],
+      timezone: 'Asia/Colombo',
+    });
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.requestInterviewReschedule(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'PREFERRED_SLOT_IN_PAST',
+    }));
+    expect(mockInterviewStore.update).not.toHaveBeenCalled();
   });
 
   it('rejects candidate request when another reschedule request is pending', async () => {
@@ -378,6 +438,121 @@ describe('InterviewController reschedule request flow', () => {
     expect(res.status).toHaveBeenCalledWith(409);
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
       code: 'SLOT_OUTSIDE_AVAILABILITY',
+    }));
+    expect(mockInterviewStore.update).not.toHaveBeenCalled();
+  });
+
+  it('uses the assigned recruiter availability instead of the acting admin when rescheduling', async () => {
+    mockInterviewStore.getById.mockResolvedValue({
+      ...baseInterview,
+      rescheduleRequests: [],
+    });
+    mockUserStore.getById.mockImplementation(async (id) => {
+      if (id === 'recruiter-1') {
+        return {
+          id: 'recruiter-1',
+          accountType: 'COMPANY',
+          timezone: 'UTC',
+          profile: {
+            timezone: 'UTC',
+            interviewAvailability: {
+              timezone: 'UTC',
+              workingDays: [1],
+              businessHoursStart: '09:00',
+              businessHoursEnd: '10:00',
+              maxInterviewsPerDay: 4,
+            },
+          },
+        };
+      }
+      if (id === 'admin-1') {
+        return {
+          id: 'admin-1',
+          accountType: 'COMPANY',
+          timezone: 'UTC',
+          profile: {
+            timezone: 'UTC',
+            interviewAvailability: {
+              timezone: 'UTC',
+              workingDays: [2],
+              businessHoursStart: '12:00',
+              businessHoursEnd: '13:00',
+              maxInterviewsPerDay: 4,
+            },
+          },
+        };
+      }
+      return null;
+    });
+
+    const req = buildCompanyReq({
+      strategy: 'MANUAL',
+      scheduledFor: futureWeekdayIso(2, 12, 0),
+      timezone: 'UTC',
+    }, 'request-1', {
+      id: 'admin-1',
+    });
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.rescheduleInterview(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'SLOT_OUTSIDE_AVAILABILITY',
+    }));
+    expect(mockInterviewStore.listByCompany).toHaveBeenCalledWith('recruiter-1', { limit: 250 });
+    expect(mockUserStore.getById).toHaveBeenCalledWith('recruiter-1');
+    expect(mockUserStore.getById).not.toHaveBeenCalledWith('admin-1');
+    expect(mockInterviewStore.update).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when organization scheduling settings cannot be loaded during reschedule', async () => {
+    mockInterviewStore.getById.mockResolvedValue({
+      ...baseInterview,
+      rescheduleRequests: [],
+    });
+    mockOrganizationStore.getById.mockRejectedValue(new Error('organization store unavailable'));
+
+    const req = buildCompanyReq({
+      strategy: 'AUTO',
+      timezone: 'UTC',
+    });
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.rescheduleInterview(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(503);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'SCHEDULING_CONTEXT_UNAVAILABLE',
+    }));
+    expect(mockInterviewStore.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects manual reschedule when the selected slot is in the past', async () => {
+    mockInterviewStore.getById.mockResolvedValue({
+      ...baseInterview,
+      rescheduleRequests: [],
+    });
+
+    const pastDate = new Date(Date.now() - (2 * 60 * 60 * 1000)).toISOString();
+    const req = buildCompanyReq({
+      strategy: 'MANUAL',
+      scheduledFor: pastDate,
+      timezone: 'UTC',
+    });
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.rescheduleInterview(req, res, next);
+
+    expect(next).not.toHaveBeenCalled();
+    expect(res.status).toHaveBeenCalledWith(409);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'SLOT_IN_PAST',
     }));
     expect(mockInterviewStore.update).not.toHaveBeenCalled();
   });

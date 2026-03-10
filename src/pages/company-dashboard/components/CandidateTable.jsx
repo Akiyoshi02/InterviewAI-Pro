@@ -113,7 +113,15 @@ const exportCandidatesCSV = (rows) => {
   URL.revokeObjectURL(url);
 };
 
-const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUpdateStatus }) => {
+const CandidateTable = ({
+  interviews = [],
+  onViewRecording,
+  onViewAnalysis,
+  onUpdateStatus,
+  canExport = true,
+  canUpdateStatus = true,
+  roleVariant = 'company',
+}) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortBy, setSortBy] = useState('latest_date');
   const [filterStatus, setFilterStatus] = useState('all');
@@ -251,25 +259,37 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
     setFilterPosition('all');
   };
 
+  const isReviewerVariant = roleVariant === 'reviewer';
+  const tableTitle = isReviewerVariant ? 'Assigned Interview Activity' : 'Recent Interviews';
+  const filterDescription = isReviewerVariant
+    ? 'Search your assigned interview history by candidate, status, role, and outcome.'
+    : 'Find interview sessions by candidate, status, role, and sorting preference.';
+  const emptyStateTitle = isReviewerVariant ? 'No assigned interviews found' : 'No interviews found';
+  const emptyStateDescription = isReviewerVariant
+    ? 'You do not have any assigned interview activity matching the current filters.'
+    : 'Adjust search or filters to find interviews.';
+
   return (
     <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-3 sm:p-4 shadow-[0_20px_60px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_60px_rgba(0,0,0,0.4)] backdrop-blur">
       <div className="space-y-3 sm:space-y-4 mb-3 sm:mb-4">
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Recent Interviews</h2>
-          <Button
-            variant="outline"
-            iconName="Download"
-            iconPosition="left"
-            onClick={() => exportCandidatesCSV(filteredCandidates)}
-            className="w-full sm:w-auto rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
-          >
-            Export CSV
-          </Button>
+          <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">{tableTitle}</h2>
+          {canExport && (
+            <Button
+              variant="outline"
+              iconName="Download"
+              iconPosition="left"
+              onClick={() => exportCandidatesCSV(filteredCandidates)}
+              className="w-full sm:w-auto rounded-xl border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+            >
+              Export CSV
+            </Button>
+          )}
         </div>
 
         <UnifiedFilterPanel
           title="Interview Filters"
-          description="Find interview sessions by candidate, status, role, and sorting preference."
+          description={filterDescription}
           activeCount={activeFilterCount}
           onClear={clearFilters}
         >
@@ -312,9 +332,9 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
         {filteredCandidates.length === 0 ? (
           <div className="text-center py-12">
             <Icon name="Users" size={48} className="mx-auto text-gray-300 dark:text-slate-600 mb-4" />
-            <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100 mb-2">No interviews found</h3>
+            <h3 className="text-lg font-medium text-gray-900 dark:text-slate-100 mb-2">{emptyStateTitle}</h3>
             <p className="text-sm text-gray-500 dark:text-slate-400">
-              Adjust search or filters to find interviews.
+              {emptyStateDescription}
             </p>
           </div>
         ) : (
@@ -390,14 +410,16 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
                       className="rounded-full text-gray-500 hover:text-blue-600"
                     />
 
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      iconName="Edit"
-                      onClick={() => onUpdateStatus?.(candidate.candidateId)}
-                      title="Update Status"
-                      className="rounded-full text-gray-500 hover:text-blue-600"
-                    />
+                    {canUpdateStatus && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        iconName="Edit"
+                        onClick={() => onUpdateStatus?.(candidate.candidateId)}
+                        title="Update Status"
+                        className="rounded-full text-gray-500 hover:text-blue-600"
+                      />
+                    )}
                   </div>
                 </td>
               </tr>
@@ -420,18 +442,22 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
         ) : (
         filteredCandidates.map((candidate) => (
           <div key={candidate.id} className="bg-white/70 dark:bg-slate-900/60 border border-white/40 dark:border-slate-700/50 rounded-xl p-3 sm:p-4 space-y-3 backdrop-blur">
-            <div className="flex items-center space-x-3">
-              <AppImage
-                src={candidate.avatar}
-                alt={candidate.name}
-                className="w-12 h-12 rounded-full object-cover"
-              />
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="flex min-w-0 items-start gap-3">
+                <AppImage
+                  src={candidate.avatar}
+                  alt={candidate.name}
+                  className="h-12 w-12 flex-shrink-0 rounded-full object-cover"
+                />
 
-              <div className="flex-1">
-                <p className="font-medium text-gray-900 dark:text-slate-100">{candidate.name}</p>
-                <p className="text-sm text-gray-500 dark:text-slate-400">{candidate.position}</p>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-gray-900 dark:text-slate-100 break-words">{candidate.name}</p>
+                  <p className="text-sm text-gray-500 dark:text-slate-400 break-words leading-snug">{candidate.position}</p>
+                </div>
               </div>
-              {getStatusBadge(candidate.statusCode)}
+              <div className="sm:flex-shrink-0">
+                {getStatusBadge(candidate.statusCode)}
+              </div>
             </div>
             
             <div className="grid grid-cols-2 gap-4 text-sm">
@@ -451,14 +477,14 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
               </div>
             </div>
             
-            <div className="flex space-x-2 pt-2">
+            <div className="grid grid-cols-1 gap-2 pt-2 xs:grid-cols-2">
               <Button
                 variant="outline"
                 size="sm"
                 iconName="Play"
                 iconPosition="left"
                 onClick={() => onViewRecording?.(candidate.candidateId)}
-                className="flex-1 rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                className="w-full justify-center rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 Recording
               </Button>
@@ -468,7 +494,7 @@ const CandidateTable = ({ interviews = [], onViewRecording, onViewAnalysis, onUp
                 iconName="FileText"
                 iconPosition="left"
                 onClick={() => onViewAnalysis?.(candidate.candidateId)}
-                className="flex-1 rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
+                className="w-full justify-center rounded-full border border-gray-200 dark:border-slate-700 text-gray-700 dark:text-slate-300 hover:border-blue-300 dark:hover:border-blue-600 hover:text-blue-600 dark:hover:text-blue-400"
               >
                 Analysis
               </Button>

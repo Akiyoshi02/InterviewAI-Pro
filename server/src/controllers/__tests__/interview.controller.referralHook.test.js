@@ -17,6 +17,18 @@ const mockNotificationStore = {
   create: jest.fn(),
 };
 
+const mockOrganizationMemberStore = {
+  listByOrganization: jest.fn(),
+  getMember: jest.fn(),
+};
+
+const mockReviewStore = {
+  getByInterviewAndReviewer: jest.fn(),
+  listByInterview: jest.fn(),
+  create: jest.fn(),
+  update: jest.fn(),
+};
+
 const mockUserStore = {
   getSummaries: jest.fn(),
 };
@@ -38,11 +50,13 @@ jest.unstable_mockModule('../../services/firebaseData.service.js', () => ({
   jobApplicationStore: mockJobApplicationStore,
   jobStore: {},
   organizationStore: { getById: jest.fn() },
+  organizationMemberStore: mockOrganizationMemberStore,
   notificationStore: mockNotificationStore,
   publishAdminRealtimeUpdate: mockPublishAdminRealtimeUpdate,
   publishCandidateRealtimeUpdate: mockPublishCandidateRealtimeUpdate,
   publishOrganizationRealtimeUpdate: mockPublishOrganizationRealtimeUpdate,
   recordRealtimeEvent: mockRecordRealtimeEvent,
+  reviewStore: mockReviewStore,
   systemSettingsStore: { get: jest.fn() },
   updatePracticeStreak: mockUpdatePracticeStreak,
   userStore: mockUserStore,

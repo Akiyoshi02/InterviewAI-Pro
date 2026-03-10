@@ -1,5 +1,6 @@
 import React from "react";
 import { cn } from "../../utils/cn";
+import Icon from "../AppIcon";
 
 const Input = React.forwardRef(({
     className,
@@ -69,17 +70,39 @@ const Input = React.forwardRef(({
                 </label>
             )}
 
-            <input
-                type={type}
-                className={cn(
-                    baseInputClasses,
-                    error && "border-destructive focus-visible:ring-destructive",
-                    className
-                )}
-                ref={ref}
-                id={inputId}
-                {...props}
-            />
+            {type === "time" ? (
+                <div className="relative">
+                    <input
+                        type={type}
+                        className={cn(
+                            baseInputClasses,
+                            "time-input appearance-none pr-10",
+                            error && "border-destructive focus-visible:ring-destructive",
+                            className
+                        )}
+                        ref={ref}
+                        id={inputId}
+                        {...props}
+                    />
+                    <Icon
+                        name="Clock3"
+                        size={18}
+                        className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-slate-400"
+                    />
+                </div>
+            ) : (
+                <input
+                    type={type}
+                    className={cn(
+                        baseInputClasses,
+                        error && "border-destructive focus-visible:ring-destructive",
+                        className
+                    )}
+                    ref={ref}
+                    id={inputId}
+                    {...props}
+                />
+            )}
 
             {description && !error && (
                 <p className="text-xs sm:text-sm text-muted-foreground">

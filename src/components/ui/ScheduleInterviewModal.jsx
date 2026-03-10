@@ -1,8 +1,26 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import Icon from '../AppIcon';
 import Button from './Button';
 import apiClient from '../../services/apiClient.js';
+import {
+  getRecruiterMeetingLinkRescheduleDescription,
+  getRecruiterMeetingLinkScheduledDescription,
+  getRecruiterMeetingLinkUnscheduledDescription,
+} from '../../constants/interviewMeetingLink.js';
+import {
+  buildManualWindowBounds,
+  buildSuggestedManualSlots,
+  formatMinutesOfDay,
+  formatWorkingDays,
+  getAvailabilitySourceLabel,
+  toLocalDatetimeValue,
+  validateManualInterviewSelection,
+} from '../../utils/interviewSchedulingGuidance.js';
+import {
+  buildReviewerAssignmentOptions,
+  summarizeReviewerAssignees,
+} from '../../utils/reviewerAssignments.js';
 
 const DURATION_OPTIONS = [
   { value: 15, label: '15 minutes' },
@@ -54,16 +72,18 @@ const resolveDefaultStrategy = ({ interview, pendingRequest }) => {
   return 'MANUAL';
 };
 
-const toLocalDatetimeValue = (d) => {
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-
 const defaultDatetime = () => {
   const d = new Date();
   d.setMinutes(d.getMinutes() + 60 - (d.getMinutes() % 30));
   d.setSeconds(0);
   d.setMilliseconds(0);
+  return toLocalDatetimeValue(d);
+};
+
+const minimumDatetime = () => {
+  const d = new Date();
+  d.setSeconds(0, 0);
+  d.setMinutes(d.getMinutes() + 1);
   return toLocalDatetimeValue(d);
 };
 
@@ -79,6 +99,15 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [successInfo, setSuccessInfo] = useState(null);
+  const [schedulingConstraints, setSchedulingConstraints] = useState(interview?.schedulingConstraints || null);
+  const [constraintsLoading, setConstraintsLoading] = useState(false);
+  const [constraintsError, setConstraintsError] = useState(interview?.schedulingConstraintsError?.message || null);
+  const [reviewerAssignments, setReviewerAssignments] = useState(
+    Array.isArray(interview?.reviewerAssignments) ? interview.reviewerAssignments : [],
+  );
+  const [reviewerOptions, setReviewerOptions] = useState([]);
+  const [reviewerOptionsLoading, setReviewerOptionsLoading] = useState(false);
+  const [reviewerOptionsError, setReviewerOptionsError] = useState(null);
 
   const isReschedule = !!interview?.scheduledFor;
   const pendingRescheduleRequest = interview?.pendingRescheduleRequest
@@ -103,10 +132,156 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
     setSchedulingStrategy(resolveDefaultStrategy({ interview, pendingRequest: pendingRescheduleRequest }));
     setError(null);
     setSuccessInfo(null);
+    setSchedulingConstraints(interview?.schedulingConstraints || null);
+    setConstraintsError(interview?.schedulingConstraintsError?.message || null);
+    setConstraintsLoading(false);
+    setReviewerAssignments(Array.isArray(interview?.reviewerAssignments) ? interview.reviewerAssignments : []);
+    setReviewerOptions([]);
+    setReviewerOptionsError(null);
+    setReviewerOptionsLoading(false);
   }, [interview, isOpen, pendingRescheduleRequest]);
+
+  useEffect(() => {
+    if (!isOpen || !isHiringInterview || !interview?.id) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setConstraintsLoading(true);
+
+    const loadSchedulingConstraints = async () => {
+      try {
+        const result = await apiClient.interviews.getInterview(interview.id);
+        if (cancelled) return;
+        setSchedulingConstraints(result?.interview?.schedulingConstraints || null);
+        setConstraintsError(result?.interview?.schedulingConstraintsError?.message || null);
+      } catch (loadError) {
+        if (cancelled) return;
+        setConstraintsError(loadError?.message || 'Unable to load scheduling rules right now.');
+        setSchedulingConstraints(null);
+      } finally {
+        if (!cancelled) {
+          setConstraintsLoading(false);
+        }
+      }
+    };
+
+    loadSchedulingConstraints();
+    return () => {
+      cancelled = true;
+    };
+  }, [interview?.id, isHiringInterview, isOpen]);
+
+  useEffect(() => {
+    if (!isOpen || !isHiringInterview) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    setReviewerOptionsLoading(true);
+    setReviewerOptionsError(null);
+
+    const loadReviewerOptions = async () => {
+      try {
+        const result = await apiClient.organizations.listMembers();
+        if (cancelled) return;
+        setReviewerOptions(buildReviewerAssignmentOptions(result?.members || []));
+      } catch (loadError) {
+        if (cancelled) return;
+        setReviewerOptions([]);
+        setReviewerOptionsError(loadError?.message || 'Unable to load reviewer assignments right now.');
+      } finally {
+        if (!cancelled) {
+          setReviewerOptionsLoading(false);
+        }
+      }
+    };
+
+    loadReviewerOptions();
+    return () => {
+      cancelled = true;
+    };
+  }, [isHiringInterview, isOpen]);
+
+  useEffect(() => {
+    setError(null);
+  }, [scheduledFor, duration, timezone, notes, schedulingStrategy]);
+
+  const manualValidationMessage = effectiveStrategy === 'MANUAL'
+    ? validateManualInterviewSelection({
+      scheduledFor,
+      duration,
+      constraints: schedulingConstraints,
+      requiresAvailabilityChecks: isHiringInterview,
+    })
+    : null;
+  const manualWindowBounds = useMemo(
+    () => (isHiringInterview ? buildManualWindowBounds(schedulingConstraints) : null),
+    [isHiringInterview, schedulingConstraints],
+  );
+  const suggestedManualSlots = useMemo(
+    () => (
+      effectiveStrategy === 'MANUAL'
+        ? buildSuggestedManualSlots({
+          constraints: schedulingConstraints,
+          duration,
+          requiresAvailabilityChecks: isHiringInterview,
+        })
+        : []
+    ),
+    [duration, effectiveStrategy, isHiringInterview, schedulingConstraints],
+  );
+  const showTimezoneTranslation = Boolean(
+    schedulingConstraints?.timezone
+    && schedulingConstraints.timezone !== (Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC'),
+  );
+  const manualBlockingMessage = effectiveStrategy !== 'MANUAL'
+    ? null
+    : (
+      (isHiringInterview && constraintsLoading)
+        ? 'Loading assigned scheduling availability...'
+        : (constraintsError || manualValidationMessage)
+    );
+  const isSubmitDisabled = saving || Boolean(manualBlockingMessage);
+  const candidateJoinAccessModalHeading = isReschedule
+    ? getRecruiterMeetingLinkScheduledDescription()
+    : getRecruiterMeetingLinkUnscheduledDescription();
+  const candidateJoinAccessModalDetail = isReschedule
+    ? getRecruiterMeetingLinkRescheduleDescription()
+    : 'No manual meeting link is needed. The system handles candidate access automatically.';
+  const candidateJoinAccessSuccess = isReschedule
+    ? getRecruiterMeetingLinkRescheduleDescription()
+    : getRecruiterMeetingLinkScheduledDescription();
+  const assignedReviewerSummary = useMemo(() => {
+    if (reviewerAssignments.length === 0) {
+      return 'No reviewers assigned yet';
+    }
+
+    const selectedAssignees = reviewerAssignments.map((reviewerId) => {
+      const option = reviewerOptions.find((candidate) => candidate.value === reviewerId);
+      if (option) {
+        return { fullName: option.label };
+      }
+      return (interview?.reviewerAssignees || []).find((reviewer) => reviewer?.id === reviewerId) || null;
+    });
+
+    return summarizeReviewerAssignees(selectedAssignees);
+  }, [interview?.reviewerAssignees, reviewerAssignments, reviewerOptions]);
+
+  const toggleReviewerAssignment = (reviewerId) => {
+    setReviewerAssignments((previous) => (
+      previous.includes(reviewerId)
+        ? previous.filter((value) => value !== reviewerId)
+        : [...previous, reviewerId]
+    ));
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (manualBlockingMessage) {
+      setError(manualBlockingMessage);
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -115,11 +290,15 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
         duration,
         timezone: timezone?.trim() || 'UTC',
         notes,
+        reviewerAssignments,
       };
       if (effectiveStrategy === 'MANUAL') {
         const normalizedDate = new Date(scheduledFor);
         if (Number.isNaN(normalizedDate.getTime())) {
           throw new Error('Select a valid interview date and time.');
+        }
+        if (normalizedDate.getTime() <= Date.now()) {
+          throw new Error('Interview date and time must be in the future.');
         }
         payload.scheduledFor = normalizedDate.toISOString();
       }
@@ -219,6 +398,17 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
                   ))}
                 </div>
 
+                {isHiringInterview && (
+                  <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 p-3 space-y-1.5">
+                    <p className="text-xs font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">
+                      Candidate join access
+                    </p>
+                    <p className="text-sm text-blue-900 dark:text-blue-100">
+                      {candidateJoinAccessSuccess}
+                    </p>
+                  </div>
+                )}
+
                 <Button variant="primary" className="w-full" onClick={onClose}>
                   Done
                 </Button>
@@ -260,7 +450,7 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
               )}
 
               {isHiringInterview && (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <label className="block text-sm font-medium text-gray-700 dark:text-slate-300">
                     Scheduling mode
                   </label>
@@ -294,22 +484,206 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
                       <p className="text-xs opacity-90 mt-1">Choose exact date and time now.</p>
                     </button>
                   </div>
+                  <div className="rounded-xl border border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 p-3 space-y-1.5">
+                    <div className="flex items-start gap-2">
+                      <Icon name="Mail" size={14} className="mt-0.5 text-blue-700 dark:text-blue-200" />
+                      <div className="space-y-1">
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-blue-700 dark:text-blue-200">
+                          Candidate join access
+                        </p>
+                        <p className="text-sm text-blue-900 dark:text-blue-100">
+                          {candidateJoinAccessModalHeading}
+                        </p>
+                        <p className="text-xs text-blue-700/85 dark:text-blue-200/85">
+                          {candidateJoinAccessModalDetail}
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-3 space-y-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                          Reviewer coverage
+                        </p>
+                        <p className="text-sm text-gray-800 dark:text-slate-100">
+                          Choose who should evaluate this interview after it completes.
+                        </p>
+                      </div>
+                      <span className="rounded-full border border-gray-200 dark:border-slate-600 px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
+                        {reviewerAssignments.length} assigned
+                      </span>
+                    </div>
+                    {(reviewerAssignments.length > 0 || (interview?.reviewerAssignees || []).length > 0) && (
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        Current assignees: {assignedReviewerSummary}
+                      </p>
+                    )}
+                    {reviewerOptionsLoading ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        Loading review-capable team members...
+                      </p>
+                    ) : reviewerOptionsError ? (
+                      <p className="text-xs text-rose-600 dark:text-rose-300">
+                        {reviewerOptionsError}
+                      </p>
+                    ) : reviewerOptions.length === 0 ? (
+                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                        No active review-capable team members are available to assign yet.
+                      </p>
+                    ) : (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {reviewerOptions.map((option) => {
+                          const isSelected = reviewerAssignments.includes(option.value);
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() => toggleReviewerAssignment(option.value)}
+                              className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                                isSelected
+                                  ? 'border-emerald-400 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-700 dark:text-emerald-200'
+                                  : 'border-gray-200 dark:border-slate-600 text-gray-700 dark:text-slate-200 hover:border-emerald-300 dark:hover:border-emerald-500/60'
+                              }`}
+                            >
+                              <div className="flex items-start gap-3">
+                                <span className={`mt-0.5 inline-flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border ${
+                                  isSelected
+                                    ? 'border-emerald-500 bg-emerald-500 text-white dark:border-emerald-400 dark:bg-emerald-500'
+                                    : 'border-gray-300 text-transparent dark:border-slate-500'
+                                }`}>
+                                  <Icon
+                                    name={isSelected ? 'Check' : 'Circle'}
+                                    size={12}
+                                  />
+                                </span>
+                                <div className="min-w-0 space-y-1">
+                                  <p className="text-sm font-semibold break-words">{option.label}</p>
+                                  {option.roleLabel && (
+                                    <p className="text-[11px] opacity-80">{option.roleLabel}</p>
+                                  )}
+                                  {option.email && (
+                                    <p className="break-all text-[11px] opacity-80">{option.email}</p>
+                                  )}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
 
               {effectiveStrategy === 'MANUAL' ? (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5">
-                    Date & Time
-                  </label>
-                  <input
-                    type="datetime-local"
-                    value={scheduledFor}
-                    onChange={(e) => setScheduledFor(e.target.value)}
-                    min={toLocalDatetimeValue(new Date())}
-                    required
-                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                <div className="space-y-3">
+                  {isHiringInterview && (
+                    <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/40 p-3 space-y-1.5">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                        Manual scheduling checks
+                      </p>
+                      {schedulingConstraints ? (
+                        <>
+                          <p className="text-sm font-medium text-gray-800 dark:text-slate-100">
+                            {getAvailabilitySourceLabel(schedulingConstraints)}
+                          </p>
+                          <p className="text-xs text-gray-600 dark:text-slate-400">
+                            {formatWorkingDays(schedulingConstraints.workingDays)} | {' '}
+                            {formatMinutesOfDay(schedulingConstraints.businessHoursStartMinutes)}-
+                            {formatMinutesOfDay(schedulingConstraints.businessHoursEndMinutes)} {' '}
+                            {schedulingConstraints.timezone || 'UTC'}
+                          </p>
+                          <p className="text-xs text-gray-500 dark:text-slate-500">
+                            Lead time: {schedulingConstraints.leadHours}h | Window: {schedulingConstraints.scheduleWindowDays} days
+                          </p>
+                        </>
+                      ) : (
+                        <p className="text-xs text-gray-600 dark:text-slate-400">
+                          {constraintsLoading
+                            ? 'Loading assigned scheduling availability...'
+                            : (constraintsError || 'Scheduling rules are unavailable right now.')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  <div>
+                    <label
+                      htmlFor="schedule-interview-datetime"
+                      className="block text-sm font-medium text-gray-700 dark:text-slate-300 mb-1.5"
+                    >
+                      Date & Time
+                    </label>
+                    <input
+                      id="schedule-interview-datetime"
+                      type="datetime-local"
+                      value={scheduledFor}
+                      onChange={(e) => setScheduledFor(e.target.value)}
+                      min={
+                        manualWindowBounds?.minimumDate
+                          ? toLocalDatetimeValue(manualWindowBounds.minimumDate)
+                          : minimumDatetime()
+                      }
+                      max={
+                        manualWindowBounds?.maximumDate
+                          ? toLocalDatetimeValue(manualWindowBounds.maximumDate)
+                          : undefined
+                      }
+                      step={Math.max(1, Number(manualWindowBounds?.slotMinutes) || 30) * 60}
+                      required
+                      className="w-full px-3 py-2.5 rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                    {isHiringInterview && schedulingConstraints && (
+                      <p className="mt-2 text-xs text-gray-500 dark:text-slate-400">
+                        Lead time, scheduling window, working days, and business hours are applied here.
+                        Final conflict checks still run when you save.
+                      </p>
+                    )}
+                    {isHiringInterview && schedulingConstraints && !constraintsLoading && (
+                      <div className="mt-3 space-y-2">
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                            Next valid slots
+                          </p>
+                          <p className="text-[11px] text-gray-400 dark:text-slate-500">
+                            Based on {getAvailabilitySourceLabel(schedulingConstraints).toLowerCase()}
+                          </p>
+                        </div>
+                        {suggestedManualSlots.length > 0 ? (
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {suggestedManualSlots.map((slot) => {
+                              const isSelected = slot.value === scheduledFor;
+                              return (
+                                <button
+                                  key={slot.value}
+                                  type="button"
+                                  onClick={() => setScheduledFor(slot.value)}
+                                  aria-label={`Use suggested slot ${slot.localLabel}`}
+                                  className={`rounded-xl border px-3 py-2 text-left transition-colors ${
+                                    isSelected
+                                      ? 'border-blue-500 bg-blue-50 dark:bg-blue-500/10 text-blue-700 dark:text-blue-200'
+                                      : 'border-gray-200 dark:border-slate-600 hover:border-blue-300 dark:hover:border-blue-600 text-gray-700 dark:text-slate-200'
+                                  }`}
+                                >
+                                  <p className="text-sm font-medium">{slot.localLabel}</p>
+                                  {showTimezoneTranslation && (
+                                    <p className="mt-1 text-[11px] text-gray-500 dark:text-slate-400">
+                                      {slot.availabilityLabel} {schedulingConstraints.timezone}
+                                    </p>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <p className="text-xs text-gray-500 dark:text-slate-400">
+                            No guided slots are available inside the current availability window.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               ) : (
                 <p className="text-xs text-gray-500 dark:text-slate-400">
@@ -372,12 +746,18 @@ const ScheduleInterviewModal = ({ interview, isOpen, onClose, onScheduled }) => 
                   {error}
                 </p>
               )}
+              {!error && manualBlockingMessage && (
+                <p className="text-sm text-amber-600 dark:text-amber-300 flex items-center gap-2">
+                  <Icon name="AlertCircle" size={14} />
+                  {manualBlockingMessage}
+                </p>
+              )}
 
               <div className="flex gap-3 pt-1">
                 <Button type="button" variant="outline" className="flex-1" onClick={onClose}>
                   Cancel
                 </Button>
-                <Button type="submit" variant="primary" className="flex-1" loading={saving}>
+                <Button type="submit" variant="primary" className="flex-1" loading={saving} disabled={isSubmitDisabled}>
                   {isReschedule ? 'Reschedule' : 'Schedule'}
                 </Button>
               </div>

@@ -1335,12 +1335,12 @@ const JobsPage = () => {
                     <motion.div
                       key={job.id}
                       variants={{ hidden: { opacity: 0, y: 16 }, visible: { opacity: 1, y: 0 } }}
-                      className="group card-base p-4 xs:p-5 sm:p-6 flex flex-col sm:flex-row gap-4 xs:gap-5 sm:gap-6 relative hover:shadow-lg transition-shadow cursor-pointer"
+                      className="group card-base relative flex cursor-pointer flex-col gap-3 p-4 transition-shadow hover:shadow-lg xs:gap-4 xs:p-5 sm:flex-row sm:gap-6 sm:p-6"
                       onClick={() => navigate(`/jobs/${job.id}`)}
                     >
                       {/* Left Section - Company Logo */}
-                      <div className="flex-shrink-0">
-                        <div className="w-20 h-20 xs:w-24 xs:h-24 sm:w-28 sm:h-28 rounded-lg bg-white dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex items-center justify-center p-2">
+                      <div className="flex-shrink-0 self-start">
+                        <div className="flex h-16 w-16 items-center justify-center rounded-lg border border-gray-200 bg-white p-2 dark:border-slate-700 dark:bg-slate-800 xs:h-20 xs:w-20 sm:h-28 sm:w-28">
                           {companyLogoUrl ? (
                             <img
                               src={companyLogoUrl}
@@ -1360,8 +1360,8 @@ const JobsPage = () => {
                       
                       {/* Middle Section - Job Details */}
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-2">
-                          <h2 className="text-lg xs:text-xl sm:text-2xl font-bold text-gray-900 dark:text-slate-100">
+                        <div className="mb-2 flex items-start justify-between gap-3 sm:items-center">
+                          <h2 className="min-w-0 flex-1 break-words text-lg font-bold leading-tight text-gray-900 dark:text-slate-100 xs:text-xl sm:text-2xl">
                             {job.title}
                           </h2>
                           <button
@@ -1369,7 +1369,7 @@ const JobsPage = () => {
                               e.stopPropagation();
                               handleBookmark(job.id, e);
                             }}
-                            className="flex-shrink-0 p-1 hover:bg-gray-100 dark:hover:bg-slate-700 rounded transition-colors"
+                            className="flex-shrink-0 self-start rounded-full p-2 transition-colors hover:bg-gray-100 dark:hover:bg-slate-700"
                             aria-label={isBookmarked ? 'Remove bookmark' : 'Bookmark job'}
                             title={isBookmarked ? 'Remove bookmark' : 'Save job'}
                           >
@@ -1386,40 +1386,40 @@ const JobsPage = () => {
                         </div>
                         
                         {job.organization?.name && (
-                          <p className="text-sm text-gray-700 dark:text-slate-300 mb-3">
+                          <p className="mb-3 break-words text-sm text-gray-700 dark:text-slate-300">
                             {job.organization.name}
                           </p>
                         )}
                         
-                        <div className="flex flex-wrap items-center gap-4 mb-2">
+                        <div className="mb-2 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
                           {/* Location */}
                           {!shouldShowRemote(job.location) && (
-                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                            <div className="flex min-w-0 items-start gap-1.5 text-sm text-gray-600 dark:text-slate-400">
                               <Icon name="MapPin" size={16} className="text-gray-500 dark:text-slate-500" />
-                              <span>{job.location}</span>
+                              <span className="break-words leading-relaxed">{job.location}</span>
                             </div>
                           )}
                           {shouldShowRemote(job.location) && (
-                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                            <div className="flex min-w-0 items-start gap-1.5 text-sm text-gray-600 dark:text-slate-400">
                               <Icon name="MapPin" size={16} className="text-gray-500 dark:text-slate-500" />
-                              <span>Remote</span>
+                              <span className="break-words leading-relaxed">Remote</span>
                             </div>
                           )}
                           
                           {/* Employment Type */}
                           {job.employmentType && (
-                            <div className="flex items-center gap-1.5 text-sm text-gray-600 dark:text-slate-400">
+                            <div className="flex min-w-0 items-start gap-1.5 text-sm text-gray-600 dark:text-slate-400">
                               <Icon name="Briefcase" size={16} className="text-gray-500 dark:text-slate-500" />
-                              <span>{formatEmploymentType(job.employmentType)}</span>
+                              <span className="break-words leading-relaxed">{formatEmploymentType(job.employmentType)}</span>
                             </div>
                           )}
                         </div>
                       </div>
                       
                       {/* Right Section - Status Badges and Days Left */}
-                      <div className="flex flex-col items-end flex-shrink-0">
+                      <div className="flex w-full flex-shrink-0 flex-col items-start pt-1 sm:w-auto sm:items-end sm:pt-0">
                         {/* Status Badges and Days Left - In one line */}
-                        <div className="flex flex-wrap items-center justify-end gap-2">
+                        <div className="flex flex-wrap items-center justify-start gap-2 sm:justify-end">
                           {/* Application Status Badges */}
                           {showAppliedBadge && (
                             <div className="px-2.5 py-1 rounded-full bg-green-100 dark:bg-green-900/30 border border-green-200 dark:border-green-800 flex items-center gap-1.5 shadow-sm">

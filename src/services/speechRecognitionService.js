@@ -84,7 +84,6 @@ class SpeechRecognitionService {
 
     // Handle recognition end
     this.recognition.onend = () => {
-      console.log('Recognition ended');
       this.isListening = false;
       
       // Clear silence timer
@@ -101,11 +100,6 @@ class SpeechRecognitionService {
     // Handle errors
     this.recognition.onerror = (event) => {
       console.error('Recognition error:', event.error);
-      
-      // Don't treat 'no-speech' as a critical error
-      if (event.error === 'no-speech') {
-        console.log('No speech detected');
-      }
 
       if (this.onError) {
         this.onError(event.error);
@@ -114,7 +108,6 @@ class SpeechRecognitionService {
 
     // Handle start
     this.recognition.onstart = () => {
-      console.log('Recognition started');
       this.isListening = true;
       
       if (this.onStart) {
@@ -136,7 +129,6 @@ class SpeechRecognitionService {
     }
 
     if (this.isListening) {
-      console.log('Already listening');
       return false;
     }
 
@@ -207,8 +199,6 @@ class SpeechRecognitionService {
 
     // Start new timer
     this.silenceTimer = setTimeout(() => {
-      console.log('Silence detected');
-      
       if (this.onSilenceDetected && this.finalTranscript.trim().length > 0) {
         this.onSilenceDetected(this.finalTranscript.trim());
       }
