@@ -5,7 +5,7 @@
  * interview score. For each scored dimension, it:
  * - Shows the score with a colour-coded badge.
  * - Lists the specific evidence quotes from the transcript that support the score.
- * - Provides an AI-generated reasoning excerpt if available.
+ * - Provides a system-generated reasoning excerpt if available.
  * - Shows improvement suggestions for below-threshold scores.
  *
  * Evidence is extracted from the question-level feedback and answer text.
@@ -18,7 +18,7 @@ const DIMENSIONS = [
   { key: 'technicalSkills', label: 'Technical Skills', icon: 'Code2', color: 'blue' },
   { key: 'communicationSkills', label: 'Communication', icon: 'MessageSquare', color: 'purple' },
   { key: 'problemSolving', label: 'Problem Solving', icon: 'Brain', color: 'indigo' },
-  { key: 'overallScore', label: 'Overall', icon: 'Star', color: 'yellow' },
+  { key: 'overallScore', label: 'Overall', icon: 'BrandBrain', color: 'yellow' },
 ];
 
 const COLOR_CLASSES = {
@@ -45,7 +45,7 @@ const extractEvidence = (evaluation, questions, dimensionKey) => {
   // Direct feedback from evaluation
   const dimFeedback = evaluation?.[dimensionKey]?.feedback;
   if (dimFeedback) {
-    evidence.push({ type: 'reasoning', text: dimFeedback, source: 'AI Evaluation' });
+    evidence.push({ type: 'reasoning', text: dimFeedback, source: 'System Evaluation' });
   }
 
   // Extract from question answers
@@ -53,14 +53,14 @@ const extractEvidence = (evaluation, questions, dimensionKey) => {
     questions.slice(0, 5).forEach((q, i) => {
       if (!q?.answer) return;
       const qFeedback = q.feedback || q.feedbackText;
-      const answerSnippet = q.answer.length > 150 ? q.answer.slice(0, 150) + '…' : q.answer;
+      const answerSnippet = q.answer.length > 150 ? q.answer.slice(0, 150) + '...' : q.answer;
 
       if (dimensionKey === 'technicalSkills' && (
         q.questionType?.toLowerCase()?.includes('technical') ||
         /algorithm|code|implement|design|system|architecture|pattern/i.test(q.question || '')
       )) {
-        evidence.push({ type: 'quote', text: answerSnippet, source: `Q${i + 1}: ${(q.question || '').slice(0, 60)}…` });
-        if (qFeedback) evidence.push({ type: 'feedback', text: qFeedback, source: `AI feedback for Q${i + 1}` });
+        evidence.push({ type: 'quote', text: answerSnippet, source: `Q${i + 1}: ${(q.question || '').slice(0, 60)}...` });
+        if (qFeedback) evidence.push({ type: 'feedback', text: qFeedback, source: `System feedback for Q${i + 1}` });
       }
 
       if (dimensionKey === 'communicationSkills' && (
@@ -68,7 +68,7 @@ const extractEvidence = (evaluation, questions, dimensionKey) => {
         q.questionType?.toLowerCase()?.includes('situational') ||
         /explain|describe|tell me|communication|teamwork|conflict/i.test(q.question || '')
       )) {
-        evidence.push({ type: 'quote', text: answerSnippet, source: `Q${i + 1}: ${(q.question || '').slice(0, 60)}…` });
+        evidence.push({ type: 'quote', text: answerSnippet, source: `Q${i + 1}: ${(q.question || '').slice(0, 60)}...` });
       }
 
       // General evidence for overall score

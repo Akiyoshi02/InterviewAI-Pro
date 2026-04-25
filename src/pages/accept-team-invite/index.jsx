@@ -361,7 +361,7 @@ const AcceptTeamInvitePage = () => {
             className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-3 max-w-6xl mx-auto lg:h-full"
           >
             <motion.aside variants={fadeUpChild} className="lg:col-span-4 flex flex-col min-h-0">
-              <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-5 lg:p-4 h-full flex flex-col shadow-[0_20px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_70px_rgba(0,0,0,0.4)] backdrop-blur">
+              <div className="rounded-3xl border border-white/30 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-5 lg:p-4 h-full flex flex-col shadow-[0_20px_70px_rgba(15,23,42,0.12)] dark:shadow-[0_20px_70px_rgba(0,0,0,0.4)] backdrop-blur overflow-y-auto">
                 <h2 className="text-base md:text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4 lg:mb-3">Registration Progress</h2>
                 <div className="space-y-3">
                   {registrationProgress.map((item) => (
@@ -463,9 +463,9 @@ const AcceptTeamInvitePage = () => {
 
                 {!loading && !pageError && invitation && (
                   <form onSubmit={handleSubmit} className="flex-1 flex flex-col min-h-0">
-                    <div className="flex-1 min-h-0 px-1 lg:px-0 space-y-4 lg:space-y-3">
+                    <div className="flex-1 min-h-0 overflow-y-auto px-1 lg:px-0 lg:pr-2 space-y-4 lg:space-y-3">
                       <div className={`rounded-2xl border p-4 lg:p-3.5 ${roleMeta.tone}`}>
-                        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                           <div className="min-w-0">
                             <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">You&apos;ve been invited to join {organizationName}</p>
                             <p className="mt-1 text-xs md:text-sm text-gray-600 dark:text-slate-400">
@@ -487,89 +487,138 @@ const AcceptTeamInvitePage = () => {
                         </div>
                       )}
 
-                      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/30 p-4 lg:p-3.5">
-                        <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_240px] gap-4 items-start">
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            <Input label="Full Name" placeholder="Enter your full name" value={fullName} onChange={(event) => { clearInlineErrors(); setFullName(event.target.value); }} required />
-                            <Input label="Email Address" value={invitation.email} disabled />
-                          </div>
-                          <div className={`rounded-2xl border p-4 transition-colors ${
-                            profilePhotoUpload.status === 'error'
-                              ? 'border-rose-300 bg-rose-50/80 dark:border-rose-500/50 dark:bg-rose-900/20'
-                              : profilePhotoUpload.status === 'approved'
-                                ? 'border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/50 dark:bg-emerald-900/20'
-                                : 'border-white/40 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/35'
-                          }`}>
-                            <div className="flex items-start gap-3">
-                              <div className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-2xl border border-white/50 dark:border-slate-700/70 bg-white/90 dark:bg-slate-950/60">
-                                {profilePhotoPreview ? (
-                                  <img src={profilePhotoPreview} alt="Profile preview" className="h-full w-full object-cover" />
-                                ) : (
-                                  <Icon name="UserRound" size={24} className="text-blue-600 dark:text-blue-300" />
-                                )}
-                              </div>
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">Profile Photo</p>
-                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
-                                  Add a recognizable photo for reviewer assignments, workspace identity, and team collaboration.
-                                </p>
-                                <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <div className="rounded-2xl border border-white/30 dark:border-slate-700/50 bg-white/70 dark:bg-slate-900/30 p-4 lg:p-3.5 space-y-3">
+                        <div className={`relative overflow-hidden rounded-2xl border p-4 transition-colors ${
+                          profilePhotoUpload.status === 'error'
+                            ? 'border-rose-300 bg-rose-50/80 dark:border-rose-500/50 dark:bg-rose-900/20'
+                            : profilePhotoUpload.status === 'approved'
+                              ? 'border-emerald-300 bg-emerald-50/80 dark:border-emerald-500/50 dark:bg-emerald-900/20'
+                              : 'border-white/40 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/35'
+                        }`}>
+                          <div aria-hidden="true" className="pointer-events-none absolute -top-12 -right-12 h-36 w-36 rounded-full bg-gradient-to-br from-blue-500/15 via-purple-500/10 to-transparent blur-2xl" />
+                          <div aria-hidden="true" className="pointer-events-none absolute -bottom-16 -left-16 h-40 w-40 rounded-full bg-gradient-to-tr from-indigo-400/10 via-cyan-300/10 to-transparent blur-2xl" />
+
+                          <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:gap-5">
+                            <div className="flex flex-col items-center gap-3 sm:shrink-0">
+                              <button
+                                type="button"
+                                onClick={() => profilePhotoInputRef.current?.click()}
+                                aria-label={profilePhoto ? 'Change profile photo' : 'Upload profile photo'}
+                                className={`group relative rounded-full p-[3px] transition-transform duration-200 hover:scale-[1.02] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent focus-visible:ring-blue-500/70 bg-gradient-to-br ${
+                                  profilePhotoUpload.status === 'error'
+                                    ? 'from-rose-500 via-rose-400 to-orange-400'
+                                    : profilePhotoUpload.status === 'approved'
+                                      ? 'from-emerald-500 via-teal-400 to-cyan-400'
+                                      : profilePhotoUpload.status === 'checking'
+                                        ? 'from-blue-500 via-purple-500 to-indigo-500 animate-pulse'
+                                        : 'from-blue-500 via-purple-500 to-indigo-500'
+                                }`}
+                              >
+                                <div className="flex h-24 w-24 items-center justify-center overflow-hidden rounded-full border border-white/60 dark:border-slate-800 bg-white/95 dark:bg-slate-950/80 shadow-[0_10px_30px_rgba(15,23,42,0.18)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.5)]">
+                                  {profilePhotoPreview ? (
+                                    <img src={profilePhotoPreview} alt="Profile preview" className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105" />
+                                  ) : (
+                                    <Icon name="UserRound" size={40} className="text-blue-600 dark:text-blue-300" />
+                                  )}
+                                </div>
+                                <span className={`absolute -bottom-0.5 -right-0.5 flex h-8 w-8 items-center justify-center rounded-full border-2 border-white dark:border-slate-900 text-white shadow-lg transition-transform duration-200 group-hover:scale-110 ${
+                                  profilePhotoUpload.status === 'approved'
+                                    ? 'bg-gradient-to-br from-emerald-500 to-teal-500'
+                                    : profilePhotoUpload.status === 'error'
+                                      ? 'bg-gradient-to-br from-rose-500 to-orange-500'
+                                      : 'bg-gradient-to-br from-blue-600 to-purple-600'
+                                }`}>
+                                  <Icon
+                                    name={
+                                      profilePhotoUpload.status === 'approved'
+                                        ? 'Check'
+                                        : profilePhotoUpload.status === 'error'
+                                          ? 'AlertCircle'
+                                          : profilePhoto
+                                            ? 'Pencil'
+                                            : 'Camera'
+                                    }
+                                    size={14}
+                                  />
+                                </span>
+                              </button>
+                              <div className="flex items-center justify-center gap-2">
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  onClick={() => profilePhotoInputRef.current?.click()}
+                                  className="rounded-full border border-blue-200/70 dark:border-blue-800/60 bg-white/70 dark:bg-slate-900/40 text-xs font-medium text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 hover:text-blue-800 dark:hover:text-blue-200"
+                                >
+                                  <Icon name="Upload" size={12} className="mr-1.5" />
+                                  {profilePhoto ? 'Change' : 'Upload'}
+                                </Button>
+                                {profilePhoto ? (
                                   <Button
                                     type="button"
                                     variant="ghost"
-                                    onClick={() => profilePhotoInputRef.current?.click()}
-                                    className="rounded-full border border-white/50 dark:border-slate-700/60 text-xs text-gray-700 dark:text-slate-200"
+                                    onClick={resetProfilePhoto}
+                                    className="rounded-full text-xs font-medium text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:text-rose-300 dark:hover:bg-rose-900/30"
                                   >
-                                    {profilePhoto ? 'Change Photo' : 'Upload Photo'}
+                                    <Icon name="Trash2" size={12} className="mr-1.5" />
+                                    Remove
                                   </Button>
-                                  {profilePhoto ? (
-                                    <Button
-                                      type="button"
-                                      variant="ghost"
-                                      onClick={resetProfilePhoto}
-                                      className="rounded-full border border-white/40 dark:border-slate-700/60 text-xs text-gray-500 dark:text-slate-400"
-                                    >
-                                      Remove
-                                    </Button>
-                                  ) : null}
-                                </div>
-                                <input
-                                  ref={profilePhotoInputRef}
-                                  type="file"
-                                  accept="image/*"
-                                  aria-label="Profile Photo"
-                                  className="hidden"
-                                  onChange={handleProfilePhotoChange}
-                                />
-                                <div className="mt-3 space-y-1 text-xs">
-                                  <p className="text-gray-500 dark:text-slate-400">
-                                    JPG, PNG, or WEBP. Max 5 MB.
-                                  </p>
-                                  {profilePhoto ? (
-                                    <p className="truncate text-gray-700 dark:text-slate-200">{profilePhoto.name}</p>
-                                  ) : null}
-                                  {profilePhotoUpload.status === 'checking' ? (
-                                    <p className="flex items-center gap-1.5 text-blue-600 dark:text-blue-300">
-                                      <Icon name="Loader2" size={12} className="animate-spin" />
-                                      Checking photo...
-                                    </p>
-                                  ) : null}
-                                  {profilePhotoUpload.status === 'approved' ? (
-                                    <p className="flex items-center gap-1.5 text-emerald-600 dark:text-emerald-300">
-                                      <Icon name="CheckCircle" size={12} />
-                                      Photo approved
-                                    </p>
-                                  ) : null}
-                                  {profilePhotoUpload.status === 'error' ? (
-                                    <p className="flex items-center gap-1.5 text-rose-600 dark:text-rose-300">
-                                      <Icon name="AlertCircle" size={12} />
-                                      {profilePhotoUpload.error}
-                                    </p>
-                                  ) : null}
-                                </div>
+                                ) : null}
+                              </div>
+                              <input
+                                ref={profilePhotoInputRef}
+                                type="file"
+                                accept="image/*"
+                                aria-label="Profile Photo"
+                                className="hidden"
+                                onChange={handleProfilePhotoChange}
+                              />
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+                                <p className="text-base font-semibold text-gray-900 dark:text-slate-100">Profile Photo</p>
+                                <span className="inline-flex items-center gap-1 rounded-full border border-white/50 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                                  JPG &middot; PNG &middot; WEBP
+                                </span>
+                                <span className="inline-flex items-center gap-1 rounded-full border border-white/50 dark:border-slate-700/60 bg-white/60 dark:bg-slate-900/40 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-500 dark:text-slate-400">
+                                  Max 5 MB
+                                </span>
+                              </div>
+                              <p className="mt-1.5 text-xs md:text-sm text-gray-600 dark:text-slate-400">
+                                Add a recognizable photo for reviewer assignments and team collaboration.
+                              </p>
+                              <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                                {profilePhoto ? (
+                                  <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-white/50 dark:border-slate-700/60 bg-white/70 dark:bg-slate-900/40 px-2.5 py-1 text-[11px] text-gray-700 dark:text-slate-200">
+                                    <Icon name="Image" size={12} className="flex-shrink-0 text-blue-500 dark:text-blue-300" />
+                                    <span className="truncate max-w-[220px]">{profilePhoto.name}</span>
+                                  </span>
+                                ) : null}
+                                {profilePhotoUpload.status === 'checking' ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/30 px-2.5 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-200">
+                                    <Icon name="Loader2" size={12} className="animate-spin" />
+                                    Checking photo
+                                  </span>
+                                ) : null}
+                                {profilePhotoUpload.status === 'approved' ? (
+                                  <span className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 dark:border-emerald-700 bg-emerald-50 dark:bg-emerald-900/40 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 dark:text-emerald-200">
+                                    <Icon name="CheckCircle" size={12} />
+                                    Photo approved
+                                  </span>
+                                ) : null}
+                                {profilePhotoUpload.status === 'error' ? (
+                                  <span className="inline-flex min-w-0 items-center gap-1.5 rounded-full border border-rose-200 dark:border-rose-700 bg-rose-50 dark:bg-rose-900/40 px-2.5 py-1 text-[11px] font-medium text-rose-700 dark:text-rose-200">
+                                    <Icon name="AlertCircle" size={12} className="flex-shrink-0" />
+                                    <span className="truncate max-w-[260px]">{profilePhotoUpload.error}</span>
+                                  </span>
+                                ) : null}
                               </div>
                             </div>
                           </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <Input label="Full Name" placeholder="Enter your full name" value={fullName} onChange={(event) => { clearInlineErrors(); setFullName(event.target.value); }} required />
+                          <Input label="Email Address" value={invitation.email} disabled />
                         </div>
                       </div>
 

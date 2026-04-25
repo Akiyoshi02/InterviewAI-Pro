@@ -13,6 +13,17 @@ const PoseAnalysisPanel = ({ poseMetrics, className }) => {
     postureScore,
     headPosition,
     eyeContact,
+    eyeContactScore,
+    gazeDirection,
+    gazeStatus,
+    gazeDeviation,
+    gazeHorizontalOffset,
+    gazeVerticalOffset,
+    eyeAsymmetry,
+    irisSymmetry,
+    isLookingAtCamera,
+    blinkRate,
+    faceOrientationStatus,
     confidence,
     slouching,
     fidgeting,
@@ -64,6 +75,32 @@ const PoseAnalysisPanel = ({ poseMetrics, className }) => {
     return 'bg-red-500';
   };
 
+  const getTrackingStatusColor = (status) => {
+    switch (status) {
+      case 'direct':
+      case 'good':
+      case 'center':
+        return 'text-green-700 bg-green-50 dark:text-emerald-300 dark:bg-emerald-500/10';
+      case 'slight':
+      case 'fair':
+      case 'moderate':
+        return 'text-yellow-700 bg-yellow-50 dark:text-amber-300 dark:bg-amber-500/10';
+      case 'away':
+      case 'poor':
+      case 'left':
+      case 'right':
+      case 'up':
+      case 'down':
+      case 'up-left':
+      case 'up-right':
+      case 'down-left':
+      case 'down-right':
+        return 'text-red-700 bg-red-50 dark:text-red-300 dark:bg-red-500/10';
+      default:
+        return 'text-slate-600 bg-slate-100 dark:text-slate-300 dark:bg-slate-700/40';
+    }
+  };
+
   const getPostureBarColor = (status) => {
     switch (status) {
       case 'good':
@@ -75,6 +112,27 @@ const PoseAnalysisPanel = ({ poseMetrics, className }) => {
       default:
         return 'bg-slate-400';
     }
+  };
+
+  const formatOffset = (value) => {
+    if (!lastUpdated || value === null || value === undefined || Number.isNaN(Number(value))) {
+      return '--';
+    }
+    const numeric = Number(value) * 100;
+    const sign = numeric > 0 ? '+' : '';
+    return `${sign}${numeric.toFixed(1)}%`;
+  };
+
+  const formatMagnitude = (value) => {
+    if (!lastUpdated || value === null || value === undefined || Number.isNaN(Number(value))) {
+      return '--';
+    }
+    return `${(Math.abs(Number(value)) * 100).toFixed(1)}%`;
+  };
+
+  const formatDirection = (value) => {
+    if (!value) return 'center';
+    return String(value).replace(/-/g, ' ');
   };
 
   // Format last updated time
@@ -180,6 +238,77 @@ const PoseAnalysisPanel = ({ poseMetrics, className }) => {
             Look towards the camera
           </p>
         )}
+      </div>
+
+      {/* Advanced Eye Tracking */}
+      <div className="space-y-3 rounded-2xl border border-blue-100 dark:border-blue-900/40 bg-blue-50/70 dark:bg-blue-950/20 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-sm font-medium text-gray-700 dark:text-slate-300">Advanced Eye Tracking</p>
+            <p className="text-xs text-gray-500 dark:text-slate-400">Real-time eyeball, gaze, and iris stability metrics from MediaPipe face mesh.</p>
+          </div>
+          <span className={cn('text-xs font-semibold px-2 py-1 rounded-full uppercase', getTrackingStatusColor(gazeStatus))}>
+            {gazeStatus || 'direct'}
+          </span>
+        </div>
+
+        <div className="space-y-1">
+          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-slate-400">
+            <span>Eye Tracking Score</span>
+            <span className="font-semibold text-gray-900 dark:text-slate-100">
+              {lastUpdated ? `${Math.round(Number(eyeContactScore || 0))}%` : '--'}
+            </span>
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-slate-700 rounded-full h-2">
+            <div
+              className={cn('h-2 rounded-full transition-all duration-500', getConfidenceBarColor(Number(eyeContactScore || 0)))}
+              style={{ width: `${Math.max(0, Math.min(Number(eyeContactScore || 0), 100))}%` }}
+            />
+          </div>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Camera Focus</p>
+            <p className={cn('mt-1 text-sm font-semibold', isLookingAtCamera ? 'text-green-700 dark:text-emerald-300' : 'text-yellow-700 dark:text-amber-300')}>
+              {lastUpdated ? (isLookingAtCamera ? 'Aligned' : 'Off-center') : '--'}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Gaze Direction</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100 capitalize">
+              {lastUpdated ? formatDirection(gazeDirection) : '--'}
+            </p>
+          </div>
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Horizontal Offset</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{formatOffset(gazeHorizontalOffset)}</p>
+          </div>
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Vertical Offset</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{formatOffset(gazeVerticalOffset)}</p>
+          </div>
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Eye Asymmetry</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{formatMagnitude(eyeAsymmetry)}</p>
+          </div>
+          <div className="rounded-xl bg-white/80 dark:bg-slate-900/50 border border-white/60 dark:border-slate-700/50 p-2">
+            <p className="text-[11px] uppercase tracking-wide text-gray-500 dark:text-slate-400">Iris Symmetry</p>
+            <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">{formatMagnitude(irisSymmetry)}</p>
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 text-[11px] text-gray-600 dark:text-slate-400">
+          <span className={cn('inline-flex rounded-full px-2 py-1 font-semibold uppercase', getTrackingStatusColor(faceOrientationStatus))}>
+            Face {faceOrientationStatus || 'direct'}
+          </span>
+          <span className="inline-flex rounded-full bg-white/80 dark:bg-slate-900/50 px-2 py-1 font-medium border border-white/60 dark:border-slate-700/50">
+            Gaze deviation {formatMagnitude(gazeDeviation)}
+          </span>
+          <span className="inline-flex rounded-full bg-white/80 dark:bg-slate-900/50 px-2 py-1 font-medium border border-white/60 dark:border-slate-700/50">
+            Blink rate {lastUpdated ? `${Math.round(Number(blinkRate || 0))}/min` : '--'}
+          </span>
+        </div>
       </div>
 
       {/* Fidgeting Warning */}

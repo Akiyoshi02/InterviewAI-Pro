@@ -23,6 +23,23 @@ const OLLAMA_BASE_URL = process.env.OLLAMA_URL || 'http://localhost:11434';
 const DEFAULT_MODEL = process.env.OLLAMA_MODEL || 'qwen3:8b';
 const DEFAULT_FALLBACK_MODEL = process.env.OLLAMA_FALLBACK_MODEL || 'qwen2.5:7b-instruct';
 const FINE_TUNED_MODEL_NAME = `interviewai-${DEFAULT_MODEL.replace(':', '-')}`;
+const GROQ_BASE_URL = (process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1').replace(/\/$/, '');
+const GROQ_API_KEY = process.env.GROQ_API_KEY || '';
+const INTERVIEW_LLM_PROVIDER = String(
+  process.env.INTERVIEW_LLM_PROVIDER || (GROQ_API_KEY ? 'groq' : 'ollama'),
+).trim().toLowerCase();
+const INTERVIEW_GROQ_MODEL = process.env.INTERVIEW_GROQ_MODEL || 'openai/gpt-oss-20b';
+const INTERVIEW_GROQ_LIMIT_FALLBACK_TO_OLLAMA = String(
+  process.env.INTERVIEW_GROQ_LIMIT_FALLBACK_TO_OLLAMA || 'true',
+).trim().toLowerCase() !== 'false';
+const GROQ_REQUEST_TIMEOUT_MS = Math.max(
+  2000,
+  Number.parseInt(process.env.GROQ_REQUEST_TIMEOUT_MS || '45000', 10) || 45000,
+);
+const GROQ_HEALTH_TIMEOUT_MS = Math.max(
+  1000,
+  Number.parseInt(process.env.GROQ_HEALTH_TIMEOUT_MS || '5000', 10) || 5000,
+);
 
 let _modelRuntimeStatus = {
   totalCalls: 0,
@@ -34,6 +51,8 @@ let _modelRuntimeStatus = {
   lastCallAt: null,
   lastSuccessAt: null,
   lastFailureAt: null,
+  lastRequestedProvider: null,
+  lastSuccessfulProvider: null,
   lastRequestedModel: null,
   lastSuccessfulModel: null,
   lastUsedFallback: false,
@@ -51,6 +70,7 @@ let _modelRuntimeStatus = {
 let _fineTunedModelAvailable = null;
 let _fineTunedModelCheckedAt = 0;
 const FINE_TUNE_CHECK_INTERVAL_MS = 5 * 60 * 1000;
+let _lastGroqRateLimitSnapshot = null;
 
 /**
  * Check if the fine-tuned model variant exists in Ollama AND meets the
@@ -140,6 +160,7 @@ const buildModelAttemptOrder = async (requestedModel) => {
 };
 
 const recordModelRuntimeCall = ({
+  provider = 'ollama',
   requestedModel = null,
   attemptedModels = [],
   successfulModel = null,
@@ -150,6 +171,7 @@ const recordModelRuntimeCall = ({
   const timestamp = new Date().toISOString();
   _modelRuntimeStatus.totalCalls += 1;
   _modelRuntimeStatus.lastCallAt = timestamp;
+  _modelRuntimeStatus.lastRequestedProvider = provider;
   _modelRuntimeStatus.lastRequestedModel = requestedModel || null;
   _modelRuntimeStatus.lastAttemptedModels = Array.isArray(attemptedModels)
     ? attemptedModels.filter((item) => typeof item === 'string' && item.trim())
@@ -162,6 +184,7 @@ const recordModelRuntimeCall = ({
     _modelRuntimeStatus.successfulCalls += 1;
     _modelRuntimeStatus.lastOutcome = 'success';
     _modelRuntimeStatus.lastSuccessAt = timestamp;
+    _modelRuntimeStatus.lastSuccessfulProvider = provider;
     _modelRuntimeStatus.lastSuccessfulModel = successfulModel;
     if (usedFallback) {
       _modelRuntimeStatus.fallbackUsedCalls += 1;
@@ -216,7 +239,13 @@ const OLLAMA_EMPTY_CONTENT_RETRIES = Math.max(
   0,
   Number.parseInt(process.env.OLLAMA_EMPTY_CONTENT_RETRIES || '1', 10) || 1,
 );
-const WHISPER_BASE_URL = process.env.WHISPER_URL || process.env.LOCAL_WHISPER_URL || null;
+const WHISPER_BASE_URL = (
+  process.env.WHISPER_URL
+  || process.env.WHISPER_SERVER_URL
+  || process.env.WHISPER_BASE_URL
+  || process.env.LOCAL_WHISPER_URL
+  || null
+);
 const getWhisperBaseUrl = () => WHISPER_BASE_URL?.replace(/\/$/, '') || null;
 const THINKING_UNSUPPORTED_ERROR_PATTERN = /does not support thinking/i;
 const DEFAULT_NON_THINKING_MODELS = ['qwen2.5:7b-instruct'];
@@ -225,6 +254,22 @@ const OLLAMA_NON_THINKING_MODELS = (process.env.OLLAMA_NON_THINKING_MODELS || DE
   .map((model) => model.trim())
   .filter(Boolean);
 const _modelsWithoutThinkingSupport = new Set(OLLAMA_NON_THINKING_MODELS);
+const GROQ_MODEL_HINT_PATTERN = /^(openai\/|qwen\/|meta-llama\/|llama-)/i;
+const isGroqInterviewProviderEnabled = () => INTERVIEW_LLM_PROVIDER === 'groq' && Boolean(GROQ_API_KEY);
+const getInterviewProvider = () => (isGroqInterviewProviderEnabled() ? 'groq' : 'ollama');
+const getInterviewPrimaryModel = () => (
+  getInterviewProvider() === 'groq' ? INTERVIEW_GROQ_MODEL : DEFAULT_MODEL
+);
+const resolveInterviewModelName = (requestedModel) => {
+  const trimmed = typeof requestedModel === 'string' ? requestedModel.trim() : '';
+  if (getInterviewProvider() !== 'groq') {
+    return trimmed || DEFAULT_MODEL;
+  }
+  if (trimmed && !trimmed.includes(':') && GROQ_MODEL_HINT_PATTERN.test(trimmed)) {
+    return trimmed;
+  }
+  return INTERVIEW_GROQ_MODEL;
+};
 
 const QWEN_GENERATION_DEFAULTS = {
   temperature: 0.65,
@@ -235,6 +280,96 @@ const QWEN_GENERATION_DEFAULTS = {
   num_batch: 256,
   gpu_layers: 999,
   num_predict: 4096,
+};
+const GROQ_LIMIT_ERROR_PATTERN = /rate[\s_-]*limit|quota|daily[\s_-]*limit|requests?\s*per\s*day|tokens?\s*per\s*day|\brpd\b|\btpd\b|\brpm\b|\btpm\b|exceeded/i;
+
+const mergeAttemptedModels = (...sources) => {
+  const merged = [];
+  sources.forEach((source) => {
+    if (!Array.isArray(source)) return;
+    source.forEach((item) => {
+      if (typeof item !== 'string') return;
+      const trimmed = item.trim();
+      if (trimmed && !merged.includes(trimmed)) {
+        merged.push(trimmed);
+      }
+    });
+  });
+  return merged;
+};
+
+const shouldFallbackToOllamaOnGroqError = (error) => {
+  if (!INTERVIEW_GROQ_LIMIT_FALLBACK_TO_OLLAMA) return false;
+  const status = Number(error?.status);
+  const errorText = [error?.message, error?.bodyText, error?.responseText]
+    .filter((value) => typeof value === 'string' && value.trim())
+    .join(' ');
+  return status === 429 || GROQ_LIMIT_ERROR_PATTERN.test(errorText);
+};
+const readHeaderValue = (headers, headerName) => {
+  if (!headers || typeof headers.get !== 'function') return null;
+  const value = headers.get(headerName);
+  return typeof value === 'string' && value.trim() ? value.trim() : null;
+};
+const parseOptionalInteger = (value) => {
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+};
+const calculateRemainingPercent = (remaining, limit) => {
+  if (!Number.isFinite(remaining) || !Number.isFinite(limit) || limit <= 0) return null;
+  return Math.max(0, Math.min(100, Math.round((remaining / limit) * 1000) / 10));
+};
+const snapshotGroqRateLimitHeaders = (headers, meta = {}) => {
+  const requestsLimit = parseOptionalInteger(readHeaderValue(headers, 'x-ratelimit-limit-requests'));
+  const requestsRemaining = parseOptionalInteger(readHeaderValue(headers, 'x-ratelimit-remaining-requests'));
+  const tokensLimit = parseOptionalInteger(readHeaderValue(headers, 'x-ratelimit-limit-tokens'));
+  const tokensRemaining = parseOptionalInteger(readHeaderValue(headers, 'x-ratelimit-remaining-tokens'));
+  const requestsReset = readHeaderValue(headers, 'x-ratelimit-reset-requests');
+  const tokensReset = readHeaderValue(headers, 'x-ratelimit-reset-tokens');
+  const retryAfter = readHeaderValue(headers, 'retry-after');
+
+  const hasAnyValue = [
+    requestsLimit,
+    requestsRemaining,
+    tokensLimit,
+    tokensRemaining,
+    requestsReset,
+    tokensReset,
+    retryAfter,
+  ].some((value) => value !== null && value !== undefined);
+
+  if (!hasAnyValue) {
+    return _lastGroqRateLimitSnapshot;
+  }
+
+  const snapshot = {
+    source: meta.source || 'unknown',
+    model: meta.model || null,
+    status: Number.isFinite(Number(meta.status)) ? Number(meta.status) : null,
+    observedAt: new Date().toISOString(),
+    requestsLimit,
+    requestsRemaining,
+    requestsUsed: Number.isFinite(requestsLimit) && Number.isFinite(requestsRemaining)
+      ? Math.max(0, requestsLimit - requestsRemaining)
+      : null,
+    requestsRemainingPercent: calculateRemainingPercent(requestsRemaining, requestsLimit),
+    requestsReset,
+    tokensLimit,
+    tokensRemaining,
+    tokensUsed: Number.isFinite(tokensLimit) && Number.isFinite(tokensRemaining)
+      ? Math.max(0, tokensLimit - tokensRemaining)
+      : null,
+    tokensRemainingPercent: calculateRemainingPercent(tokensRemaining, tokensLimit),
+    tokensReset,
+    retryAfter,
+    semantics: {
+      requests: 'Remaining requests refer to Requests Per Day (RPD).',
+      tokens: 'Remaining tokens refer to Tokens Per Minute (TPM).',
+    },
+  };
+
+  _lastGroqRateLimitSnapshot = snapshot;
+  return snapshot;
 };
 
 const STAR_COMPONENT_SCHEMA = {
@@ -551,6 +686,180 @@ const fetchWithTimeout = async (url, init = {}, timeoutMs = OLLAMA_REQUEST_TIMEO
  * receive clean content.
  */
 const stripThinkingTags = (text) => text.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+const cloneJsonSchema = (schema) => (
+  schema && typeof schema === 'object'
+    ? JSON.parse(JSON.stringify(schema))
+    : null
+);
+const toGroqResponseFormat = (schema, schemaName = 'interview_structured_output') => {
+  const clonedSchema = cloneJsonSchema(schema);
+  if (!clonedSchema) return undefined;
+  const normalizedName = String(schemaName || 'interview_structured_output')
+    .toLowerCase()
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 64) || 'interview_structured_output';
+  return {
+    type: 'json_schema',
+    json_schema: {
+      name: normalizedName,
+      strict: false,
+      schema: clonedSchema,
+    },
+  };
+};
+const extractGroqMessageContent = (message) => {
+  if (!message) return '';
+  if (typeof message.content === 'string') {
+    return message.content;
+  }
+  if (Array.isArray(message.content)) {
+    return message.content
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item?.type === 'text' && typeof item?.text === 'string') return item.text;
+        return '';
+      })
+      .join('')
+      .trim();
+  }
+  return '';
+};
+async function callGroq(messages, options = {}) {
+  if (!GROQ_API_KEY) {
+    throw new Error('Groq API key is not configured');
+  }
+
+  const modelName = resolveInterviewModelName(options.model);
+  const requestBody = {
+    model: modelName,
+    messages,
+    stream: false,
+    temperature: options.temperature ?? QWEN_GENERATION_DEFAULTS.temperature,
+    max_completion_tokens: options.max_tokens ?? QWEN_GENERATION_DEFAULTS.num_predict,
+    ...(options.format
+      ? { response_format: toGroqResponseFormat(options.format, options.responseSchemaName || modelName) }
+      : {}),
+  };
+
+  try {
+    const response = await fetchWithTimeout(
+      `${GROQ_BASE_URL}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify(requestBody),
+      },
+      options.timeoutMs || GROQ_REQUEST_TIMEOUT_MS,
+    );
+    snapshotGroqRateLimitHeaders(response.headers, {
+      source: 'chat_completions',
+      model: modelName,
+      status: response.status,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text().catch(() => '');
+      const groqError = new Error(`Groq API error: ${response.status} ${response.statusText}${errorText ? ` - ${errorText.slice(0, 300)}` : ''}`);
+      groqError.status = response.status;
+      groqError.statusText = response.statusText;
+      groqError.bodyText = errorText;
+      throw groqError;
+    }
+
+    const data = await response.json();
+    const message = data?.choices?.[0]?.message;
+    const refusal = typeof message?.refusal === 'string' ? message.refusal.trim() : '';
+    if (refusal) {
+      throw new Error(`Groq model refused the request: ${refusal}`);
+    }
+
+    const content = stripThinkingTags(extractGroqMessageContent(message));
+    if (!content) {
+      throw new Error('Groq API returned empty content');
+    }
+
+    recordModelRuntimeCall({
+      provider: 'groq',
+      requestedModel: modelName,
+      attemptedModels: [modelName],
+      successfulModel: modelName,
+      usedFallback: false,
+      fallbackAttempted: false,
+    });
+
+    if (options.returnMetadata) {
+      return {
+        content,
+        model: modelName,
+        provider: 'groq',
+        usedFallback: false,
+        attemptedModels: [modelName],
+        fallbackAttempted: false,
+      };
+    }
+
+    return content;
+  } catch (error) {
+    if (!options.skipFailureRuntimeRecord) {
+      recordModelRuntimeCall({
+        provider: 'groq',
+        requestedModel: modelName,
+        attemptedModels: [modelName],
+        successfulModel: null,
+        usedFallback: false,
+        fallbackAttempted: false,
+        error: error?.message || String(error),
+      });
+    }
+    throw error;
+  }
+}
+const callInterviewLLM = async (messages, options = {}) => {
+  if (getInterviewProvider() === 'groq') {
+    const groqModel = resolveInterviewModelName(options.model);
+    try {
+      return await callGroq(messages, {
+        ...options,
+        model: groqModel,
+        skipFailureRuntimeRecord: true,
+      });
+    } catch (error) {
+      if (!shouldFallbackToOllamaOnGroqError(error)) {
+        recordModelRuntimeCall({
+          provider: 'groq',
+          requestedModel: groqModel,
+          attemptedModels: [groqModel],
+          successfulModel: null,
+          usedFallback: false,
+          fallbackAttempted: false,
+          error: error?.message || String(error),
+        });
+        throw error;
+      }
+
+      logger.warn('Groq interview model hit a quota/rate limit; falling back to local Ollama.', {
+        groqModel,
+        fallbackModel: DEFAULT_MODEL,
+        error: error?.message || String(error),
+      });
+
+      return callOllama(messages, {
+        ...options,
+        model: DEFAULT_MODEL,
+        runtimeProvider: 'groq->ollama',
+        runtimeRequestedModel: groqModel,
+        runtimeAttemptedModelsPrefix: [groqModel],
+        runtimeForceUsedFallback: true,
+        runtimeForceFallbackAttempted: true,
+      });
+    }
+  }
+  return callOllama(messages, options);
+};
 
 /**
  * Call Ollama API for chat completions.
@@ -566,6 +875,13 @@ async function callOllama(messages, options = {}) {
   const requestedModel = typeof options?.model === 'string' && options.model.trim()
     ? options.model.trim()
     : null;
+  const runtimeProvider = typeof options?.runtimeProvider === 'string' && options.runtimeProvider.trim()
+    ? options.runtimeProvider.trim()
+    : 'ollama';
+  const runtimeRequestedModel = typeof options?.runtimeRequestedModel === 'string' && options.runtimeRequestedModel.trim()
+    ? options.runtimeRequestedModel.trim()
+    : requestedModel;
+  const runtimeAttemptedModels = mergeAttemptedModels(options?.runtimeAttemptedModelsPrefix, modelAttempts);
   const requestedThink = options.think ?? false;
   let fallbackAttempted = false;
   let lastError = null;
@@ -711,21 +1027,29 @@ async function callOllama(messages, options = {}) {
           throw new Error('Ollama API returned empty content');
         }
         const usedFallback = index > 0;
+        const runtimeUsedFallback = typeof options?.runtimeForceUsedFallback === 'boolean'
+          ? options.runtimeForceUsedFallback
+          : usedFallback;
+        const runtimeFallbackAttempted = typeof options?.runtimeForceFallbackAttempted === 'boolean'
+          ? options.runtimeForceFallbackAttempted
+          : fallbackAttempted;
         const cleanedContent = stripThinkingTags(content);
         recordModelRuntimeCall({
-          requestedModel,
-          attemptedModels: modelAttempts,
+          provider: runtimeProvider,
+          requestedModel: runtimeRequestedModel,
+          attemptedModels: runtimeAttemptedModels,
           successfulModel: modelName,
-          usedFallback,
-          fallbackAttempted,
+          usedFallback: runtimeUsedFallback,
+          fallbackAttempted: runtimeFallbackAttempted,
         });
         if (options.returnMetadata) {
           return {
             content: cleanedContent,
             model: modelName,
-            usedFallback,
-            attemptedModels: [...modelAttempts],
-            fallbackAttempted,
+            provider: runtimeProvider,
+            usedFallback: runtimeUsedFallback,
+            attemptedModels: [...runtimeAttemptedModels],
+            fallbackAttempted: runtimeFallbackAttempted,
           };
         }
         return cleanedContent;
@@ -752,22 +1076,32 @@ async function callOllama(messages, options = {}) {
       error: modelError?.message || String(modelError),
     });
     recordModelRuntimeCall({
-      requestedModel,
-      attemptedModels: modelAttempts,
+      provider: runtimeProvider,
+      requestedModel: runtimeRequestedModel,
+      attemptedModels: runtimeAttemptedModels,
       successfulModel: null,
-      usedFallback: false,
-      fallbackAttempted,
+      usedFallback: typeof options?.runtimeForceUsedFallback === 'boolean'
+        ? options.runtimeForceUsedFallback
+        : false,
+      fallbackAttempted: typeof options?.runtimeForceFallbackAttempted === 'boolean'
+        ? options.runtimeForceFallbackAttempted
+        : fallbackAttempted,
       error: modelError?.message || String(modelError),
     });
     throw modelError;
   }
 
   recordModelRuntimeCall({
-    requestedModel,
-    attemptedModels: modelAttempts,
+    provider: runtimeProvider,
+    requestedModel: runtimeRequestedModel,
+    attemptedModels: runtimeAttemptedModels,
     successfulModel: null,
-    usedFallback: false,
-    fallbackAttempted,
+    usedFallback: typeof options?.runtimeForceUsedFallback === 'boolean'
+      ? options.runtimeForceUsedFallback
+      : false,
+    fallbackAttempted: typeof options?.runtimeForceFallbackAttempted === 'boolean'
+      ? options.runtimeForceFallbackAttempted
+      : fallbackAttempted,
     error: lastError?.message || 'Ollama API call failed',
   });
   throw lastError || new Error('Ollama API call failed');
@@ -786,6 +1120,38 @@ function parseJSONResponse(text) {
     logger.error('Failed to parse JSON response:', text);
     throw new Error('Invalid JSON response from LLM');
   }
+}
+
+function extractLlmResponseContent(response) {
+  if (typeof response === 'string') {
+    return response;
+  }
+  if (response && typeof response === 'object' && typeof response.content === 'string') {
+    return response.content;
+  }
+  return String(response ?? '');
+}
+
+function extractLlmResponseMetadata(response) {
+  if (!response || typeof response !== 'object' || typeof response === 'string') {
+    return {
+      provider: null,
+      model: null,
+      usedFallback: false,
+      attemptedModels: [],
+      fallbackAttempted: false,
+    };
+  }
+
+  return {
+    provider: typeof response.provider === 'string' ? response.provider : null,
+    model: typeof response.model === 'string' ? response.model : null,
+    usedFallback: Boolean(response.usedFallback),
+    attemptedModels: Array.isArray(response.attemptedModels)
+      ? response.attemptedModels.filter((item) => typeof item === 'string' && item.trim())
+      : [],
+    fallbackAttempted: Boolean(response.fallbackAttempted),
+  };
 }
 
 // Personality descriptions for backend use
@@ -814,6 +1180,12 @@ export class LLMService {
       primaryModel: DEFAULT_MODEL,
       fallbackModel: DEFAULT_FALLBACK_MODEL,
       fineTunedModel: FINE_TUNED_MODEL_NAME,
+      interviewProvider: getInterviewProvider(),
+      interviewModel: getInterviewPrimaryModel(),
+      interviewFallbackModel: DEFAULT_MODEL,
+      interviewGroqLimitFallbackToOllama: INTERVIEW_GROQ_LIMIT_FALLBACK_TO_OLLAMA,
+      groqRateLimits: _lastGroqRateLimitSnapshot ? { ..._lastGroqRateLimitSnapshot } : null,
+      groqConfigured: Boolean(GROQ_API_KEY),
       ..._modelRuntimeStatus,
       lastAttemptedModels: Array.isArray(_modelRuntimeStatus.lastAttemptedModels)
         ? [..._modelRuntimeStatus.lastAttemptedModels]
@@ -830,7 +1202,7 @@ export class LLMService {
       const personalityId = config.personality;
       const interviewerName = config.interviewerName || 'Your Interviewer';
       const llmOptions = resolveLlmOptions(config?.llmOptions, {
-        model: DEFAULT_MODEL,
+        model: getInterviewPrimaryModel(),
         temperature: 0.8,
         maxTokens: 4000,
       });
@@ -880,9 +1252,10 @@ Important:
         { role: 'user', content: 'Generate the interview questions now.' },
       ];
 
-      const response = await callOllama(messages, {
+      const response = await callInterviewLLM(messages, {
         ...llmOptions,
         format: STRUCTURED_SCHEMAS.questionGeneration,
+        responseSchemaName: 'interview_question_generation',
       });
       const parsed = parseJSONResponse(response);
 
@@ -895,7 +1268,7 @@ Important:
 
   static async repairInterviewSummaryJson({ rawResponse, validationErrors, llmOptions }) {
     const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
-      model: DEFAULT_MODEL,
+      model: getInterviewPrimaryModel(),
       temperature: 0.2,
       maxTokens: 2000,
     });
@@ -922,14 +1295,19 @@ ${rawResponse}`;
       { role: 'user', content: prompt },
     ];
 
-    const repairedText = await callOllama(messages, {
+    const repairedResponse = await callInterviewLLM(messages, {
       ...resolvedLlmOptions,
       temperature: 0.2,
       max_tokens: Math.min(3000, resolvedLlmOptions.max_tokens || 2000),
       format: STRUCTURED_SCHEMAS.interviewSummary,
+      responseSchemaName: 'interview_summary_repair',
+      returnMetadata: true,
     });
 
-    return parseJSONResponse(repairedText);
+    return {
+      payload: parseJSONResponse(extractLlmResponseContent(repairedResponse)),
+      meta: extractLlmResponseMetadata(repairedResponse),
+    };
   }
 
   /**
@@ -938,7 +1316,7 @@ ${rawResponse}`;
   static async generateInterviewSummary({ interview, questions, llmOptions = null }) {
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
-        model: DEFAULT_MODEL,
+        model: getInterviewPrimaryModel(),
         temperature: 0.5,
         maxTokens: 4000,
       });
@@ -983,16 +1361,22 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
         { role: 'user', content: 'Generate the comprehensive evaluation report.' },
       ];
 
-      const response = await callOllama(messages, {
+      const response = await callInterviewLLM(messages, {
         ...resolvedLlmOptions,
         think: true,
         format: STRUCTURED_SCHEMAS.interviewSummary,
         timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+        responseSchemaName: 'interview_summary',
+        returnMetadata: true,
       });
-      const parsed = parseJSONResponse(response);
+      const parsed = parseJSONResponse(extractLlmResponseContent(response));
+      const responseMeta = extractLlmResponseMetadata(response);
       const validation = validateInterviewSummary(parsed);
       if (validation.valid) {
-        return normalizeInterviewSummary(parsed);
+        return {
+          ...normalizeInterviewSummary(parsed),
+          _meta: responseMeta,
+        };
       }
 
       logger.warn('Interview summary JSON schema validation failed; attempting one repair pass.', {
@@ -1000,15 +1384,18 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
       });
 
       const repaired = await this.repairInterviewSummaryJson({
-        rawResponse: response,
+        rawResponse: extractLlmResponseContent(response),
         validationErrors: validation.errors,
         llmOptions: resolvedLlmOptions,
       });
-      const repairedValidation = validateInterviewSummary(repaired);
+      const repairedValidation = validateInterviewSummary(repaired.payload);
       if (!repairedValidation.valid) {
         throw createStructuredOutputError(repairedValidation.errors);
       }
-      return normalizeInterviewSummary(repaired);
+      return {
+        ...normalizeInterviewSummary(repaired.payload),
+        _meta: repaired.meta,
+      };
     } catch (error) {
       logger.error('Error generating interview summary:', error);
       throw error;
@@ -1021,7 +1408,7 @@ When relevant (e.g. if the candidate seemed nervous or rushed), include in recom
   static async analyzeAnswer({ question, answer, criteria, difficulty, rubric = null, llmOptions = null }) {
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
-        model: DEFAULT_MODEL,
+        model: getInterviewPrimaryModel(),
         temperature: 0.45,
         maxTokens: 3000,
       });
@@ -1069,11 +1456,12 @@ Return ONLY valid JSON (no markdown):
         { role: 'user', content: 'Analyze this answer and provide structured feedback.' },
       ];
 
-      const response = await callOllama(messages, {
+      const response = await callInterviewLLM(messages, {
         ...resolvedLlmOptions,
         think: true,
         format: STRUCTURED_SCHEMAS.answerAnalysis,
         timeoutMs: OLLAMA_THINKING_TIMEOUT_MS,
+        responseSchemaName: 'interview_answer_analysis',
       });
       return parseJSONResponse(response);
     } catch (error) {
@@ -1094,7 +1482,7 @@ Return ONLY valid JSON (no markdown):
   }) {
     try {
       const resolvedLlmOptions = resolveLlmOptions(llmOptions, {
-        model: DEFAULT_MODEL,
+        model: getInterviewPrimaryModel(),
         temperature: 0.4,
         maxTokens: 800,
       });
@@ -1148,9 +1536,10 @@ Return JSON only:
         { role: 'user', content: prompt },
       ];
 
-      const response = await callOllama(messages, {
+      const response = await callInterviewLLM(messages, {
         ...resolvedLlmOptions,
         format: STRUCTURED_SCHEMAS.rubricFollowUp,
+        responseSchemaName: 'interview_rubric_follow_up',
       });
       return parseJSONResponse(response);
     } catch (error) {
@@ -1188,10 +1577,12 @@ Generate the next appropriate question based on the conversation flow. Return ON
         { role: 'user', content: 'Generate the next question.' },
       ];
 
-      const response = await callOllama(messages, {
+      const response = await callInterviewLLM(messages, {
         max_tokens: 500,
         temperature: 0.8,
+        model: getInterviewPrimaryModel(),
         format: STRUCTURED_SCHEMAS.nextQuestion,
+        responseSchemaName: 'interview_next_question',
       });
       return parseJSONResponse(response);
     } catch (error) {
@@ -1300,6 +1691,93 @@ Confidence must be between 0 and 1.`;
     }
   }
 
+  static async getInterviewProviderHealth() {
+    const provider = getInterviewProvider();
+
+    if (provider !== 'groq') {
+      return {
+        provider,
+        configured: true,
+        reachable: true,
+        modelReady: true,
+        expectedModel: DEFAULT_MODEL,
+        url: OLLAMA_BASE_URL,
+        rateLimits: _lastGroqRateLimitSnapshot ? { ..._lastGroqRateLimitSnapshot } : null,
+      };
+    }
+
+    if (!GROQ_API_KEY) {
+      return {
+        provider: 'groq',
+        configured: false,
+        reachable: false,
+        modelReady: false,
+        expectedModel: INTERVIEW_GROQ_MODEL,
+        url: GROQ_BASE_URL,
+        rateLimits: _lastGroqRateLimitSnapshot ? { ..._lastGroqRateLimitSnapshot } : null,
+        error: 'Groq API key not configured',
+      };
+    }
+
+    try {
+      const response = await fetchWithTimeout(
+        `${GROQ_BASE_URL}/models`,
+        {
+          headers: {
+            Authorization: `Bearer ${GROQ_API_KEY}`,
+          },
+        },
+        GROQ_HEALTH_TIMEOUT_MS,
+      );
+      const rateLimits = snapshotGroqRateLimitHeaders(response.headers, {
+        source: 'models_health',
+        model: INTERVIEW_GROQ_MODEL,
+        status: response.status,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => '');
+        return {
+          provider: 'groq',
+          configured: true,
+          reachable: false,
+          modelReady: false,
+          expectedModel: INTERVIEW_GROQ_MODEL,
+          url: GROQ_BASE_URL,
+          rateLimits: rateLimits ? { ...rateLimits } : null,
+          error: `Groq API error: ${response.status} ${response.statusText}${errorText ? ` - ${errorText.slice(0, 200)}` : ''}`,
+        };
+      }
+
+      const data = await response.json();
+      const models = Array.isArray(data?.data)
+        ? data.data.map((item) => item?.id).filter(Boolean)
+        : [];
+
+      return {
+        provider: 'groq',
+        configured: true,
+        reachable: true,
+        modelReady: models.includes(INTERVIEW_GROQ_MODEL),
+        expectedModel: INTERVIEW_GROQ_MODEL,
+        models,
+        url: GROQ_BASE_URL,
+        rateLimits: rateLimits ? { ...rateLimits } : null,
+      };
+    } catch (error) {
+      return {
+        provider: 'groq',
+        configured: true,
+        reachable: false,
+        modelReady: false,
+        expectedModel: INTERVIEW_GROQ_MODEL,
+        url: GROQ_BASE_URL,
+        rateLimits: _lastGroqRateLimitSnapshot ? { ..._lastGroqRateLimitSnapshot } : null,
+        error: error?.message || 'Groq provider check failed',
+      };
+    }
+  }
+
   /**
    * Check if Ollama service is running.
    */
@@ -1354,9 +1832,20 @@ Confidence must be between 0 and 1.`;
         {},
         OLLAMA_HEALTH_TIMEOUT_MS,
       );
+      const payload = response.ok
+        ? await response.json().catch(() => null)
+        : null;
       return {
         configured: true,
         reachable: response.ok,
+        ...(payload && typeof payload === 'object'
+          ? {
+            status: payload.status || null,
+            model: payload.model || null,
+            device: payload.device || null,
+            computeType: payload.compute_type || null,
+          }
+          : {}),
       };
     } catch {
       return {

@@ -21,6 +21,8 @@ const OPTIONAL_ENV_VARS = [
   'OLLAMA_BASE_URL',
   'OLLAMA_MODEL',
   'WHISPER_BASE_URL',
+  'WHISPER_SERVER_URL',
+  'LOCAL_WHISPER_URL',
   'SENDGRID_API_KEY',
   'SENDGRID_FROM_EMAIL',
   'SIGHTENGINE_API_USER',
@@ -88,7 +90,11 @@ function logConfigStatus() {
     port: process.env.PORT,
     firebaseProject: process.env.FIREBASE_PROJECT_ID,
     ollamaConfigured: !!process.env.OLLAMA_BASE_URL,
-    whisperConfigured: !!process.env.WHISPER_BASE_URL,
+    whisperConfigured: Boolean(
+      process.env.WHISPER_BASE_URL
+      || process.env.WHISPER_SERVER_URL
+      || process.env.LOCAL_WHISPER_URL
+    ),
     sendgridConfigured: !!process.env.SENDGRID_API_KEY,
     sightengineConfigured: !!(process.env.SIGHTENGINE_API_USER && process.env.SIGHTENGINE_API_SECRET),
   });

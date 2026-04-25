@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Brain, Menu, X } from 'lucide-react';
+import { Menu, X } from 'lucide-react';
 import Icon from '../AppIcon';
+import BrandMark from '../BrandMark';
 import Button from '../ui/Button';
 import { authHelpers } from '../../config/firebase.js';
 import apiClient from '../../services/apiClient.js';
@@ -54,7 +55,7 @@ const PublicHeader = () => {
         description: 'See the story behind InterviewAI Pro.',
         ctaLabel: 'About InterviewAI',
         href: '/about',
-        icon: 'Sparkles',
+        icon: 'BrandBrain',
         tone: 'from-blue-600 to-purple-600'
       }
     },
@@ -66,7 +67,7 @@ const PublicHeader = () => {
           links: [
             { label: 'Interview Guides', href: '/interview-guides', icon: 'ClipboardList', description: 'Playbooks for every format' },
             { label: 'Help Articles', href: '/help-articles', icon: 'FileText', description: 'How-tos and troubleshooting' },
-            { label: 'Success Stories', href: '/success-stories', icon: 'Star', description: 'Candidate and team outcomes' }
+            { label: 'Success Stories', href: '/success-stories', icon: 'BrandBrain', description: 'Candidate and team outcomes' }
           ]
         },
         {
@@ -140,17 +141,12 @@ const PublicHeader = () => {
       <header className="fixed top-0 left-0 right-0 z-50 w-full border-b border-gray-200/50 dark:border-slate-800 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl shadow-sm">
         <div className="flex items-center justify-between h-14 xs:h-16 px-3 xs:px-4 sm:px-6 lg:px-8 xl:px-10 max-w-[1920px] mx-auto">
           {/* Logo */}
-          <div className="flex items-center gap-2 xs:gap-3 flex-shrink-0 cursor-pointer hover:opacity-80 transition-opacity" onClick={() => navigate('/')}>
-            <Brain className="h-5 w-5 xs:h-6 xs:w-6 text-blue-600" />
-            <div>
-              <p className="text-sm xs:text-base sm:text-lg md:text-xl font-bold text-gray-900 dark:text-slate-100">
-                InterviewAI <span className="text-blue-600 dark:text-blue-400">Pro</span>
-              </p>
-              <p className="hidden sm:block text-[9px] xs:text-[10px] text-gray-500 dark:text-slate-400 leading-tight">
-                Human-ready interviews, AI precision.
-              </p>
-            </div>
-          </div>
+          <BrandMark
+            className="flex-shrink-0 hover:opacity-80 transition-opacity"
+            iconWrapperClassName="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10"
+            textClassName="text-sm xs:text-base sm:text-lg md:text-xl"
+            showTagline={false}
+          />
 
           {/* Desktop Navigation - Center */}
           <nav className="hidden lg:flex items-center gap-1 xl:gap-2">

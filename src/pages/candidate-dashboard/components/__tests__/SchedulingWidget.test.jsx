@@ -42,6 +42,14 @@ const toDateTimeLocal = (value) => {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 };
 
+const futureDate = (daysAhead, hours = 10, minutes = 0) => {
+  const date = new Date(Date.now() + (daysAhead * 24 * 60 * 60 * 1000));
+  date.setHours(hours, minutes, 0, 0);
+  return date;
+};
+
+const futureIso = (daysAhead, hours = 10, minutes = 0) => futureDate(daysAhead, hours, minutes).toISOString();
+
 describe('SchedulingWidget', () => {
   beforeEach(() => {
     mockNavigate.mockReset();
@@ -69,9 +77,10 @@ describe('SchedulingWidget', () => {
       jobRole: 'Backend Engineer',
       interviewType: 'Technical',
       interviewerName: 'Alex',
-      scheduledFor: '2026-03-10T10:00:00.000Z',
+      scheduledFor: futureIso(12, 10, 0),
       duration: '45 min',
     };
+    const rescheduledSlot = toDateTimeLocal(futureDate(12, 11, 30));
 
     render(
       <SchedulingWidget
@@ -83,7 +92,7 @@ describe('SchedulingWidget', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reschedule' }));
     const datetimeInput = document.querySelector('input[type="datetime-local"]');
     expect(datetimeInput).not.toBeNull();
-    fireEvent.change(datetimeInput, { target: { value: '2026-03-12T11:30' } });
+    fireEvent.change(datetimeInput, { target: { value: rescheduledSlot } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
 
@@ -94,7 +103,7 @@ describe('SchedulingWidget', () => {
     const [id, payload] = apiClient.interviews.reschedule.mock.calls[0];
     expect(id).toBe('interview_1');
     expect(payload).toMatchObject({
-      scheduledFor: new Date('2026-03-12T11:30').toISOString(),
+      scheduledFor: new Date(rescheduledSlot).toISOString(),
     });
     expect(payload).not.toHaveProperty('meetingLink');
     expect(typeof payload.timezone).toBe('string');
@@ -111,7 +120,7 @@ describe('SchedulingWidget', () => {
       jobRole: 'Backend Engineer',
       interviewType: 'Technical',
       interviewerName: 'Alex',
-      scheduledFor: '2026-03-10T10:00:00.000Z',
+      scheduledFor: futureIso(12, 10, 0),
       duration: '45 min',
     };
 
@@ -151,7 +160,7 @@ describe('SchedulingWidget', () => {
       jobRole: 'Frontend Engineer',
       interviewType: 'Hiring',
       interviewerName: 'Casey',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
     };
 
@@ -192,7 +201,7 @@ describe('SchedulingWidget', () => {
       jobRole: 'Frontend Engineer',
       interviewType: 'Hiring',
       interviewerName: 'Casey',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
     };
 
@@ -212,7 +221,7 @@ describe('SchedulingWidget', () => {
       organization: { displayName: 'Cynectex', logo: '/logos/cynectex.png' },
       jobRole: 'Data Analyst',
       interviewType: 'Hiring',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
     };
 
@@ -230,7 +239,7 @@ describe('SchedulingWidget', () => {
       organization: { displayName: 'Cynectex' },
       jobRole: 'Data Analyst',
       interviewType: 'Hiring',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
       planStageSequence: 2,
       planStageTotal: 3,
@@ -253,7 +262,7 @@ describe('SchedulingWidget', () => {
       jobRole: 'Frontend Engineer',
       interviewType: 'Hiring',
       interviewerName: 'Casey',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
       rescheduleRequests: [
         {
@@ -303,6 +312,29 @@ describe('SchedulingWidget', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/live-interview-session?interviewId=interview_hiring_2');
   });
 
+  it('does not keep a past scheduled hiring interview in the upcoming list after the join window has expired', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-11T11:05:00.000Z'));
+
+    const hiringInterview = {
+      id: 'interview_hiring_expired_1',
+      status: 'SCHEDULED',
+      mode: 'HIRING',
+      company: { companyName: 'Globex' },
+      jobRole: 'Frontend Engineer',
+      interviewType: 'Hiring',
+      interviewerName: 'Casey',
+      scheduledFor: '2026-03-11T09:00:00.000Z',
+      duration: '60 min',
+    };
+
+    render(<SchedulingWidget upcomingInterviews={[hiringInterview]} />);
+
+    expect(screen.queryByText('Globex')).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Join Interview Now' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'View Applications' })).toBeTruthy();
+  });
+
   it('blocks reschedule requests when the preferred slot is in the past', async () => {
     const hiringInterview = {
       id: 'interview_hiring_1',
@@ -312,7 +344,7 @@ describe('SchedulingWidget', () => {
       jobRole: 'Frontend Engineer',
       interviewType: 'Hiring',
       interviewerName: 'Casey',
-      scheduledFor: '2026-03-11T09:00:00.000Z',
+      scheduledFor: futureIso(11, 9, 0),
       duration: '60 min',
     };
 

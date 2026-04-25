@@ -10,7 +10,34 @@ describe('analyticsDatasetPayload', () => {
       timestamp: index * 100,
       frameNumber: index,
       pose: { landmarks: Array.from({ length: 10 }, () => ({ x: 1, y: 2 })) },
-      face: { landmarks: Array.from({ length: 10 }, () => ({ x: 3, y: 4 })) },
+      face: {
+        landmarks: Array.from({ length: 10 }, () => ({ x: 3, y: 4 })),
+        eyeContactScore: 84,
+        yaw: 6,
+        pitch: 3,
+        roll: 1,
+        faceOrientationStatus: 'direct',
+        blinkCount: 2,
+        blinkRate: 14,
+        avgEAR: 0.24,
+        eyeAsymmetry: 0.03,
+        isBlinking: false,
+        gaze: {
+          direction: 'center',
+          status: 'direct',
+          deviation: 0.08,
+          horizontalOffset: 0.02,
+          verticalOffset: -0.01,
+          isLookingAtCamera: true,
+        },
+        iris: {
+          left: { rawX: 0.4, rawY: 0.5, normalizedX: 0.51, normalizedY: 0.49 },
+          right: { rawX: 0.6, rawY: 0.5, normalizedX: 0.5, normalizedY: 0.5 },
+          symmetry: 0.02,
+        },
+        mouthMAR: 0.11,
+        isSpeaking: true,
+      },
       bodyLanguage: {
         posture: 'good',
         eyeContact: 'good',
@@ -33,6 +60,17 @@ describe('analyticsDatasetPayload', () => {
       poseDetected: true,
       faceDetected: true,
     });
+    expect(sampled[0].faceSummary).toEqual(expect.objectContaining({
+      eyeContactScore: 84,
+      gaze: expect.objectContaining({
+        direction: 'center',
+        deviation: 0.08,
+        isLookingAtCamera: true,
+      }),
+      iris: expect.objectContaining({
+        symmetry: 0.02,
+      }),
+    }));
   });
 
   it('builds a compact dataset payload with original and stored frame counts', () => {

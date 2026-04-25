@@ -5,8 +5,15 @@ import AppImage from '../../../components/AppImage';
 import Icon from '../../../components/AppIcon';
 import Button from '../../../components/ui/Button';
 import apiClient from '../../../services/apiClient';
-import { getCandidateMeetingLinkEmailNotice } from '../../../constants/interviewMeetingLink.js';
+import {
+  getCandidateMeetingLinkEmailNotice,
+} from '../../../constants/interviewMeetingLink.js';
 import { getInterviewRoundSummary } from '../../../utils/interviewRoundSummary.js';
+import {
+  getInterviewAccessWindow,
+  isCandidateInterviewStillRelevant,
+  isInterviewAccessWindowOpen,
+} from '../../../utils/candidateInterviewWindows.js';
 
 const API_BASE = (import.meta.env.VITE_API_URL || 'http://localhost:3000').replace(/\/$/, '');
 
@@ -111,7 +118,11 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     return interviews
       .filter(interview => {
         const status = interview?.status?.toUpperCase();
-        return status === 'SCHEDULED' || status === 'IN_PROGRESS' || status === 'PAUSED';
+        if (status !== 'SCHEDULED' && status !== 'IN_PROGRESS' && status !== 'PAUSED') {
+          return false;
+        }
+
+        return isCandidateInterviewStillRelevant(interview, currentTimestamp);
       })
       .map(interview => {
         const companyNameRaw = resolveInterviewOrganizationName(interview);
@@ -133,7 +144,7 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
         const canDirectJoinHiringInterview = (
           String(interview?.mode || interview?.interviewMode || '').toUpperCase() === 'HIRING'
           && hasScheduledDate
-          && scheduledTimestamp <= currentTimestamp
+          && isInterviewAccessWindowOpen(interview, currentTimestamp)
           && (rawStatus === 'SCHEDULED' || rawStatus === 'IN_PROGRESS' || rawStatus === 'PAUSED')
         );
 
@@ -191,6 +202,8 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
     () => transformInterviews(upcomingInterviews),
     [currentTimestamp, upcomingInterviews],
   );
+  const scheduledInterviewCount = interviewData.filter((interview) => interview?.hasScheduledDate).length;
+  const pendingSchedulingCount = interviewData.length - scheduledInterviewCount;
   const manageableInterviews = interviewData.filter((interview) => interview?.canManageSchedule);
   const requestableInterviews = interviewData.filter((interview) => interview?.canRequestReschedule);
   const hasScheduledInterviews = interviewData.length > 0;
@@ -572,14 +585,24 @@ const SchedulingWidget = ({ upcomingInterviews = [], onScheduleSaved }) => {
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">Upcoming Interviews</h2>
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900 dark:text-slate-100">
+                  {pendingSchedulingCount > 0 && scheduledInterviewCount === 0 ? 'Interview Workflow' : 'Upcoming Interviews'}
+                </h2>
                 {interviewData?.length > 0 && (
                   <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md bg-blue-100 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 tabular-nums">
                     {interviewData.length}
                   </span>
                 )}
               </div>
-              <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">Manage your scheduled interviews</p>
+              <p className="text-xs text-gray-500 dark:text-slate-400 leading-relaxed">
+                {scheduledInterviewCount > 0 && pendingSchedulingCount > 0
+                  ? `Track ${scheduledInterviewCount} scheduled and ${pendingSchedulingCount} pending interview workflows`
+                  : scheduledInterviewCount > 0
+                    ? 'Manage your scheduled interviews'
+                    : pendingSchedulingCount > 0
+                      ? 'Track interview workflows that are waiting for scheduling details'
+                      : 'Manage your scheduled interviews'}
+              </p>
             </div>
           </div>
           {(hasManageableInterviews || hasRequestableInterviews) && (

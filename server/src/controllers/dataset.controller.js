@@ -41,6 +41,70 @@ const normalizeTrainingData = (value) => {
   return [];
 };
 
+const compactFaceSummary = (face = {}) => {
+  if (!face || typeof face !== 'object') {
+    return null;
+  }
+
+  return {
+    eyeContactScore: Number.isFinite(face.eyeContactScore) ? face.eyeContactScore : 0,
+    orientation: {
+      yaw: Number.isFinite(face.yaw) ? face.yaw : 0,
+      pitch: Number.isFinite(face.pitch) ? face.pitch : 0,
+      roll: Number.isFinite(face.roll) ? face.roll : 0,
+      status: face.faceOrientationStatus || null,
+    },
+    eyes: {
+      leftEAR: Number.isFinite(face.leftEAR ?? face.leftEyeEAR) ? (face.leftEAR ?? face.leftEyeEAR) : 0,
+      rightEAR: Number.isFinite(face.rightEAR ?? face.rightEyeEAR) ? (face.rightEAR ?? face.rightEyeEAR) : 0,
+      avgEAR: Number.isFinite(face.avgEAR ?? face.avgEyeEAR) ? (face.avgEAR ?? face.avgEyeEAR) : 0,
+      asymmetry: Number.isFinite(face.eyeAsymmetry) ? face.eyeAsymmetry : 0,
+      blinkCount: Number.isFinite(face.blinkCount) ? face.blinkCount : 0,
+      blinkRate: Number.isFinite(face.blinkRate) ? face.blinkRate : 0,
+      isBlinking: Boolean(face.isBlinking),
+    },
+    gaze: {
+      isLookingAtCamera: Boolean(face.isLookingAtCamera ?? face.gaze?.isLookingAtCamera),
+      direction: face.gaze?.direction || face.gazeDirection || null,
+      status: face.gaze?.status || face.gazeStatus || null,
+      deviation: Number.isFinite(face.gaze?.deviation ?? face.gazeDeviation) ? (face.gaze?.deviation ?? face.gazeDeviation) : 0,
+      horizontalOffset: Number.isFinite(face.gaze?.horizontalOffset ?? face.gazeHorizontalOffset)
+        ? (face.gaze?.horizontalOffset ?? face.gazeHorizontalOffset)
+        : 0,
+      verticalOffset: Number.isFinite(face.gaze?.verticalOffset ?? face.gazeVerticalOffset)
+        ? (face.gaze?.verticalOffset ?? face.gazeVerticalOffset)
+        : 0,
+    },
+    iris: {
+      left: {
+        rawX: Number.isFinite(face.iris?.left?.rawX ?? face.leftIrisCenter?.rawX) ? (face.iris?.left?.rawX ?? face.leftIrisCenter?.rawX) : 0,
+        rawY: Number.isFinite(face.iris?.left?.rawY ?? face.leftIrisCenter?.rawY) ? (face.iris?.left?.rawY ?? face.leftIrisCenter?.rawY) : 0,
+        normalizedX: Number.isFinite(face.iris?.left?.normalizedX ?? face.leftIrisCenter?.normalizedX)
+          ? (face.iris?.left?.normalizedX ?? face.leftIrisCenter?.normalizedX)
+          : 0,
+        normalizedY: Number.isFinite(face.iris?.left?.normalizedY ?? face.leftIrisCenter?.normalizedY)
+          ? (face.iris?.left?.normalizedY ?? face.leftIrisCenter?.normalizedY)
+          : 0,
+      },
+      right: {
+        rawX: Number.isFinite(face.iris?.right?.rawX ?? face.rightIrisCenter?.rawX) ? (face.iris?.right?.rawX ?? face.rightIrisCenter?.rawX) : 0,
+        rawY: Number.isFinite(face.iris?.right?.rawY ?? face.rightIrisCenter?.rawY) ? (face.iris?.right?.rawY ?? face.rightIrisCenter?.rawY) : 0,
+        normalizedX: Number.isFinite(face.iris?.right?.normalizedX ?? face.rightIrisCenter?.normalizedX)
+          ? (face.iris?.right?.normalizedX ?? face.rightIrisCenter?.normalizedX)
+          : 0,
+        normalizedY: Number.isFinite(face.iris?.right?.normalizedY ?? face.rightIrisCenter?.normalizedY)
+          ? (face.iris?.right?.normalizedY ?? face.rightIrisCenter?.normalizedY)
+          : 0,
+      },
+      symmetry: Number.isFinite(face.iris?.symmetry ?? face.irisSymmetry) ? (face.iris?.symmetry ?? face.irisSymmetry) : 0,
+    },
+    speaking: {
+      mouthMAR: Number.isFinite(face.mouthMAR) ? face.mouthMAR : 0,
+      isSpeaking: Boolean(face.isSpeaking),
+    },
+  };
+};
+
 const compactAnalyticsPoint = (point = {}) => ({
   timestamp: Number.isFinite(point.timestamp) ? point.timestamp : 0,
   frameNumber: Number.isFinite(point.frameNumber) ? point.frameNumber : 0,
@@ -60,6 +124,7 @@ const compactAnalyticsPoint = (point = {}) => ({
     poseDetected: Boolean(point.pose),
     faceDetected: Boolean(point.face),
   },
+  faceSummary: compactFaceSummary(point.face),
 });
 
 const sampleAnalyticsPoints = (dataPoints = [], maxPoints = MAX_ANALYTICS_DATASET_POINTS) => {

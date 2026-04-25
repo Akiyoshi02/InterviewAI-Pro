@@ -163,7 +163,7 @@ const VoiceSpeechAnalyzer = ({ transcript, durationSeconds, compact = false }) =
           <Icon name="AlertTriangle" size={12} className="text-orange-500" /> {analysis.fillerRate}% fillers
         </span>
         <span className="flex items-center gap-1 text-gray-600 dark:text-slate-300">
-          <Icon name="Star" size={12} className="text-purple-500" /> {analysis.fluencyScore}% fluency
+          <Icon name="BrandBrain" size={12} className="text-purple-500" /> {analysis.fluencyScore}% fluency
         </span>
       </div>
     );
@@ -183,7 +183,7 @@ const VoiceSpeechAnalyzer = ({ transcript, durationSeconds, compact = false }) =
             { label: 'Words', value: analysis.wordCount.toLocaleString(), icon: 'Type', color: 'blue' },
             { label: 'WPM', value: analysis.wpm, icon: 'Gauge', color: analysis.wpm >= 100 && analysis.wpm <= 180 ? 'emerald' : 'orange' },
             { label: 'Filler Words', value: analysis.totalFillers, icon: 'AlertTriangle', color: analysis.totalFillers > 10 ? 'red' : 'yellow' },
-            { label: 'Fluency', value: `${analysis.fluencyScore}%`, icon: 'Sparkles', color: analysis.fluencyScore >= 70 ? 'emerald' : 'orange' },
+            { label: 'Fluency', value: `${analysis.fluencyScore}%`, icon: 'BrandBrain', color: analysis.fluencyScore >= 70 ? 'emerald' : 'orange' },
           ].map((stat) => (
             <div key={stat.label} className="rounded-xl bg-gray-50 dark:bg-slate-700/30 border border-gray-100 dark:border-slate-700 p-3 text-center">
               <Icon name={stat.icon} size={16} className={`mx-auto mb-1 text-${stat.color}-500`} />

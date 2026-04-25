@@ -186,6 +186,7 @@ export const useAIInterviewer = (config = {}) => {
         ...interviewConfig,
       };
       activeInterviewConfigRef.current = mergedConfig;
+      let backendAuthoritativeFlow = false;
 
       // Check local whisper server once at init
       try {
@@ -201,6 +202,7 @@ export const useAIInterviewer = (config = {}) => {
         try {
           backendSyncRef.current = new InterviewBackendSync(interviewId);
           await backendSyncRef.current.initialize();
+          backendAuthoritativeFlow = true;
           
           // Start interview on backend if not already started
           await backendSyncRef.current.startInterview();
@@ -241,6 +243,7 @@ export const useAIInterviewer = (config = {}) => {
       // Create interviewer instance
       const interviewer = createAIInterviewer({
         ...mergedConfig,
+        disableLocalModelForInterview: backendAuthoritativeFlow,
       });
       
       interviewerRef.current = interviewer;
@@ -348,30 +351,33 @@ export const useAIInterviewer = (config = {}) => {
         timestamp: new Date().toISOString()
       }]);
 
-      // Process answer with AI interviewer
-      const response = await interviewerRef.current.processAnswer(answer);
-      
-      // Save answer to backend if backend sync is available
+      let response;
       if (backendSyncRef.current && currentQuestionIdRef.current) {
-        try {
-          const backendResponse = await backendSyncRef.current.submitAnswer(
-            currentQuestionIdRef.current,
-            answer,
-            audioUrl
-          );
-          
-          // Merge backend evaluation with AI response if available
-          if (backendResponse.evaluation) {
-            response.evaluation = {
-              ...response.evaluation,
-              ...backendResponse.evaluation,
-              backendScore: backendResponse.evaluation.score,
-            };
-          }
-        } catch (backendError) {
-          console.warn('Failed to save answer to backend:', backendError);
-          // Continue even if backend save fails
-        }
+        const backendResponse = await backendSyncRef.current.submitAnswer(
+          currentQuestionIdRef.current,
+          answer,
+          audioUrl,
+        );
+        const backendQuestion = backendResponse?.question || {};
+        const backendEvaluation = backendResponse?.evaluation || {};
+        const followUpQuestion = (
+          backendQuestion?.followUpMetadata?.question
+          || backendQuestion?.followUpQuestion
+          || null
+        );
+
+        response = interviewerRef.current.processBackendEvaluatedAnswer({
+          candidateAnswer: answer,
+          evaluation: backendEvaluation,
+          followUpQuestion,
+        });
+        response.evaluation = {
+          ...response.evaluation,
+          ...backendEvaluation,
+          backendScore: backendEvaluation?.score ?? response?.evaluation?.score ?? null,
+        };
+      } else {
+        response = await interviewerRef.current.processAnswer(answer);
       }
       
       setCurrentMessage(response.message);
@@ -395,6 +401,8 @@ export const useAIInterviewer = (config = {}) => {
           currentQuestionIdRef.current = nextQuestion.question.id;
           // Mark question as asked
           await backendSyncRef.current.markQuestionAsked(nextQuestion.question.id);
+        } else {
+          currentQuestionIdRef.current = null;
         }
       }
 
@@ -470,26 +478,26 @@ export const useAIInterviewer = (config = {}) => {
       setIsProcessing(true);
       setError(null);
 
-      const response = await interviewerRef.current.concludeInterview();
-
       let backendInterview = null;
       if (backendSyncRef.current) {
-        try {
-          const backendResponse = await backendSyncRef.current.endInterview();
-          backendInterview = backendResponse?.interview || null;
+        const backendResponse = await backendSyncRef.current.endInterview();
+        backendInterview = backendResponse?.interview || null;
+      }
+      const response = await interviewerRef.current.concludeInterview({
+        overallScore: backendInterview?.overallScore ?? null,
+        readinessLevel: backendInterview?.readinessLevel ?? null,
+        pendingEvaluation: Boolean(backendInterview?.pendingEvaluation),
+        llmUnavailable: Boolean(backendInterview?.llmUnavailable),
+      });
 
-          if (backendInterview?.evaluation) {
-            response.backendEvaluation = backendInterview.evaluation;
-          }
-          if (typeof backendInterview?.overallScore === 'number') {
-            response.backendOverallScore = backendInterview.overallScore;
-          }
-          if (backendInterview?.readinessLevel) {
-            response.backendReadinessLevel = backendInterview.readinessLevel;
-          }
-        } catch (backendError) {
-          console.warn('Failed to end interview on backend:', backendError);
-        }
+      if (backendInterview?.evaluation) {
+        response.backendEvaluation = backendInterview.evaluation;
+      }
+      if (typeof backendInterview?.overallScore === 'number') {
+        response.backendOverallScore = backendInterview.overallScore;
+      }
+      if (backendInterview?.readinessLevel) {
+        response.backendReadinessLevel = backendInterview.readinessLevel;
       }
       
       setCurrentMessage(response.message);

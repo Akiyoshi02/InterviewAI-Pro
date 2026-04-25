@@ -912,7 +912,7 @@ const JobDetailPage = () => {
                       <div className="mt-4 rounded-xl border border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/20 p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center flex-shrink-0">
-                            <Icon name="Sparkles" size={20} className="text-white" />
+                            <Icon name="BrandBrain" size={20} className="text-white" />
                           </div>
                           <div>
                             <p className="font-medium text-gray-900 dark:text-slate-100">Prepare with AI</p>

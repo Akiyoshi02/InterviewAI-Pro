@@ -73,7 +73,7 @@ const TermsAndPrivacy = ({
       <div className="bg-primary/5 border border-primary/20 rounded-lg p-4">
         <div className="flex items-start space-x-3">
           <div className="w-8 h-8 bg-primary rounded-lg flex items-center justify-center flex-shrink-0">
-            <Icon name="Sparkles" size={16} color="white" />
+            <Icon name="BrandBrain" size={16} color="white" />
           </div>
           <div className="flex-1">
             <h4 className="text-sm font-medium text-foreground mb-2">

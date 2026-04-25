@@ -171,4 +171,62 @@ describe('AIInterviewer structured question flow', () => {
     expect(response.questionNumber).toBe(2);
     expect(response.message).toContain('How do you diagnose a slow database query?');
   });
+
+  it('uses deterministic welcome and avoids local LLM in backend-authoritative mode', async () => {
+    const interviewer = new AIInterviewer({
+      totalQuestions: 2,
+      disableLocalModelForInterview: true,
+      questionBank: [
+        { id: 'q1', question: 'Tell me about a migration you led.', type: 'behavioral' },
+        { id: 'q2', question: 'How would you optimize Redis usage?', type: 'technical' },
+      ],
+    });
+
+    const response = await interviewer.startInterview();
+    expect(response.phase).toBe('introduction');
+    expect(response.message).toContain('Please start by briefly introducing yourself');
+    expect(callOllama).not.toHaveBeenCalled();
+  });
+
+  it('uses backend evaluation to drive follow-up and next-question progression without local LLM', async () => {
+    const interviewer = new AIInterviewer({
+      totalQuestions: 2,
+      disableLocalModelForInterview: true,
+      questionBank: [
+        { id: 'q1', question: 'Describe a trade-off you explained to stakeholders.', type: 'behavioral' },
+        { id: 'q2', question: 'How would you harden an upload API?', type: 'technical' },
+      ],
+    });
+
+    await interviewer.startInterview();
+    await interviewer.processIntroduction('Intro');
+
+    const followUp = interviewer.processBackendEvaluatedAnswer({
+      candidateAnswer: 'I sent an email update.',
+      evaluation: {
+        score: 5,
+        strengths: ['Concise'],
+        weaknesses: ['Missing measurable outcome'],
+      },
+      followUpQuestion: 'Can you quantify the business impact and the final decision?',
+    });
+    expect(followUp.actionType).toBe('follow_up');
+    expect(followUp.questionNumber).toBe(1);
+    expect(followUp.message).toContain('Can you quantify the business impact');
+
+    const nextQuestion = interviewer.processBackendEvaluatedAnswer({
+      candidateAnswer: 'I shared options, aligned on the lower-risk path, and reduced rollout risk by 30 percent.',
+      evaluation: {
+        score: 8,
+        strengths: ['Clear trade-off framing'],
+        weaknesses: [],
+      },
+    });
+    expect(nextQuestion.actionType).toBe('next_question');
+    expect(nextQuestion.questionNumber).toBe(2);
+    expect(nextQuestion.message).toContain('Question 2/2');
+    expect(nextQuestion.message).toContain('How would you harden an upload API?');
+    expect(interviewer.getState().averageScore).toBe('8.0');
+    expect(callOllama).not.toHaveBeenCalled();
+  });
 });

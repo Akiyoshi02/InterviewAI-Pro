@@ -61,6 +61,7 @@ vi.mock('../../../../services/apiClient.js', () => ({
     },
     reviews: {
       getReviewForInterview: vi.fn(),
+      list: vi.fn(),
       submitReview: vi.fn(),
     },
     uploads: {
@@ -119,6 +120,10 @@ describe('InterviewReviewEnhanced role experience', () => {
       success: true,
       review: null,
     });
+    apiClient.reviews.list = vi.fn().mockResolvedValue({
+      success: true,
+      reviews: [],
+    });
     apiClient.reviews.submitReview = vi.fn().mockResolvedValue({
       success: true,
       review: { id: 'review-1' },
@@ -163,7 +168,7 @@ describe('InterviewReviewEnhanced role experience', () => {
     expect(screen.getByRole('button', { name: /Submit Review/i })).toBeTruthy();
     expect(screen.getByRole('button', { name: /My Review/i })).not.toBeDisabled();
     expect(screen.queryByRole('button', { name: /Export report/i })).toBeNull();
-    expect(screen.queryByText(/override AI/i)).toBeNull();
+    expect(screen.queryByText(/Use my overall score as the official SME final score/i)).toBeNull();
   });
 
   it('does not expose AI evaluation reruns to reviewer users', async () => {
@@ -184,7 +189,53 @@ describe('InterviewReviewEnhanced role experience', () => {
     expect(screen.queryByRole('button', { name: /Run AI Evaluation Now/i })).toBeNull();
   });
 
-  it('keeps export and override controls available for recruiter users', async () => {
+  it('keeps SME override available for reviewer users while export stays hidden', async () => {
+    apiClient.interviews.getInterview = vi.fn().mockResolvedValue({
+      success: true,
+      interview: buildInterview('COMPLETED'),
+    });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    screen.getByRole('button', { name: /My Review/i }).click();
+    await screen.findByRole('checkbox');
+
+    expect(screen.queryByRole('button', { name: /Export report/i })).toBeNull();
+    expect(screen.getByText(/No official SME final score has been set yet/i)).toBeTruthy();
+  });
+
+  it('keeps export and SME override controls available for company admin users', async () => {
+    mockUseAuth.mockReturnValue({
+      user: {
+        id: 'admin-1',
+        organizationContext: {
+          membership: { role: 'ADMIN' },
+        },
+      },
+    });
+    apiClient.interviews.getInterview = vi.fn().mockResolvedValue({
+      success: true,
+      interview: buildInterview('COMPLETED'),
+    });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    screen.getByRole('button', { name: /My Review/i }).click();
+    await screen.findByRole('checkbox');
+
+    expect(screen.getByRole('button', { name: /Export report/i })).toBeTruthy();
+    expect(screen.getByText(/No official SME final score has been set yet/i)).toBeTruthy();
+  });
+
+  it('keeps export available but hides SME override controls for recruiter users', async () => {
     mockUseAuth.mockReturnValue({
       user: {
         id: 'recruiter-1',
@@ -205,10 +256,146 @@ describe('InterviewReviewEnhanced role experience', () => {
     });
 
     screen.getByRole('button', { name: /My Review/i }).click();
-    await screen.findByText(/Use my overall score as the final score/i);
 
     expect(screen.getByRole('button', { name: /Export report/i })).toBeTruthy();
-    expect(screen.getByText(/override AI/i)).toBeTruthy();
+    expect(screen.queryByText(/Use my overall score as the official SME final score/i)).toBeNull();
+  });
+
+  it('shows submitted reviewer scores before a reviewer submits their own review', async () => {
+    apiClient.interviews.getInterview = vi.fn().mockResolvedValue({
+      success: true,
+      interview: {
+        ...buildInterview('COMPLETED'),
+        officialSmeReviewerId: 'reviewer-2',
+        officialSmeReviewId: 'review-2',
+        officialSmeReviewer: { id: 'reviewer-2', fullName: 'Official Reviewer' },
+        finalOverallScore: 80,
+        finalScoreSource: 'SME',
+      },
+    });
+    apiClient.reviews.list = vi.fn().mockResolvedValue({
+      success: true,
+      reviews: [
+        {
+          id: 'review-2',
+          reviewerId: 'reviewer-2',
+          reviewer: { id: 'reviewer-2', fullName: 'Official Reviewer' },
+          rating: 8,
+          smeOverallScore: 80,
+          recommendation: 'YES',
+          notes: 'Strong depth across the stack.',
+          updatedAt: '2026-03-06T09:05:00.000Z',
+        },
+      ],
+    });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /My Review/i }));
+
+    expect(screen.getByText(/Submitted Reviewer Scores/i)).toBeTruthy();
+    expect(screen.getByText(/Official Reviewer owns the official SME final score/i)).toBeTruthy();
+    expect(screen.getByText(/Strong depth across the stack/i)).toBeTruthy();
+  });
+
+  it('hides the official-score checkbox from peer reviewers when another official reviewer already owns it', async () => {
+    apiClient.interviews.getInterview = vi.fn().mockResolvedValue({
+      success: true,
+      interview: {
+        ...buildInterview('COMPLETED'),
+        officialSmeReviewerId: 'reviewer-2',
+        officialSmeReviewId: 'review-2',
+        officialSmeReviewer: { id: 'reviewer-2', fullName: 'Official Reviewer' },
+        finalOverallScore: 80,
+        finalScoreSource: 'SME',
+      },
+    });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /My Review/i }));
+
+    expect(screen.queryByText(/Use my overall score as the official SME final score/i)).toBeNull();
+    expect(screen.getByText(/only that reviewer can update the official final score/i)).toBeTruthy();
+  });
+
+  it('submits reviewer SME overrides with the explicit overall rating and without untouched zero category scores', async () => {
+    apiClient.interviews.getInterview = vi
+      .fn()
+      .mockResolvedValueOnce({
+        success: true,
+        interview: buildInterview('COMPLETED'),
+      })
+      .mockResolvedValueOnce({
+        success: true,
+        interview: {
+          ...buildInterview('COMPLETED'),
+          finalOverallScore: 90,
+          finalScoreSource: 'SME',
+        },
+      });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /My Review/i }));
+    fireEvent.change(screen.getAllByRole('slider')[0], { target: { value: '9' } });
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.change(screen.getByPlaceholderText(/Provide detailed feedback/i), {
+      target: { value: 'Strong interview performance.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Submit Review/i }));
+
+    await waitFor(() => {
+      expect(apiClient.reviews.submitReview).toHaveBeenCalled();
+    });
+
+    const payload = apiClient.reviews.submitReview.mock.calls[0][0];
+    expect(payload).toMatchObject({
+      interviewId: 'interview-1',
+      rating: 9,
+      overrideOverall: true,
+      recommendation: 'UNDECIDED',
+      notes: 'Strong interview performance.',
+    });
+    expect(payload).not.toHaveProperty('technicalScore');
+    expect(payload).not.toHaveProperty('communicationScore');
+    expect(payload).not.toHaveProperty('problemSolvingScore');
+    expect(payload).not.toHaveProperty('culturalFitScore');
+  });
+
+  it('blocks reviewer SME overrides until an overall rating is set', async () => {
+    apiClient.interviews.getInterview = vi.fn().mockResolvedValue({
+      success: true,
+      interview: buildInterview('COMPLETED'),
+    });
+
+    render(<InterviewReviewEnhanced interviewId="interview-1" initialActiveTab="review" />);
+
+    await waitFor(() => {
+      expect(screen.queryByText('Loading interview review')).toBeNull();
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: /My Review/i }));
+    fireEvent.click(screen.getByRole('checkbox'));
+    fireEvent.change(screen.getByPlaceholderText(/Provide detailed feedback/i), {
+      target: { value: 'Strong interview performance.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Submit Review/i }));
+
+    expect(apiClient.reviews.submitReview).not.toHaveBeenCalled();
+    expect(screen.getByText(/Set an overall rating before setting the official SME final score/i)).toBeTruthy();
   });
 
   it('lets recruiter users record the completed round outcome from the review tab', async () => {

@@ -9,6 +9,155 @@ import {
   loadCalibratedOverrides,
 } from '../../../config/mediapipeReferenceData';
 
+const CATEGORY_TITLES = {
+  posture: 'Posture Thresholds',
+  eyeContact: 'Eye Contact Thresholds',
+  facial: 'Facial Thresholds',
+  engagement: 'Engagement Thresholds',
+};
+
+const CATEGORY_DESCRIPTIONS = {
+  posture: 'Posture alignment thresholds learned from collected shoulder, spine, and head-position samples.',
+  eyeContact: 'Face orientation, blink, gaze, and eyeball/iris thresholds calibrated from live interview analytics.',
+  facial: 'Facial-expression thresholds currently used to detect active speaking during interview answers.',
+  engagement: 'Movement thresholds used to score composure and flag excessive fidgeting.',
+};
+
+const ADVANCED_EYE_METRICS = new Set([
+  'eyeContact.gaze.irisPosition.tolerance',
+  'eyeContact.gaze.horizontalOffsetThreshold',
+  'eyeContact.gaze.verticalOffsetThreshold',
+  'eyeContact.gaze.asymmetryThreshold',
+  'eyeContact.gaze.irisSymmetryThreshold',
+]);
+
+const METRIC_METADATA = {
+  'posture.shoulder.maxSlopeThreshold': {
+    label: 'Shoulder Slope Limit',
+    description: 'Maximum shoulder tilt allowed before posture scoring begins to drop.',
+  },
+  'posture.shoulder.moderateSlopeThreshold': {
+    label: 'Shoulder Moderate Tilt',
+    description: 'Moderate shoulder tilt threshold used for fair posture scoring.',
+  },
+  'posture.shoulder.poorSlopeThreshold': {
+    label: 'Shoulder Poor Tilt',
+    description: 'High shoulder tilt threshold used to classify poor posture.',
+  },
+  'posture.spine.maxForwardHeadThreshold': {
+    label: 'Forward Head Limit',
+    description: 'Maximum forward-head displacement allowed before posture penalties apply.',
+  },
+  'posture.spine.moderateForwardHeadThreshold': {
+    label: 'Forward Head Moderate Limit',
+    description: 'Moderate forward-head displacement threshold for fair posture scoring.',
+  },
+  'posture.spine.poorForwardHeadThreshold': {
+    label: 'Forward Head Poor Limit',
+    description: 'Severe forward-head threshold used to classify poor posture.',
+  },
+  'posture.head.maxTiltThreshold': {
+    label: 'Head Tilt Limit',
+    description: 'Maximum acceptable head tilt before head-position scoring drops.',
+  },
+  'posture.head.poorTiltThreshold': {
+    label: 'Head Tilt Poor Limit',
+    description: 'Severe head tilt threshold used to classify poor head position.',
+  },
+  'posture.head.loweredThreshold': {
+    label: 'Head Lowered Limit',
+    description: 'Threshold for detecting when the candidate is consistently looking downward.',
+  },
+  'eyeContact.orientation.maxYawThreshold': {
+    label: 'Yaw Limit',
+    description: 'Maximum left-right face rotation allowed while maintaining direct eye contact.',
+  },
+  'eyeContact.orientation.moderateYawThreshold': {
+    label: 'Yaw Moderate Limit',
+    description: 'Moderate face rotation threshold used before eye-contact scoring drops further.',
+  },
+  'eyeContact.orientation.poorYawThreshold': {
+    label: 'Yaw Poor Limit',
+    description: 'Severe left-right face rotation threshold used to classify looking away.',
+  },
+  'eyeContact.orientation.maxPitchThreshold': {
+    label: 'Pitch Limit',
+    description: 'Maximum up-down face tilt allowed before attention scoring begins to drop.',
+  },
+  'eyeContact.orientation.moderatePitchThreshold': {
+    label: 'Pitch Moderate Limit',
+    description: 'Moderate up-down face tilt threshold used for fair eye-contact scoring.',
+  },
+  'eyeContact.orientation.poorPitchThreshold': {
+    label: 'Pitch Poor Limit',
+    description: 'Severe up-down face tilt threshold used to classify looking away.',
+  },
+  'eyeContact.eyes.blinkThreshold': {
+    label: 'Blink Threshold',
+    description: 'EAR threshold used to detect a blink or prolonged eye closure.',
+  },
+  'eyeContact.gaze.irisPosition.tolerance': {
+    label: 'Gaze Center Tolerance',
+    description: 'Allowed eyeball drift from the camera-center target before gaze is penalized.',
+  },
+  'eyeContact.gaze.horizontalOffsetThreshold': {
+    label: 'Horizontal Eye Offset Limit',
+    description: 'Maximum left-right iris drift allowed before eye-contact accuracy drops.',
+  },
+  'eyeContact.gaze.verticalOffsetThreshold': {
+    label: 'Vertical Eye Offset Limit',
+    description: 'Maximum up-down iris drift allowed before eye-contact accuracy drops.',
+  },
+  'eyeContact.gaze.asymmetryThreshold': {
+    label: 'Eye Asymmetry Limit',
+    description: 'Threshold for imbalance between left-eye and right-eye openness/gaze behaviour.',
+  },
+  'eyeContact.gaze.irisSymmetryThreshold': {
+    label: 'Iris Symmetry Limit',
+    description: 'Threshold for left/right iris mismatch used to detect unstable eyeball tracking.',
+  },
+  'facial.mouth.speakingThreshold': {
+    label: 'Speaking Mouth Threshold',
+    description: 'MAR threshold used to recognize when the candidate is actively speaking.',
+  },
+  'engagement.fidgetThreshold': {
+    label: 'Fidgeting Threshold',
+    description: 'Movement threshold used to flag excessive hand motion and reduced composure.',
+  },
+};
+
+const humanizeToken = (token) =>
+  String(token || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (char) => char.toUpperCase());
+
+const getMetricMetadata = (metricPath) => {
+  if (METRIC_METADATA[metricPath]) {
+    return METRIC_METADATA[metricPath];
+  }
+
+  const parts = String(metricPath || '').split('.');
+  const relevant = parts.length > 3 ? parts.slice(-2) : parts.slice(-1);
+
+  return {
+    label: relevant.map(humanizeToken).join(' '),
+    description: 'Calibrated from collected interview analytics samples.',
+  };
+};
+
+const formatMetricValue = (value) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return '-';
+  }
+
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return String(value);
+  if (Math.abs(numeric) >= 10) return numeric.toFixed(1);
+  if (Math.abs(numeric) >= 1) return numeric.toFixed(2);
+  return numeric.toFixed(3);
+};
+
 const confidenceBadge = (level) => {
   const styles = {
     high: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
@@ -142,9 +291,20 @@ const MediaPipeCalibrationPanel = () => {
 
         return (
           <div key={category} className="rounded-xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 p-4">
-            <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100 mb-3 capitalize">
-              {category === 'eyeContact' ? 'Eye Contact' : category} Thresholds
-            </h3>
+            <div className="mb-3">
+              <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                {CATEGORY_TITLES[category] || `${category} Thresholds`}
+              </h3>
+              <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                {CATEGORY_DESCRIPTIONS[category]}
+              </p>
+              {category === 'eyeContact' && (
+                <div className="mt-2 inline-flex items-center gap-2 rounded-full border border-blue-200 dark:border-blue-700/50 bg-blue-50 dark:bg-blue-900/20 px-3 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300">
+                  <Icon name="Eye" className="w-3.5 h-3.5" />
+                  Advanced eye tracking active: gaze center, eyeball offsets, iris symmetry, and eye asymmetry.
+                </div>
+              )}
+            </div>
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
                 <thead>
@@ -158,16 +318,35 @@ const MediaPipeCalibrationPanel = () => {
                   </tr>
                 </thead>
                 <tbody>
-                  {categoryComparisons.map((comp) => (
-                    <tr key={comp.metric} className="border-b border-gray-100 dark:border-slate-800">
+                  {categoryComparisons.map((comp) => {
+                    const metadata = getMetricMetadata(comp.metric);
+                    const isAdvancedEyeMetric = ADVANCED_EYE_METRICS.has(comp.metric);
+
+                    return (
+                    <tr key={comp.metric} className="border-b border-gray-100 dark:border-slate-800 align-top">
                       <td className="p-2 font-medium text-gray-700 dark:text-slate-300">
-                        {comp.metric.split('.')[1]}
+                        <div className="space-y-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span>{metadata.label}</span>
+                            {isAdvancedEyeMetric && (
+                              <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-900/30 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-blue-700 dark:text-blue-300">
+                                Eye / Iris
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[11px] font-normal text-gray-500 dark:text-slate-400">
+                            {metadata.description}
+                          </p>
+                          <p className="text-[10px] font-mono text-gray-400 dark:text-slate-500">
+                            {comp.metric}
+                          </p>
+                        </div>
                       </td>
                       <td className="p-2 text-center text-gray-600 dark:text-slate-400">
-                        {comp.staticValue ?? '-'}
+                        {formatMetricValue(comp.staticValue)}
                       </td>
                       <td className="p-2 text-center font-semibold text-gray-900 dark:text-slate-100">
-                        {comp.calibratedValue !== null ? comp.calibratedValue : '-'}
+                        {formatMetricValue(comp.calibratedValue)}
                       </td>
                       <td className="p-2 text-center">
                         {deviationIndicator(comp.deviation)}
@@ -179,7 +358,7 @@ const MediaPipeCalibrationPanel = () => {
                         {confidenceBadge(comp.confidence)}
                       </td>
                     </tr>
-                  ))}
+                  )})}
                 </tbody>
               </table>
             </div>

@@ -161,6 +161,14 @@ const renderPage = async (interviews) => {
   await screen.findByText('Aki Yapa');
 };
 
+const getFutureDatetimeLocalValue = (daysAhead = 7) => {
+  const date = new Date();
+  date.setDate(date.getDate() + daysAhead);
+  date.setHours(16, 0, 0, 0);
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+};
+
 describe('CompanyInterviews meeting link delivery status', () => {
   beforeEach(() => {
     mockUseAuth.mockReset();
@@ -497,7 +505,7 @@ describe('CompanyInterviews meeting link delivery status', () => {
       target: { value: 'MANUAL' },
     });
     fireEvent.change(screen.getByLabelText('Manual due date for Riley Reviewer'), {
-      target: { value: '2026-03-12T16:00' },
+      target: { value: getFutureDatetimeLocalValue() },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Save reviewer workflow' }));
 

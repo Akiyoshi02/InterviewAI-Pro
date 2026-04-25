@@ -469,17 +469,22 @@ const UserContextNavigation = ({
     }
   }, [user]);
 
-  const profileImage = userType === 'company'
-    ? user?.companyLogoUrl
+  const personalProfileImage = user?.profilePhotoUrl
+    || user?.photoURL
+    || user?.user_metadata?.photoURL
+    || storedUser?.profilePhotoUrl
+    || storedUser?.photoURL
+    || storedUser?.user_metadata?.photoURL;
+
+  const companyLogoImage = userType === 'company'
+    ? (user?.companyLogoUrl
       || user?.organizationContext?.organization?.branding?.logoUrl
       || storedUser?.companyLogoUrl
-      || storedUser?.organizationContext?.organization?.branding?.logoUrl
-    : user?.profilePhotoUrl
-      || user?.photoURL
-      || user?.user_metadata?.photoURL
-      || storedUser?.profilePhotoUrl
-      || storedUser?.photoURL
-      || storedUser?.user_metadata?.photoURL;
+      || storedUser?.organizationContext?.organization?.branding?.logoUrl)
+    : '';
+
+  const profileImage = personalProfileImage || companyLogoImage;
+  const profileImageIsPersonal = Boolean(personalProfileImage);
 
   const profileImageSources = useMemo(
     () => buildAssetSources(profileImage),
@@ -594,12 +599,12 @@ const UserContextNavigation = ({
                     <img
                       src={profileImageUrl}
                       alt="Profile"
-                      className={`h-full w-full ${userType === 'company' ? 'object-contain' : 'object-cover'}`}
+                      className={`h-full w-full ${!profileImageIsPersonal && userType === 'company' ? 'object-contain' : 'object-cover'}`}
                       onError={handleProfileImageError}
                     />
                   ) : (
                     <Icon
-                      name={userType === 'company' ? 'Building2' : userType === 'admin' ? 'Shield' : 'UserRound'}
+                      name={userType === 'admin' ? 'Shield' : 'UserRound'}
                       size={isCollapsed ? 18 : 22}
                       className="text-blue-600 dark:text-blue-400"
                     />

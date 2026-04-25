@@ -6,25 +6,24 @@ import logger from '../utils/logger.js';
 import { emailService } from '../services/email.service.js';
 
 const APP_NAME = process.env.APP_NAME || 'Interviewer';
+const EMAIL_OTP_EXPIRY_MINUTES = 10;
 
 /**
  * Two-Factor Authentication controller.
  *
  * Supports two methods:
- *   1. TOTP (Authenticator app) – via speakeasy RFC 6238
- *   2. Email OTP – 6-digit code with 10-minute TTL
+ *   1. TOTP (Authenticator app) via speakeasy RFC 6238
+ *   2. Email OTP via 6-digit code with 10-minute TTL
  *
  * Endpoints
- *   POST /api/2fa/totp/setup      – generate secret + QR code URI
- *   POST /api/2fa/totp/verify     – verify token and enable TOTP
- *   POST /api/2fa/totp/disable    – disable TOTP
- *   POST /api/2fa/email/send      – send email OTP
- *   POST /api/2fa/email/verify    – verify email OTP
- *   GET  /api/2fa/status          – current 2FA status for user
+ *   POST /api/2fa/totp/setup      generate secret + QR code URI
+ *   POST /api/2fa/totp/verify     verify token and enable TOTP
+ *   POST /api/2fa/totp/disable    disable TOTP
+ *   POST /api/2fa/email/send      send email OTP
+ *   POST /api/2fa/email/verify    verify email OTP
+ *   GET  /api/2fa/status          current 2FA status for user
  */
 export class TwoFAController {
-  // ─── TOTP ────────────────────────────────────────────────────────────────
-
   static async totpSetup(req, res, next) {
     try {
       const userId = req.user.id;
@@ -139,15 +138,14 @@ export class TwoFAController {
     }
   }
 
-  // ─── Email OTP ───────────────────────────────────────────────────────────
-
   static async emailOtpSend(req, res, next) {
     try {
       const userId = req.user.id;
       const email = req.user.email;
+      const fullName = req.user.fullName || req.user.metadata?.fullName || null;
 
       const otp = String(Math.floor(100000 + Math.random() * 900000));
-      const expiresAt = new Date(Date.now() + 10 * 60 * 1000).toISOString();
+      const expiresAt = new Date(Date.now() + EMAIL_OTP_EXPIRY_MINUTES * 60 * 1000).toISOString();
 
       await db.collection('user_2fa').doc(userId).set({
         emailOtp: otp,
@@ -158,25 +156,14 @@ export class TwoFAController {
 
       // Send OTP email
       try {
-        await emailService.sendEmail({
-          to: email,
-          subject: `${APP_NAME} – Your verification code`,
-          html: `
-            <div style="font-family: sans-serif; max-width: 480px; margin: 0 auto;">
-              <h2 style="color: #1e40af;">Two-Factor Verification</h2>
-              <p>Your one-time verification code is:</p>
-              <div style="font-size: 2rem; font-weight: bold; letter-spacing: 0.4rem; color: #1e40af; padding: 16px 0;">
-                ${otp}
-              </div>
-              <p style="color: #64748b; font-size: 0.875rem;">
-                This code expires in <strong>10 minutes</strong>. Do not share it with anyone.
-              </p>
-            </div>
-          `,
+        await emailService.sendTwoFactorVerificationCode({
+          email,
+          fullName,
+          verificationCode: otp,
+          expiresInMinutes: EMAIL_OTP_EXPIRY_MINUTES,
         });
       } catch (emailErr) {
         logger.warn('Failed to send 2FA email OTP:', emailErr);
-        // For dev: still return success but log the OTP
         logger.debug(`[DEV] Email OTP for ${email}: ${otp}`);
       }
 
@@ -232,8 +219,6 @@ export class TwoFAController {
     }
   }
 
-  // ─── Status ──────────────────────────────────────────────────────────────
-
   static async getStatus(req, res, next) {
     try {
       const userId = req.user.id;
@@ -254,8 +239,6 @@ export class TwoFAController {
       next(error);
     }
   }
-
-  // ─── Backup codes ────────────────────────────────────────────────────────
 
   static async useBackupCode(req, res, next) {
     try {
@@ -286,5 +269,3 @@ export class TwoFAController {
     }
   }
 }
-
-

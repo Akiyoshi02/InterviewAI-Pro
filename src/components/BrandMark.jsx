@@ -1,6 +1,5 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
-import Icon from './AppIcon';
 
 const BrandMark = ({
   showTagline = false,
@@ -30,24 +29,29 @@ const BrandMark = ({
 
   return (
     <div
-      className={`flex items-start space-x-2 ${clickable ? 'cursor-pointer select-none' : ''} ${className}`}
+      className={`flex items-center gap-1.5 xs:gap-2 ${clickable ? 'cursor-pointer select-none' : ''} ${className}`}
       role={clickable ? 'button' : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={handleActivate}
       onKeyDown={handleKeyDown}
     >
       <div
-        className={`${iconWrapperClassName} rounded-2xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-[0_10px_30px_rgba(59,130,246,0.3)]`}
+        className={`${iconWrapperClassName} flex items-center justify-center shrink-0`}
       >
-        <Icon name="Brain" size={18} color="currentColor" />
+        <img
+          src="/assets/images/logo.svg"
+          alt=""
+          aria-hidden="true"
+          className="w-full h-full object-contain drop-shadow-[0_10px_30px_rgba(59,130,246,0.3)]"
+        />
       </div>
-      <div className="leading-tight">
-        <span className={`${textClassName} font-semibold ${textColor}`}>
+      <div className="flex min-h-full flex-col justify-center">
+        <span className={`${textClassName} block font-semibold leading-none ${textColor}`}>
           <span>InterviewAI</span>{' '}
           <span className={proColor}>Pro</span>
         </span>
         {showTagline && (
-          <span className={`${taglineClassName} block`}>
+          <span className={`${taglineClassName} mt-0.5 block leading-tight`}>
             Human-ready interviews, AI precision.
           </span>
         )}

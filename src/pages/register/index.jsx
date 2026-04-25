@@ -42,6 +42,23 @@ export const getReferralCodeFromSearchParams = (searchParams) => {
   return String(raw).trim();
 };
 
+export const getAccountTypeFromSearchParams = (searchParams) => {
+  const raw = searchParams?.get?.('accountType');
+  if (!raw) return '';
+
+  const normalized = String(raw).trim().toLowerCase();
+
+  if (['candidate', 'job-seeker', 'job_seeker', 'jobseeker'].includes(normalized)) {
+    return 'candidate';
+  }
+
+  if (['company', 'employer'].includes(normalized)) {
+    return 'company';
+  }
+
+  return '';
+};
+
 export const withRegistrationReferralCode = (payload, referralCode) => {
   const normalized = String(referralCode || '').trim();
   if (!normalized || !payload || typeof payload !== 'object') return payload;
@@ -443,8 +460,9 @@ const Register = () => {
   useEffect(() => {
     const pendingRegistration = localStorage.getItem('pendingRegistration');
     const pendingAccountType = localStorage.getItem('pendingAccountType');
+    const searchParamAccountType = getAccountTypeFromSearchParams(searchParams);
 
-    if (!pendingRegistration && !pendingAccountType) {
+    if (!pendingRegistration && !pendingAccountType && !searchParamAccountType) {
       return;
     }
 
@@ -458,7 +476,13 @@ const Register = () => {
         }
       }
 
-      const rawAccountType = (pendingData.accountType || pendingAccountType || prev.accountType || '')
+      const rawAccountType = (
+        searchParamAccountType
+        || pendingData.accountType
+        || pendingAccountType
+        || prev.accountType
+        || ''
+      )
         .toString()
         .toLowerCase();
       const nextAccountType = rawAccountType === 'company' ? 'company' : 'candidate';
@@ -490,7 +514,7 @@ const Register = () => {
         youtubeUrl: pendingData.youtubeUrl || prev.youtubeUrl,
       };
     });
-  }, []);
+  }, [searchParams]);
 
   // Clear any stale authentication data when component mounts
   useEffect(() => {
@@ -522,7 +546,7 @@ const Register = () => {
             const accountType = userData.user.accountType?.toLowerCase();
             // Redirect non-public account types (no user-facing reference)
             if (accountType === 'system_admin') {
-              navigate('/admin', { replace: true });
+              navigate('/admin-login', { replace: true });
               return;
             }
 
@@ -1088,7 +1112,7 @@ const Register = () => {
     setLocationHelper({
       targetField: fieldKey,
       status: 'info',
-      message: 'Requesting location permissionâ€¦',
+      message: 'Requesting location permission...',
     });
 
     try {
@@ -1103,7 +1127,7 @@ const Register = () => {
       setLocationHelper({
         targetField: fieldKey,
         status: 'info',
-        message: 'Detecting your cityâ€¦',
+        message: 'Detecting your city...',
       });
 
       const { latitude, longitude } = position.coords || {};
@@ -1124,7 +1148,7 @@ const Register = () => {
       const formattedLocation = formatDetectedLocation(data, { latitude, longitude });
 
       if (!formattedLocation) {
-        throw new Error('We couldnâ€™t convert your coordinates into a city. Please enter it manually.');
+        throw new Error("We couldn't convert your coordinates into a city. Please enter it manually.");
       }
 
       handleFieldChange(fieldKey, formattedLocation);
@@ -2649,4 +2673,3 @@ const Register = () => {
 };
 
 export default Register;
-

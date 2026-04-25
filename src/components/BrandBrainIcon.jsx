@@ -1,0 +1,91 @@
+import React from 'react';
+
+const BrainPaths = () => (
+  <>
+    <path d="M12 5a3 3 0 1 0-5.997.125 4 4 0 0 0-2.526 5.77 4 4 0 0 0 .556 6.588A4 4 0 1 0 12 18Z" />
+    <path d="M12 5a3 3 0 1 1 5.997.125 4 4 0 0 1 2.526 5.77 4 4 0 0 1-.556 6.588A4 4 0 1 1 12 18Z" />
+    <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
+    <path d="M17.599 6.5a3 3 0 0 0 .399-1.375" />
+    <path d="M6.003 5.125A3 3 0 0 0 6.401 6.5" />
+    <path d="M3.477 10.896a4 4 0 0 1 .585-.396" />
+    <path d="M19.938 10.5a4 4 0 0 1 .585.396" />
+    <path d="M6 18a4 4 0 0 1-1.967-.516" />
+    <path d="M19.967 17.484A4 4 0 0 1 18 18" />
+  </>
+);
+
+const BrandBrainIcon = ({
+  size = undefined,
+  color = 'currentColor',
+  strokeWidth = 2.15,
+  className = '',
+  decorative = true,
+  showBackground = false,
+  style,
+  ...props
+}) => {
+  const gradientId = React.useId();
+  const resolvedSize = typeof size === 'number' ? `${size}px` : size;
+  const svgStyle = {
+    width: resolvedSize,
+    height: resolvedSize,
+    color,
+    ...style,
+  };
+
+  if (showBackground) {
+    return (
+      <svg
+        xmlns="http://www.w3.org/2000/svg"
+        viewBox="0 0 64 64"
+        fill="none"
+        className={className}
+        style={svgStyle}
+        aria-hidden={decorative ? 'true' : undefined}
+        role={decorative ? undefined : 'img'}
+        {...props}
+      >
+        <defs>
+          <linearGradient id={gradientId} x1="10" y1="8" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+            <stop offset="0%" stopColor="#2563EB" />
+            <stop offset="100%" stopColor="#7C3AED" />
+          </linearGradient>
+        </defs>
+        <rect x="6" y="6" width="52" height="52" rx="17" fill={`url(#${gradientId})`} />
+        <g
+          transform="translate(11 11) scale(1.75)"
+          stroke="#FFFFFF"
+          strokeWidth={strokeWidth}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <BrainPaths />
+        </g>
+      </svg>
+    );
+  }
+
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={className}
+      style={svgStyle}
+      aria-hidden={decorative ? 'true' : undefined}
+      role={decorative ? undefined : 'img'}
+      {...props}
+    >
+      <g
+        stroke="currentColor"
+        strokeWidth={strokeWidth}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      >
+        <BrainPaths />
+      </g>
+    </svg>
+  );
+};
+
+export default BrandBrainIcon;

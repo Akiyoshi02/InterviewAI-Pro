@@ -1,6 +1,7 @@
 import React from 'react';
 import Icon from '../../../components/AppIcon';
 import { getInterviewRoundSummary } from '../../../utils/interviewRoundSummary.js';
+import { getCandidateUpcomingScheduledInterviews } from '../../../utils/candidateInterviewWindows.js';
 
 const formatCompanyLabel = (company) => {
   if (!company) return '';
@@ -47,9 +48,7 @@ const ProgressOverviewCard = ({ progressData, analytics, interviews = [], dashbo
   const safeInterviews = Array.isArray(interviews) ? interviews : [];
   
   // Find the next scheduled interview
-  const scheduledInterviews = safeInterviews
-    .filter(i => i?.status?.toUpperCase() === 'SCHEDULED' && i?.scheduledFor)
-    .sort((a, b) => new Date(a.scheduledFor) - new Date(b.scheduledFor));
+  const scheduledInterviews = getCandidateUpcomingScheduledInterviews(safeInterviews);
   const nextScheduledInterview = scheduledInterviews[0] || null;
   
   // Calculate time left for next interview

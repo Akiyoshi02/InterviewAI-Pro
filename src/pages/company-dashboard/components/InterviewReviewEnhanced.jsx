@@ -12,6 +12,7 @@ import {
   combineRealtimeEventTypes,
 } from '../../../constants/realtimeFeedEvents.js';
 import { canMoveInterviewApplicationToOffer } from '../../../utils/interviewRoundSummary.js';
+import { hasPermission } from '../../../utils/rolePermissions.js';
 
 /** Rubric criteria for AI evaluation (explainable output for recruiters/SMEs). */
 const EVALUATION_RUBRIC_CRITERIA = [
@@ -115,6 +116,59 @@ const getStageOutcomeSummary = (interview) => {
   };
 };
 
+const REVIEW_SCORE_FIELDS = Object.freeze([
+  'rating',
+  'technicalScore',
+  'communicationScore',
+  'problemSolvingScore',
+  'culturalFitScore',
+]);
+
+const createEmptyReviewState = () => ({
+  rating: null,
+  technicalScore: null,
+  communicationScore: null,
+  problemSolvingScore: null,
+  culturalFitScore: null,
+  notes: '',
+  recommendation: 'UNDECIDED',
+  overrideOverall: false,
+});
+
+const buildReviewSubmissionPayload = (review = {}) => {
+  const payload = {
+    notes: review.notes || '',
+    recommendation: review.recommendation || 'UNDECIDED',
+    overrideOverall: Boolean(review.overrideOverall),
+  };
+
+  REVIEW_SCORE_FIELDS.forEach((field) => {
+    const value = review[field];
+    if (typeof value === 'number' && !Number.isNaN(value)) {
+      payload[field] = value;
+    }
+  });
+
+  return payload;
+};
+
+const formatReviewTimestamp = (value) => {
+  if (!value) return 'Not submitted yet';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return 'Not submitted yet';
+  return parsed.toLocaleString();
+};
+
+const getReviewOverallScore = (review = {}) => {
+  if (typeof review?.smeOverallScore === 'number' && !Number.isNaN(review.smeOverallScore)) {
+    return review.smeOverallScore;
+  }
+  if (typeof review?.rating === 'number' && !Number.isNaN(review.rating)) {
+    return review.rating * 10;
+  }
+  return null;
+};
+
 const InterviewReviewEnhanced = ({
   interviewId,
   initialActiveTab = 'overview',
@@ -126,19 +180,13 @@ const InterviewReviewEnhanced = ({
   const [interview, setInterview] = useState(null);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState(initialActiveTab);
-  const [review, setReview] = useState({
-    rating: 0,
-    technicalScore: 0,
-    communicationScore: 0,
-    problemSolvingScore: 0,
-    culturalFitScore: 0,
-    notes: '',
-    recommendation: 'UNDECIDED',
-    overrideOverall: false,
-  });
+  const [review, setReview] = useState(createEmptyReviewState);
   const [submitting, setSubmitting] = useState(false);
   const [reviewFormError, setReviewFormError] = useState('');
   const [reviewFormSuccess, setReviewFormSuccess] = useState('');
+  const [submittedReviews, setSubmittedReviews] = useState([]);
+  const [submittedReviewsLoading, setSubmittedReviewsLoading] = useState(false);
+  const [submittedReviewsError, setSubmittedReviewsError] = useState('');
   const [evaluationError, setEvaluationError] = useState('');
   const [recordingPlaybackUrl, setRecordingPlaybackUrl] = useState('');
   const [recordingLoading, setRecordingLoading] = useState(false);
@@ -161,7 +209,14 @@ const InterviewReviewEnhanced = ({
   const canSubmitReview = interviewStatus === 'COMPLETED';
   const canRunAiEvaluation = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
   const canExportInterviewReport = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
-  const canOverrideOverallScore = organizationRole === 'ADMIN' || organizationRole === 'RECRUITER';
+  const canOverrideOverallScore = hasPermission(organizationRole, 'OVERRIDE_INTERVIEW_SCORE');
+  const officialSmeReviewerId = String(interview?.officialSmeReviewerId || '').trim();
+  const officialSmeReviewId = String(interview?.officialSmeReviewId || '').trim();
+  const isOfficialSmeReviewer = Boolean(officialSmeReviewerId) && officialSmeReviewerId === String(user?.id || '').trim();
+  const canMarkReviewAsOfficial = canOverrideOverallScore && (!officialSmeReviewerId || isOfficialSmeReviewer);
+  const officialSmeReviewerName = interview?.officialSmeReviewer?.fullName
+    || interview?.officialSmeReviewer?.email
+    || (isOfficialSmeReviewer ? 'You' : officialSmeReviewerId ? 'Official SME reviewer' : null);
   const canManageStageOutcome = (organizationRole === 'ADMIN' || organizationRole === 'RECRUITER')
     && String(interview?.mode || '').trim().toUpperCase() === 'HIRING';
   const currentPlanStage = getCurrentInterviewPlanStageDetail(interview);
@@ -180,6 +235,64 @@ const InterviewReviewEnhanced = ({
   const stageOutcomeDirty = stageOutcomeInitialState.outcome !== stageOutcomeValue
     || stageOutcomeInitialState.note !== stageOutcomeNote;
   const shouldAutoCloseAfterReview = organizationRole === 'REVIEWER' && typeof onClose === 'function';
+  const visibleSubmittedReviews = [...submittedReviews].sort((left, right) => {
+    const leftOfficial = left?.id === officialSmeReviewId ? 1 : 0;
+    const rightOfficial = right?.id === officialSmeReviewId ? 1 : 0;
+    if (leftOfficial !== rightOfficial) {
+      return rightOfficial - leftOfficial;
+    }
+    return Date.parse(right?.updatedAt || right?.createdAt || 0) - Date.parse(left?.updatedAt || left?.createdAt || 0);
+  });
+
+  const loadSubmittedReviews = useCallback(async () => {
+    try {
+      setSubmittedReviewsLoading(true);
+      setSubmittedReviewsError('');
+      const result = await apiClient.reviews.list(interviewId);
+      if (result?.success) {
+        setSubmittedReviews(Array.isArray(result.reviews) ? result.reviews : []);
+      } else {
+        setSubmittedReviews([]);
+        setSubmittedReviewsError('Unable to load submitted reviewer scores right now.');
+      }
+    } catch (error) {
+      setSubmittedReviews([]);
+      setSubmittedReviewsError(error?.message || 'Unable to load submitted reviewer scores right now.');
+    } finally {
+      setSubmittedReviewsLoading(false);
+    }
+  }, [interviewId]);
+
+  const loadExistingReview = useCallback(async (interviewSnapshot = null) => {
+    const effectiveInterview = interviewSnapshot;
+    try {
+      const result = await apiClient.reviews.getReviewForInterview(interviewId);
+      if (result?.success && result.review) {
+        const r = result.review;
+        const effectiveOfficialReviewerId = String(effectiveInterview?.officialSmeReviewerId || '').trim();
+        const effectiveOfficialReviewId = String(effectiveInterview?.officialSmeReviewId || '').trim();
+        const canUseOfficialMarker = canOverrideOverallScore && (
+          !effectiveOfficialReviewerId || effectiveOfficialReviewerId === String(user?.id || '').trim()
+        );
+        setReview({
+          rating: r.rating ?? null,
+          technicalScore: r.technicalScore ?? null,
+          communicationScore: r.communicationScore ?? null,
+          problemSolvingScore: r.problemSolvingScore ?? null,
+          culturalFitScore: r.culturalFitScore ?? null,
+          notes: r.notes || '',
+          recommendation: r.recommendation || r.decision || 'UNDECIDED',
+          overrideOverall: canUseOfficialMarker
+            ? Boolean((effectiveOfficialReviewId && r.id === effectiveOfficialReviewId) || r.overrideOverall)
+            : false,
+        });
+        return;
+      }
+      setReview(createEmptyReviewState());
+    } catch {
+      setReview(createEmptyReviewState());
+    }
+  }, [canOverrideOverallScore, interviewId, user?.id]);
 
   const loadInterview = useCallback(async () => {
     try {
@@ -187,15 +300,17 @@ const InterviewReviewEnhanced = ({
       const result = await apiClient.interviews.getInterview(interviewId);
       if (result.success) {
         setInterview(result.interview);
-        // Load existing review if any
-        await loadExistingReview();
+        await Promise.all([
+          loadExistingReview(result.interview),
+          loadSubmittedReviews(),
+        ]);
       }
     } catch {
       // Error state handled by interview === null check in render
     } finally {
       setLoading(false);
     }
-  }, [interviewId]);
+  }, [interviewId, loadExistingReview, loadSubmittedReviews]);
 
   useEffect(() => {
     loadInterview();
@@ -206,7 +321,16 @@ const InterviewReviewEnhanced = ({
   }, [initialActiveTab, interviewId]);
 
   useEffect(() => {
+    setReview(createEmptyReviewState());
+  }, [interviewId]);
+
+  useEffect(() => {
     setStageOutcomeNextInterview(null);
+  }, [interviewId]);
+
+  useEffect(() => {
+    setSubmittedReviews([]);
+    setSubmittedReviewsError('');
   }, [interviewId]);
 
   useEffect(() => {
@@ -302,27 +426,6 @@ const InterviewReviewEnhanced = ({
     setStageOutcomeSuccess('');
   }, [interviewId]);
 
-  const loadExistingReview = async () => {
-    try {
-      const result = await apiClient.reviews.getReviewForInterview(interviewId);
-      if (result.success && result.review) {
-        const r = result.review;
-        setReview({
-          rating: r.rating ?? 0,
-          technicalScore: r.technicalScore ?? 0,
-          communicationScore: r.communicationScore ?? 0,
-          problemSolvingScore: r.problemSolvingScore ?? 0,
-          culturalFitScore: r.culturalFitScore ?? 0,
-          notes: r.notes || '',
-          recommendation: r.recommendation || r.decision || 'UNDECIDED',
-          overrideOverall: canOverrideOverallScore ? Boolean(r.overrideOverall) : false,
-        });
-      }
-    } catch (err) {
-      // No existing review, that's fine
-    }
-  };
-
   const handleSubmitReview = async () => {
     setReviewFormError('');
     setReviewFormSuccess('');
@@ -334,13 +437,20 @@ const InterviewReviewEnhanced = ({
       setReviewFormError('Please provide review notes before submitting.');
       return;
     }
+    if (review.overrideOverall && review.rating == null) {
+      setReviewFormError('Set an overall rating before setting the official SME final score.');
+      return;
+    }
+    if (review.overrideOverall && !canMarkReviewAsOfficial) {
+      setReviewFormError('Only the official SME reviewer can update the official final score.');
+      return;
+    }
 
     try {
       setSubmitting(true);
       const result = await apiClient.reviews.submitReview({
         interviewId,
-        ...review,
-        overrideOverall: review.overrideOverall,
+        ...buildReviewSubmissionPayload(review),
       });
 
       if (result.success) {
@@ -348,6 +458,10 @@ const InterviewReviewEnhanced = ({
         const interviewResult = await apiClient.interviews.getInterview(interviewId);
         if (interviewResult.success && interviewResult.interview) {
           setInterview(interviewResult.interview);
+          await Promise.all([
+            loadExistingReview(interviewResult.interview),
+            loadSubmittedReviews(),
+          ]);
         }
         if (shouldAutoCloseAfterReview) {
           setTimeout(() => {
@@ -463,14 +577,14 @@ const InterviewReviewEnhanced = ({
           {label}
         </label>
         <span className="text-sm font-bold text-gray-900 dark:text-slate-100">
-          {value}/10
+          {value ?? 0}/10
         </span>
       </div>
       <input
         type="range"
         min="0"
         max="10"
-        value={value}
+        value={value ?? 0}
         onChange={(e) => onChange(parseInt(e.target.value))}
         className={`w-full h-2 rounded-lg appearance-none cursor-pointer ${SLIDER_TRACK_CLASSES[color] || SLIDER_TRACK_CLASSES.purple}`}
       />
@@ -575,6 +689,13 @@ const InterviewReviewEnhanced = ({
                     overrideOverall: review.overrideOverall,
                     notesExcerpt: review.notes ? review.notes.slice(0, 200) : null,
                   },
+                  officialSmeDecision: {
+                    reviewerId: interview.officialSmeReviewerId || null,
+                    reviewerName: officialSmeReviewerName,
+                    reviewId: interview.officialSmeReviewId || null,
+                    submittedAt: interview.officialSmeScoreSubmittedAt || null,
+                    finalOverallScore: interview.finalOverallScore ?? null,
+                  },
                 };
                 const blob = new Blob([JSON.stringify(report, null, 2)], { type: 'application/json' });
                 const url = URL.createObjectURL(blob);
@@ -632,7 +753,14 @@ const InterviewReviewEnhanced = ({
                 : 'N/A'}
           </p>
           {interview.finalScoreSource === 'SME' && (
-            <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">SME override</p>
+            <>
+              <p className="text-xs text-amber-600 dark:text-amber-400 mt-0.5">Official SME final score</p>
+              {officialSmeReviewerName && (
+                <p className="text-xs text-gray-500 dark:text-slate-500 mt-0.5">
+                  By {officialSmeReviewerName}
+                </p>
+              )}
+            </>
           )}
         </div>
         <div>
@@ -653,7 +781,7 @@ const InterviewReviewEnhanced = ({
               { id: 'transcript', label: 'Transcript', icon: 'FileText' },
               { id: 'video', label: 'Recording', icon: 'Video' },
               { id: 'evaluation', label: 'AI Evaluation', icon: 'Brain' },
-              { id: 'review', label: 'My Review', icon: 'Star', disabled: !canSubmitReview },
+              { id: 'review', label: 'My Review', icon: 'BrandBrain', disabled: !canSubmitReview },
             ].map((tab) => (
               <button
                 key={tab.id}
@@ -798,7 +926,7 @@ const InterviewReviewEnhanced = ({
                   disabled={!canSubmitReview}
                   className="flex-1 bg-purple-600 hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <Icon name="Star" className="w-4 h-4 mr-2" />
+                  <Icon name="BrandBrain" className="w-4 h-4 mr-2" />
                   {canSubmitReview ? 'Submit Review' : 'Review Unlocks After Completion'}
                 </Button>
               </div>
@@ -812,7 +940,7 @@ const InterviewReviewEnhanced = ({
                 AI vs SME Calibration
               </h3>
               <p className="text-sm text-gray-600 dark:text-slate-400">
-                Compare AI-generated scores with your (SME) ratings. Use &quot;My Review&quot; to submit or update your scores, and optionally override the final score with your assessment.
+                Compare system-generated scores with your ratings. Use &quot;My Review&quot; to submit or update your score. Only the official SME reviewer can set the interview&apos;s official final score.
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -861,25 +989,25 @@ const InterviewReviewEnhanced = ({
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 dark:text-slate-500">Technical</p>
-                      <p className="text-lg font-medium">{review.technicalScore}/10</p>
+                      <p className="text-lg font-medium">{review.technicalScore != null ? `${review.technicalScore}/10` : 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 dark:text-slate-500">Communication</p>
-                      <p className="text-lg font-medium">{review.communicationScore}/10</p>
+                      <p className="text-lg font-medium">{review.communicationScore != null ? `${review.communicationScore}/10` : 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 dark:text-slate-500">Problem Solving</p>
-                      <p className="text-lg font-medium">{review.problemSolvingScore}/10</p>
+                      <p className="text-lg font-medium">{review.problemSolvingScore != null ? `${review.problemSolvingScore}/10` : 'N/A'}</p>
                     </div>
                     <div>
                       <p className="text-xs text-gray-500 dark:text-slate-500">Cultural Fit</p>
-                      <p className="text-lg font-medium">{review.culturalFitScore}/10</p>
+                      <p className="text-lg font-medium">{review.culturalFitScore != null ? `${review.culturalFitScore}/10` : 'N/A'}</p>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {(interview.overallScore != null || review.rating > 0) && (
+              {(interview.overallScore != null || review.rating != null) && (
                 <div className="p-4 rounded-xl bg-slate-100 dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700">
                   <p className="text-sm font-medium text-gray-700 dark:text-slate-300">
                     Agreement: AI overall {interview.overallScore != null ? interview.overallScore : 'N/A'} vs SME overall {review.rating != null ? review.rating * 10 : 'N/A'}
@@ -1011,7 +1139,7 @@ const InterviewReviewEnhanced = ({
             <div className="space-y-6">
               <div className="flex items-center justify-between gap-3">
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">
-                  AI-Generated Evaluation
+                  System-Generated Evaluation
                 </h3>
                 {canRunAiEvaluation && (interview?.pendingEvaluation || interview?.llmUnavailable) && (
                   <Button
@@ -1270,6 +1398,140 @@ const InterviewReviewEnhanced = ({
                 </div>
               )}
 
+              <div className="space-y-4">
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-900/40 p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-base font-semibold text-gray-900 dark:text-slate-100">
+                        Submitted Reviewer Scores
+                      </h4>
+                      <p className="mt-1 text-sm text-gray-600 dark:text-slate-400">
+                        Reviewers can see already-submitted scores before they submit their own review.
+                      </p>
+                    </div>
+                    {interview.finalScoreSource === 'SME' && (
+                      <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                        Official SME score active
+                      </span>
+                    )}
+                  </div>
+
+                  <div className={`mt-4 rounded-xl border px-4 py-3 text-sm ${
+                    isOfficialSmeReviewer
+                      ? 'border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 text-amber-800 dark:text-amber-100'
+                      : officialSmeReviewerId
+                        ? 'border-blue-200 dark:border-blue-500/30 bg-blue-50 dark:bg-blue-500/10 text-blue-800 dark:text-blue-100'
+                        : 'border-emerald-200 dark:border-emerald-500/30 bg-emerald-50 dark:bg-emerald-500/10 text-emerald-800 dark:text-emerald-100'
+                  }`}>
+                    {isOfficialSmeReviewer ? (
+                      <>
+                        <p className="font-semibold">You are the official SME reviewer for this interview.</p>
+                        <p className="mt-1 opacity-90">
+                          Your review can set or update the official final score. Peer reviews remain visible below for context.
+                        </p>
+                      </>
+                    ) : officialSmeReviewerId ? (
+                      <>
+                        <p className="font-semibold">
+                          {officialSmeReviewerName || 'Another reviewer'} owns the official SME final score.
+                        </p>
+                        <p className="mt-1 opacity-90">
+                          You can still submit your own review, but only that reviewer can update the official final score.
+                        </p>
+                      </>
+                    ) : (
+                      <>
+                        <p className="font-semibold">No official SME final score has been set yet.</p>
+                        <p className="mt-1 opacity-90">
+                          The first official-capable reviewer who checks the official-score option below becomes the owner of the official SME final score.
+                        </p>
+                      </>
+                    )}
+                  </div>
+
+                  {submittedReviewsError && (
+                    <div className="mt-4 rounded-xl border border-red-200 dark:border-red-500/30 bg-red-50 dark:bg-red-500/10 px-4 py-3 text-sm text-red-700 dark:text-red-300">
+                      {submittedReviewsError}
+                    </div>
+                  )}
+
+                  {submittedReviewsLoading ? (
+                    <div className="mt-4 text-sm text-gray-600 dark:text-slate-400">
+                      Loading submitted reviewer scores...
+                    </div>
+                  ) : visibleSubmittedReviews.length > 0 ? (
+                    <div className="mt-4 space-y-3">
+                      {visibleSubmittedReviews.map((submittedReview) => {
+                        const submittedScore = getReviewOverallScore(submittedReview);
+                        const isOfficialReview = submittedReview.id === officialSmeReviewId;
+                        const isOwnReview = submittedReview.reviewerId === user?.id;
+                        const reviewerLabel = isOwnReview
+                          ? 'You'
+                          : submittedReview.reviewer?.fullName || submittedReview.reviewer?.email || 'Reviewer';
+
+                        return (
+                          <div
+                            key={submittedReview.id}
+                            className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/60 p-4"
+                          >
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                              <div>
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                    {reviewerLabel}
+                                  </p>
+                                  {isOfficialReview && (
+                                    <span className="inline-flex items-center rounded-full border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                                      Official final score
+                                    </span>
+                                  )}
+                                </div>
+                                <p className="mt-1 text-xs text-gray-500 dark:text-slate-500">
+                                  Submitted {formatReviewTimestamp(submittedReview.updatedAt || submittedReview.createdAt)}
+                                </p>
+                              </div>
+                              <div className="text-left sm:text-right">
+                                <p className="text-xs text-gray-500 dark:text-slate-500">Overall score</p>
+                                <p className="text-lg font-semibold text-gray-900 dark:text-slate-100">
+                                  {submittedScore != null ? submittedScore : 'N/A'}
+                                </p>
+                              </div>
+                            </div>
+                            <div className="mt-3 grid grid-cols-2 gap-3 text-xs text-gray-600 dark:text-slate-400 sm:grid-cols-4">
+                              <div>
+                                <span className="font-medium text-gray-900 dark:text-slate-200">Technical:</span>{' '}
+                                {submittedReview.technicalScore != null ? `${submittedReview.technicalScore}/10` : 'N/A'}
+                              </div>
+                              <div>
+                                <span className="font-medium text-gray-900 dark:text-slate-200">Communication:</span>{' '}
+                                {submittedReview.communicationScore != null ? `${submittedReview.communicationScore}/10` : 'N/A'}
+                              </div>
+                              <div>
+                                <span className="font-medium text-gray-900 dark:text-slate-200">Problem Solving:</span>{' '}
+                                {submittedReview.problemSolvingScore != null ? `${submittedReview.problemSolvingScore}/10` : 'N/A'}
+                              </div>
+                              <div>
+                                <span className="font-medium text-gray-900 dark:text-slate-200">Recommendation:</span>{' '}
+                                {submittedReview.recommendation || submittedReview.decision || 'UNDECIDED'}
+                              </div>
+                            </div>
+                            {submittedReview.notes && (
+                              <p className="mt-3 text-sm text-gray-700 dark:text-slate-300 leading-relaxed">
+                                {submittedReview.notes}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <p className="mt-4 text-sm text-gray-600 dark:text-slate-400">
+                      No reviewer scores have been submitted yet.
+                    </p>
+                  )}
+                </div>
+              </div>
+
               {/* Overall Rating */}
               <div className="p-6 rounded-xl bg-white dark:bg-slate-900/50 border border-gray-200 dark:border-slate-700">
                 <h4 className="text-base font-semibold text-gray-900 dark:text-slate-100 mb-4">
@@ -1318,7 +1580,7 @@ const InterviewReviewEnhanced = ({
                 />
               </div>
 
-              {canOverrideOverallScore && (
+              {canMarkReviewAsOfficial && (
                 <div className="p-6 rounded-xl bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800">
                   <label className="flex items-start gap-3 cursor-pointer group">
                     <input
@@ -1328,7 +1590,7 @@ const InterviewReviewEnhanced = ({
                       className="mt-1 h-5 w-5 rounded-full border-slate-300 dark:border-slate-600 text-amber-600 focus:ring-amber-500 dark:bg-slate-800"
                     />
                     <span className="text-sm text-gray-700 dark:text-slate-300 group-hover:text-gray-900 dark:group-hover:text-slate-100">
-                      <strong>Use my overall score as the final score (override AI).</strong> When checked, the interview&apos;s final score will be your overall rating (0-10 scaled to 0-100) instead of the AI score. This supports SME calibration and human oversight.
+                      <strong>Use my overall score as the official SME final score.</strong> When checked, your overall rating (0-10 scaled to 0-100) becomes the interview&apos;s official final score instead of the AI score.
                     </span>
                   </label>
                 </div>

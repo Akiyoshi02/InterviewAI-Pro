@@ -28,12 +28,17 @@ import InterviewCalendar from '../../components/ui/InterviewCalendar';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import LoadingState from '../../components/ui/LoadingState';
+import GroqUsageSnapshotPanel from '../../components/ui/GroqUsageSnapshotPanel.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 import { useInterviewRealtimeFeed } from '../../hooks/useInterviewRealtimeFeed';
 import { deriveDashboardInsights } from './utils/candidateInsights.js';
 import { getDerivedApplicationStatus } from './utils/candidateApplicationFilters.js';
+import {
+  getCandidateActiveInterviews,
+  getCandidateUpcomingScheduledInterviews,
+} from '../../utils/candidateInterviewWindows.js';
 import {
   INTERVIEW_FEED_EVENTS,
   combineRealtimeEventTypes,
@@ -548,28 +553,22 @@ const CandidateDashboard = () => {
   const scoreMetrics = dashboardMetrics?.averageScore;
   const completedMetrics = dashboardMetrics?.completedInterviews;
   const scheduledMetrics = dashboardMetrics?.scheduledInterviews;
-  const inProgressMetrics = dashboardMetrics?.inProgressInterviews;
   
   // Fallback calculations from raw data
   const completedInterviews = completedMetrics?.value ?? safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'COMPLETED').length;
-  const scheduledInterviews = scheduledMetrics?.value ?? safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'SCHEDULED').length;
-  const inProgressInterviews = Number.isFinite(Number(inProgressMetrics))
-    ? Number(inProgressMetrics)
-    : safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'IN_PROGRESS').length;
-  const activeInterviewCount = scheduledInterviews + inProgressInterviews;
+  const candidateActiveInterviews = getCandidateActiveInterviews(safeInterviews);
+  const upcomingScheduledInterviews = getCandidateUpcomingScheduledInterviews(safeInterviews);
+  const scheduledInterviews = upcomingScheduledInterviews.length;
+  const inProgressInterviews = candidateActiveInterviews.filter((interview) => toUpperCode(interview?.status) === 'IN_PROGRESS').length;
+  const pendingSchedulingInterviews = candidateActiveInterviews.filter(
+    (interview) => toUpperCode(interview?.status) === 'SCHEDULED' && !interview?.scheduledFor,
+  ).length;
+  const activeInterviewCount = scheduledInterviews + inProgressInterviews + pendingSchedulingInterviews;
   const averageScore = scoreMetrics?.value ?? analytics?.averageScore ?? null;
   const totalPracticeTime = dashboardMetrics?.totalPracticeTime?.formatted ?? null;
   
   // Find the latest/upcoming interview for display
-  const sortedActiveInterviews = [...safeInterviews]
-    .filter((interview) => ACTIVE_INTERVIEW_STATUSES.has(toUpperCode(interview?.status)))
-    .sort((left, right) => {
-      const leftDate = toDate(resolveInterviewTimestamp(left));
-      const rightDate = toDate(resolveInterviewTimestamp(right));
-      return (leftDate?.getTime?.() || 0) - (rightDate?.getTime?.() || 0);
-    });
-
-  const latestInterview = sortedActiveInterviews[0] || safeInterviews[0] || null;
+  const latestInterview = upcomingScheduledInterviews[0] || null;
   const latestCompanyName = formatCompanyLabel(latestInterview?.organization || latestInterview?.company) || 'Interview AI';
   const latestInterviewDate = formatInterviewDate(
     latestInterview?.scheduledFor ||
@@ -623,10 +622,18 @@ const CandidateDashboard = () => {
         onClick: () => navigate('/jobs'),
       };
     }
-    if (activeInterviewCount > 0) {
+    if (scheduledInterviews > 0) {
       return {
         title: 'Review upcoming interviews',
         detail: 'Confirm schedule details and join links before your sessions.',
+        actionLabel: 'Open Applications',
+        onClick: () => navigate('/my-applications'),
+      };
+    }
+    if (activeInterviewCount > 0) {
+      return {
+        title: 'Track active interview workflows',
+        detail: 'Some interviews are active but still waiting for scheduling details or recruiter follow-up.',
         actionLabel: 'Open Applications',
         onClick: () => navigate('/my-applications'),
       };
@@ -674,6 +681,10 @@ const CandidateDashboard = () => {
       
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
+      <GroqUsageSnapshotPanel
+        description="Testing visibility for the shared Groq interview provider across the dashboard."
+        topOffsetClassName={maintenanceMode ? 'top-32 xs:top-36 sm:top-40' : 'top-16 xs:top-[4.5rem] sm:top-20'}
+      />
       
       <div className="relative z-10">
         <div className="flex flex-col lg:flex-row">
@@ -715,9 +726,15 @@ const CandidateDashboard = () => {
                   </div>
                   <div className="rounded-xl bg-gradient-to-br from-blue-600 to-purple-600 text-white p-2.5 sm:p-3 shadow-xl shadow-blue-500/40 w-full lg:w-auto lg:min-w-[160px] xl:min-w-[180px]">
                     <p className="text-xs uppercase tracking-[0.2em] sm:tracking-[0.25em] text-white/70">Live status</p>
-                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">{latestCompanyName}</div>
+                    <div className="mt-0.5 sm:mt-1 text-base xs:text-lg sm:text-xl font-semibold truncate">
+                      {latestInterview ? latestCompanyName : 'Interview AI'}
+                    </div>
                     <p className="text-xs sm:text-sm text-white/80 mt-0.5">
-                      {latestInterviewDate ? `Next interview - ${latestInterviewDate}` : 'Pipeline ready'}
+                      {latestInterviewDate
+                        ? `Next interview - ${latestInterviewDate}`
+                        : activeInterviewCount > 0
+                          ? `${activeInterviewCount} interview workflow${activeInterviewCount === 1 ? '' : 's'} active`
+                          : 'Pipeline ready'}
                     </p>
                   </div>
                 </div>

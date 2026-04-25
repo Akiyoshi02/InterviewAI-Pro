@@ -54,4 +54,35 @@ describe('backgroundJobQueue.service', () => {
     );
     expect(backgroundJobQueueStats().email.totalProcessed).toBe(1);
   });
+
+  it('does not retry non-retryable job failures', async () => {
+    const {
+      queueEmailJob,
+      waitForBackgroundJobs,
+      backgroundJobQueueStats,
+    } = await import('../backgroundJobQueue.service.js');
+
+    const authError = Object.assign(new Error('Invalid login'), {
+      code: 'EMAIL_SMTP_AUTH_FAILED',
+      retryable: false,
+    });
+    const handler = jest.fn().mockRejectedValue(authError);
+
+    queueEmailJob({
+      type: 'INTERVIEW_SCHEDULED',
+      handler,
+      payload: { interviewId: 'int-1' },
+      maxAttempts: 3,
+    });
+
+    await waitForBackgroundJobs();
+
+    expect(handler).toHaveBeenCalledTimes(1);
+    expect(mockLogger.warn).not.toHaveBeenCalled();
+    expect(mockLogger.error).toHaveBeenCalledWith(
+      expect.stringContaining('failed permanently after 1 attempts'),
+      authError,
+    );
+    expect(backgroundJobQueueStats().email.totalFailed).toBe(1);
+  });
 });

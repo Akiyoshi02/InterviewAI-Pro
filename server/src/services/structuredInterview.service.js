@@ -1107,8 +1107,8 @@ export const computeRubricWeightedScore = ({ rubric, criterionScores }) => {
 };
 
 export const reconcileQuestionScore = ({ llmScore, rubricScore }) => {
-  const llm = Number(llmScore);
-  const rubric = Number(rubricScore);
+  const llm = llmScore == null || llmScore === '' ? null : Number(llmScore);
+  const rubric = rubricScore == null || rubricScore === '' ? null : Number(rubricScore);
   const llmValid = Number.isFinite(llm);
   const rubricValid = Number.isFinite(rubric);
 

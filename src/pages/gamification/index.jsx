@@ -20,11 +20,11 @@ function getWeekChallenges() {
   // Rotate challenges weekly using weekNum as seed
   const pool = [
     { id: 'c1', title: 'Speed Run', desc: 'Complete 3 practice interviews in under 20 minutes each.', xp: 150, icon: 'Zap' },
-    { id: 'c2', title: 'High Achiever', desc: 'Score 80% or above in 2 interviews.', xp: 200, icon: 'Star' },
+    { id: 'c2', title: 'High Achiever', desc: 'Score 80% or above in 2 interviews.', xp: 200, icon: 'BrandBrain' },
     { id: 'c3', title: 'Mix Master', desc: 'Try 3 different interview categories this week.', xp: 175, icon: 'Shuffle' },
     { id: 'c4', title: 'Consistency King', desc: 'Practice on 4 different days this week.', xp: 125, icon: 'Calendar' },
     { id: 'c5', title: 'Feedback Focus', desc: 'Review and save feedback from 2 completed interviews.', xp: 100, icon: 'BookOpen' },
-    { id: 'c6', title: 'STAR Storyteller', desc: 'Build and save 3 STAR answers in the Prep Library.', xp: 120, icon: 'Star' },
+    { id: 'c6', title: 'STAR Storyteller', desc: 'Build and save 3 STAR answers in the Prep Library.', xp: 120, icon: 'BrandBrain' },
     { id: 'c7', title: 'Solo Grind', desc: 'Complete 5 practice sessions in total.', xp: 250, icon: 'Trophy' },
   ];
   const start = (weekNum * 3) % pool.length;

@@ -25,7 +25,7 @@ const HiringMetrics = ({ metrics: propsMetrics, interviews = [], onExportReport 
       value: propsMetrics?.averageScore ? `${Math.round(propsMetrics.averageScore)}%` : '—',
       change: propsMetrics?.averageScoreChange || '',
       changeType: propsMetrics?.averageScoreChange?.startsWith('+') ? 'positive' : 'neutral',
-      icon: 'Star',
+      icon: 'BrandBrain',
       gradient: 'from-emerald-500 to-teal-500'
     },
     {

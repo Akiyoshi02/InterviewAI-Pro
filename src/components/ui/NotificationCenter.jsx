@@ -6,7 +6,7 @@ import apiClient from '../../services/apiClient.js';
 
 const NOTIFICATION_ICONS = {
   interview_completed: { icon: 'CheckCircle', color: 'text-emerald-500' },
-  evaluation_ready: { icon: 'Star', color: 'text-yellow-500' },
+  evaluation_ready: { icon: 'BrandBrain', color: 'text-yellow-500' },
   application_status: { icon: 'FileText', color: 'text-blue-500' },
   invitation_received: { icon: 'Mail', color: 'text-purple-500' },
   review_submitted: { icon: 'ClipboardCheck', color: 'text-indigo-500' },

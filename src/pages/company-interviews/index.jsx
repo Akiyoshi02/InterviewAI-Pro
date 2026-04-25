@@ -2274,7 +2274,7 @@ const CompanyInterviews = () => {
                         <Button
                           variant="outline"
                           size="sm"
-                          iconName="Sparkles"
+                          iconName="BrandBrain"
                           onClick={() => handleSaveStageOutcome(true)}
                           disabled={!stageOutcomeDirty || stageOutcomeSaving}
                           className="rounded-full"
@@ -2493,8 +2493,8 @@ const CompanyInterviews = () => {
                         </p>
                       </div>
                       {reviewRequestEditorDirty && (
-                        <span className="inline-flex items-center gap-1 rounded-full border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 px-2.5 py-1 text-[11px] font-semibold text-amber-700 dark:text-amber-200">
-                          <Icon name="CircleDashed" size={12} />
+                        <span className="inline-flex min-w-max flex-shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold leading-none text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200">
+                          <Icon name="CircleDashed" size={12} className="flex-shrink-0" />
                           Unsaved changes
                         </span>
                       )}
@@ -2589,7 +2589,7 @@ const CompanyInterviews = () => {
                           {selectedReviewRequestRows.map((row) => (
                             <div
                               key={row.reviewerId}
-                              className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 p-3 space-y-3"
+                              className="rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-800/70 p-4 space-y-4"
                             >
                               <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
                                 <div className="min-w-0">
@@ -2606,8 +2606,8 @@ const CompanyInterviews = () => {
                                 </span>
                               </div>
 
-                              <div className="grid gap-3 sm:grid-cols-[minmax(0,180px)_minmax(0,1fr)]">
-                                <label className="space-y-1">
+                              <div className="grid gap-3 lg:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
+                                <label className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/45 p-3 space-y-2">
                                   <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
                                     Due mode
                                   </span>
@@ -2619,7 +2619,7 @@ const CompanyInterviews = () => {
                                         dueSource: event.target.value,
                                         ...(event.target.value === 'AUTO' ? { dueAt: '' } : {}),
                                       })}
-                                      className="w-full appearance-none rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 pr-10 text-sm text-gray-900 dark:text-slate-100"
+                                      className="w-full appearance-none rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 px-3 py-2.5 pr-10 text-sm font-semibold text-gray-900 dark:text-slate-100"
                                       aria-label={`Due mode for ${row.name}`}
                                     >
                                       <option value="AUTO">Automatic</option>
@@ -2634,7 +2634,7 @@ const CompanyInterviews = () => {
                                 </label>
 
                                 {row.dueSource === 'MANUAL' ? (
-                                  <label className="space-y-1">
+                                  <label className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/45 p-3 space-y-2">
                                     <span className="text-xs font-medium text-gray-600 dark:text-slate-300">
                                       Manual due date
                                     </span>
@@ -2646,25 +2646,40 @@ const CompanyInterviews = () => {
                                         dueAt: event.target.value,
                                       })}
                                       min={toLocalDatetimeValue(new Date(Date.now() + (5 * 60 * 1000)))}
-                                      className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-3 py-2 text-sm text-gray-900 dark:text-slate-100"
+                                      className="w-full rounded-xl border border-gray-200 dark:border-slate-700 bg-white dark:bg-slate-900/80 px-3 py-2.5 text-sm font-semibold text-gray-900 dark:text-slate-100"
                                       aria-label={`Manual due date for ${row.name}`}
                                     />
                                   </label>
                                 ) : (
-                                  <div className="rounded-xl border border-dashed border-gray-200 dark:border-slate-700 px-3 py-2 text-xs text-gray-500 dark:text-slate-400">
-                                    {row.request?.dueAt
-                                      ? `Current auto due date: ${formatReviewRequestDateTime(row.request.dueAt)}`
-                                      : 'The system will calculate the due date from the interview completion rules.'}
+                                  <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-900/45 p-3">
+                                    <div className="flex items-start gap-3">
+                                      <span className="mt-0.5 inline-flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg bg-blue-50 text-blue-600 dark:bg-blue-500/10 dark:text-blue-200">
+                                        <Icon name="CalendarClock" size={16} />
+                                      </span>
+                                      <div className="min-w-0">
+                                        <p className="text-xs font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                                          Auto due date
+                                        </p>
+                                        <p className="mt-1 text-sm font-semibold text-gray-900 dark:text-slate-100">
+                                          {row.request?.dueAt
+                                            ? formatReviewRequestDateTime(row.request.dueAt)
+                                            : 'Calculated after save'}
+                                        </p>
+                                        <p className="mt-1 text-xs text-gray-500 dark:text-slate-400">
+                                          Automatic due dates follow the interview completion rules.
+                                        </p>
+                                      </div>
+                                    </div>
                                   </div>
                                 )}
                               </div>
 
-                              <div className="grid gap-2 sm:grid-cols-2">
-                                <div className="rounded-lg bg-gray-50 dark:bg-slate-900/60 px-3 py-2">
+                              <div className="grid gap-3 sm:grid-cols-2">
+                                <div className="rounded-xl border border-gray-100 dark:border-slate-700/70 bg-gray-50 dark:bg-slate-900/60 px-3 py-3">
                                   <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
                                     Reminder history
                                   </p>
-                                  <p className="mt-1 text-xs text-gray-700 dark:text-slate-200">
+                                  <p className="mt-1 text-sm font-semibold text-gray-800 dark:text-slate-100">
                                     {row.request?.lastReminderAt
                                       ? `Last reminder sent ${formatReviewRequestDateTime(row.request.lastReminderAt)}`
                                       : 'No reminder sent yet.'}
@@ -2682,11 +2697,11 @@ const CompanyInterviews = () => {
                                     </div>
                                   )}
                                 </div>
-                                <div className="rounded-lg bg-gray-50 dark:bg-slate-900/60 px-3 py-2">
+                                <div className="rounded-xl border border-gray-100 dark:border-slate-700/70 bg-gray-50 dark:bg-slate-900/60 px-3 py-3">
                                   <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
                                     Current due date
                                   </p>
-                                  <p className="mt-1 text-xs text-gray-700 dark:text-slate-200">
+                                  <p className="mt-1 text-sm font-semibold text-gray-800 dark:text-slate-100">
                                     {row.request?.dueAt
                                       ? formatReviewRequestDateTime(row.request.dueAt)
                                       : row.dueSource === 'MANUAL' && row.dueAt
@@ -2696,7 +2711,41 @@ const CompanyInterviews = () => {
                                 </div>
                               </div>
 
-                              <div className="flex items-center justify-end">
+                              <div className="rounded-xl border border-gray-100 dark:border-slate-700/70 bg-gray-50 dark:bg-slate-900/60 px-3 py-3">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                  <div className="min-w-0 space-y-1">
+                                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-gray-500 dark:text-slate-400">
+                                      Manual reminder
+                                    </p>
+                                    {row.isCompleted && (
+                                      <p className="text-xs text-emerald-700 dark:text-emerald-200">
+                                        This reviewer has already submitted feedback. Completed review requests keep their recorded due date and reminder history.
+                                      </p>
+                                    )}
+                                    {!row.isCompleted && reviewRequestEditorDirty && (
+                                      <p className="text-xs text-amber-700 dark:text-amber-200">
+                                        Save reviewer workflow changes before sending a manual reminder.
+                                      </p>
+                                    )}
+                                    {!row.isCompleted && row.reminderCooldown.active && (
+                                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                                        A reminder was sent recently. Manual reminders reopen after {MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS} hours, at {formatReviewRequestDateTime(row.reminderCooldown.nextAvailableAt)}.
+                                      </p>
+                                    )}
+                                    {!row.isCompleted && String(selectedInterview?.status || '').toUpperCase() !== 'COMPLETED' && (
+                                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                                        Manual reminders become available after the interview is completed.
+                                      </p>
+                                    )}
+                                    {!row.isCompleted
+                                      && !reviewRequestEditorDirty
+                                      && !row.reminderCooldown.active
+                                      && String(selectedInterview?.status || '').toUpperCase() === 'COMPLETED' && (
+                                      <p className="text-xs text-gray-500 dark:text-slate-400">
+                                        Send a follow-up email when this reviewer needs a nudge.
+                                      </p>
+                                    )}
+                                  </div>
                                 <Button
                                   variant="outline"
                                   size="sm"
@@ -2709,32 +2758,12 @@ const CompanyInterviews = () => {
                                     || reviewRequestEditorDirty
                                     || row.reminderCooldown.active
                                   }
-                                  className="rounded-full"
+                                  className="shrink-0 rounded-full"
                                 >
                                   {reviewReminderSendingId === row.reviewerId ? 'Sending...' : 'Send Reminder'}
                                 </Button>
+                                </div>
                               </div>
-
-                              {row.isCompleted && (
-                                <p className="text-xs text-emerald-700 dark:text-emerald-200">
-                                  This reviewer has already submitted feedback. Completed review requests keep their recorded due date and reminder history.
-                                </p>
-                              )}
-                              {!row.isCompleted && reviewRequestEditorDirty && (
-                                <p className="text-xs text-amber-700 dark:text-amber-200">
-                                  Save reviewer workflow changes before sending a manual reminder.
-                                </p>
-                              )}
-                              {!row.isCompleted && row.reminderCooldown.active && (
-                                <p className="text-xs text-gray-500 dark:text-slate-400">
-                                  A reminder was sent recently. Manual reminders reopen after {MANUAL_REVIEW_REMINDER_COOLDOWN_HOURS} hours, at {formatReviewRequestDateTime(row.reminderCooldown.nextAvailableAt)}.
-                                </p>
-                              )}
-                              {!row.isCompleted && String(selectedInterview?.status || '').toUpperCase() !== 'COMPLETED' && (
-                                <p className="text-xs text-gray-500 dark:text-slate-400">
-                                  Manual reminders become available after the interview is completed.
-                                </p>
-                              )}
                             </div>
                           ))}
                         </div>
@@ -3047,5 +3076,3 @@ const CompanyInterviews = () => {
 };
 
 export default CompanyInterviews;
-
-

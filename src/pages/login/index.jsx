@@ -99,7 +99,7 @@ const Login = () => {
             
             // Redirect non-public account types (no user-facing reference)
             if (accountType === 'system_admin') {
-              navigate('/admin', { replace: true });
+              navigate('/admin-login', { replace: true });
               return;
             }
 

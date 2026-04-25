@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 import path from 'path';
 import { fileURLToPath } from 'url';
 
-// ── Shared mock refs ───────────────────────────────────────────────────────
+// Shared mock refs
 const mockInterviewStore = {
   getById: jest.fn(),
   getWithQuestions: jest.fn(),
@@ -31,9 +31,10 @@ const mockSendApplicationStatusUpdated = jest.fn();
 const mockGenerateMeetingToken = jest.fn();
 const mockValidateMeetingAccess = jest.fn();
 const mockValidateMeetingToken = jest.fn();
+const mockIsWithinMeetingAccessWindow = jest.fn();
 const mockHydrateInterviewParticipants = jest.fn((interviews) => interviews || []);
 
-// ── Module mocks ───────────────────────────────────────────────────────────
+// Module mocks
 jest.unstable_mockModule('../../config/firebase.js', () => ({
   firestore: {
     collection: () => ({ doc: () => ({ get: async () => ({ exists: false }) }) }),
@@ -91,11 +92,13 @@ jest.unstable_mockModule('../referral.controller.js', () => ({
 
 jest.unstable_mockModule('../../services/meetingLink.service.js', () => ({
   generateMeetingToken: mockGenerateMeetingToken,
+  isWithinMeetingAccessWindow: mockIsWithinMeetingAccessWindow,
   validateMeetingAccess: mockValidateMeetingAccess,
   validateMeetingToken: mockValidateMeetingToken,
   // Re-export the defaults the controller might also use
   default: {
     generateMeetingToken: mockGenerateMeetingToken,
+    isWithinMeetingAccessWindow: mockIsWithinMeetingAccessWindow,
     validateMeetingAccess: mockValidateMeetingAccess,
     validateMeetingToken: mockValidateMeetingToken,
   },
@@ -107,7 +110,7 @@ afterEach(() => {
   jest.useRealTimers();
 });
 
-// ── Helpers ────────────────────────────────────────────────────────────────
+// Helpers
 const createResponse = () => {
   const response = {};
   response.status = jest.fn().mockReturnValue(response);
@@ -621,6 +624,7 @@ describe('InterviewController.getInterview', () => {
       logo: '/logos/cynectex.png',
     });
     mockValidateMeetingAccess.mockReturnValue({ valid: true });
+    mockIsWithinMeetingAccessWindow.mockReturnValue(false);
   });
 
   it('rejects candidate access to an upcoming hiring interview when no meeting token is supplied', async () => {
@@ -660,13 +664,14 @@ describe('InterviewController.getInterview', () => {
     }));
   });
 
-  it('allows candidate access without a meeting token once the scheduled start time has arrived', async () => {
+  it('allows candidate access without a meeting token once the scheduled start time has arrived and the meeting window is still open', async () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date('2026-03-10T10:00:00.000Z'));
     mockInterviewStore.getWithQuestions.mockResolvedValue({
       ...scheduledInterview,
       scheduledFor: '2026-03-10T09:00:00.000Z',
     });
+    mockIsWithinMeetingAccessWindow.mockReturnValue(true);
 
     const req = candidateReq();
     const res = createResponse();
@@ -682,6 +687,29 @@ describe('InterviewController.getInterview', () => {
         interview: expect.objectContaining({ id: 'int-1' }),
       }),
     );
+
+    jest.useRealTimers();
+  });
+
+  it('rejects candidate access without a meeting token after the meeting window has closed', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-12T10:00:00.000Z'));
+    mockInterviewStore.getWithQuestions.mockResolvedValue({
+      ...scheduledInterview,
+      scheduledFor: '2026-03-10T09:00:00.000Z',
+    });
+    mockIsWithinMeetingAccessWindow.mockReturnValue(false);
+
+    const req = candidateReq();
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.getInterview(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'MEETING_LINK_REQUIRED',
+    }));
 
     jest.useRealTimers();
   });
@@ -738,6 +766,7 @@ describe('InterviewController.recordRecordingConsent', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     mockInterviewStore.getById.mockResolvedValue(scheduledInterview);
+    mockIsWithinMeetingAccessWindow.mockReturnValue(false);
   });
 
   it('rejects candidate consent recording when the active meeting token is missing', async () => {
@@ -767,6 +796,7 @@ describe('InterviewController.recordRecordingConsent', () => {
       ...scheduledInterview,
       scheduledFor: '2026-03-10T09:00:00.000Z',
     });
+    mockIsWithinMeetingAccessWindow.mockReturnValue(true);
     mockInterviewStore.update.mockResolvedValue({
       ...scheduledInterview,
       recordingConsentGivenAt: '2026-03-10T10:00:00.000Z',
@@ -867,6 +897,7 @@ describe('InterviewController.startInterview', () => {
     ]));
     mockRecordRealtimeEvent.mockResolvedValue(undefined);
     mockPublishOrganizationRealtimeUpdate.mockResolvedValue(undefined);
+    mockIsWithinMeetingAccessWindow.mockReturnValue(false);
   });
 
   it('allows candidate start without a meeting token after the scheduled start time', async () => {
@@ -889,6 +920,7 @@ describe('InterviewController.startInterview', () => {
     };
 
     mockInterviewStore.getWithQuestions.mockResolvedValue(activeInterview);
+    mockIsWithinMeetingAccessWindow.mockReturnValue(true);
     mockInterviewStore.update.mockResolvedValue({
       ...activeInterview,
       status: 'IN_PROGRESS',
@@ -915,6 +947,43 @@ describe('InterviewController.startInterview', () => {
         interview: expect.objectContaining({ status: 'IN_PROGRESS' }),
       }),
     );
+
+    jest.useRealTimers();
+  });
+
+  it('rejects candidate start without a meeting token after the meeting window has closed', async () => {
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-03-12T10:00:00.000Z'));
+
+    const activeInterview = {
+      ...scheduledInterview,
+      status: 'SCHEDULED',
+      scheduledFor: '2026-03-10T09:00:00.000Z',
+      recordingConsentGivenAt: '2026-03-10T09:55:00.000Z',
+      questions: [
+        {
+          id: 'q1',
+          question: 'Tell me about yourself.',
+          evaluationCriteria: ['clarity'],
+        },
+      ],
+      config: {},
+    };
+
+    mockInterviewStore.getWithQuestions.mockResolvedValue(activeInterview);
+    mockIsWithinMeetingAccessWindow.mockReturnValue(false);
+
+    const req = candidateReq();
+    const res = createResponse();
+    const next = jest.fn();
+
+    await InterviewController.startInterview(req, res, next);
+
+    expect(res.status).toHaveBeenCalledWith(403);
+    expect(res.json).toHaveBeenCalledWith(expect.objectContaining({
+      code: 'MEETING_LINK_REQUIRED',
+    }));
+    expect(mockInterviewStore.update).not.toHaveBeenCalled();
 
     jest.useRealTimers();
   });
@@ -1075,9 +1144,9 @@ describe('InterviewController.updateInterviewReviewRequests', () => {
       reviewRequests: [
         {
           reviewerId: 'reviewer-1',
-          assignedAt: '2026-03-09T09:00:00.000Z',
+          assignedAt: new Date(Date.now() - (48 * 60 * 60 * 1000)).toISOString(),
           assignedBy: 'recruiter-1',
-          dueAt: '2026-03-11T09:00:00.000Z',
+          dueAt: futureIso(24),
           dueSource: 'AUTO',
           lastReminderAt: '2026-03-10T10:00:00.000Z',
           completedAt: null,
@@ -1197,9 +1266,9 @@ describe('InterviewController.sendInterviewReviewReminder', () => {
       reviewRequests: [
         {
           reviewerId: 'reviewer-1',
-          assignedAt: '2026-03-09T09:00:00.000Z',
+          assignedAt: new Date(Date.now() - (48 * 60 * 60 * 1000)).toISOString(),
           assignedBy: 'recruiter-1',
-          dueAt: '2026-03-11T09:00:00.000Z',
+          dueAt: futureIso(24),
           dueSource: 'AUTO',
           lastReminderAt: null,
           reminderHistory: [],

@@ -643,7 +643,7 @@ const VideoAnalyzer = () => {
                   onClick={generateReferenceValues}
                   disabled={analysisResults.filter(r => r.quality === 'good').length === 0}
                 >
-                  <Icon name="Sparkles" className="w-4 h-4 mr-2" />
+                  <Icon name="BrandBrain" className="w-4 h-4 mr-2" />
                   Generate Reference Values
                 </Button>
               </div>

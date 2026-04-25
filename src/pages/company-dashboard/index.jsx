@@ -17,6 +17,7 @@ import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
 import Icon from '../../components/AppIcon';
 import Button from '../../components/ui/Button';
 import LoadingState from '../../components/ui/LoadingState';
+import GroqUsageSnapshotPanel from '../../components/ui/GroqUsageSnapshotPanel.jsx';
 import apiClient from '../../services/apiClient.js';
 import { useAuth } from '../../contexts/AuthContext.jsx';
 import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
@@ -593,6 +594,10 @@ const CompanyDashboard = () => {
       
       {/* Spacer for fixed header */}
       <div className="h-14 xs:h-16" />
+      <GroqUsageSnapshotPanel
+        description="Testing visibility for the shared Groq interview provider across the dashboard."
+        topOffsetClassName={maintenanceMode ? 'top-32 xs:top-36 sm:top-40' : 'top-16 xs:top-[4.5rem] sm:top-20'}
+      />
       
       <div className="relative z-10">
         <div className="flex flex-col lg:flex-row">

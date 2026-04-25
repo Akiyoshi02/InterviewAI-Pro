@@ -1732,25 +1732,80 @@ Component Breakdown:
             </div>
 
             {/* Display Toggles */}
-            <div className="flex flex-wrap gap-3 mb-3 p-2 bg-slate-100 dark:bg-slate-900/50 rounded-lg text-sm">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showOverlay} onChange={(e) => setShowOverlay(e.target.checked)} className="rounded-full" />
+            <div className="flex flex-wrap gap-2 mb-3 p-2 bg-slate-100 dark:bg-slate-900/50 rounded-lg text-sm">
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 cursor-pointer transition ${
+                  showOverlay
+                    ? 'border-blue-300 bg-blue-50 text-blue-900 dark:border-blue-500/40 dark:bg-blue-500/10 dark:text-blue-200'
+                    : 'border-transparent text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={showOverlay}
+                  onChange={(e) => setShowOverlay(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 bg-white text-blue-600 focus:ring-2 focus:ring-blue-500 dark:border-slate-600 dark:bg-slate-800 dark:text-blue-400 dark:focus:ring-blue-400"
+                />
                 <span>Overlay</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showPose} onChange={(e) => setShowPose(e.target.checked)} className="rounded-full" />
-                <span className="text-green-600">Pose</span>
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 cursor-pointer transition ${
+                  showPose
+                    ? 'border-emerald-300 bg-emerald-50 text-emerald-900 dark:border-emerald-500/40 dark:bg-emerald-500/10 dark:text-emerald-200'
+                    : 'border-transparent text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={showPose}
+                  onChange={(e) => setShowPose(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 bg-white text-emerald-600 focus:ring-2 focus:ring-emerald-500 dark:border-slate-600 dark:bg-slate-800 dark:text-emerald-400 dark:focus:ring-emerald-400"
+                />
+                <span className={showPose ? '' : 'text-emerald-600 dark:text-emerald-400'}>Pose</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showFace} onChange={(e) => setShowFace(e.target.checked)} className="rounded-full" />
-                <span className="text-cyan-600">Face</span>
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 cursor-pointer transition ${
+                  showFace
+                    ? 'border-cyan-300 bg-cyan-50 text-cyan-900 dark:border-cyan-500/40 dark:bg-cyan-500/10 dark:text-cyan-200'
+                    : 'border-transparent text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={showFace}
+                  onChange={(e) => setShowFace(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 bg-white text-cyan-600 focus:ring-2 focus:ring-cyan-500 dark:border-slate-600 dark:bg-slate-800 dark:text-cyan-400 dark:focus:ring-cyan-400"
+                />
+                <span className={showFace ? '' : 'text-cyan-600 dark:text-cyan-400'}>Face</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showHands} onChange={(e) => setShowHands(e.target.checked)} className="rounded-full" />
-                <span className="text-orange-600">Hands</span>
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 cursor-pointer transition ${
+                  showHands
+                    ? 'border-orange-300 bg-orange-50 text-orange-900 dark:border-orange-500/40 dark:bg-orange-500/10 dark:text-orange-200'
+                    : 'border-transparent text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={showHands}
+                  onChange={(e) => setShowHands(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 bg-white text-orange-600 focus:ring-2 focus:ring-orange-500 dark:border-slate-600 dark:bg-slate-800 dark:text-orange-400 dark:focus:ring-orange-400"
+                />
+                <span className={showHands ? '' : 'text-orange-600 dark:text-orange-400'}>Hands</span>
               </label>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={showMetrics} onChange={(e) => setShowMetrics(e.target.checked)} className="rounded-full" />
+              <label
+                className={`flex items-center gap-2 rounded-full border px-3 py-1.5 cursor-pointer transition ${
+                  showMetrics
+                    ? 'border-violet-300 bg-violet-50 text-violet-900 dark:border-violet-500/40 dark:bg-violet-500/10 dark:text-violet-200'
+                    : 'border-transparent text-slate-700 hover:bg-white dark:text-slate-300 dark:hover:bg-slate-800/70'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={showMetrics}
+                  onChange={(e) => setShowMetrics(e.target.checked)}
+                  className="h-4 w-4 rounded border-slate-300 bg-white text-violet-600 focus:ring-2 focus:ring-violet-500 dark:border-slate-600 dark:bg-slate-800 dark:text-violet-400 dark:focus:ring-violet-400"
+                />
                 <span>Metrics</span>
               </label>
             </div>
@@ -1758,7 +1813,11 @@ Component Breakdown:
             {/* Controls */}
             <div className="flex flex-wrap gap-2">
               {!isStreaming ? (
-                <Button onClick={startCamera} variant="primary">
+                <Button
+                  onClick={startCamera}
+                  variant="default"
+                  className="border border-blue-500/60 dark:border-blue-400/40"
+                >
                   <Icon name="Video" className="w-4 h-4 mr-2" />Start Camera
                 </Button>
               ) : (
@@ -1771,7 +1830,11 @@ Component Breakdown:
                       <Icon name="Circle" className="w-4 h-4 mr-2" />Record Video
                     </Button>
                   ) : (
-                    <Button onClick={stopRecording} variant="primary">
+                    <Button
+                      onClick={stopRecording}
+                      variant="default"
+                      className="border border-blue-500/60 dark:border-blue-400/40"
+                    >
                       <Icon name="Square" className="w-4 h-4 mr-2" />Stop Recording
                     </Button>
                   )}
@@ -1859,8 +1922,21 @@ Component Breakdown:
             <div className="grid grid-cols-2 gap-2">
               {QUALITY_TYPES.map((q) => (
                 <button key={q.id} onClick={() => setQuality(q.id)}
-                  className={`p-3 rounded-lg text-center transition border ${quality === q.id ? (q.id === 'good' ? 'bg-green-100 border-green-400' : 'bg-red-100 border-red-400') : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700'}`}>
-                  <Icon name={q.id === 'good' ? 'ThumbsUp' : 'ThumbsDown'} className={`w-5 h-5 mx-auto mb-1 ${q.id === 'good' ? 'text-green-600' : 'text-red-600'}`} />
+                  className={`p-3 rounded-lg text-center transition border ${
+                    quality === q.id
+                      ? (q.id === 'good'
+                        ? 'bg-emerald-100 border-emerald-400 text-emerald-950'
+                        : 'bg-rose-100 border-rose-400 text-rose-950')
+                      : 'bg-slate-50 dark:bg-slate-900/50 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-200'
+                  }`}>
+                  <Icon
+                    name={q.id === 'good' ? 'ThumbsUp' : 'ThumbsDown'}
+                    className={`w-5 h-5 mx-auto mb-1 ${
+                      q.id === 'good'
+                        ? (quality === q.id ? 'text-emerald-700' : 'text-emerald-600 dark:text-emerald-400')
+                        : (quality === q.id ? 'text-rose-700' : 'text-red-600 dark:text-red-400')
+                    }`}
+                  />
                   <div className="text-sm font-medium">{q.label}</div>
                 </button>
               ))}

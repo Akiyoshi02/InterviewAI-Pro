@@ -14,7 +14,7 @@ import { useMaintenanceMode } from '../../hooks/useMaintenanceMode';
 const TIER_CONFIG = {
   none: { label: 'No tier yet', color: 'text-gray-400', bg: 'bg-gray-100 dark:bg-slate-700', icon: 'Award', min: 0 },
   bronze: { label: 'Bronze', color: 'text-amber-700', bg: 'bg-amber-100 dark:bg-amber-900/30', icon: 'Award', min: 1 },
-  silver: { label: 'Silver', color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-700', icon: 'Star', min: 3 },
+  silver: { label: 'Silver', color: 'text-slate-600 dark:text-slate-300', bg: 'bg-slate-100 dark:bg-slate-700', icon: 'BrandBrain', min: 3 },
   gold: { label: 'Gold', color: 'text-yellow-600', bg: 'bg-yellow-100 dark:bg-yellow-900/30', icon: 'Trophy', min: 10 },
 };
 

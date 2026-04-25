@@ -42,6 +42,7 @@ export const ROLE_PERMISSIONS = {
   // Reviews
   SUBMIT_REVIEWS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
   VIEW_REVIEWS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER, ORG_ROLES.REVIEWER],
+  OVERRIDE_INTERVIEW_SCORE: [ORG_ROLES.ADMIN, ORG_ROLES.REVIEWER],
   
   // Analytics
   VIEW_ANALYTICS: [ORG_ROLES.ADMIN, ORG_ROLES.RECRUITER],
@@ -123,7 +124,7 @@ export const getRoleDescription = (role) => {
   const descriptions = {
     ADMIN: 'Full access to all features including organization management',
     RECRUITER: 'Manage jobs, applications, candidates, interviews, and scheduling',
-    REVIEWER: 'Review interviews and view candidate information (read-only access)',
+    REVIEWER: 'Subject matter expert who reviews interviews, submits SME scores, and can override final scores for assigned interviews',
   };
   return descriptions[role?.toUpperCase()] || '';
 };

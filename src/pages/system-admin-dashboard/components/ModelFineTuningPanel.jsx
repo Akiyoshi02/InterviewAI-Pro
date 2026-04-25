@@ -322,7 +322,7 @@ const ModelFineTuningPanel = () => {
             Step 1 — Export training data
           </p>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Downloads a <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">.jsonl</code> file formatted for <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">scripts/fine_tune_lora.py</code>.
+            Downloads a <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">.jsonl</code> file formatted for chat-based LoRA fine-tuning jobs.
           </p>
           <div className="flex items-center gap-3">
             <Button
@@ -347,17 +347,17 @@ const ModelFineTuningPanel = () => {
         {/* Step 2: Run script */}
         <div className="rounded-lg bg-white/70 dark:bg-slate-800/60 p-3 space-y-2">
           <p className="text-xs font-semibold text-gray-700 dark:text-slate-300">
-            Step 2 — Run fine-tuning on your machine
+            Step 2 - Run fine-tuning on your machine
           </p>
           <p className="text-xs text-gray-500 dark:text-slate-400">
-            Install Unsloth once, then run the script. The script handles everything: LoRA adapters, training, GGUF export.
+            Install your fine-tuning stack once, then run a LoRA SFT job that consumes the exported chat-message JSONL and emits a GGUF model.
           </p>
           <div className="rounded bg-gray-900 dark:bg-slate-950 p-2 text-xs font-mono text-green-400 space-y-1 overflow-x-auto">
             <p className="text-gray-400"># Install once (GPU machine with CUDA)</p>
             <p>pip install &quot;unsloth[colab-new] @ git+https://github.com/unslothai/unsloth.git&quot;</p>
             <p>pip install --no-deps trl peft accelerate bitsandbytes datasets</p>
-            <p className="text-gray-400 mt-1"># Run fine-tuning (~30–90 min on RTX 4070)</p>
-            <p>python scripts/fine_tune_lora.py --jsonl interviewai_training_XXXX.jsonl</p>
+            <p className="text-gray-400 mt-1"># Run fine-tuning (~30-90 min on RTX 4070)</p>
+            <p>python train_lora.py --jsonl interviewai_training_2026-04-25.jsonl</p>
           </div>
           <p className="text-xs text-gray-500 dark:text-slate-400">
             Output: <code className="font-mono bg-gray-100 dark:bg-slate-700 px-1 rounded">output/interviewai-qwen3-8b/interviewai-qwen3-8b-Q4_K_M.gguf</code>

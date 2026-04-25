@@ -8,6 +8,7 @@ import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
 import LoadingState from '../../components/ui/LoadingState';
 import MaintenanceBanner from '../../components/ui/MaintenanceBanner';
+import GroqUsageSnapshotPanel from '../../components/ui/GroqUsageSnapshotPanel.jsx';
 import OrganizationApprovalQueue from './components/OrganizationApprovalQueue.jsx';
 import SystemStats from './components/SystemStats.jsx';
 import PlatformAuditLogs from './components/PlatformAuditLogs.jsx';
@@ -200,7 +201,7 @@ const SystemAdminDashboard = () => {
     : ADMIN_SECTION_MAP[activeSection];
 
   const renderOverview = () => (
-    <>
+    <div className="space-y-4 sm:space-y-5">
       {stats ? (
         <SystemStats stats={stats} onRefresh={loadStats} />
       ) : (
@@ -251,7 +252,7 @@ const SystemAdminDashboard = () => {
           ))}
         </div>
       </section>
-    </>
+    </div>
   );
 
   const renderActiveSection = () => {
@@ -368,6 +369,10 @@ const SystemAdminDashboard = () => {
       <Header userType="admin" isAuthenticated onLogout={handleLogout} />
       {maintenanceMode && <MaintenanceBanner />}
       <div className="h-14 xs:h-16" />
+      <GroqUsageSnapshotPanel
+        description="Testing visibility for the shared Groq interview provider across the admin workspace."
+        topOffsetClassName={maintenanceMode ? 'top-32 xs:top-36 sm:top-40' : 'top-16 xs:top-[4.5rem] sm:top-20'}
+      />
 
       <div className="relative z-10">
         <div className="flex flex-col lg:flex-row">
