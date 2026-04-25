@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { 
-  Brain, Users, Clock, Award, Mail, PhoneCall, 
-  Twitter, Linkedin, Github, Globe, ArrowUpRight 
+import {
+  Users, Clock, Award, Mail, PhoneCall,
+  Twitter, Linkedin, Github, Globe, ArrowUpRight
 } from 'lucide-react';
+import BrandMark from '../BrandMark';
 import Button from '../ui/Button';
 import apiClient from '../../services/apiClient.js';
 import { getSupportContactEmail, getSupportMailtoHref, SUPPORT_PHONE_DISPLAY, SUPPORT_PHONE_HREF } from '../../constants/support.js';
@@ -137,16 +138,17 @@ const PublicFooter = () => {
             variants={fadeUpChild}
             className="rounded-2xl xs:rounded-3xl border border-gray-800 bg-gray-900/60 p-5 xs:p-6 sm:p-8 shadow-2xl shadow-black/40"
           >
-            <div className="flex items-center gap-2 xs:gap-3 mb-4 xs:mb-5 sm:mb-6">
-              <div className="flex items-center space-x-2">
-                <Brain className="h-4 w-4 xs:h-5 xs:w-5 sm:h-6 sm:w-6 text-blue-400" />
-                <div>
-                  <p className="text-base xs:text-lg sm:text-xl font-semibold text-white">
-                    InterviewAI <span className="text-blue-400">Pro</span>
-                  </p>
-                  <p className="text-[10px] xs:text-xs text-gray-400">Human-ready interviews, AI precision.</p>
-                </div>
-              </div>
+            <div className="mb-4 xs:mb-5 sm:mb-6">
+              <BrandMark
+                clickable={false}
+                showTagline
+                className="items-center"
+                iconWrapperClassName="w-8 h-8 xs:w-9 xs:h-9 sm:w-10 sm:h-10"
+                textClassName="text-base xs:text-lg sm:text-xl"
+                taglineClassName="text-[10px] xs:text-xs text-gray-400"
+                textColor="text-white"
+                proColor="text-blue-400"
+              />
             </div>
             <p className="text-xs xs:text-sm sm:text-base text-gray-400 dark:text-slate-400 mb-5 xs:mb-6 max-w-2xl leading-relaxed">
               We blend adaptive AI, structured scoring, and bias-aware workflows so candidates and talent teams

@@ -28,6 +28,7 @@ const FROM_EMAIL = process.env.FROM_EMAIL || 'noreply@localhost';
 const FROM_NAME = process.env.FROM_NAME || 'InterviewAI Pro';
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:5173';
 const CONTACT_EMAIL = process.env.SMTP_USER || FROM_EMAIL;
+const EMAIL_DELIVERY_MODES = new Set(['AUTO', 'SMTP', 'LOG', 'DISABLED']);
 // Use a simple content_id that email clients can easily match
 const EMAIL_LOGO_CONTENT_ID = 'logo';
 
@@ -115,6 +116,50 @@ const getSmtpLogoAttachment = () => {
     cid: EMAIL_LOGO_CONTENT_ID,
     contentDisposition: 'inline',
   };
+};
+
+const normalizeEmailDeliveryMode = (value) => {
+  const fallbackMode = process.env.NODE_ENV === 'production' ? 'SMTP' : 'AUTO';
+  const normalized = String(value || fallbackMode).trim().toUpperCase();
+  return EMAIL_DELIVERY_MODES.has(normalized) ? normalized : fallbackMode;
+};
+
+const getEmailDomain = (email) => {
+  const normalized = String(email || '').trim().toLowerCase();
+  const atIndex = normalized.lastIndexOf('@');
+  if (atIndex === -1) return '';
+  return normalized.slice(atIndex + 1);
+};
+
+const isReservedDevelopmentRecipient = (email) => {
+  const domain = getEmailDomain(email);
+  if (!domain) return false;
+  return (
+    domain === 'localhost'
+    || domain.endsWith('.localhost')
+    || domain.endsWith('.local')
+    || domain.endsWith('.test')
+    || domain.endsWith('.invalid')
+  );
+};
+
+const resolveEmailDeliveryMode = (recipient) => {
+  const configuredMode = normalizeEmailDeliveryMode(process.env.EMAIL_DELIVERY_MODE);
+  if (configuredMode !== 'AUTO') return configuredMode;
+  if (process.env.NODE_ENV === 'production') return 'SMTP';
+  return isReservedDevelopmentRecipient(recipient) ? 'LOG' : 'SMTP';
+};
+
+const createEmailServiceError = (message, {
+  status = 503,
+  code = 'EMAIL_DELIVERY_FAILED',
+  retryable = true,
+} = {}) => {
+  const error = new Error(message);
+  error.status = status;
+  error.code = code;
+  error.retryable = retryable;
+  return error;
 };
 
 // Helper function to format dates safely
@@ -468,8 +513,8 @@ const renderEmailLayout = ({
     logoHtml = '';
   } else if (logoUrl) {
     // Use provided logo URL (CID reference or external URL)
-    // Logo with text - larger size for better visibility
-    logoHtml = `<img src="${logoUrl}" alt="InterviewAI Pro" width="280" height="auto" style="max-width:280px;width:280px;height:auto;margin:24px auto 24px;display:block;object-fit:contain;" />`;
+    // Tight wordmark asset with balanced sizing for email headers.
+    logoHtml = `<img src="${logoUrl}" alt="InterviewAI Pro" width="236" height="auto" style="max-width:236px;width:236px;height:auto;margin:24px auto 24px;display:block;object-fit:contain;" />`;
   } else {
     // Fallback to CSS-based logo
     logoHtml = `<div class="logo-icon" style="width:52px;height:52px;margin:0 auto 14px;border-radius:999px;background:linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);display:flex;align-items:center;justify-content:center;box-shadow:0 8px 16px rgba(37, 99, 235, 0.25);">
@@ -700,6 +745,84 @@ The InterviewAI Pro Team
         <div class="code-box">${data.verificationCode}</div>
         <p>This code expires in ${data.expiresInMinutes} minutes.</p>
         <p class="note">If you did not request this, you can ignore this email.</p>
+      `,
+    }),
+  },
+
+  TWO_FACTOR_VERIFICATION: {
+    subject: 'Your InterviewAI Pro verification code',
+    getText: (data) => `
+Hi ${data.fullName || 'there'},
+
+Use this 6-digit code to complete two-factor verification:
+${data.verificationCode}
+
+This code expires in ${data.expiresInMinutes} minutes.
+
+If you did not request this code, you can ignore this email and review your account security settings.
+
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'Two-Factor Verification',
+      bodyHtml: `
+        <p>Hi ${data.fullName || 'there'},</p>
+        <p>Use this 6-digit code to complete two-factor verification:</p>
+        <div class="code-box">${data.verificationCode}</div>
+        <p>This code expires in ${data.expiresInMinutes} minutes.</p>
+        <p class="note">If you did not request this code, you can ignore this email and review your account security settings.</p>
+      `,
+    }),
+  },
+
+  TEAM_INVITATION: {
+    subject: `You've been invited to join \${data.organizationName}`,
+    getText: (data) => `
+Hi there,
+
+You've been invited to join ${data.organizationName} as a ${data.roleDisplay}!
+
+${data.organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.
+
+Your Role: ${data.roleDisplay}
+
+To accept this invitation and create your account:
+${data.inviteLink}
+
+This invitation will expire in ${data.expiresInDays} days.
+
+Best regards,
+The InterviewAI Pro Team
+    `.trim(),
+    getHtml: (data) => renderEmailLayout({
+      title: 'You\'re Invited!',
+      bodyHtml: `
+        <p>Hi there,</p>
+        <p>You've been invited to join <strong>${data.organizationName}</strong> on InterviewAI Pro!</p>
+
+        <div style="text-align: center;">
+          <span class="role-badge">Your Role: ${data.roleDisplay}</span>
+        </div>
+
+        <p>${data.organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.</p>
+
+        <div class="details">
+          <p><strong>Organization:</strong> ${data.organizationName}</p>
+          <p><strong>Your Role:</strong> ${data.roleDisplay}</p>
+          <p><strong>Expires In:</strong> ${data.expiresInDays} days</p>
+        </div>
+
+        <div style="text-align: center;">
+          <a href="${data.inviteLink}" class="button">Accept Invitation & Create Account</a>
+        </div>
+
+        <p class="note" style="margin-top: 24px;">
+          This invitation link is unique to you and will expire in ${data.expiresInDays} days. If you have any questions, please contact ${data.organizationName} directly.
+        </p>
+      `,
+      footerHtml: `
+        <p><strong>InterviewAI Pro</strong></p>
+        <p>This email was sent because ${data.organizationName} invited you to join their team.</p>
       `,
     }),
   },
@@ -1301,6 +1424,24 @@ async function sendEmail({ to, subject, text, html, replyTo, category }) {
   if (!text || !text.trim()) {
     logger.warn('Email missing plain text version. This can hurt deliverability.');
   }
+  const deliveryMode = resolveEmailDeliveryMode(to);
+  if (deliveryMode === 'DISABLED') {
+    logger.info(`Email delivery disabled. Skipping email to ${to}: ${subject}`);
+    return { success: true, skipped: true, deliveryMode };
+  }
+  if (deliveryMode === 'LOG') {
+    logger.info(`Email captured locally without SMTP for ${to}: ${subject}`, {
+      deliveryMode,
+      recipientDomain: getEmailDomain(to),
+    });
+    return {
+      success: true,
+      logged: true,
+      skipped: true,
+      deliveryMode,
+      messageId: `local-${Date.now()}`,
+    };
+  }
   try {
     logger.info(`Sending email to ${to}: ${subject}`);
     return await sendWithSMTP({ to, subject, text, html, replyTo });
@@ -1326,10 +1467,24 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
   const smtpSecure = process.env.SMTP_SECURE === 'true';
 
   if (!smtpHost || !smtpUser || !smtpPass) {
-    throw new Error('SMTP configuration incomplete. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in your .env file.');
+    throw createEmailServiceError(
+      'SMTP configuration incomplete. Please set SMTP_HOST, SMTP_USER, and SMTP_PASS in your .env file.',
+      {
+        status: 500,
+        code: 'EMAIL_SMTP_CONFIG_INVALID',
+        retryable: false,
+      },
+    );
   }
   if (!smtpHost.toLowerCase().includes('gmail.com')) {
-    throw new Error(`Unsupported SMTP_HOST "${smtpHost}". This system is configured for Gmail SMTP only.`);
+    throw createEmailServiceError(
+      `Unsupported SMTP_HOST "${smtpHost}". This system is configured for Gmail SMTP only.`,
+      {
+        status: 500,
+        code: 'EMAIL_SMTP_HOST_UNSUPPORTED',
+        retryable: false,
+      },
+    );
   }
 
   try {
@@ -1424,9 +1579,11 @@ async function sendWithSMTP({ to, subject, text, html, replyTo }) {
     const safeMessage = isAuthFailure
       ? 'Email service authentication failed. Please contact support.'
       : 'Unable to send email right now. Please try again later.';
-    const wrappedError = new Error(safeMessage);
-    wrappedError.status = 503;
-    wrappedError.code = isAuthFailure ? 'EMAIL_SMTP_AUTH_FAILED' : 'EMAIL_DELIVERY_FAILED';
+    const wrappedError = createEmailServiceError(safeMessage, {
+      status: 503,
+      code: isAuthFailure ? 'EMAIL_SMTP_AUTH_FAILED' : 'EMAIL_DELIVERY_FAILED',
+      retryable: !isAuthFailure,
+    });
     throw wrappedError;
   }
 }
@@ -1466,6 +1623,15 @@ export async function sendTemplatedEmail(templateName, data) {
 export const emailNotifications = {
   async sendEmailVerification({ email, fullName, verificationCode, expiresInMinutes = 10 }) {
     return await sendTemplatedEmail('EMAIL_VERIFICATION', {
+      email,
+      fullName: fullName || 'there',
+      verificationCode,
+      expiresInMinutes,
+    });
+  },
+
+  async sendTwoFactorVerificationCode({ email, fullName, verificationCode, expiresInMinutes = 10 }) {
+    return await sendTemplatedEmail('TWO_FACTOR_VERIFICATION', {
       email,
       fullName: fullName || 'there',
       verificationCode,
@@ -1744,60 +1910,13 @@ export const emailNotifications = {
       REVIEWER: 'Reviewer',
     }[role] || role;
 
-    const subject = `You've been invited to join ${organizationName}`;
-    
-    const text = `
-Hi there,
-
-You've been invited to join ${organizationName} as a ${roleDisplay}!
-
-${organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.
-
-Your Role: ${roleDisplay}
-
-To accept this invitation and create your account:
-${inviteLink}
-
-This invitation will expire in ${expiresInDays} days.
-
-Best regards,
-The InterviewAI Pro Team
-    `.trim();
-
-
-    const html = renderEmailLayout({
-      title: 'You\'re Invited!',
-      bodyHtml: `
-        <p>Hi there,</p>
-        <p>You've been invited to join <strong>${organizationName}</strong> on InterviewAI Pro!</p>
-
-        <div style="text-align: center;">
-          <span class="role-badge">Your Role: ${roleDisplay}</span>
-        </div>
-
-        <p>${organizationName} is using InterviewAI Pro to streamline their hiring process, and they'd like you to be part of their team.</p>
-
-        <div class="details">
-          <p><strong>Organization:</strong> ${organizationName}</p>
-          <p><strong>Your Role:</strong> ${roleDisplay}</p>
-          <p><strong>Expires In:</strong> ${expiresInDays} days</p>
-        </div>
-
-        <div style="text-align: center;">
-          <a href="${inviteLink}" class="button">Accept Invitation & Create Account</a>
-        </div>
-
-        <p class="note" style="margin-top: 24px;">
-          This invitation link is unique to you and will expire in ${expiresInDays} days. If you have any questions, please contact ${organizationName} directly.
-        </p>
-      `,
-      footerHtml: `
-        <p><strong>InterviewAI Pro</strong></p>
-        <p>This email was sent because ${organizationName} invited you to join their team.</p>
-      `,
+    return await sendTemplatedEmail('TEAM_INVITATION', {
+      to,
+      organizationName,
+      roleDisplay,
+      inviteLink,
+      expiresInDays,
     });
-
-    return await sendEmail({ to, subject, text, html });
   },
 };
 

@@ -3228,7 +3228,7 @@ const CompanyJobsPage = () => {
                                       <span className="min-w-0 flex-1 leading-tight">
                                         {stage.autoAdvanceOnPass ? 'Create next round on pass' : 'Manual progression only'}
                                       </span>
-                                      <Icon name={stage.autoAdvanceOnPass ? 'Sparkles' : 'Circle'} size={16} className="mt-0.5 shrink-0" />
+                                      <Icon name={stage.autoAdvanceOnPass ? 'BrandBrain' : 'Circle'} size={16} className="mt-0.5 shrink-0" />
                                     </button>
                                   </div>
                                   <div className="space-y-2 min-w-0">

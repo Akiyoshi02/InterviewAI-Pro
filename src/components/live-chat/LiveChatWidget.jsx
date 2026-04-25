@@ -81,7 +81,7 @@ const PUBLIC_ASSISTANT_QUICK_ACTIONS = [
   {
     key: 'platform_overview',
     label: 'Platform Overview',
-    icon: 'Sparkles',
+    icon: 'BrandBrain',
     prompt: 'Give me a quick overview of InterviewAI Pro for candidates and companies.'
   },
   {

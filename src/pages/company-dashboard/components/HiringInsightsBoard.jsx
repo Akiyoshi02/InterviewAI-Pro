@@ -198,7 +198,7 @@ const HiringInsightsBoard = ({
         <div className="rounded-xl border border-dashed border-blue-200/70 dark:border-blue-700/40 bg-blue-50/60 dark:bg-blue-900/15 p-4">
           <div className="flex items-start gap-3">
             <div className="w-9 h-9 rounded-xl bg-blue-600/15 dark:bg-blue-500/20 text-blue-700 dark:text-blue-300 flex items-center justify-center">
-              <Icon name="Sparkles" size={18} />
+              <Icon name="BrandBrain" size={18} />
             </div>
             <div className="flex-1 min-w-0 space-y-2">
               <h3 className="text-sm font-semibold text-gray-900 dark:text-slate-100">Build a complete dashboard signal</h3>

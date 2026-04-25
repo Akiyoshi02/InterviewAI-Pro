@@ -4,9 +4,10 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
+import BrandBrainIcon from '../../components/BrandBrainIcon';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
-import { BookOpen, Sparkles, GraduationCap, Target, Clock } from 'lucide-react';
+import { BookOpen, GraduationCap, Target, Clock } from 'lucide-react';
 
 const LearningCenterPage = () => {
   const navigate = useNavigate();
@@ -137,7 +138,7 @@ const LearningCenterPage = () => {
             </div>
             <div className="space-y-3 xs:space-y-4">
               <div className="inline-flex items-center space-x-2 rounded-full bg-blue-100 dark:bg-blue-900/30 px-3 xs:px-4 py-1.5 xs:py-2 text-xs xs:text-sm font-medium text-blue-700 dark:text-blue-300">
-                <Sparkles className="h-3 w-3 xs:h-4 xs:w-4" />
+                <BrandBrainIcon className="h-3 w-3 xs:h-4 xs:w-4" />
                 <span>Learning Center</span>
               </div>
               <h1 className="text-2xl xs:text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-slate-100">

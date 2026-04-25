@@ -73,19 +73,23 @@ export function setupRoutes(app) {
   // Add maintenance header to all API responses
   app.use('/api', addMaintenanceHeader);
 
-  // Health check
-  app.get('/health', (req, res) => {
+  const healthHandler = (req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
-  });
+  };
+
+  // Health check
+  app.get('/health', healthHandler);
+  app.get('/api/health', healthHandler);
 
   // AI health check (used for demo readiness verification).
   app.get('/api/ai/health', async (req, res) => {
     try {
       const expectedModel = process.env.OLLAMA_MODEL || 'qwen3:8b';
       const runtimeModel = LLMService.getRuntimeModelStatus();
-      const [ollama, whisper] = await Promise.all([
+      const [ollama, whisper, interviewProvider] = await Promise.all([
         LLMService.healthCheck({ expectedModel }),
         LLMService.getWhisperHealth(),
+        LLMService.getInterviewProviderHealth(),
       ]);
 
       res.json({
@@ -95,6 +99,7 @@ export function setupRoutes(app) {
         ollamaReachable: Boolean(ollama.healthy),
         modelReady: Boolean(ollama.modelReady),
         ollama,
+        interviewProvider,
         runtimeModel,
         whisperReachable: whisper.reachable,
         whisperConfigured: whisper.configured,

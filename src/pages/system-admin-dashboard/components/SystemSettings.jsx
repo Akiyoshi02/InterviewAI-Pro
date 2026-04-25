@@ -481,7 +481,7 @@ const SystemSettings = () => {
               AI Runtime Model Status
             </h3>
             <p className="text-xs text-gray-600 dark:text-slate-400 mt-1">
-              Live status of Ollama and the most recently active model path (primary/fallback).
+              Live status of Ollama, the interview provider, and the most recently active model path.
             </p>
           </div>
           <Button
@@ -519,6 +519,18 @@ const SystemSettings = () => {
             <p className="text-xs text-gray-500 dark:text-slate-400">Configured Primary</p>
             <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
               {aiHealth?.runtimeModel?.primaryModel || editedSettings.defaultAIConfig.model || DEFAULT_MODEL}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Interview Provider</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {String(aiHealth?.interviewProvider?.provider || aiHealth?.runtimeModel?.interviewProvider || 'ollama').toUpperCase()}
+            </p>
+          </div>
+          <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">
+            <p className="text-xs text-gray-500 dark:text-slate-400">Interview Model</p>
+            <p className="text-sm font-semibold text-gray-900 dark:text-slate-100 mt-1">
+              {aiHealth?.interviewProvider?.expectedModel || aiHealth?.runtimeModel?.interviewModel || 'Not configured'}
             </p>
           </div>
           <div className="rounded-lg border border-gray-200 dark:border-slate-700 bg-white/60 dark:bg-slate-900/40 p-3">

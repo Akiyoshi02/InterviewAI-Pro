@@ -1,6 +1,6 @@
 # InterviewAI Pro
 
-InterviewAI Pro is a full-stack interview platform that combines practice interviews, hiring interviews, scheduling, reviewer workflows, and AI-assisted evaluation. The repository contains a React/Vite frontend and an Express/Firebase backend.
+InterviewAI Pro is a full-stack interview platform that combines practice interviews, hiring interviews, scheduling, reviewer workflows, and automated evaluation. The repository contains a React/Vite frontend and an Express/Firebase backend.
 
 ## Repository status
 
@@ -15,18 +15,11 @@ This runs:
 - backend tests
 - production frontend build
 
-## Documentation map
-
-- Architecture: [docs/architecture.md](docs/architecture.md)
-- Testing and verification: [docs/testing.md](docs/testing.md)
-- Deployment: [docs/deployment.md](docs/deployment.md)
-- Evaluator walkthrough: [docs/evaluator-guide.md](docs/evaluator-guide.md)
-
 ## Tech stack
 
 - Frontend: React 18, Vite 5, Tailwind CSS, Redux Toolkit
 - Backend: Express, Firebase Admin, Socket.IO, Winston
-- Optional AI services: Ollama, local Whisper, MediaPipe
+- Optional model services: Ollama, local Whisper, MediaPipe
 
 ## Project structure
 
@@ -35,7 +28,6 @@ This runs:
 |-- src/                      # Frontend application
 |-- server/                   # Backend API
 |-- public/                   # Static frontend assets
-|-- docs/                     # Architecture, deployment, testing, evaluator docs
 |-- .github/workflows/        # CI and frontend deployment workflows
 |-- render.yaml               # Baseline backend deployment blueprint
 |-- vite.config.mjs
@@ -93,6 +85,12 @@ Then fill in the required values in `server/.env`.
 
 Reference:
 - [server/.env.example](server/.env.example)
+
+Interview provider split:
+- keep local Ollama as the default backend LLM path
+- set `INTERVIEW_LLM_PROVIDER=groq` and `GROQ_API_KEY=...` in `server/.env` to route interview question generation, answer scoring, follow-up generation, and final evaluation through Groq
+- `INTERVIEW_GROQ_MODEL` defaults to `openai/gpt-oss-20b`
+- set `INTERVIEW_GROQ_LIMIT_FALLBACK_TO_OLLAMA=true` to continue interview flows on the local primary Ollama model when Groq quota/rate limits are reached
 
 ## Local development
 
@@ -168,9 +166,6 @@ Backend deployment is separate from the frontend.
 Baseline backend blueprint:
 - [render.yaml](render.yaml)
 
-Detailed instructions:
-- [docs/deployment.md](docs/deployment.md)
-
 Minimum backend host settings:
 - root directory: `server`
 - install command: `npm ci`
@@ -179,11 +174,7 @@ Minimum backend host settings:
 
 ## Submission and evaluation guidance
 
-If this repository is being assessed as a project submission, use:
-- [docs/evaluator-guide.md](docs/evaluator-guide.md)
-- [docs/testing.md](docs/testing.md)
-
-These documents define the expected verification path and runtime assumptions.
+If this repository is being assessed as a project submission, use `npm run verify` as the expected verification path. Runtime assumptions are listed in the environment configuration and local development sections above.
 
 ## Support
 
@@ -191,4 +182,4 @@ If you hit a runtime issue, collect:
 - failing command
 - console or server log output
 - current role and page
-- whether backend and optional AI services were running
+- whether backend and optional model services were running

@@ -1,4 +1,4 @@
-const ACTIVE_INTERVIEW_STATUSES = new Set(['PENDING', 'SCHEDULED', 'IN_PROGRESS']);
+import { getCandidateActiveInterviews, getCandidateUpcomingScheduledInterviews } from '../../../utils/candidateInterviewWindows.js';
 const ACTIVE_APPLICATION_STATUSES = new Set(['SUBMITTED', 'SCREENING', 'INTERVIEWING', 'SHORTLISTED', 'OFFER']);
 const STRONG_APPLICATION_SIGNAL_STATUSES = new Set(['SHORTLISTED', 'INTERVIEWING', 'OFFER', 'HIRED']);
 const SUPPORTED_INSIGHT_COLORS = new Set(['blue', 'green', 'amber']);
@@ -97,9 +97,9 @@ const resolveMetrics = ({ interviews = [], dashboardMetrics = null, analytics = 
   const safeApplications = toSafeArray(applications);
 
   const completedInterviews = safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'COMPLETED');
-  const scheduledInterviews = safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'SCHEDULED');
-  const inProgressInterviews = safeInterviews.filter((interview) => toUpperCode(interview?.status) === 'IN_PROGRESS');
-  const activeInterviews = safeInterviews.filter((interview) => ACTIVE_INTERVIEW_STATUSES.has(toUpperCode(interview?.status)));
+  const activeInterviews = getCandidateActiveInterviews(safeInterviews);
+  const scheduledInterviews = getCandidateUpcomingScheduledInterviews(safeInterviews);
+  const inProgressInterviews = activeInterviews.filter((interview) => toUpperCode(interview?.status) === 'IN_PROGRESS');
 
   const scoredInterviews = completedInterviews.filter((interview) => toFiniteNumber(interview?.overallScore) != null);
   const calculatedAverageScore = scoredInterviews.length
@@ -111,8 +111,8 @@ const resolveMetrics = ({ interviews = [], dashboardMetrics = null, analytics = 
   const averageScore = metricsAverageScore ?? analyticsAverageScore ?? calculatedAverageScore;
 
   const completedCount = toFiniteNumber(dashboardMetrics?.completedInterviews?.value) ?? completedInterviews.length;
-  const scheduledCount = toFiniteNumber(dashboardMetrics?.scheduledInterviews?.value) ?? scheduledInterviews.length;
-  const inProgressCount = toFiniteNumber(dashboardMetrics?.inProgressInterviews) ?? inProgressInterviews.length;
+  const scheduledCount = scheduledInterviews.length;
+  const inProgressCount = inProgressInterviews.length;
   const totalInterviews = toFiniteNumber(dashboardMetrics?.totalInterviews) ?? safeInterviews.length;
 
   const activeApplications = safeApplications.filter((application) =>
@@ -198,7 +198,7 @@ export const deriveAchievementBadges = ({ interviews = [], dashboardMetrics = nu
       id: 'high-scorer',
       name: 'High Scorer',
       description: 'Score 90% or higher in an interview',
-      icon: 'Star',
+      icon: 'BrandBrain',
       color: 'bg-gradient-to-br from-blue-600 to-purple-600',
       rarity: 'rare',
       progress: highScoreInterviews.length > 0 ? 1 : 0,
@@ -419,6 +419,13 @@ export const deriveDashboardInsights = ({ interviews = [], dashboardMetrics = nu
   const completedCount = Math.max(0, Math.round(Number(metrics.completedCount) || 0));
   const scheduledCount = Math.max(0, Math.round(Number(metrics.scheduledCount) || 0));
   const inProgressCount = Math.max(0, Math.round(Number(metrics.inProgressCount) || 0));
+  const pendingSchedulingCount = Math.max(
+    0,
+    metrics.activeInterviews.filter((interview) =>
+      toUpperCode(interview?.status) === 'SCHEDULED' && !toDate(interview?.scheduledFor)
+    ).length,
+  );
+  const activeWorkflowCount = scheduledCount + inProgressCount + pendingSchedulingCount;
   const averageScore = toFiniteNumber(metrics.averageScore);
   const averageScorePercent = clampPercent(averageScore);
   const hasScoreSignal = averageScore != null && completedCount > 0;
@@ -446,14 +453,16 @@ export const deriveDashboardInsights = ({ interviews = [], dashboardMetrics = nu
     };
 
   let pipelineInsight = null;
-  if (scheduledCount + inProgressCount > 0) {
+  if (activeWorkflowCount > 0) {
     pipelineInsight = {
       id: 'pipeline-active',
       color: 'green',
-      title: `${pluralize(scheduledCount + inProgressCount, 'active interview')} in your pipeline`,
+      title: `${pluralize(activeWorkflowCount, 'active interview workflow')} in your pipeline`,
       detail: nextScheduledLabel
         ? `Next scheduled interview on ${nextScheduledLabel}.`
-        : 'Keep your scheduling details updated to stay interview-ready.',
+        : pendingSchedulingCount > 0
+          ? 'Some interview workflows are active but still waiting for scheduling details.'
+          : 'Keep your scheduling details updated to stay interview-ready.',
     };
   } else if (activeApplicationCount > 0) {
     pipelineInsight = {

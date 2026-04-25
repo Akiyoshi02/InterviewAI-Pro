@@ -40,6 +40,7 @@ import { setupRoutes } from './routes/index.js';
 import { setupSocketIO } from './socket/interview.socket.js';
 import { setupSecurity } from './middleware/security.middleware.js';
 import { setupErrorHandling } from './middleware/error.middleware.js';
+import { isAllowedCorsOrigin } from './config/cors.js';
 import { LLMService } from './services/llm.service.js';
 import { startMeetingLinkScheduler, stopMeetingLinkScheduler } from './services/meetingLinkScheduler.service.js';
 import { startReviewReminderScheduler, stopReviewReminderScheduler } from './services/reviewReminderScheduler.service.js';
@@ -49,7 +50,15 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, {
   cors: {
-    origin: process.env.FRONTEND_URL || "http://localhost:4028",
+    origin: (origin, callback) => {
+      if (!origin || isAllowedCorsOrigin(origin)) {
+        callback(null, true);
+        return;
+      }
+
+      logger.warn('Socket.IO CORS blocked request from origin:', { origin });
+      callback(new Error('Not allowed by CORS'));
+    },
     credentials: true
   }
 });

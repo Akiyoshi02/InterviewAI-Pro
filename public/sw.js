@@ -7,14 +7,18 @@
  *  - Navigation requests:           Network-first, fall back to cached shell (offline page)
  */
 
-const CACHE_NAME = 'interviewer-v1';
+const CACHE_NAME = 'interviewer-v2';
 const OFFLINE_URL = '/offline.html';
 
 const PRECACHE_ASSETS = [
   '/',
   '/offline.html',
   '/manifest.json',
-  '/assets/images/logo.png',
+  '/assets/images/logo.svg',
+  '/assets/images/logo-32.png',
+  '/assets/images/logo-180.png',
+  '/assets/images/logo-192.png',
+  '/assets/images/logo-512.png',
 ];
 
 // ── Install ──────────────────────────────────────────────────────────────────
@@ -115,8 +119,8 @@ self.addEventListener('push', (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title, {
       body: data.body,
-      icon: '/assets/images/logo.png',
-      badge: '/assets/images/logo.png',
+      icon: '/assets/images/logo-192.png',
+      badge: '/assets/images/logo-32.png',
       data: data.url ? { url: data.url } : undefined,
       tag: data.tag || 'default',
       renotify: true,

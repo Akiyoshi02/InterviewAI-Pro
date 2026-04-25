@@ -37,6 +37,15 @@ const STATIC_THRESHOLDS = {
       blinkThreshold: 0.16,
       prolongedClosureFrames: 15,
     },
+    gaze: {
+      irisPosition: {
+        tolerance: 0.15,
+      },
+      horizontalOffsetThreshold: 0.12,
+      verticalOffsetThreshold: 0.12,
+      asymmetryThreshold: 0.08,
+      irisSymmetryThreshold: 0.10,
+    },
     orientation: {
       maxYawThreshold: 15,
       moderateYawThreshold: 25,
@@ -154,6 +163,36 @@ const COMPARISON_METRICS = [
     sampleKey: 'blinkEAR',
   },
   {
+    metric: 'eyeContact.gaze.irisPosition.tolerance',
+    staticPath: 'eyeContact.gaze.irisPosition.tolerance',
+    calibratedPath: 'eyeContact.gaze.irisPosition.tolerance',
+    sampleKey: 'gazeDeviation',
+  },
+  {
+    metric: 'eyeContact.gaze.horizontalOffsetThreshold',
+    staticPath: 'eyeContact.gaze.horizontalOffsetThreshold',
+    calibratedPath: 'eyeContact.gaze.horizontalOffsetThreshold',
+    sampleKey: 'gazeHorizontalOffsetAbs',
+  },
+  {
+    metric: 'eyeContact.gaze.verticalOffsetThreshold',
+    staticPath: 'eyeContact.gaze.verticalOffsetThreshold',
+    calibratedPath: 'eyeContact.gaze.verticalOffsetThreshold',
+    sampleKey: 'gazeVerticalOffsetAbs',
+  },
+  {
+    metric: 'eyeContact.gaze.asymmetryThreshold',
+    staticPath: 'eyeContact.gaze.asymmetryThreshold',
+    calibratedPath: 'eyeContact.gaze.asymmetryThreshold',
+    sampleKey: 'eyeAsymmetry',
+  },
+  {
+    metric: 'eyeContact.gaze.irisSymmetryThreshold',
+    staticPath: 'eyeContact.gaze.irisSymmetryThreshold',
+    calibratedPath: 'eyeContact.gaze.irisSymmetryThreshold',
+    sampleKey: 'irisSymmetry',
+  },
+  {
     metric: 'facial.mouth.speakingThreshold',
     staticPath: 'facial.mouth.speakingThreshold',
     calibratedPath: 'facial.mouth.speakingThreshold',
@@ -179,6 +218,11 @@ function pickFirstNumeric(...values) {
     if (n != null) return n;
   }
   return null;
+}
+
+function absIfNumeric(value) {
+  const n = toNumber(value);
+  return n != null ? Math.abs(n) : null;
 }
 
 function pushIfNumeric(collection, key, value) {
@@ -286,6 +330,11 @@ function extractSamples(analyticsData) {
     pitchAbs: [],
     blinkEAR: [],
     speakingMAR: [],
+    gazeDeviation: [],
+    gazeHorizontalOffsetAbs: [],
+    gazeVerticalOffsetAbs: [],
+    eyeAsymmetry: [],
+    irisSymmetry: [],
   };
 
   for (const dataset of analyticsData) {
@@ -298,9 +347,14 @@ function extractSamples(analyticsData) {
 
     for (const point of dataPoints) {
       const pose = point?.pose || point?.poseMetrics || {};
-      const face = point?.face || point?.faceMetrics || point?.faceMesh || {};
+      const face = point?.faceSummary || point?.face || point?.faceMetrics || point?.faceMesh || {};
       const body = point?.bodyLanguage || point?.bodyLanguageMetrics || {};
       const scores = point?.scores || {};
+      const faceOrientation = face?.orientation || {};
+      const faceEyes = face?.eyes || {};
+      const faceGaze = face?.gaze || {};
+      const faceIris = face?.iris || {};
+      const faceSpeaking = face?.speaking || {};
 
       const shoulderScore = pickFirstNumeric(pose.shoulderAlignment, scores.posture);
       const shoulderSlope = pickFirstNumeric(
@@ -348,26 +402,47 @@ function extractSamples(analyticsData) {
       pushIfNumeric(samples, 'fidgetMovement', fidgetMovement);
 
       const yaw = toNumber(face.yaw);
-      if (yaw != null) {
-        pushIfNumeric(samples, 'yawAbs', Math.abs(yaw));
-      }
+      pushIfNumeric(samples, 'yawAbs', absIfNumeric(yaw ?? faceOrientation.yaw));
 
       const pitch = toNumber(face.pitch);
-      if (pitch != null) {
-        pushIfNumeric(samples, 'pitchAbs', Math.abs(pitch));
-      }
+      pushIfNumeric(samples, 'pitchAbs', absIfNumeric(pitch ?? faceOrientation.pitch));
 
       const blinkEAR = pickFirstNumeric(
         face.eyeAspectRatio,
         face.avgEAR,
+        faceEyes.avgEAR,
         toNumber(face.leftEAR) != null && toNumber(face.rightEAR) != null
           ? (Number(face.leftEAR) + Number(face.rightEAR)) / 2
+          : null,
+        toNumber(faceEyes.leftEAR) != null && toNumber(faceEyes.rightEAR) != null
+          ? (Number(faceEyes.leftEAR) + Number(faceEyes.rightEAR)) / 2
           : null,
       );
       pushIfNumeric(samples, 'blinkEAR', blinkEAR);
 
-      const speakingMAR = pickFirstNumeric(face.mouthMAR, face.mar);
+      const speakingMAR = pickFirstNumeric(face.mouthMAR, face.mar, faceSpeaking.mouthMAR);
       pushIfNumeric(samples, 'speakingMAR', speakingMAR);
+
+      const gazeDeviation = pickFirstNumeric(face.gazeDeviation, faceGaze.deviation);
+      pushIfNumeric(samples, 'gazeDeviation', gazeDeviation);
+
+      const gazeHorizontalOffset = pickFirstNumeric(
+        absIfNumeric(face.gazeHorizontalOffset),
+        absIfNumeric(faceGaze.horizontalOffset),
+      );
+      pushIfNumeric(samples, 'gazeHorizontalOffsetAbs', gazeHorizontalOffset);
+
+      const gazeVerticalOffset = pickFirstNumeric(
+        absIfNumeric(face.gazeVerticalOffset),
+        absIfNumeric(faceGaze.verticalOffset),
+      );
+      pushIfNumeric(samples, 'gazeVerticalOffsetAbs', gazeVerticalOffset);
+
+      const eyeAsymmetry = pickFirstNumeric(face.eyeAsymmetry, faceEyes.asymmetry, face.asymmetry);
+      pushIfNumeric(samples, 'eyeAsymmetry', eyeAsymmetry);
+
+      const irisSymmetry = pickFirstNumeric(face.irisSymmetry, faceIris.symmetry);
+      pushIfNumeric(samples, 'irisSymmetry', irisSymmetry);
     }
   }
 
@@ -400,6 +475,15 @@ function calibrateFromSamples(samples) {
       eyes: {
         blinkThreshold: round(clamp(percentile(samples.blinkEAR, 0.10) ?? STATIC_THRESHOLDS.eyeContact.eyes.blinkThreshold, 0.08, 0.30)),
         prolongedClosureFrames: STATIC_THRESHOLDS.eyeContact.eyes.prolongedClosureFrames,
+      },
+      gaze: {
+        irisPosition: {
+          tolerance: round(clamp(percentile(samples.gazeDeviation, 0.60) ?? STATIC_THRESHOLDS.eyeContact.gaze.irisPosition.tolerance, 0.05, 0.30)),
+        },
+        horizontalOffsetThreshold: round(clamp(percentile(samples.gazeHorizontalOffsetAbs, 0.70) ?? STATIC_THRESHOLDS.eyeContact.gaze.horizontalOffsetThreshold, 0.03, 0.30)),
+        verticalOffsetThreshold: round(clamp(percentile(samples.gazeVerticalOffsetAbs, 0.70) ?? STATIC_THRESHOLDS.eyeContact.gaze.verticalOffsetThreshold, 0.03, 0.30)),
+        asymmetryThreshold: round(clamp(percentile(samples.eyeAsymmetry, 0.80) ?? STATIC_THRESHOLDS.eyeContact.gaze.asymmetryThreshold, 0.02, 0.25)),
+        irisSymmetryThreshold: round(clamp(percentile(samples.irisSymmetry, 0.80) ?? STATIC_THRESHOLDS.eyeContact.gaze.irisSymmetryThreshold, 0.02, 0.30)),
       },
       orientation: {
         maxYawThreshold: round(clamp(percentile(samples.yawAbs, 0.60) ?? STATIC_THRESHOLDS.eyeContact.orientation.maxYawThreshold, 5, 35)),

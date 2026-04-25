@@ -12,6 +12,7 @@ import {
   evaluateInvitationAcceptanceClaim,
   INVITATION_ACCEPTANCE_CLAIM_STATUS,
 } from '../utils/invitationAcceptance.util.js';
+import { getMeetingAccessWindow } from './meetingLink.service.js';
 
 const usersCollection = firestore.collection('users');
 const interviewsCollection = firestore.collection('interviews');
@@ -67,6 +68,17 @@ const toMillis = (value) => {
   if (typeof value?.toMillis === 'function') return value.toMillis();
   if (typeof value?.toDate === 'function') return value.toDate().getTime();
   return 0;
+};
+
+const isCandidateInterviewStillActiveForDashboard = (interview, nowMs = Date.now()) => {
+  const status = String(interview?.status || '').trim().toUpperCase();
+  if (status !== 'SCHEDULED' && status !== 'IN_PROGRESS' && status !== 'PAUSED') {
+    return false;
+  }
+
+  const accessWindow = getMeetingAccessWindow(interview);
+  if (!accessWindow) return true;
+  return nowMs <= accessWindow.windowCloseMs;
 };
 
 const DEFAULT_POSTING_DURATION_DAYS = 30;
@@ -521,6 +533,12 @@ export const interviewStore = {
       config: data.config && typeof data.config === 'object' ? data.config : null,
       evaluation: data.evaluation || null,
       overallScore: data.overallScore || null,
+      finalOverallScore: data.finalOverallScore ?? null,
+      finalScoreSource: data.finalScoreSource || null,
+      officialSmeReviewerId: data.officialSmeReviewerId || null,
+      officialSmeReviewerRole: data.officialSmeReviewerRole || null,
+      officialSmeReviewId: data.officialSmeReviewId || null,
+      officialSmeScoreSubmittedAt: data.officialSmeScoreSubmittedAt || null,
       readinessLevel: data.readinessLevel || null,
       createdAt: now(),
       updatedAt: now(),
@@ -1163,6 +1181,7 @@ export async function hydrateInterviewParticipants(interviews = []) {
         if (reviewerId) participantIds.add(reviewerId);
       });
     }
+    if (interview?.officialSmeReviewerId) participantIds.add(interview.officialSmeReviewerId);
   });
 
   const [summaries, organizations] = await Promise.all([
@@ -1195,6 +1214,9 @@ export async function hydrateInterviewParticipants(interviews = []) {
         .map((reviewerId) => summaries.get(reviewerId) || null)
         .filter(Boolean)
       : [],
+    officialSmeReviewer: interview.officialSmeReviewerId
+      ? summaries.get(interview.officialSmeReviewerId) || null
+      : null,
   }));
 }
 
@@ -1278,7 +1300,10 @@ const buildCandidateInsights = ({ currentMetrics, previousMetrics }) => {
   const insights = [];
   const averageScore = Number(currentMetrics?.averageScore) || 0;
   const completedInterviews = Number(currentMetrics?.completedInterviews) || 0;
-  const activeInterviews = (Number(currentMetrics?.scheduledInterviews) || 0) + (Number(currentMetrics?.inProgressInterviews) || 0);
+  const scheduledInterviews = Number(currentMetrics?.scheduledInterviews) || 0;
+  const inProgressInterviews = Number(currentMetrics?.inProgressInterviews) || 0;
+  const pendingSchedulingInterviews = Number(currentMetrics?.pendingSchedulingInterviews) || 0;
+  const activeInterviews = scheduledInterviews + inProgressInterviews + pendingSchedulingInterviews;
   const activeApplications = Number(currentMetrics?.activeApplications) || 0;
   const strongSignalApplications = Number(currentMetrics?.strongSignalApplications) || 0;
   const nextScheduledLabel = toInsightDateLabel(currentMetrics?.nextScheduledFor);
@@ -1306,10 +1331,12 @@ const buildCandidateInsights = ({ currentMetrics, previousMetrics }) => {
     insights.push({
       id: 'pipeline-active',
       color: 'green',
-      title: `${activeInterviews} active interview${activeInterviews === 1 ? '' : 's'} in your pipeline`,
+      title: `${activeInterviews} active interview workflow${activeInterviews === 1 ? '' : 's'} in your pipeline`,
       detail: nextScheduledLabel
         ? `Next scheduled interview on ${nextScheduledLabel}.`
-        : 'Keep your interview schedule updated to stay prepared.',
+        : pendingSchedulingInterviews > 0 || inProgressInterviews > 0
+          ? 'Some interview workflows are active but still waiting for scheduling details or recruiter follow-up.'
+          : 'Keep your interview schedule updated to stay prepared.',
     });
   } else if (activeApplications > 0) {
     insights.push({
@@ -1709,10 +1736,16 @@ export const analyticsStore = {
   async getCurrentCandidateMetrics(candidateId) {
     const interviews = await interviewStore.listByCandidate(candidateId);
     const applications = await jobApplicationStore.listByCandidate(candidateId);
+    const nowMs = Date.now();
     
     const completedInterviews = interviews.filter(i => i?.status === 'COMPLETED');
-    const scheduledInterviews = interviews.filter(i => i?.status === 'SCHEDULED');
-    const inProgressInterviews = interviews.filter(i => i?.status === 'IN_PROGRESS');
+    const activeCandidateInterviews = interviews.filter((interview) =>
+      isCandidateInterviewStillActiveForDashboard(interview, nowMs));
+    const scheduledInterviews = activeCandidateInterviews.filter((interview) =>
+      interview?.status === 'SCHEDULED' && toMillis(interview?.scheduledFor) > 0);
+    const pendingSchedulingInterviews = activeCandidateInterviews.filter((interview) =>
+      interview?.status === 'SCHEDULED' && toMillis(interview?.scheduledFor) <= 0);
+    const inProgressInterviews = activeCandidateInterviews.filter(i => i?.status === 'IN_PROGRESS');
     const totalPracticeMinutes = completedInterviews.reduce(
       (sum, interview) => sum + extractInterviewDurationMinutes(interview),
       0,
@@ -1748,6 +1781,7 @@ export const analyticsStore = {
       totalInterviews: interviews.length,
       completedInterviews: completedInterviews.length,
       scheduledInterviews: scheduledInterviews.length,
+      pendingSchedulingInterviews: pendingSchedulingInterviews.length,
       inProgressInterviews: inProgressInterviews.length,
       averageScore: Math.round(averageScore * 100) / 100,
       currentGrade: getGrade(averageScore),

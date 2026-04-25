@@ -4,9 +4,8 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
+import BrandBrainIcon from '../../components/BrandBrainIcon';
 import { 
-  Star, 
-  Sparkles, 
   Clock, 
   Users, 
   MessageSquare, 
@@ -17,6 +16,51 @@ import {
 } from 'lucide-react';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
+
+const GoogleLogo = ({ className = '' }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true" fill="currentColor">
+    <path d="M12.48 10.92v3.28h7.84c-.24 1.84-.853 3.187-1.787 4.133-1.147 1.147-2.933 2.4-6.053 2.4-4.827 0-8.6-3.893-8.6-8.72s3.773-8.72 8.6-8.72c2.6 0 4.507 1.027 5.907 2.347l2.307-2.307C18.747 1.44 16.133 0 12.48 0 5.867 0 .307 5.387.307 12s5.56 12 12.173 12c3.573 0 6.267-1.173 8.373-3.36 2.16-2.16 2.84-5.213 2.84-7.667 0-.76-.053-1.467-.173-2.053H12.48z" />
+  </svg>
+);
+
+const MicrosoftLogo = ({ className = '' }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+    <path d="M1 1h10v10H1z" fill="currentColor" />
+    <path d="M13 1h10v10H13z" fill="currentColor" />
+    <path d="M1 13h10v10H1z" fill="currentColor" />
+    <path d="M13 13h10v10H13z" fill="currentColor" />
+  </svg>
+);
+
+const AmazonLogo = ({ className = '' }) => (
+  <svg viewBox="10 12 130 126" className={className} aria-hidden="true" fill="currentColor">
+    <path
+      fill="currentColor"
+      d="M121.86 116c-51.78 24.64-83.91 4-104.49-8.5-1.27-.79-3.43.19-1.55 2.34 6.85 8.31 29.31 28.34 58.62 28.34s46.79-16 49-18.8.63-4.3-1.56-3.38Z"
+    />
+    <path
+      fill="currentColor"
+      d="M136.4 108c-1.4-1.81-8.46-2.15-12.9-1.6s-11.14 3.25-10.56 4.88c.3.61.91.34 4 .06s11.66-1.39 13.45 1-2.74 13.58-3.57 15.39.3 2.27 1.81 1.07a23.58 23.58 0 0 0 6-8.74c1.79-4.44 2.88-10.64 1.83-12Z"
+    />
+    <path
+      fill="currentColor"
+      fillRule="evenodd"
+      d="M87 65.7c0 6.47.17 11.86-3.1 17.6-2.6 4.68-6.78 7.54-11.45 7.54-6.37 0-10.08-4.85-10.08-12C62.37 64.68 75 62.11 87 62.11Zm16.74 40.46a3.47 3.47 0 0 1-3.92.39c-5.51-4.57-6.49-6.7-9.53-11.06-9.1 9.29-15.55 12.07-27.35 12.07-14 0-24.84-8.62-24.84-25.87 0-13.46 7.31-22.64 17.7-27.12 9-4 21.59-4.67 31.21-5.76V46.66c0-3.94.3-8.61-2-12-2-3.06-5.9-4.32-9.31-4.32-6.33 0-12 3.24-13.35 10-.28 1.49-1.38 3-2.87 3L43.4 41.59a2.92 2.92 0 0 1-2.47-3.47C44.64 18.61 62.26 12.72 78 12.72c8.08 0 18.63 2.15 25 8.27 8.08 7.54 7.31 17.6 7.31 28.54V75.39c0 7.77 3.22 11.18 6.25 15.38 1.07 1.5 1.31 3.29 0 4.42-3.38 2.82-9.4 8.07-12.72 11l0 0"
+    />
+  </svg>
+);
+
+const MetaLogo = ({ className = '' }) => (
+  <svg viewBox="0 0 24 24" className={className} aria-hidden="true" fill="currentColor">
+    <path d="M6.915 4.03c-1.968 0-3.683 1.28-4.871 3.113C.704 9.208 0 11.883 0 14.449c0 .706.07 1.369.21 1.973a6.624 6.624 0 0 0 .265.86 5.297 5.297 0 0 0 .371.761c.696 1.159 1.818 1.927 3.593 1.927 1.497 0 2.633-.671 3.965-2.444.76-1.012 1.144-1.626 2.663-4.32l.756-1.339.186-.325c.061.1.121.196.183.3l2.152 3.595c.724 1.21 1.665 2.556 2.47 3.314 1.046.987 1.992 1.22 3.06 1.22 1.075 0 1.876-.355 2.455-.843a3.743 3.743 0 0 0 .81-.973c.542-.939.861-2.127.861-3.745 0-2.72-.681-5.357-2.084-7.45-1.282-1.912-2.957-2.93-4.716-2.93-1.047 0-2.088.467-3.053 1.308-.652.57-1.257 1.29-1.82 2.05-.69-.875-1.335-1.547-1.958-2.056-1.182-.966-2.315-1.303-3.454-1.303zm10.16 2.053c1.147 0 2.188.758 2.992 1.999 1.132 1.748 1.647 4.195 1.647 6.4 0 1.548-.368 2.9-1.839 2.9-.58 0-1.027-.23-1.664-1.004-.496-.601-1.343-1.878-2.832-4.358l-.617-1.028a44.908 44.908 0 0 0-1.255-1.98c.07-.109.141-.224.211-.327 1.12-1.667 2.118-2.602 3.358-2.602zm-10.201.553c1.265 0 2.058.791 2.675 1.446.307.327.737.871 1.234 1.579l-1.02 1.566c-.757 1.163-1.882 3.017-2.837 4.338-1.191 1.649-1.81 1.817-2.486 1.817-.524 0-1.038-.237-1.383-.794-.263-.426-.464-1.13-.464-2.046 0-2.221.63-4.535 1.66-6.088.454-.687.964-1.226 1.533-1.533a2.264 2.264 0 0 1 1.088-.285z" />
+  </svg>
+);
+
+const AppleLogo = ({ className = '' }) => (
+  <svg viewBox="0 0 814 1000" className={className} aria-hidden="true" fill="currentColor">
+    <path d="M788.1 340.9c-5.8 4.5-108.2 62.2-108.2 190.5 0 148.4 130.3 200.9 134.2 202.2-.6 3.2-20.7 71.9-68.7 141.9-42.8 61.6-87.5 123.1-155.5 123.1s-85.5-39.5-164-39.5c-76.5 0-103.7 40.8-165.9 40.8s-105.6-57-155.5-127C46.7 790.7 0 663 0 541.8c0-194.4 126.4-297.5 250.8-297.5 66.1 0 121.2 43.4 162.7 43.4 39.5 0 101.1-46 176.3-46 28.5 0 130.9 2.6 198.3 99.2zm-234-181.5c31.1-36.9 53.1-88.1 53.1-139.3 0-7.1-.6-14.3-1.9-20.1-50.6 1.9-110.8 33.7-147.1 75.8-28.5 32.4-55.1 83.6-55.1 135.5 0 7.8 1.3 15.6 1.9 18.1 3.2.6 8.4 1.3 13.6 1.3 45.4 0 102.5-30.4 135.5-71.3z" />
+  </svg>
+);
 
 const HomePage = () => {
   const navigate = useNavigate();
@@ -31,7 +75,7 @@ const HomePage = () => {
   }, [navigate]);
 
   const highlightSignals = [
-    { icon: Sparkles, title: 'AI Interview Coach', meta: 'Adaptive prompts & scoring' },
+    { icon: BrandBrainIcon, title: 'AI Interview Coach', meta: 'Adaptive prompts & scoring' },
     { icon: Scale, title: 'Bias-Resistant Hiring', meta: 'SOC 2 & GDPR aligned' },
     { icon: Clock, title: '< 2 min setup', meta: 'Live-ready interview rooms' }
   ];
@@ -163,7 +207,38 @@ const HomePage = () => {
     }
   ];
 
-  const companies = ['Google', 'Microsoft', 'Amazon', 'Meta', 'Apple'];
+  const companies = [
+    {
+      name: 'Google',
+      Logo: GoogleLogo,
+      logoClassName: 'h-8 w-8 sm:h-9 sm:w-9',
+      nameClassName: 'text-gray-800 dark:text-slate-100'
+    },
+    {
+      name: 'Microsoft',
+      Logo: MicrosoftLogo,
+      logoClassName: 'h-8 w-8 sm:h-9 sm:w-9',
+      nameClassName: 'text-gray-800 dark:text-slate-100'
+    },
+    {
+      name: 'Amazon',
+      Logo: AmazonLogo,
+      logoClassName: 'h-9 w-9 sm:h-10 sm:w-10',
+      nameClassName: 'text-gray-800 dark:text-slate-100'
+    },
+    {
+      name: 'Meta',
+      Logo: MetaLogo,
+      logoClassName: 'h-7 w-11 sm:h-8 sm:w-12',
+      nameClassName: 'text-gray-800 dark:text-slate-100'
+    },
+    {
+      name: 'Apple',
+      Logo: AppleLogo,
+      logoClassName: 'h-8 w-8 sm:h-9 sm:w-9',
+      nameClassName: 'text-gray-800 dark:text-slate-100'
+    }
+  ];
 
   return (
     <>
@@ -210,7 +285,7 @@ const HomePage = () => {
               variants={fadeUpChild}
               className="inline-flex items-center space-x-1.5 xs:space-x-2 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-3 xs:px-4 py-1.5 xs:py-2 rounded-full text-[11px] xs:text-xs sm:text-sm font-medium mb-4 xs:mb-5 sm:mb-6"
             >
-              <Sparkles className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
+              <BrandBrainIcon className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
               <span>AI-Powered Interview Revolution</span>
             </motion.div>
             
@@ -239,7 +314,7 @@ const HomePage = () => {
                   onClick={() => navigate('/register')}
                   className="w-full xs:w-auto rounded-xl xs:rounded-full bg-gradient-to-r from-blue-600 to-purple-600 px-5 xs:px-6 sm:px-7 md:px-8 lg:px-9 py-3 xs:py-3.5 sm:py-4 text-sm xs:text-base sm:text-base md:text-lg font-semibold text-white shadow-md shadow-blue-500/30 transition flex items-center justify-center gap-2 hover:from-blue-700 hover:to-purple-700 min-h-touch"
                 >
-                  <Sparkles className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5" />
+                  <BrandBrainIcon className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5 shrink-0" />
                   Get Started Free
                   <svg className="h-4 w-4 xs:h-4.5 xs:w-4.5 sm:h-5 sm:w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 8l4 4m0 0l-4 4m4-4H3" />
@@ -273,7 +348,7 @@ const HomePage = () => {
               animate="animate"
             >
               <div className="absolute top-2 right-2 xs:top-3 xs:right-3 sm:top-4 sm:right-4 bg-green-500 text-white px-2.5 xs:px-3 sm:px-4 py-1 xs:py-1.5 sm:py-2 rounded-full flex items-center space-x-1.5 xs:space-x-2 z-10 shadow-lg text-[10px] xs:text-xs sm:text-sm">
-                <Star className="h-2.5 w-2.5 xs:h-3 xs:w-3 sm:h-4 sm:w-4 fill-current" />
+                <BrandBrainIcon className="h-2.5 w-2.5 xs:h-3 xs:w-3 sm:h-4 sm:w-4" />
                 <span className="font-semibold">95% Success Rate</span>
               </div>
               <video
@@ -392,7 +467,7 @@ const HomePage = () => {
                 >
                   <div className="flex items-center space-x-0.5 xs:space-x-1 mb-3 xs:mb-4">
                     {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="h-3.5 w-3.5 xs:h-4 xs:w-4 sm:h-5 sm:w-5 fill-yellow-400 text-yellow-400" />
+                      <BrandBrainIcon key={i} className="h-3.5 w-3.5 xs:h-4 xs:w-4 sm:h-5 sm:w-5 text-yellow-400" />
                     ))}
                   </div>
                   <p className="text-xs xs:text-sm sm:text-base text-gray-700 dark:text-slate-300 mb-4 xs:mb-5 sm:mb-6 italic leading-relaxed">"{testimonial.text}"</p>
@@ -443,7 +518,7 @@ const HomePage = () => {
                 >
                   <div className="flex items-center space-x-0.5 xs:space-x-1 mb-3 xs:mb-4">
                     {[...Array(testimonial.rating)].map((_, i) => (
-                      <Star key={i} className="h-3.5 w-3.5 xs:h-4 xs:w-4 sm:h-5 sm:w-5 fill-yellow-400 text-yellow-400" />
+                      <BrandBrainIcon key={i} className="h-3.5 w-3.5 xs:h-4 xs:w-4 sm:h-5 sm:w-5 text-yellow-400" />
                     ))}
                   </div>
                   <p className="text-xs xs:text-sm sm:text-base text-gray-700 dark:text-slate-300 mb-4 xs:mb-5 sm:mb-6 italic leading-relaxed">"{testimonial.text}"</p>
@@ -500,7 +575,7 @@ const HomePage = () => {
                 <div className="font-semibold text-[10px] xs:text-xs sm:text-sm md:text-base">HR Tech Certified</div>
               </motion.div>
               <motion.div className="text-center p-2 xs:p-3" variants={fadeUpChild}>
-                <Star className="h-5 w-5 xs:h-6 xs:w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 mx-auto mb-2" />
+                <BrandBrainIcon className="h-5 w-5 xs:h-6 xs:w-6 sm:h-7 sm:w-7 md:h-8 md:w-8 mx-auto mb-2" />
                 <div className="font-semibold text-[10px] xs:text-xs sm:text-sm md:text-base">Top Rated Platform</div>
               </motion.div>
               <motion.div className="text-center p-2 xs:p-3" variants={fadeUpChild}>
@@ -527,7 +602,7 @@ const HomePage = () => {
             variants={fadeUpChild}
           >
             <div className="inline-flex items-center space-x-1.5 xs:space-x-2 bg-blue-100 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300 px-3 xs:px-4 py-1.5 xs:py-2 rounded-full text-[11px] xs:text-xs sm:text-sm font-medium mb-3 xs:mb-4">
-              <Sparkles className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
+              <BrandBrainIcon className="h-3 w-3 xs:h-3.5 xs:w-3.5 sm:h-4 sm:w-4" />
               <span>Innovative Features</span>
             </div>
             <h2 className="text-xl xs:text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-slate-100 mb-3 xs:mb-4">
@@ -651,14 +726,14 @@ const HomePage = () => {
             transition={{ duration: 0.6, delay: 0.2 }}
           >
             <Button
-              onClick={() => navigate('/register')}
+              onClick={() => navigate('/register?accountType=candidate')}
               className="w-full xs:w-auto rounded-xl xs:rounded-full bg-white text-blue-600 px-6 xs:px-7 md:px-8 py-3 xs:py-3.5 text-sm xs:text-base md:text-lg font-semibold shadow-md transition hover:bg-gray-50 min-h-touch"
             >
               <Users className="h-4 w-4 xs:h-5 xs:w-5 mr-2" />
               For Candidates
             </Button>
             <Button
-              onClick={() => navigate('/register')}
+              onClick={() => navigate('/register?accountType=company')}
               className="w-full xs:w-auto rounded-xl xs:rounded-full bg-white text-purple-600 px-6 xs:px-7 md:px-8 py-3 xs:py-3.5 text-sm xs:text-base md:text-lg font-semibold shadow-md transition hover:bg-gray-50 min-h-touch"
             >
               <Icon name="Building2" className="h-4 w-4 xs:h-5 xs:w-5 mr-2" />
@@ -730,19 +805,22 @@ const HomePage = () => {
             Trusted by professionals at
           </motion.p>
           <motion.div
-            className="flex flex-wrap justify-center items-center gap-4 xs:gap-6 sm:gap-8 md:gap-10 lg:gap-12 opacity-60"
+            className="flex flex-wrap justify-center items-end gap-x-6 gap-y-5 xs:gap-x-8 sm:gap-x-10 md:gap-x-12"
             variants={staggeredChildren}
             initial="hidden"
             whileInView="visible"
             viewport={viewportConfig}
           >
-            {companies.map((company, index) => (
+            {companies.map(({ name, Logo, logoClassName, nameClassName }) => (
               <motion.div
-                key={index}
+                key={name}
                 variants={fadeUpChild}
-                className="text-sm xs:text-base sm:text-lg md:text-xl lg:text-2xl font-bold text-gray-400 dark:text-slate-600"
+                className="flex min-w-[88px] xs:min-w-[96px] sm:min-w-[104px] flex-col items-center justify-center gap-2 text-center"
               >
-                {company}
+                <Logo className={`${logoClassName} text-gray-900 dark:text-slate-100`} />
+                <div className={`text-sm xs:text-base sm:text-lg font-semibold tracking-tight ${nameClassName}`}>
+                  {name}
+                </div>
               </motion.div>
             ))}
           </motion.div>

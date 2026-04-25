@@ -34,6 +34,51 @@ import { installMediapipeConsoleFilter } from '../utils/mediapipeConsoleFilter';
 const DETECTION_INTERVAL = 100; // 10 FPS
 const CALIBRATION_STORAGE_KEY = 'mediapipe_calibrated_thresholds';
 const MAX_RUNTIME_DETECTION_ERRORS = 3;
+const DEFAULT_GAZE_CENTER = { x: 0.5, y: 0.5 };
+const DEFAULT_GAZE_TOLERANCE = 0.15;
+
+const clampValue = (value, min, max) => Math.min(max, Math.max(min, value));
+
+const isValidLandmark = (landmark) =>
+  Boolean(landmark) &&
+  Number.isFinite(landmark.x) &&
+  Number.isFinite(landmark.y);
+
+const buildIrisPosition = (irisCenter, eyeLeft, eyeRight, eyeTop, eyeBottom) => {
+  if (![irisCenter, eyeLeft, eyeRight, eyeTop, eyeBottom].every(isValidLandmark)) {
+    return null;
+  }
+
+  const minX = Math.min(eyeLeft.x, eyeRight.x);
+  const maxX = Math.max(eyeLeft.x, eyeRight.x);
+  const minY = Math.min(eyeTop.y, eyeBottom.y);
+  const maxY = Math.max(eyeTop.y, eyeBottom.y);
+  const width = Math.max(maxX - minX, 0.0001);
+  const height = Math.max(maxY - minY, 0.0001);
+  const normalizedX = clampValue((irisCenter.x - minX) / width, 0, 1);
+  const normalizedY = clampValue((irisCenter.y - minY) / height, 0, 1);
+
+  return {
+    rawX: irisCenter.x,
+    rawY: irisCenter.y,
+    normalizedX,
+    normalizedY,
+    horizontalOffset: normalizedX - 0.5,
+    verticalOffset: normalizedY - 0.5,
+  };
+};
+
+const getGazeDirection = (horizontalOffset, verticalOffset, tolerance) => {
+  const horizontal =
+    horizontalOffset > tolerance ? 'right' : horizontalOffset < -tolerance ? 'left' : null;
+  const vertical =
+    verticalOffset > tolerance ? 'down' : verticalOffset < -tolerance ? 'up' : null;
+
+  if (horizontal && vertical) return `${vertical}-${horizontal}`;
+  if (horizontal) return horizontal;
+  if (vertical) return vertical;
+  return 'center';
+};
 
 const isVideoReadyForDetection = (videoElement) => {
   if (!videoElement) return false;
@@ -107,14 +152,26 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
       eyeContactStatus: 'good',
       leftEyeEAR: 0,
       rightEyeEAR: 0,
+      avgEyeEAR: 0,
+      eyeAsymmetry: 0,
       isBlinking: false,
       blinkCount: 0,
+      blinkRate: 0,
       mouthMAR: 0,
       isSpeaking: false,
       yaw: 0,
       pitch: 0,
       roll: 0,
       faceOrientationStatus: 'direct',
+      gazeDirection: 'center',
+      gazeStatus: 'direct',
+      gazeDeviation: 0,
+      gazeHorizontalOffset: 0,
+      gazeVerticalOffset: 0,
+      isLookingAtCamera: true,
+      irisSymmetry: 0,
+      leftIrisCenter: null,
+      rightIrisCenter: null,
       eyebrowPosition: 'neutral',
       landmarks: null,
     },
@@ -160,6 +217,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
   const previousPoseLandmarksRef = useRef(null);
   const movementHistoryRef = useRef([]);
   const blinkCountRef = useRef(0);
+  const blinkSessionStartedAtRef = useRef(Date.now());
   const isEyeClosedRef = useRef(false);
   const blinkFrameCountRef = useRef(0);
   const speakingFramesRef = useRef(0);
@@ -468,6 +526,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     const leftEAR = calculateEAR(leftEyeTop, leftEyeBottom, leftEyeLeft, leftEyeRight);
     const rightEAR = calculateEAR(rightEyeTop, rightEyeBottom, rightEyeLeft, rightEyeRight);
     const avgEAR = (leftEAR + rightEAR) / 2;
+    const eyeAsymmetry = Math.abs(leftEAR - rightEAR);
     
     // Blink detection
     const isBlinking = avgEAR < faceRef.eyes.blinkThreshold;
@@ -482,6 +541,60 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     if (isBlinking) {
       blinkFrameCountRef.current += 1;
     }
+
+    const elapsedBlinkSeconds = Math.max((Date.now() - blinkSessionStartedAtRef.current) / 1000, 1);
+    const blinkRate = Math.round((blinkCountRef.current / elapsedBlinkSeconds) * 60);
+
+    const gazeCenter = faceRef.gaze?.irisPosition?.center || DEFAULT_GAZE_CENTER;
+    const gazeTolerance = Number.isFinite(faceRef.gaze?.irisPosition?.tolerance)
+      ? faceRef.gaze.irisPosition.tolerance
+      : DEFAULT_GAZE_TOLERANCE;
+    const gazeHorizontalThreshold = Number.isFinite(faceRef.gaze?.horizontalOffsetThreshold)
+      ? faceRef.gaze.horizontalOffsetThreshold
+      : gazeTolerance;
+    const gazeVerticalThreshold = Number.isFinite(faceRef.gaze?.verticalOffsetThreshold)
+      ? faceRef.gaze.verticalOffsetThreshold
+      : gazeTolerance;
+    const gazeModerateThreshold = Number.isFinite(faceRef.gaze?.moderateDeviationThreshold)
+      ? faceRef.gaze.moderateDeviationThreshold
+      : gazeTolerance * 1.5;
+    const gazePoorThreshold = Number.isFinite(faceRef.gaze?.poorDeviationThreshold)
+      ? faceRef.gaze.poorDeviationThreshold
+      : gazeTolerance * 2.25;
+    const asymmetryThreshold = Number.isFinite(faceRef.gaze?.asymmetryThreshold)
+      ? faceRef.gaze.asymmetryThreshold
+      : 0.08;
+    const irisSymmetryThreshold = Number.isFinite(faceRef.gaze?.irisSymmetryThreshold)
+      ? faceRef.gaze.irisSymmetryThreshold
+      : 0.10;
+
+    const leftIrisCenter = buildIrisPosition(
+      faceLandmarks[FACE_LANDMARKS.LEFT_IRIS_CENTER],
+      leftEyeLeft,
+      leftEyeRight,
+      leftEyeTop,
+      leftEyeBottom,
+    );
+    const rightIrisCenter = buildIrisPosition(
+      faceLandmarks[FACE_LANDMARKS.RIGHT_IRIS_CENTER],
+      rightEyeLeft,
+      rightEyeRight,
+      rightEyeTop,
+      rightEyeBottom,
+    );
+
+    const gazeX = ((leftIrisCenter?.normalizedX ?? gazeCenter.x) + (rightIrisCenter?.normalizedX ?? gazeCenter.x)) / 2;
+    const gazeY = ((leftIrisCenter?.normalizedY ?? gazeCenter.y) + (rightIrisCenter?.normalizedY ?? gazeCenter.y)) / 2;
+    const gazeHorizontalOffset = gazeX - gazeCenter.x;
+    const gazeVerticalOffset = gazeY - gazeCenter.y;
+    const gazeDeviation = Math.sqrt((gazeHorizontalOffset ** 2) + (gazeVerticalOffset ** 2));
+    const irisSymmetry = leftIrisCenter && rightIrisCenter
+      ? Math.sqrt(
+        ((leftIrisCenter.horizontalOffset - rightIrisCenter.horizontalOffset) ** 2) +
+        ((leftIrisCenter.verticalOffset - rightIrisCenter.verticalOffset) ** 2),
+      )
+      : 0;
+    const gazeDirection = getGazeDirection(gazeHorizontalOffset, gazeVerticalOffset, gazeTolerance);
 
     // === MOUTH ANALYSIS ===
     const upperLip = faceLandmarks[FACE_LANDMARKS.UPPER_LIP];
@@ -537,6 +650,37 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     if (blinkFrameCountRef.current > faceRef.eyes.prolongedClosureFrames) {
       eyeContactScore -= 30;
     }
+
+    let gazeStatus = 'direct';
+    if (
+      gazeDeviation > gazePoorThreshold ||
+      Math.abs(gazeHorizontalOffset) > gazeHorizontalThreshold * 2 ||
+      Math.abs(gazeVerticalOffset) > gazeVerticalThreshold * 2
+    ) {
+      gazeStatus = 'away';
+      eyeContactScore -= 30;
+    } else if (
+      gazeDeviation > gazeModerateThreshold ||
+      eyeAsymmetry > asymmetryThreshold * 1.5 ||
+      irisSymmetry > irisSymmetryThreshold * 1.5
+    ) {
+      gazeStatus = 'moderate';
+      eyeContactScore -= 18;
+    } else if (
+      gazeDeviation > gazeTolerance ||
+      eyeAsymmetry > asymmetryThreshold ||
+      irisSymmetry > irisSymmetryThreshold
+    ) {
+      gazeStatus = 'slight';
+      eyeContactScore -= 8;
+    }
+
+    const isLookingAtCamera =
+      gazeDeviation <= gazeTolerance &&
+      Math.abs(gazeHorizontalOffset) <= gazeHorizontalThreshold &&
+      Math.abs(gazeVerticalOffset) <= gazeVerticalThreshold &&
+      absYaw <= faceRef.orientation.maxYawThreshold &&
+      absPitch <= faceRef.orientation.maxPitchThreshold;
     
     eyeContactScore = Math.max(0, eyeContactScore);
     
@@ -561,14 +705,26 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
       eyeContactStatus,
       leftEyeEAR: leftEAR,
       rightEyeEAR: rightEAR,
+      avgEyeEAR: avgEAR,
+      eyeAsymmetry,
       isBlinking,
       blinkCount: blinkCountRef.current,
+      blinkRate,
       mouthMAR,
       isSpeaking: speakingFramesRef.current > 3,
       yaw,
       pitch,
       roll,
       faceOrientationStatus,
+      gazeDirection,
+      gazeStatus,
+      gazeDeviation,
+      gazeHorizontalOffset,
+      gazeVerticalOffset,
+      isLookingAtCamera,
+      irisSymmetry,
+      leftIrisCenter,
+      rightIrisCenter,
       eyebrowPosition,
       landmarks: faceLandmarks,
     };
@@ -720,8 +876,30 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
           yaw: faceData.yaw,
           pitch: faceData.pitch,
           roll: faceData.roll,
+          faceOrientationStatus: faceData.faceOrientationStatus,
           isSpeaking: faceData.isSpeaking,
           blinkCount: faceData.blinkCount,
+          blinkRate: faceData.blinkRate,
+          isBlinking: faceData.isBlinking,
+          leftEAR: faceData.leftEyeEAR,
+          rightEAR: faceData.rightEyeEAR,
+          avgEAR: faceData.avgEyeEAR,
+          eyeAsymmetry: faceData.eyeAsymmetry,
+          mouthMAR: faceData.mouthMAR,
+          isLookingAtCamera: faceData.isLookingAtCamera,
+          gaze: {
+            direction: faceData.gazeDirection,
+            status: faceData.gazeStatus,
+            deviation: faceData.gazeDeviation,
+            horizontalOffset: faceData.gazeHorizontalOffset,
+            verticalOffset: faceData.gazeVerticalOffset,
+            isLookingAtCamera: faceData.isLookingAtCamera,
+          },
+          iris: {
+            left: faceData.leftIrisCenter,
+            right: faceData.rightIrisCenter,
+            symmetry: faceData.irisSymmetry,
+          },
         } : null,
         bodyLanguage: {
           fidgeting: bodyLanguageData.fidgeting,
@@ -768,6 +946,7 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     previousPoseLandmarksRef.current = null;
     movementHistoryRef.current = [];
     blinkCountRef.current = 0;
+    blinkSessionStartedAtRef.current = Date.now();
     isEyeClosedRef.current = false;
     blinkFrameCountRef.current = 0;
     speakingFramesRef.current = 0;
@@ -789,14 +968,26 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
         eyeContactStatus: 'good',
         leftEyeEAR: 0,
         rightEyeEAR: 0,
+        avgEyeEAR: 0,
+        eyeAsymmetry: 0,
         isBlinking: false,
         blinkCount: 0,
+        blinkRate: 0,
         mouthMAR: 0,
         isSpeaking: false,
         yaw: 0,
         pitch: 0,
         roll: 0,
         faceOrientationStatus: 'direct',
+        gazeDirection: 'center',
+        gazeStatus: 'direct',
+        gazeDeviation: 0,
+        gazeHorizontalOffset: 0,
+        gazeVerticalOffset: 0,
+        isLookingAtCamera: true,
+        irisSymmetry: 0,
+        leftIrisCenter: null,
+        rightIrisCenter: null,
         eyebrowPosition: 'neutral',
         landmarks: null,
       },
@@ -863,6 +1054,17 @@ export const useInterviewAnalytics = (videoTarget, options = {}) => {
     postureScore: metrics.pose.postureScore,
     headPosition: metrics.pose.headPosition,
     eyeContact: metrics.face.eyeContactStatus,
+    eyeContactScore: metrics.face.eyeContactScore,
+    gazeDirection: metrics.face.gazeDirection,
+    gazeStatus: metrics.face.gazeStatus,
+    gazeDeviation: metrics.face.gazeDeviation,
+    gazeHorizontalOffset: metrics.face.gazeHorizontalOffset,
+    gazeVerticalOffset: metrics.face.gazeVerticalOffset,
+    eyeAsymmetry: metrics.face.eyeAsymmetry,
+    irisSymmetry: metrics.face.irisSymmetry,
+    isLookingAtCamera: metrics.face.isLookingAtCamera,
+    blinkRate: metrics.face.blinkRate,
+    faceOrientationStatus: metrics.face.faceOrientationStatus,
     confidence: metrics.scores.overall,
     slouching: metrics.pose.slouching,
     fidgeting: metrics.bodyLanguage.fidgeting,

@@ -44,7 +44,33 @@ describe('saveAnalyticsDataset', () => {
       timestamp: index * 100,
       frameNumber: index,
       pose: { landmarks: Array.from({ length: 50 }, () => ({ x: 1, y: 2, z: 3 })) },
-      face: { landmarks: Array.from({ length: 50 }, () => ({ x: 4, y: 5, z: 6 })) },
+      face: {
+        landmarks: Array.from({ length: 50 }, () => ({ x: 4, y: 5, z: 6 })),
+        eyeContactScore: 81,
+        yaw: 5,
+        pitch: 4,
+        roll: 2,
+        faceOrientationStatus: 'direct',
+        blinkCount: 3,
+        blinkRate: 16,
+        avgEAR: 0.25,
+        eyeAsymmetry: 0.04,
+        gaze: {
+          direction: 'center',
+          status: 'direct',
+          deviation: 0.07,
+          horizontalOffset: 0.01,
+          verticalOffset: -0.01,
+          isLookingAtCamera: true,
+        },
+        iris: {
+          left: { rawX: 0.4, rawY: 0.5, normalizedX: 0.51, normalizedY: 0.48 },
+          right: { rawX: 0.6, rawY: 0.5, normalizedX: 0.49, normalizedY: 0.5 },
+          symmetry: 0.03,
+        },
+        mouthMAR: 0.1,
+        isSpeaking: true,
+      },
       bodyLanguage: {
         posture: index % 2 === 0 ? 'good' : 'neutral',
         eyeContact: 'good',
@@ -90,6 +116,17 @@ describe('saveAnalyticsDataset', () => {
     }));
     expect(savedDataset.data.dataPoints[0].pose).toBeUndefined();
     expect(savedDataset.data.dataPoints[0].face).toBeUndefined();
+    expect(savedDataset.data.dataPoints[0].faceSummary).toEqual(expect.objectContaining({
+      eyeContactScore: 81,
+      gaze: expect.objectContaining({
+        direction: 'center',
+        deviation: 0.07,
+        isLookingAtCamera: true,
+      }),
+      iris: expect.objectContaining({
+        symmetry: 0.03,
+      }),
+    }));
     expect(res.status).toHaveBeenCalledWith(201);
   });
 });

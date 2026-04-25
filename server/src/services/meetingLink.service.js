@@ -20,6 +20,12 @@ const TOKEN_BYTES = 32; // 256-bit random token
 /** How many minutes before the scheduled time the link becomes accessible. */
 export const MEETING_LINK_ACCESS_WINDOW_MINUTES = 30;
 
+/** How many minutes after the scheduled end the join window remains open. */
+export const MEETING_LINK_POST_END_GRACE_MINUTES = Math.max(
+  0,
+  Number.parseInt(process.env.MEETING_LINK_POST_END_GRACE_MINUTES || '30', 10) || 30,
+);
+
 /** How many minutes before the scheduled time the reminder email is sent. */
 export const MEETING_LINK_EMAIL_MINUTES_BEFORE = 30;
 
@@ -31,6 +37,45 @@ export const MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES = 5;
 
 /** Default duration in minutes if an interview has no explicit duration. */
 const DEFAULT_INTERVIEW_DURATION_MINUTES = 30;
+
+const resolveInterviewDurationMinutes = (interview) => {
+  const parsedDuration = Number.parseInt(interview?.duration, 10);
+  if (Number.isInteger(parsedDuration) && parsedDuration > 0) {
+    return parsedDuration;
+  }
+  return DEFAULT_INTERVIEW_DURATION_MINUTES;
+};
+
+export function getMeetingAccessWindow(interview) {
+  if (!interview?.scheduledFor) {
+    return null;
+  }
+
+  const scheduledMs = new Date(interview.scheduledFor).getTime();
+  if (Number.isNaN(scheduledMs)) {
+    return null;
+  }
+
+  const durationMs = resolveInterviewDurationMinutes(interview) * 60 * 1000;
+  const graceMs = MEETING_LINK_POST_END_GRACE_MINUTES * 60 * 1000;
+
+  return {
+    scheduledMs,
+    windowOpenMs: scheduledMs - MEETING_LINK_ACCESS_WINDOW_MINUTES * 60 * 1000,
+    windowCloseMs: scheduledMs + durationMs + graceMs,
+    durationMs,
+    graceMs,
+  };
+}
+
+export function isWithinMeetingAccessWindow(interview, { nowMs = Date.now() } = {}) {
+  const window = getMeetingAccessWindow(interview);
+  if (!window) {
+    return false;
+  }
+
+  return nowMs >= window.windowOpenMs && nowMs <= window.windowCloseMs;
+}
 
 /**
  * Generate a fresh meeting token for an interview.
@@ -85,18 +130,15 @@ export function validateMeetingAccess(interview, suppliedToken) {
     return { valid: false, code: 'NOT_SCHEDULED', message: 'This interview has not been scheduled yet.' };
   }
 
-  const scheduledMs = new Date(interview.scheduledFor).getTime();
-  if (Number.isNaN(scheduledMs)) {
+  const accessWindow = getMeetingAccessWindow(interview);
+  if (!accessWindow) {
     return { valid: false, code: 'INVALID_SCHEDULE', message: 'Invalid schedule date.' };
   }
 
   const nowMs = Date.now();
-  const windowOpenMs = scheduledMs - MEETING_LINK_ACCESS_WINDOW_MINUTES * 60 * 1000;
-  const durationMs = (interview.duration || DEFAULT_INTERVIEW_DURATION_MINUTES) * 60 * 1000;
-  const windowCloseMs = scheduledMs + durationMs;
 
-  if (nowMs < windowOpenMs) {
-    const minsUntilOpen = Math.ceil((windowOpenMs - nowMs) / 60_000);
+  if (nowMs < accessWindow.windowOpenMs) {
+    const minsUntilOpen = Math.ceil((accessWindow.windowOpenMs - nowMs) / 60_000);
     return {
       valid: false,
       code: 'TOO_EARLY',
@@ -104,7 +146,7 @@ export function validateMeetingAccess(interview, suppliedToken) {
     };
   }
 
-  if (nowMs > windowCloseMs) {
+  if (nowMs > accessWindow.windowCloseMs) {
     return { valid: false, code: 'EXPIRED', message: 'The meeting window has closed.' };
   }
 
@@ -145,8 +187,11 @@ export default {
   buildMeetingJoinUrl,
   validateMeetingToken,
   validateMeetingAccess,
+  getMeetingAccessWindow,
+  isWithinMeetingAccessWindow,
   shouldSendMeetingLinkEmail,
   MEETING_LINK_ACCESS_WINDOW_MINUTES,
+  MEETING_LINK_POST_END_GRACE_MINUTES,
   MEETING_LINK_EMAIL_MINUTES_BEFORE,
   MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES,
   MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES,

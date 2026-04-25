@@ -73,7 +73,7 @@ export class FineTuningController {
 
   /**
    * GET /api/admin/fine-tune/export
-   * Export training data as JSONL for use with scripts/fine_tune_lora.py
+   * Export training data as JSONL for downstream LoRA fine-tuning.
    */
   static async exportTrainingData(req, res, next) {
     try {

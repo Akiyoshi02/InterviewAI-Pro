@@ -439,7 +439,7 @@ router.post('/fine-tune/evaluate', FineTuningController.evaluate);
 
 /**
  * GET /api/admin/fine-tune/export
- * Export training data as JSONL for LoRA fine-tuning with scripts/fine_tune_lora.py
+ * Export training data as JSONL for downstream LoRA fine-tuning.
  */
 router.get('/fine-tune/export', FineTuningController.exportTrainingData);
 

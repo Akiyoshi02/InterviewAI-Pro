@@ -831,7 +831,7 @@ export const validationSchemas = {
     },
 
     schedule: {
-      allowedFields: ['scheduledFor', 'strategy', 'timezone', 'duration', 'interviewTypes', 'notes', 'reviewerAssignments'],
+      allowedFields: ['scheduledFor', 'strategy', 'timezone', 'duration', 'interviewTypes', 'notes', 'reviewerAssignments', 'demoBypassAvailability'],
       validators: [
         body('scheduledFor')
           .optional({ nullable: true, checkFalsy: true })
@@ -854,6 +854,10 @@ export const validationSchemas = {
         commonValidators.stringArray('interviewTypes'),
         body('reviewerAssignments').optional().isArray({ max: 20 }),
         body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
+        body('demoBypassAvailability')
+          .optional({ nullable: true })
+          .isBoolean()
+          .withMessage('demoBypassAvailability must be a boolean'),
         body('notes')
           .optional()
           .trim()
@@ -873,6 +877,7 @@ export const validationSchemas = {
         'reviewerAssignments',
         'rescheduleRequestId',
         'rescheduleDecisionNote',
+        'demoBypassAvailability',
       ],
       validators: [
         body('scheduledFor')
@@ -896,6 +901,10 @@ export const validationSchemas = {
         commonValidators.stringArray('interviewTypes'),
         body('reviewerAssignments').optional().isArray({ max: 20 }),
         body('reviewerAssignments.*').optional().isString().isLength({ max: LENGTH_LIMITS.ID }),
+        body('demoBypassAvailability')
+          .optional({ nullable: true })
+          .isBoolean()
+          .withMessage('demoBypassAvailability must be a boolean'),
         body('notes')
           .optional()
           .trim()

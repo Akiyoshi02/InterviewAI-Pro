@@ -20,7 +20,7 @@ const TITLE_RULES = [
   { pattern: /^\/terms$/, title: 'Terms of Service - InterviewAI Pro' },
   { pattern: /^\/register$/, title: 'Register - InterviewAI Pro' },
   { pattern: /^\/login$/, title: 'Sign In - InterviewAI Pro' },
-  { pattern: /^\/admin$/, title: 'System Admin Login - InterviewAI Pro' },
+  { pattern: /^\/admin-login$/, title: 'System Admin Login - InterviewAI Pro' },
   { pattern: /^\/reset-password$/, title: 'Reset Password - InterviewAI Pro' },
   { pattern: /^\/verify-email$/, title: 'Verify Email - InterviewAI Pro' },
   { pattern: /^\/onboarding$/, title: 'Complete Your Profile - InterviewAI Pro' },

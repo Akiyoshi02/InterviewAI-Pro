@@ -33,7 +33,12 @@ import {
   completeLinkedInterviewPlanStage,
   createNextInterviewPlanStage,
 } from '../services/hiringInterviewPlan.service.js';
-import { generateMeetingToken, validateMeetingAccess, validateMeetingToken } from '../services/meetingLink.service.js';
+import {
+  generateMeetingToken,
+  isWithinMeetingAccessWindow,
+  validateMeetingAccess,
+  validateMeetingToken,
+} from '../services/meetingLink.service.js';
 import {
   applyQuestionStrategyDefaults,
   buildStructuredInterviewQuestionPlanAsync,
@@ -655,7 +660,12 @@ const canAuthenticatedCandidateJoinAfterScheduledStart = (interview, user) => {
     return false;
   }
 
-  return Date.now() >= scheduledMs;
+  const nowMs = Date.now();
+  if (nowMs < scheduledMs) {
+    return false;
+  }
+
+  return isWithinMeetingAccessWindow(interview, { nowMs });
 };
 
 const canAuthenticatedCandidateUploadCompletedRecording = (interview, user) => {
@@ -1070,6 +1080,11 @@ const evaluateInterviewWithFallback = async ({
   const startedAt = Date.now();
   const evaluatedAt = new Date().toISOString();
   const model = llmOptions?.model || DEFAULT_SYSTEM_AI_CONFIG.model;
+  const toEvaluationSource = (provider) => {
+    const normalized = String(provider || '').trim();
+    if (!normalized) return 'UNKNOWN';
+    return normalized.toUpperCase().replace(/[^A-Z0-9]+/g, '_');
+  };
 
   try {
     const evaluation = await LLMService.generateInterviewSummary({
@@ -1077,12 +1092,16 @@ const evaluateInterviewWithFallback = async ({
       questions,
       llmOptions,
     });
+    const runtimeMeta = evaluation?._meta && typeof evaluation._meta === 'object'
+      ? evaluation._meta
+      : {};
+    const { _meta: _unusedMeta, ...persistedEvaluation } = evaluation || {};
     const durationMs = Date.now() - startedAt;
     return {
       evaluation: {
-        ...evaluation,
+        ...persistedEvaluation,
         status: 'COMPLETED',
-        source: 'OLLAMA',
+        source: toEvaluationSource(runtimeMeta.provider),
         generatedAt: evaluatedAt,
       },
       pendingEvaluation: false,
@@ -1090,12 +1109,17 @@ const evaluateInterviewWithFallback = async ({
       message: null,
       reasonCode: null,
       metadata: {
-        provider: 'ollama',
-        model,
+        provider: runtimeMeta.provider || 'unknown',
+        model: runtimeMeta.model || model,
         evaluatedAt,
         durationMs,
         operation,
         pendingEvaluation: false,
+        usedFallback: Boolean(runtimeMeta.usedFallback),
+        fallbackAttempted: Boolean(runtimeMeta.fallbackAttempted),
+        attemptedModels: Array.isArray(runtimeMeta.attemptedModels)
+          ? [...runtimeMeta.attemptedModels]
+          : [],
       },
     };
   } catch (error) {
@@ -1507,7 +1531,37 @@ const resolveScheduledForFromStrategy = ({
   preferredSlots = [],
   schedulingContext,
   durationMinutes,
+  demoBypassAvailability = false,
 } = {}) => {
+  if (strategy === 'MANUAL' && demoBypassAvailability === true) {
+    const normalizedManual = new Date(scheduledFor);
+    if (Number.isNaN(normalizedManual.getTime())) {
+      return {
+        ok: false,
+        status: 400,
+        error: 'scheduledFor is required and must be a valid datetime',
+        code: 'INVALID_SCHEDULE_SLOT',
+      };
+    }
+    if (normalizedManual.getTime() <= Date.now()) {
+      return {
+        ok: false,
+        status: 409,
+        error: 'Selected interview time must be in the future.',
+        code: 'SLOT_IN_PAST',
+      };
+    }
+    return {
+      ok: true,
+      scheduledFor: normalizedManual.toISOString(),
+      scheduleDecision: {
+        strategy,
+        source: 'DEMO_BYPASS',
+        reasonCodes: ['DEMO_BYPASS_AVAILABILITY'],
+      },
+    };
+  }
+
   if (!schedulingContext?.settings) {
     const normalizedManual = new Date(scheduledFor);
     if (Number.isNaN(normalizedManual.getTime())) {
@@ -2046,6 +2100,7 @@ export class InterviewController {
         notes,
         strategy,
         reviewerAssignments,
+        demoBypassAvailability,
       } = req.body;
       const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
         req.body || {},
@@ -2109,6 +2164,7 @@ export class InterviewController {
         preferredSlots: [],
         schedulingContext,
         durationMinutes: duration || interview?.duration,
+        demoBypassAvailability: demoBypassAvailability === true,
       });
       if (!slotResolution.ok) {
         return res.status(slotResolution.status || 409).json({
@@ -2164,6 +2220,7 @@ export class InterviewController {
             duration: updatedInterview.duration || null,
             schedulingStrategy,
             scheduleDecision: slotResolution.scheduleDecision || null,
+            demoBypassAvailability: demoBypassAvailability === true,
             availabilitySource: schedulingContext?.settings?.availabilitySource || null,
             conflictScope: schedulingContext?.settings?.conflictScope || null,
           },
@@ -2228,6 +2285,7 @@ export class InterviewController {
         rescheduleDecisionNote,
         strategy,
         reviewerAssignments,
+        demoBypassAvailability,
       } = req.body;
       const hasReviewerAssignmentsOverride = Object.prototype.hasOwnProperty.call(
         req.body || {},
@@ -2303,6 +2361,7 @@ export class InterviewController {
         preferredSlots,
         schedulingContext,
         durationMinutes: duration || interview?.duration,
+        demoBypassAvailability: demoBypassAvailability === true,
       });
       if (!slotResolution.ok) {
         return res.status(slotResolution.status || 409).json({
@@ -2406,6 +2465,7 @@ export class InterviewController {
             rescheduleRequestId: approvedRequestId,
             schedulingStrategy,
             scheduleDecision: slotResolution.scheduleDecision || null,
+            demoBypassAvailability: demoBypassAvailability === true,
             availabilitySource: schedulingContext?.settings?.availabilitySource || null,
             conflictScope: schedulingContext?.settings?.conflictScope || null,
           },
@@ -4598,10 +4658,24 @@ export class InterviewController {
         logger.warn('Failed to publish answer-submitted realtime event:', eventError);
       }
 
+      const responseQuestion = {
+        ...updatedQuestion,
+        score: resolvedScore ?? evaluation?.score ?? updatedQuestion?.score ?? null,
+        rubricScore: rubricScore ?? null,
+        criterionScores,
+        strengths: evaluation?.strengths || [],
+        weaknesses: evaluation?.weaknesses || [],
+        feedback: evaluation || null,
+        followUpQuestion,
+        followUpMetadata: followUpMetadata || null,
+      };
+
       res.json({
         success: true,
-        question: updatedQuestion,
+        question: responseQuestion,
         evaluation,
+        followUpQuestion,
+        followUpMetadata,
       });
     } catch (error) {
       logger.error('Submit answer error:', error);

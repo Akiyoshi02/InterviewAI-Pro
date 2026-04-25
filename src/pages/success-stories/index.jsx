@@ -4,9 +4,10 @@ import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import PublicHeader from '../../components/layout/PublicHeader';
 import PublicFooter from '../../components/layout/PublicFooter';
+import BrandBrainIcon from '../../components/BrandBrainIcon';
 import Button from '../../components/ui/Button';
 import Icon from '../../components/AppIcon';
-import { Star, Sparkles, Users } from 'lucide-react';
+import { Users } from 'lucide-react';
 
 const SuccessStoriesPage = () => {
   const navigate = useNavigate();
@@ -120,13 +121,13 @@ const SuccessStoriesPage = () => {
           <motion.section variants={fadeUpChild} className="text-center space-y-4 xs:space-y-5">
             <div className="flex justify-center">
               <div className="relative w-16 h-16 xs:w-18 xs:h-18 lg:w-20 lg:h-20 rounded-3xl bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center text-white shadow-[0_20px_60px_rgba(59,130,246,0.35)]">
-                <Star className="h-8 w-8 xs:h-9 xs:w-9 lg:h-10 lg:w-10" />
+                <BrandBrainIcon className="h-8 w-8 xs:h-9 xs:w-9 lg:h-10 lg:w-10" />
                 <div className="absolute inset-0 rounded-3xl border border-white/30" />
               </div>
             </div>
             <div className="space-y-3 xs:space-y-4">
               <div className="inline-flex items-center space-x-2 rounded-full bg-blue-100 dark:bg-blue-900/30 px-3 xs:px-4 py-1.5 xs:py-2 text-xs xs:text-sm font-medium text-blue-700 dark:text-blue-300">
-                <Sparkles className="h-3 w-3 xs:h-4 xs:w-4" />
+                <BrandBrainIcon className="h-3 w-3 xs:h-4 xs:w-4" />
                 <span>Success Stories</span>
               </div>
               <h1 className="text-2xl xs:text-3xl sm:text-4xl lg:text-5xl font-bold text-gray-900 dark:text-slate-100">

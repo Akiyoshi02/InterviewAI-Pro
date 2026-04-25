@@ -1,4 +1,5 @@
 export const MEETING_LINK_NOTICE_MINUTES = 30;
+export const MEETING_LINK_POST_END_GRACE_MINUTES = 30;
 
 export const getMeetingLinkLeadWindowText = (minutes = MEETING_LINK_NOTICE_MINUTES) => (
   `${minutes} minutes before start`

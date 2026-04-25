@@ -78,6 +78,29 @@ describe('ScheduleInterviewModal', () => {
     vi.clearAllMocks();
   });
 
+  it('uses a viewport-safe dialog shell for long scheduling content', () => {
+    render(
+      <ScheduleInterviewModal
+        interview={{
+          id: 'int-layout',
+          mode: 'HIRING',
+          duration: 30,
+          timezone: localTimezone,
+        }}
+        isOpen={true}
+        onClose={vi.fn()}
+        onScheduled={vi.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole('dialog', { name: 'Schedule Interview' });
+
+    expect(dialog.className).toContain('max-w-2xl');
+    expect(dialog.className).toContain('max-h-[calc(100vh-1.5rem)]');
+    expect(dialog.className).toContain('overflow-y-auto');
+    expect(dialog.parentElement.className).toContain('overflow-y-auto');
+  });
+
   it('blocks manual scheduling outside recruiter availability before submit', async () => {
     apiClient.interviews.getInterview.mockResolvedValue({
       success: true,

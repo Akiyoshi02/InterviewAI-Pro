@@ -14,6 +14,7 @@
 import helmet from 'helmet';
 import cors from 'cors';
 import logger from '../utils/logger.js';
+import { getAllowedCorsOrigins, isAllowedCorsOrigin } from '../config/cors.js';
 
 // Import comprehensive rate limiters from dedicated module
 import {
@@ -75,17 +76,13 @@ const corsOptions = {
       return;
     }
     
-    const allowedOrigins = [
-      process.env.FRONTEND_URL || 'http://localhost:4028',
-      'http://localhost:4028',
-      'http://localhost:5173', // Vite dev server
-    ];
+    const allowedOrigins = getAllowedCorsOrigins();
     
     // Allow configured origins
-    if (allowedOrigins.some(allowed => origin === allowed || origin.startsWith(allowed))) {
+    if (isAllowedCorsOrigin(origin)) {
       callback(null, true);
     } else {
-      logger.warn('CORS blocked request from origin:', { origin });
+      logger.warn('CORS blocked request from origin:', { origin, allowedOrigins });
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -225,7 +222,10 @@ export function setupSecurity(app) {
   app.use((req, res, next) => {
     // Log request for security monitoring
     if (process.env.NODE_ENV === 'development') {
-      console.log(`${req.method} ${req.path}`);
+      logger.debug('Development request', {
+        method: req.method,
+        path: req.path,
+      });
     }
     
     // Log suspicious activity patterns

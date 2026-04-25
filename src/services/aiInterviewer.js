@@ -68,6 +68,7 @@ export class AIInterviewer {
       language: config.language || advancedSettings.language || 'en',
       personality: config.personality || null,
       interviewerName: config.interviewerName || 'AI Interviewer',
+      disableLocalModelForInterview: Boolean(config.disableLocalModelForInterview),
       ...config
     };
 
@@ -90,6 +91,7 @@ export class AIInterviewer {
     this.lastAnswerSignature = null;
     this.repeatedAnswerCount = 0;
     this.candidateScore = 0;
+    this.backendQuestionScores = new Map();
     this.contextMemory = {
       candidateBackground: null,
       strengths: [],
@@ -306,6 +308,175 @@ export class AIInterviewer {
     return `${feedback} ${this.buildQuestionPrompt(nextQuestion, nextIndex)}`.trim();
   }
 
+  isBackendAuthoritativeMode() {
+    return Boolean(this.config.disableLocalModelForInterview);
+  }
+
+  buildBackendWelcomeMessage() {
+    return `Welcome to your ${this.config.jobRole} interview for ${this.config.company}. Please start by briefly introducing yourself, and then we will move through the planned questions one by one.`;
+  }
+
+  buildBackendAnswerFeedback(score) {
+    if (!Number.isFinite(score)) return 'Thanks for your answer.';
+    if (score >= 8) return 'Thanks, that was a strong answer.';
+    if (score >= 6) return 'Thanks, that was a solid answer.';
+    return 'Thanks. I want to probe this a bit more.';
+  }
+
+  getScoredQuestionCount() {
+    if (this.isBackendAuthoritativeMode()) {
+      return this.backendQuestionScores.size;
+    }
+    return this.questionsAsked;
+  }
+
+  recordBackendQuestionScore(score) {
+    const questionKey = this.currentQuestionIndex;
+    if (!Number.isInteger(questionKey) || questionKey < 0) {
+      this.candidateScore += score;
+      return;
+    }
+
+    const previousScore = this.backendQuestionScores.get(questionKey);
+    if (Number.isFinite(previousScore)) {
+      this.candidateScore += score - previousScore;
+    } else {
+      this.candidateScore += score;
+    }
+    this.backendQuestionScores.set(questionKey, score);
+  }
+
+  updateContextMemoryFromEvaluation(evaluation = {}) {
+    const strengths = Array.isArray(evaluation?.strengths) ? evaluation.strengths.filter(Boolean) : [];
+    const weaknesses = Array.isArray(evaluation?.weaknesses) ? evaluation.weaknesses.filter(Boolean) : [];
+    this.contextMemory.strengths = [...new Set([...this.contextMemory.strengths, ...strengths])].slice(0, 12);
+    this.contextMemory.weaknesses = [...new Set([...this.contextMemory.weaknesses, ...weaknesses])].slice(0, 12);
+  }
+
+  processBackendEvaluatedAnswer({ candidateAnswer, evaluation = {}, followUpQuestion = null } = {}) {
+    this.conversationHistory.push({
+      role: 'candidate',
+      content: candidateAnswer,
+      timestamp: new Date().toISOString(),
+      phase: this.currentPhase,
+    });
+
+    const rawScore = Number(evaluation?.score);
+    const resolvedScore = Number.isFinite(rawScore)
+      ? Math.max(0, Math.min(rawScore, 10))
+      : 5;
+    this.recordBackendQuestionScore(resolvedScore);
+    this.updateContextMemoryFromEvaluation(evaluation);
+
+    const shouldAskFollowUp = Boolean(
+      Number.isFinite(resolvedScore)
+      && resolvedScore < 7.5
+      && this.config.followUpQuestions
+      && typeof followUpQuestion === 'string'
+      && followUpQuestion.trim(),
+    );
+
+    let message = '';
+    let phase = 'questions';
+    let nextAction = 'wait_for_answer';
+    let actionType = 'next_question';
+    let questionType = this.getQuestionFromBank(this.currentQuestionIndex)?.questionType
+      || this.config.interviewTypes[0]
+      || 'behavioral';
+
+    if (shouldAskFollowUp) {
+      actionType = 'follow_up';
+      this.followUpAttemptsForCurrentQuestion += 1;
+      message = `${this.buildBackendAnswerFeedback(resolvedScore)} ${followUpQuestion.trim()}`.trim();
+    } else {
+      this.resetQuestionAttemptState();
+      const nextIndex = this.currentQuestionIndex + 1;
+      const nextQuestion = this.getQuestionFromBank(nextIndex);
+
+      if (nextQuestion) {
+        this.currentQuestionIndex = nextIndex;
+        this.questionsAsked = nextIndex + 1;
+        questionType = nextQuestion.questionType || questionType;
+        message = this.composeBankTransitionMessage({
+          feedbackMessage: this.buildBackendAnswerFeedback(resolvedScore),
+          nextQuestion,
+          nextIndex,
+        });
+      } else {
+        this.questionsAsked = this.config.totalQuestions;
+        phase = 'candidate_questions';
+        nextAction = 'ask_candidate_questions';
+        message = `${this.buildBackendAnswerFeedback(resolvedScore)} That covers the planned questions. Do you have any questions for me about the role or company before we wrap up?`;
+      }
+    }
+
+    this.currentPhase = phase;
+    this.conversationHistory.push({
+      role: 'interviewer',
+      content: message,
+      timestamp: new Date().toISOString(),
+      phase,
+      questionNumber: this.questionsAsked,
+      actionType,
+      questionType,
+      evaluation: {
+        ...evaluation,
+        score: resolvedScore,
+      },
+    });
+
+    return {
+      message,
+      phase,
+      questionNumber: this.questionsAsked,
+      totalQuestions: this.config.totalQuestions,
+      actionType,
+      questionType,
+      evaluation: {
+        ...evaluation,
+        score: resolvedScore,
+      },
+      nextAction,
+    };
+  }
+
+  concludeBackendInterview({ overallScore = null, readinessLevel = null, pendingEvaluation = false, llmUnavailable = false } = {}) {
+    this.currentPhase = 'closing';
+
+    let message = 'Thank you for your time today. This interview session is now complete.';
+    if (pendingEvaluation || llmUnavailable) {
+      message = 'Thank you for your time today. This interview session is complete, and your final evaluation will be available once processing finishes.';
+    } else if (Number.isFinite(Number(overallScore))) {
+      const roundedScore = Math.max(0, Math.min(100, Math.round(Number(overallScore))));
+      const readinessText = typeof readinessLevel === 'string' && readinessLevel.trim()
+        ? readinessLevel.trim()
+        : 'current level';
+      message = `Thank you for your time today. Your interview session is complete, and your current readiness level is ${readinessText} with an overall score of ${roundedScore} percent. The hiring team can now review the full evaluation and next steps.`;
+    }
+
+    this.conversationHistory.push({
+      role: 'interviewer',
+      content: message,
+      timestamp: new Date().toISOString(),
+      phase: 'closing',
+    });
+
+    return {
+      message,
+      phase: 'closing',
+      nextAction: 'interview_complete',
+      summary: {
+        totalQuestions: this.questionsAsked,
+        averageScore: this.getScoredQuestionCount() > 0
+          ? (this.candidateScore / this.getScoredQuestionCount()).toFixed(1)
+          : '0.0',
+        strengths: [...new Set(this.contextMemory.strengths)].slice(0, 5),
+        weaknesses: [...new Set(this.contextMemory.weaknesses)].slice(0, 3),
+        conversationHistory: this.conversationHistory,
+      },
+    };
+  }
+
   buildFallbackInterviewerResponse({ message, phase, questionNumber, questionType, actionType, nextAction, score = 5 }) {
     const fallbackMessage = String(message || '').trim() || 'Thanks. Let us continue.';
     this.currentPhase = phase;
@@ -372,6 +543,22 @@ export class AIInterviewer {
    * Initialize the interview with a personalized introduction
    */
   async startInterview() {
+    if (this.isBackendAuthoritativeMode()) {
+      const message = this.buildBackendWelcomeMessage();
+      this.conversationHistory.push({
+        role: 'interviewer',
+        content: message,
+        timestamp: new Date().toISOString(),
+        phase: 'introduction',
+      });
+
+      return {
+        message,
+        phase: 'introduction',
+        nextAction: 'wait_for_introduction',
+      };
+    }
+
     const systemPrompt = `You are ${this.config.interviewerName}, interviewing for ${this.config.jobRole} at ${this.config.company}.
 Interview style: ${this.config.personality || 'professional and encouraging'}.
 Welcome the candidate warmly and ask them to introduce themselves. Keep it brief (2-3 sentences).`;
@@ -697,6 +884,23 @@ JSON format:
       phase: 'candidate_questions'
     });
 
+    if (this.isBackendAuthoritativeMode()) {
+      const message = 'Thanks for the question. I may not have every organization-specific detail in this live session, but the recruiter can clarify team, process, and policy details after the interview. If you have another question, please ask it now, or let me know when you are ready to conclude.';
+
+      this.conversationHistory.push({
+        role: 'interviewer',
+        content: message,
+        timestamp: new Date().toISOString(),
+        phase: 'candidate_questions',
+      });
+
+      return {
+        message,
+        phase: 'candidate_questions',
+        nextAction: 'wait_for_next_question_or_end',
+      };
+    }
+
     const systemPrompt = `You are an interviewer for a ${this.config.jobRole} position at ${this.config.company} in the ${this.config.industry} industry.
 The candidate is now asking you questions about the role, company, or team.
 
@@ -757,7 +961,11 @@ Provide a thorough, professional answer.`;
   /**
    * Conclude the interview with a summary
    */
-  async concludeInterview() {
+  async concludeInterview(summary = {}) {
+    if (this.isBackendAuthoritativeMode()) {
+      return this.concludeBackendInterview(summary);
+    }
+
     this.currentPhase = 'closing';
 
     const avgScore = this.candidateScore / this.questionsAsked;
@@ -829,7 +1037,9 @@ Keep it warm, professional, and encouraging (2-3 sentences).`;
       questionsAsked: this.questionsAsked,
       totalQuestions: this.config.totalQuestions,
       currentScore: this.candidateScore,
-      averageScore: this.questionsAsked > 0 ? (this.candidateScore / this.questionsAsked).toFixed(1) : 0,
+      averageScore: this.getScoredQuestionCount() > 0
+        ? (this.candidateScore / this.getScoredQuestionCount()).toFixed(1)
+        : 0,
       conversationLength: this.conversationHistory.length,
       contextMemory: this.contextMemory
     };

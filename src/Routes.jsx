@@ -89,7 +89,6 @@ const Routes = () => {
       <LiveChatWidget />
       <Suspense fallback={<RouteFallback />}>
       <RouterRoutes>
-        {/* Define your route here */}
         <Route path="/" element={<HomePage />} />
         <Route
           path="/live-interview-session"
@@ -212,7 +211,8 @@ const Routes = () => {
           )}
         />
         <Route path="/login" element={<Login />} />
-        <Route path="/admin" element={<AdminLogin />} />
+        <Route path="/admin" element={<Navigate to="/admin-login" replace />} />
+        <Route path="/admin-login" element={<AdminLogin />} />
         <Route
           path="/practice-interview-setup"
           element={(

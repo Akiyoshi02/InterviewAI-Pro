@@ -431,7 +431,7 @@ const TrainingDataManager = () => {
                 color="green"
               />
               <StatCard
-                icon="Star"
+                icon="BrandBrain"
                 title="High Quality"
                 value={statistics.interview?.highQualityPairs || 0}
                 subtitle="Score >= 7"

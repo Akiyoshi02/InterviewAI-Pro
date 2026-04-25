@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, jest } from '@jest/globals
 
 const originalFetch = global.fetch;
 const originalWhisperUrl = process.env.LOCAL_WHISPER_URL;
+const originalWhisperServerUrl = process.env.WHISPER_SERVER_URL;
 
 const createJsonResponse = (payload) => ({
   ok: true,
@@ -15,7 +16,8 @@ describe('LLMService whisper proxy helpers', () => {
   beforeEach(() => {
     jest.resetModules();
     global.fetch = jest.fn();
-    process.env.LOCAL_WHISPER_URL = 'http://localhost:5000';
+    delete process.env.LOCAL_WHISPER_URL;
+    process.env.WHISPER_SERVER_URL = 'http://localhost:5000';
   });
 
   afterEach(() => {
@@ -25,6 +27,11 @@ describe('LLMService whisper proxy helpers', () => {
       delete process.env.LOCAL_WHISPER_URL;
     } else {
       process.env.LOCAL_WHISPER_URL = originalWhisperUrl;
+    }
+    if (originalWhisperServerUrl === undefined) {
+      delete process.env.WHISPER_SERVER_URL;
+    } else {
+      process.env.WHISPER_SERVER_URL = originalWhisperServerUrl;
     }
   });
 
@@ -42,6 +49,30 @@ describe('LLMService whisper proxy helpers', () => {
     expect(result.current_model).toBe('large-v3');
     expect(global.fetch).toHaveBeenCalledWith(
       'http://localhost:5000/models',
+      expect.objectContaining({
+        signal: expect.any(AbortSignal),
+      }),
+    );
+  });
+
+  it('accepts WHISPER_SERVER_URL as the configured whisper base URL alias', async () => {
+    global.fetch.mockResolvedValueOnce(
+      createJsonResponse({
+        status: 'healthy',
+        model: 'large-v3',
+      }),
+    );
+
+    const { LLMService } = await import('../llm.service.js');
+    const result = await LLMService.getWhisperHealth();
+
+    expect(result).toEqual(expect.objectContaining({
+      configured: true,
+      reachable: true,
+      model: 'large-v3',
+    }));
+    expect(global.fetch).toHaveBeenCalledWith(
+      'http://localhost:5000/health',
       expect.objectContaining({
         signal: expect.any(AbortSignal),
       }),

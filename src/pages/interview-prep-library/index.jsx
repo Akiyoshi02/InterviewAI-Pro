@@ -38,7 +38,7 @@ const GUIDES = [
     title: 'Mastering the STAR Method',
     category: 'Technique',
     readTime: '8 min',
-    icon: 'Star',
+    icon: 'BrandBrain',
     content: `The STAR method is a structured way to answer behavioural interview questions.
 
 **Situation** – Set the scene. Briefly describe the context. Keep it specific and concise.
@@ -196,7 +196,7 @@ const EMPTY_STAR = { question: '', situation: '', task: '', action: '', result: 
 const TABS = [
   { id: 'questions', label: 'Question Bank', icon: 'HelpCircle' },
   { id: 'guides', label: 'Guides', icon: 'BookOpen' },
-  { id: 'star', label: 'STAR Builder', icon: 'Star' },
+  { id: 'star', label: 'STAR Builder', icon: 'BrandBrain' },
 ];
 
 const CATEGORIES = ['All', 'Behavioral', 'Situational', 'Technical', 'Motivation'];
@@ -389,7 +389,7 @@ const InterviewPrepLibraryPage = () => {
                               <Button
                                 size="sm"
                                 variant="outline"
-                                iconName="Star"
+                                iconName="BrandBrain"
                                 onClick={() => {
                                   setStar((p) => ({ ...p, question: q.question }));
                                   setActiveTab('star');
@@ -465,7 +465,7 @@ const InterviewPrepLibraryPage = () => {
                 <div className="rounded-2xl border border-white/40 dark:border-slate-700/50 bg-white/80 dark:bg-slate-800/80 shadow-lg p-5 space-y-4">
                   <div className="flex items-center justify-between">
                     <h2 className="text-sm font-semibold text-gray-900 dark:text-slate-100 flex items-center gap-2">
-                      <Icon name="Star" size={15} className="text-yellow-500" />
+                      <Icon name="BrandBrain" size={15} className="text-yellow-500" />
                       STAR Answer Builder
                     </h2>
                     <Button variant="ghost" size="sm" onClick={clearStar}>Clear</Button>

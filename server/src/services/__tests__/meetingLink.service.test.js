@@ -10,8 +10,11 @@ const {
   buildMeetingJoinUrl,
   validateMeetingToken,
   validateMeetingAccess,
+  getMeetingAccessWindow,
+  isWithinMeetingAccessWindow,
   shouldSendMeetingLinkEmail,
   MEETING_LINK_ACCESS_WINDOW_MINUTES,
+  MEETING_LINK_POST_END_GRACE_MINUTES,
   MEETING_LINK_EMAIL_MINUTES_BEFORE,
   MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES,
   MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES,
@@ -220,11 +223,19 @@ describe('validateMeetingAccess', () => {
   it('rejects after default 30-minute duration window when duration is missing', () => {
     // Scheduled 40 min ago, no duration → default 30 min → ended 10 min ago
     const r = validateMeetingAccess(
-      buildInterview({ scheduledFor: pastIso(40), duration: undefined }),
+      buildInterview({ scheduledFor: pastIso(70), duration: undefined }),
       validToken,
     );
     expect(r.valid).toBe(false);
     expect(r.code).toBe('EXPIRED');
+  });
+
+  it('keeps access valid during the post-end grace period', () => {
+    const r = validateMeetingAccess(
+      buildInterview({ scheduledFor: pastIso(45), duration: 30 }),
+      validToken,
+    );
+    expect(r.valid).toBe(true);
   });
 
   // ── Token comparison security ──
@@ -342,11 +353,37 @@ describe('exported constants', () => {
     expect(MEETING_LINK_EMAIL_MINUTES_BEFORE).toBe(30);
   });
 
+  it('MEETING_LINK_POST_END_GRACE_MINUTES is positive', () => {
+    expect(MEETING_LINK_POST_END_GRACE_MINUTES).toBeGreaterThan(0);
+  });
+
   it('MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES is positive', () => {
     expect(MEETING_LINK_EMAIL_PENDING_GRACE_MINUTES).toBeGreaterThan(0);
   });
 
   it('MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES is positive', () => {
     expect(MEETING_LINK_EMAIL_FAILURE_RETRY_MINUTES).toBeGreaterThan(0);
+  });
+});
+
+describe('meeting access window helpers', () => {
+  it('computes a close window that includes the post-end grace period', () => {
+    const interview = {
+      scheduledFor: futureIso(15),
+      duration: 45,
+    };
+
+    const window = getMeetingAccessWindow(interview);
+    expect(window).not.toBeNull();
+    expect(window.windowCloseMs - window.scheduledMs).toBe((45 + MEETING_LINK_POST_END_GRACE_MINUTES) * 60 * 1000);
+  });
+
+  it('recognizes when now is outside the meeting access window', () => {
+    const interview = {
+      scheduledFor: pastIso(90),
+      duration: 30,
+    };
+
+    expect(isWithinMeetingAccessWindow(interview)).toBe(false);
   });
 });

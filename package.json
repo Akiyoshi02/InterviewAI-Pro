@@ -2,32 +2,7 @@
   "name": "ai-interviewpro",
   "version": "0.1.0",
   "private": true,
-  "rocketCritical": {
-    "dependencies": [
-      "@dhiwise/component-tagger",
-      "react",
-      "react-dom",
-      "@reduxjs/toolkit",
-      "redux",
-      "react-router-dom"
-    ],
-    "devDependencies": [
-      "@vitejs/plugin-react",
-      "vite",
-      "vite-tsconfig-paths",
-      "tailwindcss",
-      "autoprefixer",
-      "postcss"
-    ],
-    "scripts": [
-      "start",
-      "build",
-      "serve"
-    ],
-    "warning": "🚨 CRITICAL: DO NOT REMOVE OR MODIFY ABOVE DEPENDENCIES - Required for app functionality"
-  },
   "dependencies": {
-    "@dhiwise/component-tagger": "^1.0.10",
     "@mediapipe/tasks-vision": "^0.10.22-rc.20250304",
     "@radix-ui/react-slot": "^1.2.3",
     "@reduxjs/toolkit": "^2.6.1",
@@ -71,10 +46,7 @@
     "test:frontend": "vitest --run",
     "test:backend": "npm --prefix server test -- --runInBand",
     "verify": "npm run test:frontend && npm run test:backend && npm run build",
-    "lint:candidate": "node scripts/candidate-lint-gate.mjs",
-    "test:candidate": "vitest run src/components/__tests__/ProtectedRoute.test.jsx src/pages/register/__tests__/register.referral.test.jsx src/pages/candidate-dashboard/__tests__/CandidateDashboard.flow.test.jsx src/pages/candidate-dashboard/components/__tests__/MyApplicationsList.withdraw.test.jsx src/pages/candidate-dashboard/components/__tests__/SchedulingWidget.test.jsx",
-    "test:e2e:candidate": "playwright test tests/e2e/candidate-smoke.spec.js",
-    "test:e2e:job-flow": "playwright test tests/e2e/company-candidate-job-flow.spec.js"
+    "test:candidate": "vitest run src/components/__tests__/ProtectedRoute.test.jsx src/pages/register/__tests__/register.referral.test.jsx src/pages/candidate-dashboard/__tests__/CandidateDashboard.flow.test.jsx src/pages/candidate-dashboard/components/__tests__/MyApplicationsList.withdraw.test.jsx src/pages/candidate-dashboard/components/__tests__/SchedulingWidget.test.jsx"
   },
   "eslintConfig": {
     "extends": [

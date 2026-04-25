@@ -120,7 +120,7 @@ class InMemoryBackgroundQueue {
       }
       this.totalProcessed += 1;
     } catch (error) {
-      const shouldRetry = job.attempts < job.maxAttempts;
+      const shouldRetry = error?.retryable !== false && job.attempts < job.maxAttempts;
       if (shouldRetry) {
         const retryDelayMs = calculateRetryDelayMs(job.attempts);
         logger.warn(

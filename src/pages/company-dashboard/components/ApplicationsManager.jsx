@@ -133,7 +133,7 @@ const getStatusConfig = (applicationOrStatus, withdrawnBy = null, dispositionCod
     SHORTLISTED: {
       label: 'Shortlisted',
       color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300',
-      icon: 'Star',
+      icon: 'BrandBrain',
     },
     OFFER: {
       label: 'Offer',
@@ -199,6 +199,12 @@ const getDefaultInterviewingDatetime = () => {
   return toLocalDatetimeValue(date);
 };
 
+const getDemoInterviewingDatetime = () => {
+  const date = new Date(Date.now() + (2 * 60 * 1000));
+  date.setSeconds(0, 0);
+  return toLocalDatetimeValue(date);
+};
+
 const getMinimumInterviewingDatetime = () => {
   const date = new Date();
   date.setSeconds(0, 0);
@@ -222,6 +228,7 @@ const buildInitialInterviewingScheduleState = (applicationId = null) => ({
   reviewerOptions: [],
   reviewerOptionsLoading: false,
   reviewerOptionsError: '',
+  demoBypassAvailability: false,
 });
 
 const OFFER_STATUS_LABELS = {
@@ -472,6 +479,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     [interviewingScheduleModal.schedulingConstraints],
   );
   const manualInterviewingValidationMessage = interviewingScheduleModal.mode === 'MANUAL'
+      && !interviewingScheduleModal.demoBypassAvailability
     ? validateManualInterviewSelection({
       scheduledFor: interviewingScheduleModal.scheduledFor,
       duration: interviewingScheduleModal.duration,
@@ -602,6 +610,23 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     }));
   };
 
+  const applyInterviewingDemoBypass = () => {
+    setInterviewingScheduleModal((previous) => {
+      const currentNotes = previous.notes || '';
+      const marker = 'Temporary demo scheduling bypass used.';
+      return {
+        ...previous,
+        mode: 'MANUAL',
+        scheduledFor: getDemoInterviewingDatetime(),
+        demoBypassAvailability: true,
+        error: '',
+        notes: currentNotes.includes(marker)
+          ? currentNotes
+          : `${currentNotes}${currentNotes ? '\n' : ''}${marker}`,
+      };
+    });
+  };
+
   useEffect(() => {
     if (!interviewingScheduleModal.open || !interviewingScheduleModal.applicationId) {
       return undefined;
@@ -729,12 +754,14 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
 
           const schedulePayload = {
             scheduledFor: scheduledDate.toISOString(),
+            strategy: 'MANUAL',
             timezone: manualSchedule?.timezone?.trim() || resolveLocalTimezone(),
             duration: Number.isFinite(Number(manualSchedule?.duration)) ? Number(manualSchedule.duration) : 30,
             notes: manualSchedule?.notes?.trim() || '',
             reviewerAssignments: Array.isArray(manualSchedule?.reviewerAssignments)
               ? manualSchedule.reviewerAssignments
               : [],
+            ...(manualSchedule?.demoBypassAvailability ? { demoBypassAvailability: true } : {}),
           };
 
           const scheduleResult = await apiClient.interviews.schedule(interviewId, schedulePayload);
@@ -771,7 +798,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
     if (modal.mode === 'MANUAL') {
       const blockingMessage = modal.constraintsLoading
         ? 'Loading assigned scheduling availability...'
-        : (modal.constraintsError || manualInterviewingValidationMessage);
+        : ((modal.demoBypassAvailability ? null : modal.constraintsError) || manualInterviewingValidationMessage);
       if (blockingMessage) {
         setInterviewingScheduleModal((previous) => ({
           ...previous,
@@ -801,6 +828,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
           duration: modal.duration,
           notes: modal.notes,
           reviewerAssignments: modal.reviewerAssignments,
+          demoBypassAvailability: modal.demoBypassAvailability,
         }
         : null,
     });
@@ -2116,7 +2144,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="fixed inset-0 z-[10000] flex items-center justify-center p-4"
+              className="fixed inset-0 z-[10000] flex items-start justify-center overflow-y-auto px-3 py-4 sm:px-4 sm:py-6"
             >
               <motion.div
                 initial={{ opacity: 0 }}
@@ -2134,7 +2162,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                 role="dialog"
                 aria-modal="true"
                 onClick={(event) => event.stopPropagation()}
-                className="relative w-full max-w-2xl rounded-2xl border border-white/20 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-6 space-y-5"
+                className="relative w-full max-w-2xl max-h-[calc(100vh-2rem)] sm:max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-white/20 dark:border-slate-700/50 bg-white dark:bg-slate-800 shadow-2xl p-5 sm:p-6 space-y-5"
               >
                 <div className="flex items-start justify-between gap-4">
                   <div>
@@ -2175,6 +2203,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         onClick={() => setInterviewingScheduleModal((previous) => ({
                           ...previous,
                           mode: option.value,
+                          demoBypassAvailability: false,
                           error: '',
                         }))}
                         className={`text-left rounded-xl border p-3 transition-colors ${
@@ -2190,6 +2219,30 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                   })}
                 </div>
 
+                <div className="rounded-xl border border-amber-200 dark:border-amber-500/30 bg-amber-50 dark:bg-amber-500/10 p-4 space-y-3">
+                  <div className="flex items-start gap-3">
+                    <Icon name="FastForward" className="mt-0.5 h-4 w-4 text-amber-700 dark:text-amber-200" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-semibold uppercase tracking-[0.08em] text-amber-700 dark:text-amber-200">
+                        Temporary demo bypass
+                      </p>
+                      <p className="text-sm text-amber-800 dark:text-amber-100">
+                        Use this only for the demo. It switches to manual scheduling, sets the interview about two minutes from now,
+                        and skips lead time, working-day, business-hour, and conflict checks for this save only.
+                      </p>
+                    </div>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    iconName="FastForward"
+                    onClick={applyInterviewingDemoBypass}
+                    className="w-full border-amber-300 text-amber-800 hover:bg-amber-100 dark:border-amber-500/40 dark:text-amber-100 dark:hover:bg-amber-500/20"
+                  >
+                    Use Demo Time Now
+                  </Button>
+                </div>
+
                 <div className="rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50/80 dark:bg-slate-900/40 p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -2200,7 +2253,7 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                         Assign the reviewers who should evaluate this interview after it completes.
                       </p>
                     </div>
-                    <span className="rounded-full border border-gray-200 dark:border-slate-600 px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
+                    <span className="inline-flex flex-shrink-0 items-center whitespace-nowrap rounded-full border border-gray-200 dark:border-slate-600 px-2.5 py-1 text-[11px] font-semibold text-gray-600 dark:text-slate-300">
                       {interviewingScheduleModal.reviewerAssignments.length} assigned
                     </span>
                   </div>
@@ -2288,6 +2341,11 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                             : (interviewingScheduleModal.constraintsError || 'Scheduling rules are unavailable right now.')}
                         </p>
                       )}
+                      {interviewingScheduleModal.demoBypassAvailability && (
+                        <p className="text-xs font-medium text-amber-700 dark:text-amber-200">
+                          Demo bypass is active. This save will skip availability checks while still requiring a future time.
+                        </p>
+                      )}
                     </div>
 
                     <div>
@@ -2307,16 +2365,24 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                           error: '',
                         }))}
                         min={
-                          manualInterviewingWindowBounds?.minimumDate
+                          interviewingScheduleModal.demoBypassAvailability
+                            ? getMinimumInterviewingDatetime()
+                            : manualInterviewingWindowBounds?.minimumDate
                             ? toLocalDatetimeValue(manualInterviewingWindowBounds.minimumDate)
                             : getMinimumInterviewingDatetime()
                         }
                         max={
-                          manualInterviewingWindowBounds?.maximumDate
+                          interviewingScheduleModal.demoBypassAvailability
+                            ? undefined
+                            : manualInterviewingWindowBounds?.maximumDate
                             ? toLocalDatetimeValue(manualInterviewingWindowBounds.maximumDate)
                             : undefined
                         }
-                        step={Math.max(1, Number(manualInterviewingWindowBounds?.slotMinutes) || 30) * 60}
+                        step={
+                          interviewingScheduleModal.demoBypassAvailability
+                            ? 60
+                            : Math.max(1, Number(manualInterviewingWindowBounds?.slotMinutes) || 30) * 60
+                        }
                         className="w-full rounded-xl border border-gray-200 dark:border-slate-600 bg-white dark:bg-slate-700/50 text-gray-900 dark:text-slate-100 px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         required
                       />
@@ -2440,8 +2506,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                   </div>
                 )}
                 {!interviewingScheduleModal.error && interviewingScheduleModal.mode === 'MANUAL' && (
-                  interviewingScheduleModal.constraintsLoading
-                  || interviewingScheduleModal.constraintsError
+                  (interviewingScheduleModal.constraintsLoading && !interviewingScheduleModal.demoBypassAvailability)
+                  || (!interviewingScheduleModal.demoBypassAvailability && interviewingScheduleModal.constraintsError)
                   || manualInterviewingValidationMessage
                 ) && (
                   <div className="rounded-lg border border-amber-200 dark:border-amber-500/40 bg-amber-50 dark:bg-amber-500/10 px-3 py-2">
@@ -2471,8 +2537,8 @@ const ApplicationsManager = ({ jobId = null, canUpdateStatus = true }) => {
                       || (
                         interviewingScheduleModal.mode === 'MANUAL'
                         && (
-                          interviewingScheduleModal.constraintsLoading
-                          || Boolean(interviewingScheduleModal.constraintsError)
+                          (interviewingScheduleModal.constraintsLoading && !interviewingScheduleModal.demoBypassAvailability)
+                          || (!interviewingScheduleModal.demoBypassAvailability && Boolean(interviewingScheduleModal.constraintsError))
                           || Boolean(manualInterviewingValidationMessage)
                         )
                       )

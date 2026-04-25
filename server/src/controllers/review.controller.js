@@ -17,7 +17,21 @@ import {
 } from '../utils/reviewRequest.util.js';
 import logger from '../utils/logger.js';
 
-const SCORE_OVERRIDE_ROLES = new Set(['ADMIN', 'RECRUITER']);
+const SCORE_OVERRIDE_ROLES = new Set(['ADMIN', 'REVIEWER']);
+
+const normalizeId = (value) => (typeof value === 'string' ? value.trim() : '');
+
+const getLatestReviewsPerReviewer = (reviews = []) => {
+  const seenReviewerIds = new Set();
+  return (Array.isArray(reviews) ? reviews : []).filter((review) => {
+    const reviewerId = normalizeId(review?.reviewerId) || normalizeId(review?.id);
+    if (!reviewerId || seenReviewerIds.has(reviewerId)) {
+      return false;
+    }
+    seenReviewerIds.add(reviewerId);
+    return true;
+  });
+};
 
 const sanitizeReview = (review, reviewerSummary = null) => ({
   id: review.id,
@@ -127,9 +141,7 @@ export class ReviewController {
         });
       }
 
-      const reviews = reviewerOnly && !ownReview
-        ? []
-        : await reviewStore.listByInterview(interviewId);
+      const reviews = getLatestReviewsPerReviewer(await reviewStore.listByInterview(interviewId));
       const reviewers = await userStore.getSummaries(reviews.map((review) => review.reviewerId));
 
       res.json({
@@ -176,8 +188,27 @@ export class ReviewController {
       const requestedOverrideOverall = Boolean(req.body.overrideOverall);
       if (requestedOverrideOverall && !SCORE_OVERRIDE_ROLES.has(organizationRole)) {
         return res.status(403).json({
-          error: 'Only recruiters and organization admins can override the final interview score',
+          error: 'Only reviewers and organization admins can override the final interview score',
           code: 'INSUFFICIENT_ORG_PERMISSIONS',
+        });
+      }
+
+      const officialSmeReviewerId = normalizeId(interview?.officialSmeReviewerId);
+      if (
+        requestedOverrideOverall
+        && officialSmeReviewerId
+        && officialSmeReviewerId !== normalizeId(req.user.id)
+      ) {
+        const officialReviewerSummary = await userStore.getSummary(officialSmeReviewerId).catch(() => null);
+        return res.status(409).json({
+          error: officialReviewerSummary?.fullName
+            ? `${officialReviewerSummary.fullName} is the official SME reviewer for this interview`
+            : 'Another reviewer is already assigned as the official SME reviewer for this interview',
+          code: 'OFFICIAL_SME_REVIEWER_LOCKED',
+          details: {
+            officialSmeReviewerId,
+            officialSmeReviewId: interview?.officialSmeReviewId || null,
+          },
         });
       }
 
@@ -185,6 +216,13 @@ export class ReviewController {
         interview.overallScore != null ? Number(interview.overallScore) : null;
       const smeOverallScore = computeSmeOverallScore(req.body);
       const overrideOverall = requestedOverrideOverall;
+
+      if (overrideOverall && smeOverallScore == null) {
+        return res.status(400).json({
+          error: 'Provide an SME score before overriding the final interview score',
+          code: 'SME_SCORE_REQUIRED_FOR_OVERRIDE',
+        });
+      }
 
       const review = await reviewStore.submit(interviewId, {
         reviewerId: req.user.id,
@@ -199,6 +237,10 @@ export class ReviewController {
         await interviewStore.update(interviewId, {
           finalOverallScore: smeOverallScore,
           finalScoreSource: 'SME',
+          officialSmeReviewerId: req.user.id,
+          officialSmeReviewerRole: req.user.organizationContext?.membership?.role || null,
+          officialSmeReviewId: review.id,
+          officialSmeScoreSubmittedAt: review?.updatedAt || review?.createdAt || new Date().toISOString(),
         });
       }
 

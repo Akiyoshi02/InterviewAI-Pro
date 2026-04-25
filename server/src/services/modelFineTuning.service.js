@@ -291,15 +291,14 @@ export async function getFineTuneStatus() {
 }
 
 /**
- * Export all high-quality training pairs as JSONL in the format expected by
- * the Unsloth LoRA fine-tuning script (`scripts/fine_tune_lora.py`).
+ * Export all high-quality training pairs as JSONL in a chat-message format
+ * suitable for downstream LoRA fine-tuning jobs.
  *
  * Each line is a JSON object with "messages" (system / user / assistant) so
  * the Unsloth SFTTrainer can directly consume the file with `dataset_text_field`
  * set to the chat template.
  *
- * This is the real fine-tuning pipeline entry point — see README in
- * scripts/fine_tune_lora.py for instructions on running the training job.
+ * This is the training-data handoff point for external fine-tuning pipelines.
  */
 export async function exportTrainingDataAsJSONL() {
   const datasets = await fetchTrainingData();
@@ -367,7 +366,7 @@ export async function exportTrainingDataAsJSONL() {
 }
 
 /**
- * Register an already-trained GGUF model file (produced by scripts/fine_tune_lora.py)
+ * Register an already-trained GGUF model file
  * with Ollama as the canonical fine-tuned model name, then reset the availability cache
  * so the runtime resolver picks it up immediately.
  *

@@ -5,6 +5,9 @@ import {
   deriveRecommendedTopics,
 } from '../candidateInsights.js';
 
+const futureIso = (daysAhead) => new Date(Date.now() + (daysAhead * 24 * 60 * 60 * 1000)).toISOString();
+const pastIso = (daysAgo) => new Date(Date.now() - (daysAgo * 24 * 60 * 60 * 1000)).toISOString();
+
 describe('candidateInsights', () => {
   it('derives achievement badges from live interview and application metrics', () => {
     const badges = deriveAchievementBadges({
@@ -68,7 +71,7 @@ describe('candidateInsights', () => {
     const insights = deriveDashboardInsights({
       interviews: [
         { id: 'i1', status: 'COMPLETED', overallScore: 88, createdAt: '2026-02-01T10:00:00.000Z' },
-        { id: 'i2', status: 'SCHEDULED', scheduledFor: '2026-03-20T10:00:00.000Z', createdAt: '2026-02-10T10:00:00.000Z' },
+        { id: 'i2', status: 'SCHEDULED', scheduledFor: futureIso(7), createdAt: '2026-02-10T10:00:00.000Z' },
       ],
       dashboardMetrics: {
         averageScore: { value: 88 },
@@ -83,6 +86,37 @@ describe('candidateInsights', () => {
     expect(insights[0]?.title).toContain('Average interview score 88%');
     expect(insights[1]?.title).toContain('active interview');
     expect(insights[2]?.title).toContain('strong-signal');
+  });
+
+  it('does not treat an expired scheduled interview as the next active pipeline item', () => {
+    const insights = deriveDashboardInsights({
+      interviews: [
+        { id: 'expired', status: 'SCHEDULED', scheduledFor: pastIso(7), duration: 30 },
+      ],
+      dashboardMetrics: {
+        averageScore: { value: 88 },
+        completedInterviews: { value: 1 },
+        scheduledInterviews: { value: 1 },
+        inProgressInterviews: 0,
+      },
+      applications: [{ id: 'a1', status: 'SCREENING', createdAt: '2026-03-08T10:00:00.000Z' }],
+    });
+
+    expect(insights[1]?.title).toContain('active application');
+    expect(insights[1]?.detail).toContain('Keep practicing while waiting for recruiter responses.');
+  });
+
+  it('treats unscheduled interview workflows as active without pretending they are upcoming interviews', () => {
+    const insights = deriveDashboardInsights({
+      interviews: [
+        { id: 'pending-1', status: 'SCHEDULED', createdAt: '2026-03-10T10:00:00.000Z' },
+        { id: 'pending-2', status: 'SCHEDULED', createdAt: '2026-03-10T12:00:00.000Z' },
+      ],
+      applications: [{ id: 'a1', status: 'INTERVIEWING', createdAt: '2026-03-10T10:00:00.000Z' }],
+    });
+
+    expect(insights[1]?.title).toContain('active interview workflow');
+    expect(insights[1]?.detail).toContain('waiting for scheduling details');
   });
 
   it('avoids misleading 0% score insight when there are no completed interviews', () => {

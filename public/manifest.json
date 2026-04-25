@@ -4,13 +4,13 @@
   "description": "Master your interview skills with AI-powered practice sessions and real-time feedback.",
   "icons": [
     {
-      "src": "/assets/images/logo.png",
+      "src": "/assets/images/logo-192.png",
       "sizes": "192x192",
       "type": "image/png",
       "purpose": "any maskable"
     },
     {
-      "src": "/assets/images/logo.png",
+      "src": "/assets/images/logo-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"

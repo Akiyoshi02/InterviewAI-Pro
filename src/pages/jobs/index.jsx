@@ -1065,7 +1065,7 @@ const JobsPage = () => {
               return (
                 <div className="rounded-2xl border border-blue-100 dark:border-blue-800/40 bg-gradient-to-br from-blue-50 to-indigo-50 dark:from-blue-900/10 dark:to-indigo-900/10 p-4 sm:p-5">
                   <div className="flex items-center gap-2 mb-3">
-                    <Icon name="Sparkles" size={16} className="text-blue-600 dark:text-blue-400" />
+                    <Icon name="BrandBrain" size={16} className="text-blue-600 dark:text-blue-400" />
                     <h2 className="text-sm font-semibold text-blue-900 dark:text-blue-200">Recommended for You</h2>
                     <span className="ml-auto text-xs text-blue-500 dark:text-blue-400">Based on your profile</span>
                   </div>

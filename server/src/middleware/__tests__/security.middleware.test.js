@@ -90,4 +90,18 @@ describe('setupSecurity', () => {
     const allowedHeaders = response.headers.get('access-control-allow-headers') || '';
     expect(allowedHeaders.toLowerCase()).toContain('x-meeting-token');
   });
+
+  it('allows the 127.0.0.1 frontend alias during local development', async () => {
+    const origin = 'http://127.0.0.1:4028';
+    const response = await fetch(`${server.baseUrl}/api/auth/me`, {
+      method: 'OPTIONS',
+      headers: {
+        Origin: origin,
+        'Access-Control-Request-Method': 'GET',
+      },
+    });
+
+    expect(response.status).toBe(204);
+    expect(response.headers.get('access-control-allow-origin')).toBe(origin);
+  });
 });

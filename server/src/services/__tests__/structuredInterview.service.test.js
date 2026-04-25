@@ -3,6 +3,7 @@ import {
   buildStructuredInterviewQuestionPlan,
   computeRubricWeightedScore,
   normalizeOrganizationTemplateForPlanner,
+  reconcileQuestionScore,
 } from '../structuredInterview.service.js';
 
 describe('structuredInterview.service', () => {
@@ -171,5 +172,11 @@ describe('structuredInterview.service', () => {
     });
 
     expect(rubricScore).toBeCloseTo(8.8, 1);
+  });
+
+  it('does not treat a missing rubric score as zero when reconciling question scores', () => {
+    expect(reconcileQuestionScore({ llmScore: 8, rubricScore: null })).toBe(8);
+    expect(reconcileQuestionScore({ llmScore: 8, rubricScore: undefined })).toBe(8);
+    expect(reconcileQuestionScore({ llmScore: 8, rubricScore: '' })).toBe(8);
   });
 });

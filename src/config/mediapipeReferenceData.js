@@ -544,6 +544,12 @@ export const FACE_REFERENCE = {
       center: { x: 0.50, y: 0.50 },
       tolerance: 0.15,
     },
+    horizontalOffsetThreshold: 0.12,
+    verticalOffsetThreshold: 0.12,
+    moderateDeviationThreshold: 0.22,
+    poorDeviationThreshold: 0.34,
+    asymmetryThreshold: 0.08,
+    irisSymmetryThreshold: 0.10,
     contactQuality: {
       excellent: 0.80,       // 80%+ eye contact
       good: 0.65,            // 65-80%
